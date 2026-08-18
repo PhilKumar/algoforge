@@ -16,6 +16,7 @@ from engine.fib_touch_ladder import (
     GEOMETRY_TIMEFRAMES,
     HALVING_LEVELS,
     INTRADAY_CLOSE_AT,
+    MAX_BUYS,
     ExecutionRefused,
     FibTouchConfig,
     FibTouchError,
@@ -2276,14 +2277,16 @@ class MaxBuysTests(unittest.TestCase):
         take_the_turn(engine, last.timestamp, 24_295, sweep_from=24_500)
         return engine
 
-    def test_zero_is_the_default_and_means_no_limit(self):
+    def test_four_is_the_default_and_zero_means_no_limit(self):
         self.assertEqual(
             FibTouchConfig(
                 symbol="NIFTY", side="CE", mother_timestamp=IST_START, lot_size=65, strike_step=50.0
             ).max_buys,
-            0,
+            MAX_BUYS,
         )
+        self.assertEqual(MAX_BUYS, 4)
         self.assertEqual(len(self.two_turns().fills), 2)
+        self.assertEqual(len(self.two_turns(max_buys=0).fills), 2)
 
     def test_the_cap_stops_the_next_buy_and_marks_the_rungs(self):
         engine = self.two_turns(max_buys=1)

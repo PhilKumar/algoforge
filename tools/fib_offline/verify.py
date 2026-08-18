@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fib_replay import STRIKE_STEP, SYMBOL, _listed_source, load  # noqa: E402
 
 from engine.backtest import get_lot_size  # noqa: E402
-from engine.fib_touch_ladder import TIMEFRAME_MINUTES, FibTouchConfig, FibTouchLadder  # noqa: E402
+from engine.fib_touch_ladder import MAX_BUYS, TIMEFRAME_MINUTES, FibTouchConfig, FibTouchLadder  # noqa: E402
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 60
 random.seed(18)
@@ -60,7 +60,7 @@ def make(tf, side, mode, mother, **kw):
         buy_mode=mode,
         intraday_close=True,
         trailing_stop=bool(os.environ.get("TRAIL")),
-        max_buys=int(os.environ.get("MAX_BUYS", "0") or 0),
+        max_buys=int(os.environ["MAX_BUYS"]) if os.environ.get("MAX_BUYS") is not None else MAX_BUYS,
         **kw,
     )
     return FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)

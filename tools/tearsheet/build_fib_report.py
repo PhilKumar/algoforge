@@ -7,7 +7,7 @@ the Assets page.
 
 Every figure comes from tools/fib_offline sweeps of the exact FibTouchLadder
 the Cascade page trades: Lone (every level) · 5m mother · CE and PE · Intraday
-out by 15:15 · Target = Trailing (1 span) · Rs 75,000 cap · ATM-2 · nearest
+out by 15:15 · Target = Trailing (1 span) · at most 4 buys a round · Rs 75,000 cap · ATM-2 · nearest
 expiry >= 4 days, NIFTY, 3 Oct 2024 -> 17 Aug 2026, seven blind mother times a
 session, real recorded premiums, lot 25 / 75 / 65 by date. Nothing here is
 typed by hand.
@@ -38,9 +38,9 @@ DATA = _HERE / "fib_report_data.json"
 # Where the fib_offline sweeps wrote their CSVs (FIB_SWEEP_DIR=/tmp/fib_offline
 # on the machine that ran them); the four files can also be named outright.
 SWEEPS = pathlib.Path(os.environ.get("FIB_SWEEP_DIR") or pathlib.Path(tempfile.gettempdir()) / "fib_offline")
-CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v4" / "NIFTY_CE_trail_max0.csv"
+CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v4" / "NIFTY_CE_trail_max4.csv"
 PE_CSV = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else SWEEPS / "v4" / "NIFTY_PE_trail_max0.csv"
-SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "v4" / "SENSEX_CE_trail_max0.csv"
+SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "v4" / "SENSEX_CE_trail_max4.csv"
 SX_PE_CSV = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else SWEEPS / "v4" / "SENSEX_PE_fixed_max0.csv"
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -419,8 +419,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</h1>
     <p class="lede">{
     t(
-        "The one configuration that finished green over 23 months of blind mothers, on the call book. Your mother candle on the 5-minute chart; auto trendlines and stacked fibs; every level of every fib is a rung (Lone); a touch collects and the two-red turn buys one lot of the ATM&minus;2 call; out by 15:15 on the mother's own day; the exit is a trailing target &mdash; reaching the target arms a trail and the basket is sold when a 1-minute close gives back one fib span from the best price since. Rs 75,000 ladder cap, nearest expiry at least four days out. NIFTY (lot 25 &rarr; 75 &rarr; 65, strike step 50) and SENSEX (lot 10 &rarr; 20, strike step 100), each priced from its own real recorded option minutes. <strong>Puts are not traded in this configuration</strong> &mdash; the same rules on the put book lost money on the same walk, and that is stated below rather than hidden.",
-        "23 மாத blind mother-களில் பச்சையாக முடிந்த ஒரே அமைப்பு, கால் புத்தகத்தில். 5-நிமிட chart-இல் உங்கள் mother candle; தானியங்கி trendlines, அடுக்கிய fibs; ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung (Lone); ஒரு touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 கால்-இல் ஒரு lot வாங்கும்; mother-இன் அன்றே 15:15-க்குள் வெளியே; வெளியேற்றம் trailing target. &#8377;75,000 ladder cap, குறைந்தது நான்கு நாள் expiry. NIFTY (lot 25 &rarr; 75 &rarr; 65) மற்றும் SENSEX (lot 10 &rarr; 20), ஒவ்வொன்றும் அதன் சொந்த option நிமிடங்களில் விலை. <strong>இந்த அமைப்பில் புட் வர்த்தகம் இல்லை</strong> &mdash; அதே விதிகள் புட் புத்தகத்தில் அதே நடையில் நஷ்டம்; அது கீழே மறைக்காமல் சொல்லப்பட்டுள்ளது.",
+        "The one configuration that finished green over 23 months of blind mothers, on the call book. Your mother candle on the 5-minute chart; auto trendlines and stacked fibs; every level of every fib is a rung (Lone); a touch collects and the two-red turn buys one lot of the ATM&minus;2 call; out by 15:15 on the mother's own day; the exit is a trailing target &mdash; reaching the target arms a trail and the basket is sold when a 1-minute close gives back one fib span from the best price since. At most four buys a round, Rs 75,000 ladder cap, nearest expiry at least four days out. NIFTY (lot 25 &rarr; 75 &rarr; 65, strike step 50) and SENSEX (lot 10 &rarr; 20, strike step 100), each priced from its own real recorded option minutes. <strong>Puts are not traded in this configuration</strong> &mdash; the same rules on the put book lost money on the same walk, and that is stated below rather than hidden.",
+        "23 மாத blind mother-களில் பச்சையாக முடிந்த ஒரே அமைப்பு, கால் புத்தகத்தில். 5-நிமிட chart-இல் உங்கள் mother candle; தானியங்கி trendlines, அடுக்கிய fibs; ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung (Lone); ஒரு touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 கால்-இல் ஒரு lot வாங்கும்; mother-இன் அன்றே 15:15-க்குள் வெளியே; வெளியேற்றம் trailing target. ஒரு round-க்கு அதிகபட்சம் நான்கு வாங்கல்கள், &#8377;75,000 ladder cap, குறைந்தது நான்கு நாள் expiry. NIFTY (lot 25 &rarr; 75 &rarr; 65) மற்றும் SENSEX (lot 10 &rarr; 20), ஒவ்வொன்றும் அதன் சொந்த option நிமிடங்களில் விலை. <strong>இந்த அமைப்பில் புட் வர்த்தகம் இல்லை</strong> &mdash; அதே விதிகள் புட் புத்தகத்தில் அதே நடையில் நஷ்டம்; அது கீழே மறைக்காமல் சொல்லப்பட்டுள்ளது.",
     )
 }</p>
     <div class="document-meta" aria-label="Document metadata">
@@ -432,7 +432,10 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     t("CE only &mdash; PE not traded", "CE மட்டும் &mdash; PE இல்லை")
 }</strong></div>
       <div class="meta-chip"><span>{t("Position size", "பொசிஷன் அளவு")}</span><strong>{
-    t("1 lot per buy, &le; &#8377;75,000 a ladder", "ஒரு வாங்கலுக்கு 1 lot, ladder-க்கு &le; &#8377;75,000")
+    t(
+        "1 lot per buy, at most 4 buys, &le; &#8377;75,000 a ladder",
+        "ஒரு வாங்கலுக்கு 1 lot, அதிகபட்சம் 4 வாங்கல்கள், ladder-க்கு &le; &#8377;75,000",
+    )
 }</strong></div>
       <div class="meta-chip"><span>{t("Costs", "கட்டணங்கள்")}</span><strong>{
     t("Brokerage, STT, GST, stamp, per leg", "புரோக்கரேஜ், STT, GST, stamp, ஒவ்வொரு leg-க்கும்")
@@ -534,7 +537,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</h2>
     <p>{
     t(
-        "Every buy is ONE lot of the ATM&minus;2 call, paid in full (no margin, no leverage). A campaign adds a lot each time the fall turns at a fresh rung, up to the &#8377;75,000 ladder cap; whatever is held is sold by 15:15 the same day, so the cap is also the most a single round can lose in principle. A campaign that banks a round and re-arms on a new low spends the cap again, which is why &ldquo;max deployed&rdquo; over a campaign's rounds can exceed it. One campaign per index runs at a time: &#8377;75,000 per index, &#8377;1,50,000 for both.",
+        "Every buy is ONE lot of the ATM&minus;2 call, paid in full (no margin, no leverage). A campaign adds a lot each time the fall turns at a fresh rung, at most four times a round and never past the &#8377;75,000 ladder cap; whatever is held is sold by 15:15 the same day, so the cap is also the most a single round can lose in principle. A campaign that banks a round and re-arms on a new low spends the cap again, which is why &ldquo;max deployed&rdquo; over a campaign's rounds can exceed it. One campaign per index runs at a time: &#8377;75,000 per index, &#8377;1,50,000 for both.",
         "ஒவ்வொரு வாங்கலும் ATM&minus;2 கால்-இன் ஒரு lot, முழு premium (margin இல்லை). ஒவ்வொரு புதிய rung-இன் திருப்பத்திலும் ஒரு lot சேரும், &#8377;75,000 cap வரை; அன்றே 15:15-க்குள் விற்பனை. ஒரு குறியீட்டுக்கு ஒரு campaign மட்டும்.",
     )
 }</p></div></div>

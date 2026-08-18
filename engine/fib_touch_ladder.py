@@ -123,6 +123,13 @@ DEEP_TARGET_FRACTION = 0.5
 # hold a basket overnight.
 DEEP_CARRY_RUNGS = 4
 
+# HOW DEEP A ROUND MAY GO. Phil, 2026-08-18, after the drawdown breakdown:
+# "Stay on 0a6afa5 with max 4. No need of any alteration any more." A round
+# stops adding lots after four fills; what is held runs on to its exit.
+# Measured 23 months, one campaign per index at a time, trailing, intraday:
+# NIFTY CE +Rs 92,658 / max DD -Rs 64,127, SENSEX CE +Rs 1,19,063 / -Rs 43,170.
+MAX_BUYS = 4
+
 # RETIRED 2026-08-15. The mother no longer moves: Phil reversed the rebase and
 # a break before any buy now ends the campaign. Kept only so a ladder persisted
 # under the old rule still loads.
@@ -667,8 +674,8 @@ class FibTouchConfig:
     # first two or three buys made all the money. With this above zero a
     # round stops adding lots after `max_buys` fills -- the basket held runs
     # on to its exit, later rungs are marked UNFUNDED exactly as the rupee
-    # cap marks them. 0 = no limit (every measurement before this date).
-    max_buys: int = 0
+    # cap marks them. 0 = no limit; MAX_BUYS (4) is the running rule.
+    max_buys: int = MAX_BUYS
     # Phil, 2026-08-18: "incrementing 1 lot on each level" -- with this on,
     # the n-th buy of a round takes n x lots_per_rung (1, 2, 3 ...), so the
     # deeper, cheaper turns carry more of the basket. Off (every buy the
@@ -2518,7 +2525,7 @@ class FibTouchLadder:
             ),
             deep_carry=bool(terms.get("deep_carry", False)),
             deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
-            max_buys=int(terms.get("max_buys", 0) or 0),
+            max_buys=int(terms.get("max_buys", MAX_BUYS)),
             lot_ramp=bool(terms.get("lot_ramp", False)),
             trailing_stop=bool(terms.get("trailing_stop", False)),
             trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),

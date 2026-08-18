@@ -12,7 +12,7 @@ import os
 from fib_replay import load  # noqa: E402
 
 from engine.backtest import get_lot_size  # noqa: E402
-from engine.fib_touch_ladder import HALVING_LEVELS, FibTouchConfig  # noqa: E402
+from engine.fib_touch_ladder import HALVING_LEVELS, MAX_BUYS, FibTouchConfig  # noqa: E402
 from engine.fib_touch_ladder import FibTouchLadder as _Base
 
 LEVELS = tuple(int(x) for x in os.environ["LEVELS"].split(",")) if os.environ.get("LEVELS") else HALVING_LEVELS
@@ -110,7 +110,7 @@ while d <= end:
             target_fraction=float(os.environ.get("TARGET") or 0.25),
             deep_target=os.environ.get("DEEP_TARGET", "1") == "1",
             deep_carry=os.environ.get("DEEP_CARRY", "0") == "1",
-            max_buys=int(os.environ.get("MAX_BUYS", "0") or 0),
+            max_buys=int(os.environ["MAX_BUYS"]) if os.environ.get("MAX_BUYS") is not None else MAX_BUYS,
             lot_ramp=os.environ.get("LOT_RAMP", "0") == "1",
         )
         eng = FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
