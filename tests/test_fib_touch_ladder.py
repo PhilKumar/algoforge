@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from engine.fib_touch_ladder import (
     BOUNDARY_LEVELS,
+    DEEP_CARRY_RUNGS,
     DEEP_TARGET_FRACTION,
     DEEP_TARGET_FROM_LEVEL,
     GEOMETRY_TIMEFRAMES,
@@ -254,6 +255,7 @@ def ladder(
     rearm=True,
     intraday=False,
     buy_mode="levels",
+    **config_overrides,
 ):
     """A ladder wired to a flat premium and NIFTY's real weekly chain."""
     candles = falling_then_bouncing()
@@ -271,6 +273,7 @@ def ladder(
         # intraday rule is exercised by IntradayCloseTests.
         intraday_close=intraday,
         buy_mode=buy_mode,
+        **config_overrides,
     )
     seen: list = []
     return (
@@ -2164,6 +2167,93 @@ class PersistedTurnAndCoverageTests(unittest.TestCase):
             engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
         )
         self.assertEqual(back._stop_bar, engine._stop_bar)
+
+
+class DeepCarryTests(unittest.TestCase):
+    """Phil, 2026-08-18: a ladder that bought MORE than four rungs by 15:15 and
+    has not reached its target is held to the next session's 15:15. Measured
+    on 5m CE over 22 months: +Rs 1.19L -> +Rs 1.80L, every quarter green."""
+
+    def _at(self, hh, mm, day=6):
+        return datetime(2026, 8, day, hh, mm)
+
+    def deep(self, **overrides):
+        """An intraday ladder whose ONE buy covered five rungs (F1L2, F2L2,
+        F1L3, F1L4, F2L3) -- more than DEEP_CARRY_RUNGS."""
+        engine, candles, _ = ladder(intraday=True, **overrides)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertGreater(sum(1 for r in engine.rungs if r.status == "FILLED"), DEEP_CARRY_RUNGS)
+        return engine
+
+    def shallow(self):
+        engine, candles, _ = ladder(intraday=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)  # one rung
+        return engine
+
+    def test_a_deep_basket_is_not_sold_at_1515_on_its_own_day(self):
+        engine = self.deep()
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        self.assertEqual(engine.status, "OPEN", "carried, not closed")
+        self.assertEqual(len(engine.fills), 1)
+        self.assertTrue(any(e["event"] == "deep_carry" for e in engine.events))
+
+    def test_it_is_sold_at_the_next_sessions_1515(self):
+        engine = self.deep()
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        engine.on_candle(Bar(self._at(15, 14, day=7), 24_310, 24_315, 24_305, 24_310))
+        self.assertEqual(engine.status, "OPEN", "the extra day is still running")
+        engine.on_candle(Bar(self._at(15, 15, day=7), 24_310, 24_315, 24_305, 24_310))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "intraday_close")
+        self.assertEqual(len(engine.rounds), 1)
+
+    def test_a_shallow_basket_still_sells_at_1515(self):
+        engine = self.shallow()
+        engine.on_candle(Bar(self._at(15, 15), 24_520, 24_525, 24_515, 24_520))
+        self.assertEqual(engine.status, "CLOSED")
+
+    def test_the_target_still_pays_while_carrying(self):
+        engine = self.deep()
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        target = engine.target_index
+        assert target is not None
+        engine.on_candle(Bar(self._at(10, 0, day=7), 24_400, target + 5, 24_395, target))
+        self.assertEqual(engine.rounds[-1]["exit_reason"], "target")
+
+    def test_nothing_new_is_bought_in_the_closing_window_while_carrying(self):
+        engine = self.deep()
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        take_the_turn(engine, self._at(15, 16), 24_200, sweep_from=24_300)
+        self.assertEqual(len(engine.fills), 1, "the day's buying is done")
+
+    def test_the_switch_turns_it_off(self):
+        engine = self.deep(deep_carry=False)
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        self.assertEqual(engine.status, "CLOSED")
+
+    def test_the_setting_survives_a_restart_and_the_extra_day_is_not_granted_twice(self):
+        engine = self.deep()
+        engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertTrue(back.config.deep_carry)
+        self.assertEqual(back.config.deep_carry_rungs, DEEP_CARRY_RUNGS)
+        # Restarted on the second morning: history is empty, but the date says
+        # this is not the mother's day any more.
+        back.on_candle(Bar(self._at(15, 15, day=7), 24_310, 24_315, 24_305, 24_310))
+        self.assertEqual(back.status, "CLOSED")
+
+    def test_the_status_payload_says_so(self):
+        engine = self.deep()
+        payload = engine.get_status()
+        self.assertTrue(payload["deep_carry"])
+        self.assertEqual(payload["deep_carry_rungs"], DEEP_CARRY_RUNGS)
 
 
 if __name__ == "__main__":

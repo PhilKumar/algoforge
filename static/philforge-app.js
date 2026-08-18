@@ -1860,6 +1860,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryMode',
   'setFibBoundaryBuyMode',
   'setFibBoundarySession',
+  'setFibBoundaryDeepCarry',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -3467,6 +3468,7 @@ async function startFibBoundaryPaper() {
     mode: el('fibx-mode')?.value || 'paper',
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
+    deep_carry: _fibDeepCarry(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -3916,6 +3918,7 @@ function setFibBoundarySession(_event, button) {
   const input = document.getElementById('fibx-session');
   if (!input || input.value === value) return;
   input.value = value;
+  _syncFibDeepCarryRow();
   const group = document.getElementById('fibx-session-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
@@ -3929,6 +3932,33 @@ function setFibBoundarySession(_event, button) {
 
 function _fibIntradayClose() {
   return (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday';
+}
+
+// The deep-ladder switch (Phil, 2026-08-18): hold a >4-rung basket one more
+// day, or close it at 15:15 like everything else. Only meaningful on
+// Intraday, so the row hides itself under Normal · carry.
+function setFibBoundaryDeepCarry(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'hold';
+  const input = document.getElementById('fibx-deep-carry');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-deep-carry-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+}
+
+function _fibDeepCarry() {
+  return (document.getElementById('fibx-deep-carry')?.value || 'hold') === 'hold';
+}
+
+function _syncFibDeepCarryRow() {
+  const row = document.getElementById('fibx-deep-carry-row');
+  if (row) row.style.display = _fibIntradayClose() ? '' : 'none';
 }
 
 function _fibBuyMode() {
@@ -4099,6 +4129,7 @@ async function runFibBoundaryBacktest() {
     timeframe: _fibTimeframe(),
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
+    deep_carry: _fibDeepCarry(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -4304,6 +4335,7 @@ window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
 window.setFibBoundarySession = setFibBoundarySession;
+window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

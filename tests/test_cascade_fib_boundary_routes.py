@@ -1141,5 +1141,61 @@ class FibBoundaryPaperLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(slept), 1, "one tick saw the break and the poll ended")
 
 
+class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
+    """The form's "Deep ladder" switch has to reach the engine on BOTH routes,
+    or Start and Backtest would replay different campaigns for one mother."""
+
+    def _mother_and_stream(self):
+        # A completed 5m candle at 10:15 five days back, on a stream that
+        # contains it.
+        day = (datetime.now(app_module.IST) - timedelta(days=5)).date()
+        while day.weekday() >= 5:
+            day -= timedelta(days=1)
+        mother = datetime(day.year, day.month, day.day, 10, 15, tzinfo=app_module.IST)
+        rows = [
+            app_module.IndexCandle(mother + timedelta(minutes=5 * i), 24_600 - i, 24_610 - i, 24_590 - i, 24_600 - i)
+            for i in range(-12, 12)
+        ]
+        return mother, rows
+
+    async def _config_seen_by(self, route, payload_cls, **fields):
+        mother, rows = self._mother_and_stream()
+        seen = {}
+        real = app_module.FibTouchConfig
+
+        def spy(**kwargs):
+            seen.update(kwargs)
+            raise app_module.HTTPException(status_code=418, detail="captured")
+
+        payload = payload_cls(mother_timestamp=mother.replace(tzinfo=None).isoformat(), timeframe="5m", **fields)
+        with (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, _Broker(), "user"))),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _StreamAdapter({"5m": rows, "1m": rows})),
+            patch.object(app_module, "FibTouchConfig", spy),
+            patch("broker.dhan.ScripMaster.get_expiries", lambda *a, **k: []),
+        ):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await route(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 418, raised.exception.detail)
+        del real
+        return seen
+
+    async def test_start_passes_the_switch_through_and_defaults_to_hold(self):
+        seen = await self._config_seen_by(app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload)
+        self.assertTrue(seen["deep_carry"])
+        seen = await self._config_seen_by(
+            app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload, deep_carry=False
+        )
+        self.assertFalse(seen["deep_carry"])
+
+    async def test_backtest_passes_the_same_switch(self):
+        seen = await self._config_seen_by(app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload)
+        self.assertTrue(seen["deep_carry"])
+        seen = await self._config_seen_by(
+            app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload, deep_carry=False
+        )
+        self.assertFalse(seen["deep_carry"])
+
+
 if __name__ == "__main__":
     unittest.main()

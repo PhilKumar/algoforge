@@ -4034,6 +4034,10 @@ class FibTouchStartPayload(BaseModel):
     # 15:15 IST on its own day; False lets it run to its target, a broken mother
     # or expiry, however many days that takes.
     intraday_close: bool = Field(default=True)
+    # DEEP LADDER, ONE MORE DAY (Phil, 2026-08-18). Intraday only: a campaign
+    # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
+    # next session's 15:15. On by default; the form can switch it off.
+    deep_carry: bool = Field(default=True)
     # THE MERGE'S SWITCH. Phil folded Fib Boundary and Fib Space into one
     # strategy on 2026-08-15: same geometry, and this decides what it buys --
     # "levels" (every level of every fib) or "convergence" (only where two
@@ -4082,6 +4086,10 @@ class FibTouchBacktestPayload(BaseModel):
     # campaign that would actually be traded.
     buy_mode: str = Field(default="levels")
     intraday_close: bool = Field(default=True)
+    # DEEP LADDER, ONE MORE DAY (Phil, 2026-08-18). Intraday only: a campaign
+    # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
+    # next session's 15:15. On by default; the form can switch it off.
+    deep_carry: bool = Field(default=True)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -10709,6 +10717,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         min_dte=int(payload.min_dte),
         buy_mode=buy_mode,
         intraday_close=bool(payload.intraday_close),
+        deep_carry=bool(payload.deep_carry),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +
@@ -11446,6 +11455,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         min_dte=int(payload.min_dte),
         buy_mode=buy_mode,
         intraday_close=bool(payload.intraday_close),
+        deep_carry=bool(payload.deep_carry),
     )
 
     def _run() -> dict:

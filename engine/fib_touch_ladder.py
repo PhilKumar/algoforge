@@ -53,6 +53,7 @@ __all__ = [
     "HALVING_LEVELS",
     "DEEP_TARGET_FROM_LEVEL",
     "DEEP_TARGET_FRACTION",
+    "DEEP_CARRY_RUNGS",
     "INVOLVEMENT_CANDLES",
     "SYMBOL_TERMS",
     "SymbolTerms",
@@ -109,6 +110,14 @@ BOUNDARY_LEVELS: tuple[int, ...] = (1, 2, 4, 8)
 # way back to the anchor instead of a quarter.
 DEEP_TARGET_FROM_LEVEL = 4
 DEEP_TARGET_FRACTION = 0.5
+
+# A DEEP LADDER GETS ONE MORE DAY. Phil, 2026-08-18, after the 22-month replay:
+# an intraday campaign that has bought MORE than this many rungs by 15:15 and
+# has not reached its target is held to the NEXT session's 15:15 instead of
+# being sold on the spot. Measured on 5m CE, Oct-2024..Jul-2026: +Rs 1.19L
+# became +Rs 1.80L, and every quarter was green. (On PE it measured WORSE --
+# a put held into a gap-up -- so the form lets him switch it off per campaign.)
+DEEP_CARRY_RUNGS = 4
 
 # RETIRED 2026-08-15. The mother no longer moves: Phil reversed the rebase and
 # a break before any buy now ends the campaign. Kept only so a ladder persisted
@@ -642,6 +651,13 @@ class FibTouchConfig:
     # what every replay before today did.
     intraday_close: bool = True
     intraday_close_at: dt_time = INTRADAY_CLOSE_AT
+    # Intraday only. With this ON, a campaign holding more than
+    # `deep_carry_rungs` bought rungs at 15:15 on its own day is not sold
+    # there: it carries to the next session and closes at THAT day's 15:15 if
+    # the target has still not come. Off, 15:15 sells whatever depth. See
+    # DEEP_CARRY_RUNGS for the measurement.
+    deep_carry: bool = True
+    deep_carry_rungs: int = DEEP_CARRY_RUNGS
     # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
     # after the mother is drawn from the first bounce instead of waiting for a
     # trendline. Off by default: measured on the Fib Space side and it does not
@@ -691,6 +707,8 @@ class FibTouchConfig:
             raise FibTouchError(f"timeframe must be one of {', '.join(GEOMETRY_TIMEFRAMES)}")
         if str(self.buy_mode) not in BUY_MODES:
             raise FibTouchError(f"buy_mode must be one of {', '.join(BUY_MODES)}")
+        if int(self.deep_carry_rungs) < 0:
+            raise FibTouchError("deep_carry_rungs cannot be negative")
 
     @property
     def working_side(self) -> str:
@@ -2063,12 +2081,42 @@ class FibTouchLadder:
             return
         # In order, and the order is the rule: what the candle REACHED, then
         # whether the fall has turned, then the one buy that turn allows.
-        self._collect(bar)
-        self._advance_turn(bar)
-        self._try_fill(bar)
+        # A deep basket being CARRIED past 15:15 still takes its target, but
+        # the auction run-in opens nothing new -- the day's buying is done.
+        in_closing_window = self.config.intraday_close and bar.timestamp.time() >= self.config.intraday_close_at
+        if not in_closing_window:
+            self._collect(bar)
+            self._advance_turn(bar)
+            self._try_fill(bar)
         if self._try_exit(bar):
             return
         self._try_expiry_exit(bar)
+
+    def _deep_carry_holds(self, bar: Bar) -> bool:
+        """Is this the mother's own day, with a deep basket still on?
+
+        Only the MOTHER'S day may defer -- the next session's 15:15 always
+        sells, so the rule can never turn a scalp into a swing. Judged by the
+        bar's date against the mother's, not by counting sessions in
+        `history`, so a process restarted on the second morning (history
+        empty) still knows the extra day has already been spent.
+        """
+        if not self.config.deep_carry or not self.fills:
+            return False
+        if bar.timestamp.date() != self.config.mother_timestamp.date():
+            return False
+        bought = sum(1 for rung in self.rungs if rung.status == "FILLED")
+        if bought <= int(self.config.deep_carry_rungs):
+            return False
+        if not any(row.get("event") == "deep_carry" for row in self.events):
+            self._log(
+                bar.timestamp,
+                "deep_carry",
+                rungs=bought,
+                more_than=int(self.config.deep_carry_rungs),
+                open_lots=self.open_lots,
+            )
+        return True
 
     def _try_intraday_close(self, bar: Bar) -> bool:
         """Sell out at 15:15 and finish the mother, when set to intraday.
@@ -2085,6 +2133,8 @@ class FibTouchLadder:
         if not self.config.intraday_close:
             return False
         if bar.timestamp.time() < self.config.intraday_close_at:
+            return False
+        if self._deep_carry_holds(bar):
             return False
         if not self.fills:
             self.status = "CLOSED"
@@ -2239,6 +2289,8 @@ class FibTouchLadder:
                 "buy_mode": config.buy_mode,
                 "intraday_close": config.intraday_close,
                 "intraday_close_at": config.intraday_close_at.strftime("%H:%M"),
+                "deep_carry": config.deep_carry,
+                "deep_carry_rungs": config.deep_carry_rungs,
             },
             "mode": getattr(self.executor, "mode", "paper"),
             "status": self.status,
@@ -2374,6 +2426,8 @@ class FibTouchLadder:
                 if terms.get("intraday_close_at")
                 else INTRADAY_CLOSE_AT
             ),
+            deep_carry=bool(terms.get("deep_carry", True)),
+            deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
         )
         engine = cls(
             config,
@@ -2519,6 +2573,8 @@ class FibTouchLadder:
             "collected": [rung.key for rung in self.rungs if rung.status == "COLLECTED"],
             "intraday_close": self.config.intraday_close,
             "intraday_close_at": self.config.intraday_close_at.strftime("%H:%M"),
+            "deep_carry": self.config.deep_carry,
+            "deep_carry_rungs": self.config.deep_carry_rungs,
             "buy_stop": round(self._buy_stop, 2) if self._buy_stop is not None else None,
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when
