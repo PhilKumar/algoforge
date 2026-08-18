@@ -2179,7 +2179,9 @@ class DeepCarryTests(unittest.TestCase):
 
     def deep(self, **overrides):
         """An intraday ladder whose ONE buy covered five rungs (F1L2, F2L2,
-        F1L3, F1L4, F2L3) -- more than DEEP_CARRY_RUNGS."""
+        F1L3, F1L4, F2L3) -- more than DEEP_CARRY_RUNGS. The switch is OFF by
+        default (it measured worse), so these turn it on."""
+        overrides.setdefault("deep_carry", True)
         engine, candles, _ = ladder(intraday=True, **overrides)
         for bar in candles:
             engine.on_candle(bar)
@@ -2231,10 +2233,15 @@ class DeepCarryTests(unittest.TestCase):
         take_the_turn(engine, self._at(15, 16), 24_200, sweep_from=24_300)
         self.assertEqual(len(engine.fills), 1, "the day's buying is done")
 
-    def test_the_switch_turns_it_off(self):
+    def test_the_switch_turns_it_off_and_off_is_the_default(self):
         engine = self.deep(deep_carry=False)
         engine.on_candle(Bar(self._at(15, 15), 24_300, 24_305, 24_295, 24_300))
         self.assertEqual(engine.status, "CLOSED")
+        self.assertFalse(
+            FibTouchConfig(
+                symbol="NIFTY", side="CE", mother_timestamp=IST_START, lot_size=65, strike_step=50.0
+            ).deep_carry
+        )
 
     def test_the_setting_survives_a_restart_and_the_extra_day_is_not_granted_twice(self):
         engine = self.deep()

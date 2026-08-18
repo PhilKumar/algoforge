@@ -1182,13 +1182,13 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
         del real
         return seen
 
-    async def test_start_passes_the_switch_through_and_defaults_to_hold(self):
+    async def test_start_passes_the_switch_through_and_defaults_to_close(self):
         seen = await self._config_seen_by(app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload)
-        self.assertTrue(seen["deep_carry"])
+        self.assertFalse(seen["deep_carry"], "off by default -- it measured worse")
         seen = await self._config_seen_by(
-            app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload, deep_carry=False
+            app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload, deep_carry=True
         )
-        self.assertFalse(seen["deep_carry"])
+        self.assertTrue(seen["deep_carry"])
 
     async def test_the_target_rule_reaches_both_routes_and_defaults_to_fixed(self):
         for route, cls in (
@@ -1202,11 +1202,11 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_backtest_passes_the_same_switch(self):
         seen = await self._config_seen_by(app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload)
-        self.assertTrue(seen["deep_carry"])
-        seen = await self._config_seen_by(
-            app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload, deep_carry=False
-        )
         self.assertFalse(seen["deep_carry"])
+        seen = await self._config_seen_by(
+            app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload, deep_carry=True
+        )
+        self.assertTrue(seen["deep_carry"])
 
 
 if __name__ == "__main__":

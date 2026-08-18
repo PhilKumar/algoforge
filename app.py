@@ -4036,8 +4036,9 @@ class FibTouchStartPayload(BaseModel):
     intraday_close: bool = Field(default=True)
     # DEEP LADDER, ONE MORE DAY (Phil, 2026-08-18). Intraday only: a campaign
     # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
-    # next session's 15:15. On by default; the form can switch it off.
-    deep_carry: bool = Field(default=True)
+    # next session's 15:15. OFF by default -- measured honestly it loses on
+    # every chart (see DEEP_CARRY_RUNGS); the form can switch it on.
+    deep_carry: bool = Field(default=False)
     # THE EXIT. Fixed: sell the basket at the index target. Trailing: reaching
     # the target ARMS a trail and the basket rides until a 1m close gives back
     # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22
@@ -4093,8 +4094,9 @@ class FibTouchBacktestPayload(BaseModel):
     intraday_close: bool = Field(default=True)
     # DEEP LADDER, ONE MORE DAY (Phil, 2026-08-18). Intraday only: a campaign
     # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
-    # next session's 15:15. On by default; the form can switch it off.
-    deep_carry: bool = Field(default=True)
+    # next session's 15:15. OFF by default -- measured honestly it loses on
+    # every chart (see DEEP_CARRY_RUNGS); the form can switch it on.
+    deep_carry: bool = Field(default=False)
     # THE EXIT. Fixed: sell the basket at the index target. Trailing: reaching
     # the target ARMS a trail and the basket rides until a 1m close gives back
     # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22

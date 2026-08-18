@@ -3973,7 +3973,7 @@ function _fibIntradayClose() {
 // day, or close it at 15:15 like everything else. Only meaningful on
 // Intraday, so the row hides itself under Normal · carry.
 function setFibBoundaryDeepCarry(_event, button) {
-  const value = button && button.dataset ? button.dataset.value : 'hold';
+  const value = button && button.dataset ? button.dataset.value : 'close';
   const input = document.getElementById('fibx-deep-carry');
   if (!input || input.value === value) return;
   input.value = value;
@@ -3988,7 +3988,7 @@ function setFibBoundaryDeepCarry(_event, button) {
 }
 
 function _fibDeepCarry() {
-  return (document.getElementById('fibx-deep-carry')?.value || 'hold') === 'hold';
+  return (document.getElementById('fibx-deep-carry')?.value || 'close') === 'hold';
 }
 
 // Fixed target or trailing exit (Phil, 2026-08-18).

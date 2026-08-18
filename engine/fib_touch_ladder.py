@@ -111,12 +111,16 @@ BOUNDARY_LEVELS: tuple[int, ...] = (1, 2, 4, 8)
 DEEP_TARGET_FROM_LEVEL = 4
 DEEP_TARGET_FRACTION = 0.5
 
-# A DEEP LADDER GETS ONE MORE DAY. Phil, 2026-08-18, after the 22-month replay:
-# an intraday campaign that has bought MORE than this many rungs by 15:15 and
-# has not reached its target is held to the NEXT session's 15:15 instead of
-# being sold on the spot. Measured on 5m CE, Oct-2024..Jul-2026: +Rs 1.19L
-# became +Rs 1.80L, and every quarter was green. (On PE it measured WORSE --
-# a put held into a gap-up -- so the form lets him switch it off per campaign.)
+# A DEEP LADDER MAY GET ONE MORE DAY. Phil, 2026-08-18: an intraday campaign
+# that has bought MORE than this many rungs by 15:15 and has not reached its
+# target is held to the NEXT session's 15:15 instead of being sold on the
+# spot. OFF by default: it was switched on that morning on a replay that read
+# the future (the geometry was fed ahead of the entry bars -- see
+# FibTouchLadder.replay), which showed +Rs 1.19L -> +Rs 1.80L on 5m CE. Walked
+# honestly, Oct-2024..Jul-2026, it is worse on every chart and both sides
+# (5m CE -Rs 31k -> -Rs 58k, 15m CE -Rs 61k -> -Rs 183k, 5m PE -Rs 126k ->
+# -Rs 173k). The switch stays on the form for him to try; the default does not
+# hold a basket overnight.
 DEEP_CARRY_RUNGS = 4
 
 # RETIRED 2026-08-15. The mother no longer moves: Phil reversed the rebase and
@@ -656,7 +660,7 @@ class FibTouchConfig:
     # there: it carries to the next session and closes at THAT day's 15:15 if
     # the target has still not come. Off, 15:15 sells whatever depth. See
     # DEEP_CARRY_RUNGS for the measurement.
-    deep_carry: bool = True
+    deep_carry: bool = False
     deep_carry_rungs: int = DEEP_CARRY_RUNGS
     # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
     # after the mother is drawn from the first bounce instead of waiting for a
@@ -2479,7 +2483,7 @@ class FibTouchLadder:
                 if terms.get("intraday_close_at")
                 else INTRADAY_CLOSE_AT
             ),
-            deep_carry=bool(terms.get("deep_carry", True)),
+            deep_carry=bool(terms.get("deep_carry", False)),
             deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
             trailing_stop=bool(terms.get("trailing_stop", False)),
             trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),
