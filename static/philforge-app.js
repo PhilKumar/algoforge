@@ -3267,16 +3267,21 @@ function _renderFibBoundaryCampaign(root, campaign) {
   const eventsTitle = px('events-title');
   if (eventsTitle) eventsTitle.textContent = `${symbol} campaign events`;
   if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
-  const funded = levels.filter(l => l.status === 'FILLED').length;
+  const isZones = String(campaign.buy_mode || '') === 'convergence' || levels.some(l => l.zone_label);
   if (gist) {
+    // Buys, not FILLED rungs: in Where two meet the zone that bought can drop
+    // off the "deepest two" as the fall deepens, and "0/2 levels bought" then
+    // sat over a campaign that had bought and banked.
     gist.textContent = anchor
-      ? `${mode} · ${side} · ${tf} mother, 1m entries · ${funded}/${levels.length} levels bought · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
+      ? `${mode} · ${side} · ${tf} mother, 1m entries · ${everyFill.length} buy${everyFill.length === 1 ? '' : 's'} · ${levels.length} ${isZones ? 'zone' : 'level'}${levels.length === 1 ? '' : 's'} on the ladder · swing ${anchor.low}–${anchor.high} (${anchor.span} pts)`
       : `${mode} · ${side} · ${tf} mother · waiting for the first involvement to freeze the swing`;
   }
   monitor.classList.toggle('is-active', isRunning);
   const deployed = Number(campaign.deployed_inr || 0);
   const cap = Number(campaign.capital_cap_inr || 0);
   const pct = cap > 0 ? Math.min(100, Math.round((deployed / cap) * 100)) : 0;
+  const holding = (Number(campaign.open_lots) || 0) > 0;
+  const deployedTotal = rounds.reduce((n, r) => n + (Number(r.deployed_inr) || 0), 0) + deployed;
   if (summary) {
     const net = Number(campaign.net_pnl);
     // A flat basket has no target and no average, and printing "0.00" for them
@@ -3310,8 +3315,15 @@ function _renderFibBoundaryCampaign(root, campaign) {
       _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
       // Compact on purpose: the long form ran past the tile and ellipsised the
       // percentage, which is the part that says how much ladder is left.
-      _cascadeOptionsMetric('Funded', `${_cascadeOptionsMoney(deployed)} · ${pct}% of cap`, '#fde68a'),
-      _cascadeOptionsMetric('Left to spend', _cascadeOptionsMoney(campaign.remaining_inr || 0), '#fde68a'),
+      // A basket that has SOLD has nothing funded now; what it put to work is
+      // on its rounds. "Funded Rs 0 · 0% of cap" over a campaign that banked
+      // Rs 1,007 was reading the empty open basket.
+      holding
+        ? _cascadeOptionsMetric('Funded', `${_cascadeOptionsMoney(deployed)} · ${pct}% of cap`, '#fde68a')
+        : _cascadeOptionsMetric('Deployed', `${_cascadeOptionsMoney(deployedTotal)} · ${rounds.length} round${rounds.length === 1 ? '' : 's'}`, '#fde68a'),
+      holding
+        ? _cascadeOptionsMetric('Left to spend', _cascadeOptionsMoney(campaign.remaining_inr || 0), '#fde68a')
+        : _cascadeOptionsMetric('Ladder cap', _cascadeOptionsMoney(cap), 'var(--muted)'),
     ].join('');
   }
   if (empty) empty.style.display = 'none';
@@ -3387,9 +3399,22 @@ function _renderFibBoundaryCampaign(root, campaign) {
         : level.status === 'COLLECTED' ? 'reached — waiting for the turn'
         : level.status === 'GAPPED' ? 'market jumped it — never traded here'
         : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
+      // A zone (Where two meet) is named by its two levels and the two fibs
+      // that made it, and shows how deep it may still be worked; a raw key
+      // like "Z4-3:1-2" told nobody anything. A lone-fib fallback zone says so.
+      const zone = level.zone_label ? String(level.zone_label) : '';
+      const lone = zone && zone.startsWith('L') && Number(level.zone_bottom_fib_id || 0) === Number(level.fib_id || 0);
+      const name = !zone
+        ? String(level.key)
+        : lone
+          ? `F${level.fib_id} ${zone} · lone fib`
+          : `Zone ${zone} · F${level.fib_id}/F${level.zone_bottom_fib_id}`;
+      const price = zone && !lone && level.zone_floor != null
+        ? `${_cascadeNumber(level.index_price)} → ${_cascadeNumber(level.zone_floor)}`
+        : _cascadeNumber(level.index_price);
       return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
-        + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>${escapeHtml(String(level.key))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
-        + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(level.index_price))}</div>`
+        + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong title="${escapeHtml(String(level.key))}">${escapeHtml(name)}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
+        + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;" title="${zone && !lone ? 'top of the zone → how deep it may be worked' : ''}">${escapeHtml(price)}</div>`
         + (note ? `<div style="margin-top:2px;font:9px 'JetBrains Mono',monospace;color:var(--muted);">${escapeHtml(note)}</div>` : '')
         + `</div>`;
     }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">No ladder yet — the swing has not been frozen.</div>';
@@ -3709,9 +3734,13 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
         : status === 'COLLECTED' ? ' collected'
         : status === 'UNFUNDED' ? ' unfunded'
         : '';
+      // Under Where two meet the level lines are the structure behind the
+      // zones -- ghosted AND unlabelled. Three fibs' worth of numbered lines
+      // down the left edge (35 labels on the 21-Jul-2026 chart) buried the two
+      // zones that were actually buyable; the fib's own 0 and 1 stay named.
       lines.push({
         price: Number(row.price),
-        label: `${row.level}${convergence ? '' : state}`,
+        label: convergence ? '' : `${row.level}${state}`,
         color,
         filled: true,
         dash: [],
@@ -4269,7 +4298,11 @@ function _renderFibBoundaryBacktest(data) {
       _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5'),
       _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
       _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
-      _cascadeOptionsMetric('Funded', _cascadeOptionsMoney(c.deployed_inr || 0), '#fde68a'),
+      _cascadeOptionsMetric(
+        'Deployed',
+        _cascadeOptionsMoney((c.rounds || []).reduce((n, r) => n + (Number(r.deployed_inr) || 0), 0) + (Number(c.deployed_inr) || 0)),
+        '#fde68a',
+      ),
       _cascadeOptionsMetric('Lots', `${c.open_lots || 0} · ${_fibCampaignFills(c).length} buys`),
     ].join('');
   }

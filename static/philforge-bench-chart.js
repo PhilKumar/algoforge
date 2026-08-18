@@ -713,8 +713,14 @@ function _pfChartCanvasLines(c, p, PAL, labels) {
     // name nothing keep the old palette-by-index behaviour.
     var color = line.color || PAL.fibs[index % PAL.fibs.length];
     var spent = Number(line.inr_notional) || 0;
-    var text = String(line.label || '') + ' (' + Number(line.price).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ')'
-      + (spent > 0 ? '  ' + _pfChartInr(spent) : '');
+    // A line with NO label is drawn silent: the line only, no price in the
+    // gutter. Under "where two meet" the fib levels are ghosted structure
+    // behind the zones, and printing "(24,093.15)" for every one of them put
+    // 35 numbers down the left edge over two zones that mattered.
+    var text = line.label === '' && spent <= 0
+      ? ''
+      : String(line.label || '') + ' (' + Number(line.price).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ')'
+        + (spent > 0 ? '  ' + _pfChartInr(spent) : '');
     var dash = Array.isArray(line.dash) ? line.dash : (line.filled ? [] : [4, 3]);
     var width = Number(line.width) || (line.filled ? 1.1 : 0.8);
     var opacity = Number(line.opacity) || (line.filled ? 0.9 : 0.45);

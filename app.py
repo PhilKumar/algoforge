@@ -10528,21 +10528,35 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             # engine ignores a bar it has already read, so re-feeding the
             # stream from the mother's date is how a restarted process gets
             # its geometry back, and a no-op every other tick.
-            if timeframe != "1m":
-                for row in await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today):
-                    engine.on_geometry_candle(row)
+            geometry_rows = (
+                await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today)
+                if timeframe != "1m"
+                else []
+            )
             candles = await runtime.adapter.async_get_candles(symbol, "1m", from_date=start, to_date=today)
-            for candle in candles:
-                if candle.timestamp <= runtime.last_candle_timestamp:
-                    # Already traded on. For a 1m mother the entry bars ARE the
-                    # geometry bars, so hand them to the geometry anyway -- a
-                    # restart comes back with the structures unbuilt, and this
-                    # is the only stream that can rebuild them. No-op once read.
-                    if timeframe == "1m":
+            fresh = [candle for candle in candles if candle.timestamp > runtime.last_candle_timestamp]
+            if timeframe == "1m":
+                # The entry bars ARE the geometry bars. Bars already traded on
+                # still go to the geometry: a restart comes back with the
+                # structures unbuilt and this is the only stream that can
+                # rebuild them. No-op once read.
+                for candle in candles:
+                    if candle.timestamp <= runtime.last_candle_timestamp:
                         engine.on_geometry_candle(candle)
-                    continue
-                runtime.last_candle_timestamp = candle.timestamp
-                engine.on_candle(candle)
+            # Both streams IN TIME ORDER: a geometry bar is fed once it has
+            # closed and never ahead of the entry bar being walked. See
+            # FibTouchLadder.replay for what geometry-first got wrong; after
+            # a restart this tick walks the whole catch-up, so it matters here.
+            engine.replay(geometry_rows, fresh)
+            # Geometry bars that closed AFTER the last entry bar walked (or with
+            # no new entry bar this tick at all -- after hours, or a restart at
+            # 15:35) are still knowable now. Nothing can trade on them before
+            # the next entry bar, and the monitor should not show a bare chart
+            # until tomorrow. The engine ignores what it has already read.
+            for row in geometry_rows:
+                engine.on_geometry_candle(row)
+            if fresh:
+                runtime.last_candle_timestamp = max(candle.timestamp for candle in fresh)
             # Any terminal state ends the poll. A MOTHER_BROKEN or KILLED
             # ladder used to keep asking Dhan for the whole day every ten
             # seconds, forever, for a campaign nothing could change.
@@ -10756,14 +10770,12 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         executor=executor,
     )
     last_candle_timestamp = mother_timestamp
-    if timeframe != "1m":
-        for candle in geometry_candles:
-            engine.on_geometry_candle(candle)
-    for candle in candles:
-        if candle.timestamp < mother_timestamp:
-            continue
-        engine.on_candle(candle)
-        last_candle_timestamp = candle.timestamp
+    # Catch up on today's earlier bars in TIME ORDER (see FibTouchLadder.replay);
+    # the poll takes over from the last entry bar walked here.
+    caught_up = [candle for candle in candles if candle.timestamp >= mother_timestamp]
+    engine.replay(geometry_candles, caught_up)
+    if caught_up:
+        last_candle_timestamp = max(candle.timestamp for candle in caught_up)
 
     runtime = _CascadeRuntime(
         engine=engine,
@@ -11032,7 +11044,9 @@ async def fib_boundary_paper_chart(
     mode = _fib_boundary_buy_mode(buy_mode)
     zones = []
     if mode == "convergence":
-        reached = min((float(row.low) for row in geometry_candles), default=None)
+        # The fall's deepest low SINCE THE MOTHER -- a 09:15 low on a mother
+        # typed at 11:15 is not something this campaign reached.
+        reached = min((float(row.low) for row in geometry_candles if row.timestamp >= mother), default=None)
         for space in _fib_tradable_zones(geometry.fibs, reached=reached, levels=_FIB_BOUNDARY_LEVELS):
             zones.append(
                 {
@@ -11495,13 +11509,9 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
                 return None
 
         engine = FibTouchLadder(config, premium_lookup=priced, expiry_source=expiries)
-        if timeframe != "1m":
-            for row in geometry_candles:
-                engine.on_geometry_candle(row)
-        for row in entry_candles:
-            engine.on_candle(row)
-            if engine.status in {"CLOSED", "EXPIRED", "MOTHER_BROKEN"}:
-                break
+        # In TIME ORDER, both streams -- the way the paper loop sees them. See
+        # FibTouchLadder.replay for what feeding the geometry first got wrong.
+        engine.replay(geometry_candles, entry_candles)
         return {
             "campaign": engine.get_status(),
             "priced": history is not None,

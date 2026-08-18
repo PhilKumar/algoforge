@@ -2290,5 +2290,67 @@ class TrailingPersistenceTests(unittest.TestCase):
         self.assertIsNone(payload["trail_stop"])
 
 
+class ReplayOrderTests(unittest.TestCase):
+    """`replay` walks both streams in time order: a geometry bar is knowable
+    only once it has CLOSED, so an entry bar inside a still-forming 5m bar
+    cannot see the fib that bar will draw. The old geometry-first feed let the
+    21-Jul-2026 09:30 5m CE backtest offer zones from a fib drawn the NEXT
+    morning, after the campaign had closed."""
+
+    def _engine(self):
+        candles = bars(
+            [
+                (o, h, low, c)
+                for (o, h, low, c) in [
+                    (24_660, 24_780, 24_640, 24_642),
+                    (24_642, 24_644, 24_620, 24_622),
+                    (24_622, 24_624, 24_600, 24_602),
+                    (24_602, 24_612, 24_600, 24_610),
+                    (24_610, 24_620, 24_608, 24_618),
+                    (24_618, 24_650, 24_615, 24_645),
+                    (24_645, 24_700, 24_640, 24_695),
+                    (24_695, 24_698, 24_680, 24_682),
+                    (24_682, 24_684, 24_670, 24_672),
+                    (24_672, 24_674, 24_560, 24_570),
+                    (24_570, 24_640, 24_565, 24_635),
+                    (24_635, 24_690, 24_630, 24_640),
+                    (24_640, 24_642, 24_505, 24_510),
+                ]
+            ],
+            step_minutes=5,
+        )
+        config = FibTouchConfig(
+            symbol="NIFTY",
+            side="CE",
+            mother_timestamp=candles[0].timestamp,
+            lot_size=65,
+            strike_step=50.0,
+            timeframe="5m",
+            entry_timeframe="1m",
+        )
+        engine = FibTouchLadder(config, premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)])
+        return engine, candles
+
+    def test_an_entry_bar_inside_a_forming_geometry_bar_cannot_see_its_fib(self):
+        engine, geometry = self._engine()
+        # FIB 1 is drawn on the bar opening at +45 min (index 9), which CLOSES at +50.
+        draw_open = geometry[9].timestamp
+        # An entry bar at +46 that trades through F1L2 (24,502): the fib is not knowable yet.
+        early = Bar(draw_open + timedelta(minutes=1), 24_560, 24_562, 24_495, 24_499)
+        engine.replay(geometry, [early])
+        self.assertEqual(engine.geometry.fibs, [], "the 5m bar has not closed")
+        self.assertEqual([r.status for r in engine.rungs], [])
+        # An entry bar at +50 (the close): now the fib exists and the level can be collected.
+        on_close = Bar(draw_open + timedelta(minutes=5), 24_560, 24_562, 24_495, 24_499)
+        engine.replay(geometry, [early, on_close])
+        self.assertEqual(len(engine.geometry.fibs), 1)
+        self.assertIn("COLLECTED", [r.status for r in engine.rungs])
+
+    def test_a_one_minute_mother_needs_no_second_stream(self):
+        engine, candles, _ = ladder()
+        engine.replay([], candles)
+        self.assertIsNotNone(engine.anchor)
+
+
 if __name__ == "__main__":
     unittest.main()

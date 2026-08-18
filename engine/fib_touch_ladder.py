@@ -2251,6 +2251,49 @@ class FibTouchLadder:
                 break
         return self
 
+    def replay(self, geometry_candles: Iterable[Bar], entry_candles: Iterable[Bar]) -> "FibTouchLadder":
+        """Walk both streams IN TIME ORDER, the way the paper loop sees them.
+
+        A geometry bar is fed only once it has CLOSED -- its open plus the
+        timeframe (the last NSE 1H bar is a 15-minute stub) -- and never
+        ahead of the entry bar being walked. Until 2026-08-18 the backtest
+        route fed the whole geometry stream to the horizon first and the
+        entry bars after, so anything read off the geometry AS IT STOOD was
+        read off the future: `_lowest_low` (which picks convergence mode's
+        "deepest two zones the fall has reached" and the price a parked mother
+        re-arms below) was the horizon's low before the first entry bar
+        printed. On the 21-Jul-2026 09:30 5m CE mother the two zones on
+        offer were both from a fib drawn the NEXT morning, after the campaign
+        had closed at 15:15 -- so the backtest bought nothing where the paper
+        run of the same mother could. `drawn_at` already stopped a rung
+        trading before its fib existed; this stops the ladder LOOKING before
+        the fib exists.
+        """
+        if self.config.timeframe == self.config.entry_bar_timeframe:
+            return self.run(entry_candles)
+        from datetime import timedelta as _td
+
+        minutes = TIMEFRAME_MINUTES.get(str(self.config.timeframe).lower(), 5)
+        geometry = sorted(geometry_candles, key=lambda row: row.timestamp)
+        pending = 0
+
+        def closes_at(bar: Bar) -> datetime:
+            # The last 1H bar opens 15:15 and closes at 15:30.
+            width = 15 if minutes == 60 and bar.timestamp.time() == dt_time(15, 15) else minutes
+            return bar.timestamp + _td(minutes=width)
+
+        for bar in sorted(entry_candles, key=lambda row: row.timestamp):
+            # Every geometry bar that has closed by the time this entry bar
+            # closes is knowable now; feed those first, in order.
+            entry_closes = bar.timestamp + _td(minutes=TIMEFRAME_MINUTES.get(self.config.entry_bar_timeframe, 1))
+            while pending < len(geometry) and closes_at(geometry[pending]) <= entry_closes:
+                self.on_geometry_candle(geometry[pending])
+                pending += 1
+            self.on_candle(bar)
+            if self.status in _TERMINAL_STATUSES:
+                break
+        return self
+
     # ── surviving a restart ───────────────────────────────────────
 
     def to_dict(self) -> dict[str, Any]:

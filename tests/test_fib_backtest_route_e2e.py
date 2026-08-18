@@ -213,10 +213,14 @@ class FibBacktestRouteE2ETests(unittest.TestCase):
         self.assertEqual(len(campaign["rounds"][0]["fills"]), 1)
         fill = campaign["rounds"][0]["fills"][0]
         self.assertEqual(fill["level"], 2)
-        # The buy happens at the STOP, not at the level. L2 (23,902) is where
-        # the money was collected; the fall then printed three reds under it and
-        # dragged the stop down to the last one's close, and the rise took it.
-        self.assertEqual(fill["index_price"], 23_870.0)
+        # The buy happens at the STOP, not at the level. The fib is drawn on
+        # the 10:30 15m bar, which CLOSES at 10:45 -- so 10:45 is the first
+        # bar that can collect L2 (23,900), 11:00 is the second red, the stop
+        # is the first red's close (23,880), and the 11:15 rise takes it.
+        # Until 2026-08-18 the route fed the geometry ahead of the entry bars,
+        # so the 10:30 bar collected a fib that had not closed yet and the
+        # stop was dragged to 23,870 -- a fill nobody could have had.
+        self.assertEqual(fill["index_price"], 23_880.0)
         self.assertIn("F1L2", fill["covered"])
         self.assertEqual(fill["premium"], 300.0)  # the 11:12 trade, 3 min back
         self.assertEqual(fill["quantity"], 65)
