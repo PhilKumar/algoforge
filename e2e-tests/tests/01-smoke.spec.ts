@@ -149,6 +149,7 @@ async function installOfflineE2E(page: Page) {
     // that the result of a run that cost several Dhan round trips survives a
     // redraw. No saved run is the normal answer.
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
+    else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }

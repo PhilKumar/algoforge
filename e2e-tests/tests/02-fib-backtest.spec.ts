@@ -147,6 +147,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     // Asked on every load so a replay that cost several Dhan round trips
     // survives a redraw of the panel. No saved run is the normal answer.
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
+    else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else throw new Error(`Offline E2E has no mock for ${route.request().method()} ${path}`);
   });
 }

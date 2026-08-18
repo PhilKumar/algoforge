@@ -37,10 +37,17 @@ and a way to price it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from typing import Any, Callable, Optional
 
 from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_costs
+
+# The last minute a position is sold on a day it must be flat: the 15:15 IST
+# bar closes at 15:30 on every chart, and the closing auction starts at 15:40,
+# so any bar that CLOSES at or after 15:15 is the day's last chance to act.
+SESSION_CLOSE_TIME = dt_time(15, 15)
+SESSION_END_TIME = dt_time(15, 30)
 
 # Slowest-last, because that is the direction a campaign climbs.
 LADDER_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
@@ -110,8 +117,23 @@ def order_events(candles: list[LadderCandle]) -> list[LadderCandle]:
 
 
 def closed_at(candle: LadderCandle) -> datetime:
-    """The moment this bar CLOSED, which is when it could first be acted on."""
-    return candle.timestamp + timedelta(minutes=TIMEFRAME_MINUTES.get(candle.timeframe, 1))
+    """The moment this bar CLOSED, which is when it could first be acted on.
+
+    An intraday bar never closes past the session: the 15:15 hourly stub is a
+    15-minute bar and closes at 15:30 like the 15:29 minute bar. Without the
+    clamp that stub "closed" at 16:15, after the market, and any price asked
+    for that minute could only be a stale one. Daily and weekly spans are
+    measured in session minutes already and are left alone.
+    """
+    minutes = TIMEFRAME_MINUTES.get(candle.timeframe, 1)
+    closed = candle.timestamp + timedelta(minutes=minutes)
+    if minutes < TIMEFRAME_MINUTES["1d"]:
+        session_end = candle.timestamp.replace(
+            hour=SESSION_END_TIME.hour, minute=SESSION_END_TIME.minute, second=0, microsecond=0
+        )
+        if closed > session_end >= candle.timestamp:
+            closed = session_end
+    return closed
 
 
 @dataclass(frozen=True)
@@ -130,6 +152,10 @@ class LadderFill:
     # The lowest the index had been when this rung filled -- the "ultimate low"
     # the next rung is measured against.
     marked_low: float
+    # The minute the premium was read at: the bar's CLOSE, which is the moment
+    # a paper campaign sees the bar and buys. `timestamp` stays the bar's open,
+    # the way every table on the site names a candle.
+    priced_at: Optional[datetime] = None
 
 
 @dataclass
@@ -163,6 +189,8 @@ class TwoRedLadder:
         require_new_low: bool = True,
         quantity_for: Optional[Callable[[float, int], int]] = None,
         trail_fraction: float = 0.0,
+        expiry: Optional[date] = None,
+        intraday_close: bool = False,
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
@@ -174,6 +202,18 @@ class TwoRedLadder:
         self.premium_lookup = premium_lookup
         self.target_fraction = float(target_fraction)
         self.require_new_low = bool(require_new_low)
+        # WHEN THE OPTION RUNS OUT. On the expiry day the first bar to close at
+        # or after 15:15 sells whatever is open and ends the campaign, bought
+        # or not -- past its expiry the contract does not exist, so neither
+        # can the ladder. None keeps the older behaviour, where only the
+        # caller's `close_at_expiry` can end it.
+        self.expiry = expiry
+        # FLAT BY 3:15. Phil's fib rule, offered here too: with it on, the
+        # first bar to close at or after 15:15 on ANY day sells the basket at
+        # its close and ENDS the campaign -- a setup that never bought by then
+        # ends as well; it is not carried into tomorrow. Off (the default) the
+        # ladder holds to its target or the option's expiry.
+        self.intraday_close = bool(intraday_close)
         # HOW BIG A RUNG IS. Left alone, it is the option law: lots x lot size,
         # so rung 3 is three times rung 1 whatever the price did. Phil's cash
         # rule sizes off the FALL instead -- "calculate the percent the market
@@ -202,6 +242,7 @@ class TwoRedLadder:
         self.gate_low: Optional[float] = None
         self.exit_timestamp: Optional[datetime] = None
         self.exit_timeframe: Optional[str] = None
+        self.exit_priced_at: Optional[datetime] = None
         self.exit_index_price: Optional[float] = None
         self.exit_premium: Optional[float] = None
         self.exit_reason: Optional[str] = None
@@ -250,6 +291,13 @@ class TwoRedLadder:
         if self.fills and self._target_reached(candle):
             return
 
+        # The day's last chance to act, checked BEFORE a rung may arm or fill
+        # on this bar: a stop reached at 15:14 must not open a position the
+        # very next bar has to shut.
+        if self._session_close_due(candle):
+            self._end_session(candle)
+            return
+
         stage = self.stages[self.active] if self.active < len(self.stages) else None
         if stage is None or candle.timeframe != stage.timeframe:
             self._remember_close(candle)
@@ -269,10 +317,24 @@ class TwoRedLadder:
 
     def _watch_for_reds(self, stage: _Stage, candle: LadderCandle) -> None:
         prior_close = self._last_close.get(candle.timeframe)
-        if prior_close is None or not candle.is_red or candle.close >= prior_close:
+        if prior_close is None:
+            return
+        if not candle.is_red or candle.close >= prior_close:
+            # THE RUN IS BROKEN. Phil's "1st/previous red candle" is the bar
+            # immediately before the second red, so the two reds are
+            # back-to-back: a green, or a red that closes higher, starts the
+            # count over. Left to accumulate across greens (as this did until
+            # 2026-08-18) the "first red" could be an hour stale and its close
+            # BELOW the market -- on the 10-Aug-2026 12:30 mother that armed a
+            # buy-stop at 24,573.55 with NIFTY at 24,591 and "filled" it at a
+            # price the market never traded. A stop already resting is an
+            # order on the book and stays until a bar reaches it.
+            stage.reds = []
             return
         # The gate: a rung above the first only starts counting once the market
-        # has actually gone lower than it was when the last rung filled.
+        # has actually gone lower than it was when the last rung filled. A red
+        # that has not yet made that low is not counted, but it does not break
+        # a run either -- the fall is still going.
         if self.require_new_low and self.gate_low is not None and candle.low >= self.gate_low:
             return
         stage.reds.append(candle)
@@ -290,9 +352,34 @@ class TwoRedLadder:
         )
         self.status = "ARMED"
 
+    def _session_close_due(self, candle: LadderCandle) -> bool:
+        """Is this bar the day's last chance to act, on a day the ladder must end?"""
+        if closed_at(candle).time() < SESSION_CLOSE_TIME:
+            return False
+        if self.intraday_close:
+            return True
+        return self.expiry is not None and candle.timestamp.date() >= self.expiry
+
+    def _end_session(self, candle: LadderCandle) -> None:
+        """Sell whatever is open at this bar's close and end the campaign."""
+        on_expiry = self.expiry is not None and candle.timestamp.date() >= self.expiry
+        if not self.fills:
+            self._log(candle, "session_ended_without_a_trade", reason="expiry" if on_expiry else "intraday_close")
+            self.status = "EXPIRED" if on_expiry else "CLOSED"
+            return
+        self._close(candle, float(candle.close), "expiry" if on_expiry else "intraday_close")
+        if on_expiry:
+            self.status = "EXPIRED"
+
     def _fill(self, stage: _Stage, candle: LadderCandle) -> None:
         strike, option_type = self.strike_for(candle.timestamp, stage.stop)
-        premium = self.premium_lookup(candle.timestamp, strike, option_type)
+        # PRICED AT THE BAR'S CLOSE. That is the moment the engine sees the
+        # bar and buys, in a backtest and in the paper loop alike -- so the two
+        # agree, and a 15m or 1H rung has a live quote to price against (the
+        # bar's OPEN minute is long gone by the time the bar closes). It is
+        # also the conservative side for a bar that rose through the stop.
+        priced_at = closed_at(candle)
+        premium = self.premium_lookup(priced_at, strike, option_type)
         if self.quantity_for is not None:
             quantity = int(self.quantity_for(float(stage.stop), stage.lots))
             if quantity <= 0:
@@ -317,6 +404,7 @@ class TwoRedLadder:
                 strike=strike,
                 option_type=option_type,
                 marked_low=self.lowest,
+                priced_at=priced_at,
             )
         )
         self._log(
@@ -327,6 +415,7 @@ class TwoRedLadder:
             premium=premium,
             lots=stage.lots,
             marked_low=self.lowest,
+            priced_at=priced_at.isoformat(),
         )
         # Mark the ultimate low and climb.
         self.gate_low = self.lowest
@@ -383,12 +472,17 @@ class TwoRedLadder:
         if self.status in {"CLOSED", "EXPIRED", "KILLED"}:
             return
         if self.fills:
-            self._close(candle, index_price, "manual_kill")
+            # A kill happens NOW, not when some bar closes: the caller hands in
+            # a synthetic bar stamped at the moment of the kill, and the sale
+            # is priced at that moment.
+            self._close(candle, index_price, "manual_kill", priced_at=candle.timestamp)
         else:
             self._log(candle, "campaign_killed")
         self.status = "KILLED"
 
-    def _close(self, candle: LadderCandle, index_price: float, reason: str) -> None:
+    def _close(
+        self, candle: LadderCandle, index_price: float, reason: str, *, priced_at: Optional[datetime] = None
+    ) -> None:
         # STAMPED AT THE BAR'S CLOSE, which is the moment the exit could first
         # be acted on -- the same instant `order_events` sequences by. A bar's
         # `timestamp` is its OPEN, so stamping that put an exit taken on a slow
@@ -404,7 +498,10 @@ class TwoRedLadder:
         self.exit_reason = reason
         priced = [fill for fill in self.fills if fill.option_premium is not None]
         first = self.fills[0]
-        sell = self.premium_lookup(candle.timestamp, first.strike, first.option_type)
+        # AND PRICED THERE TOO -- the sale is read at the same instant it is
+        # stamped, which is when a paper campaign actually sells.
+        self.exit_priced_at = priced_at or closed_at(candle)
+        sell = self.premium_lookup(self.exit_priced_at, first.strike, first.option_type)
         self.exit_premium = sell
         if sell is None or len(priced) != len(self.fills):
             # An unpriced leg makes the whole basket's P&L a guess. Report the

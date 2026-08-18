@@ -1,0 +1,318 @@
+"""tools/candle_entry_offline/verify.py -- independent checks on the two-red ladder replay.
+
+Runs the REAL Candle Entry backtest route (offline: cached NIFTY candles +
+the local Upstox option archive, zero broker calls) on many mothers, then
+re-derives every claim the result makes from the raw candles, and re-runs
+the same mother the way the PAPER LOOP feeds bars -- a tick at a time, every
+bar closed by that tick, dedup'd by the engine -- to prove backtest == paper.
+
+    python3 tools/candle_entry_offline/verify.py [mothers-per-timeframe]
+
+Checks, each computed WITHOUT the engine's own bookkeeping:
+  1. the two reds before an arming are back-to-back, each closing below the
+     bar before it, and the stop is the FIRST red's close (above the market);
+  2. the fill bar reached the stop (high >= stop) and came AFTER the arming bar;
+  3. rung k > 1 armed only after a low below the previous fill's marked low;
+  4. the target is average entry + 0.25 x (mother high - average entry);
+  5. the exit: target -> the bar's high reached it; expiry -> the expiry day's
+     first bar closing at/after 15:15; nothing after the exit;
+  6. every premium was read at the bar's CLOSE minute (fills and the exit);
+  7. the contract is the monthly (15-45 DTE, else closest), strike ATM-2 of
+     the mother close, lot size by the mother's date;
+  8. net = gross - costs, gross = sum((sell - buy) x qty), or blank when a leg
+     is unpriced;
+  9. tick-fed paper == bulk backtest: same fills, same exit, same net;
+ 10. the mother bar itself never trades and no fill precedes the mother.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import random
+import sys
+import tempfile
+from datetime import date, datetime, timedelta
+from datetime import time as dt_time
+from types import SimpleNamespace
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
+os.chdir(ROOT)
+os.environ.setdefault("PHILFORGE_FIB_OFFLINE", "1")
+os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
+os.environ.setdefault("PHILFORGE_STARTUP_TOKEN", "0")
+os.environ.setdefault("DHAN_PIN", "")
+os.environ.setdefault("DHAN_TOTP_SECRET", "")
+os.environ.setdefault("DHAN_ACCESS_TOKEN", "offline-dummy")
+os.environ.setdefault("PHILFORGE_DB", os.path.join(tempfile.gettempdir(), "philforge-ce-verify", "verify.db"))
+os.environ.setdefault("PHILFORGE_PIN", "123456")
+os.makedirs(os.path.dirname(os.environ["PHILFORGE_DB"]), exist_ok=True)
+
+import app  # noqa: E402
+from engine.backtest import get_lot_size  # noqa: E402
+from engine.candle_ladder import closed_at  # noqa: E402
+from engine.cascade_options import LadderCandleEntryPaper  # noqa: E402
+
+N = int(sys.argv[1]) if len(sys.argv) > 1 else 12
+random.seed(18)
+IST = app.IST
+
+
+def request():
+    return SimpleNamespace(state=SimpleNamespace(user_id=1))
+
+
+async def cached(tf: str):
+    adapter = app.CascadeOptionsAdapter(None, paper_only=True)
+    return await adapter.async_get_candles("NIFTY", tf, from_date=date(2024, 10, 1), to_date=date(2030, 1, 1))
+
+
+FAILS: list[str] = []
+CHECKS = 0
+
+
+def check(cond: bool, label: str) -> None:
+    global CHECKS
+    CHECKS += 1
+    if not cond:
+        FAILS.append(label)
+
+
+def bar_close(ts: datetime, tf: str) -> datetime:
+    return closed_at(SimpleNamespace(timeframe=tf, timestamp=ts))
+
+
+def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: str) -> None:
+    c = result["campaign"]
+    contract = result["contract"]
+    fills = c["fills"]
+    exit_row = c["exit"]
+    stages = result["stages"]
+    tag = f"{mother_ts.isoformat()} {tf}"
+    by_tf = {k: {row.timestamp: row for row in rows} for k, rows in series.items()}
+    ordered = {k: sorted(rows, key=lambda r: r.timestamp) for k, rows in series.items()}
+    mother_row = by_tf[tf].get(mother_ts)
+    check(mother_row is not None, f"{tag}: mother bar missing")
+    if mother_row is None:
+        return
+    # 7. contract
+    atm = int(float(mother_row.close) / 50.0 + 0.5) * 50
+    check(contract["strike"] == atm - 100, f"{tag}: strike {contract['strike']} != ATM-2 {atm - 100}")
+    check(contract["lot_size"] == int(get_lot_size("NIFTY", mother_ts.date())), f"{tag}: lot size by date")
+    expiry = date.fromisoformat(contract["expiry"])
+    dte = (expiry - mother_ts.date()).days
+    check(0 < dte <= 60, f"{tag}: expiry {expiry} DTE {dte} implausible")
+    # 10. nothing before or on the mother
+    for f in fills:
+        ts = datetime.fromisoformat(f["timestamp"])
+        check(ts > mother_ts, f"{tag}: fill {ts} not after the mother")
+    # 1-3, 6: each fill
+    events = c["events"]
+    prev_marked_low = None
+    for f in fills:
+        rtf = f["timeframe"]
+        rows = ordered[rtf]
+        ts = datetime.fromisoformat(f["timestamp"])
+        idx = next((i for i, r in enumerate(rows) if r.timestamp == ts), None)
+        check(idx is not None, f"{tag}: fill bar {ts} {rtf} not in series")
+        if idx is None:
+            continue
+        fill_bar = rows[idx]
+        stop = float(f["index_price"])
+        check(fill_bar.high >= stop, f"{tag}: fill bar high {fill_bar.high} < stop {stop}")
+        # the arming: the last entry_stop_armed event for this rung before the fill
+        arms = [
+            e
+            for e in events
+            if e.get("event") == "entry_stop_armed"
+            and e.get("rung") == f["rung"]
+            and datetime.fromisoformat(e["timestamp"]) < ts
+        ]
+        check(bool(arms), f"{tag}: rung {f['rung']} filled without an arming event")
+        if arms:
+            arm = arms[-1]
+            arm_ts = datetime.fromisoformat(arm["timestamp"])
+            check(abs(float(arm["stop"]) - stop) < 1e-6, f"{tag}: rung {f['rung']} stop {arm['stop']} != fill {stop}")
+            aidx = next((i for i, r in enumerate(rows) if r.timestamp == arm_ts), None)
+            check(aidx is not None and aidx >= 2, f"{tag}: arming bar {arm_ts} not found or too early")
+            if aidx is not None and aidx >= 2:
+                red2, red1, before = rows[aidx], rows[aidx - 1], rows[aidx - 2]
+                check(red2.close < red2.open and red2.close < red1.close, f"{tag}: red 2 at {arm_ts} does not qualify")
+                check(
+                    red1.close < red1.open and red1.close < before.close,
+                    f"{tag}: red 1 at {red1.timestamp} does not qualify",
+                )
+                check(abs(red1.close - stop) < 1e-6, f"{tag}: stop {stop} != first red close {red1.close}")
+                check(stop > red2.close, f"{tag}: stop {stop} not above the market at arming ({red2.close})")
+                check(fill_bar.timestamp > arm_ts, f"{tag}: fill bar {ts} not after arming {arm_ts}")
+                if f["rung"] > 1 and prev_marked_low is not None:
+                    check(red2.low < prev_marked_low, f"{tag}: rung {f['rung']} armed without a new low")
+        # 6. priced at the bar close
+        priced_at = datetime.fromisoformat(f["priced_at"]) if f.get("priced_at") else None
+        check(priced_at == bar_close(ts, rtf), f"{tag}: fill priced at {priced_at}, bar closes {bar_close(ts, rtf)}")
+        prev_marked_low = float(f["marked_low"])
+    # 4. target
+    if fills:
+        qty = sum(f["quantity"] for f in fills)
+        avg = sum(f["index_price"] * f["quantity"] for f in fills) / qty
+        target = round(avg + 0.25 * (mother_row.high - avg), 2)
+        check(abs(target - float(c["target_index"])) < 0.02, f"{tag}: target {c['target_index']} != {target}")
+    # 5. exit
+    if exit_row:
+        etf = exit_row["timeframe"]
+        ets = datetime.fromisoformat(exit_row["timestamp"])
+        priced_at = datetime.fromisoformat(exit_row["priced_at"])
+        check(priced_at == ets, f"{tag}: exit priced at {priced_at} but stamped {ets}")
+        exit_bar = next((r for r in ordered[etf] if bar_close(r.timestamp, etf) == ets), None)
+        check(exit_bar is not None, f"{tag}: no {etf} bar closes at {ets}")
+        if exit_bar is not None:
+            if exit_row["reason"] == "target":
+                check(
+                    exit_bar.high >= float(c["target_index"]) - 1e-6, f"{tag}: target exit bar never reached the target"
+                )
+                check(
+                    abs(float(exit_row["index_price"]) - float(c["target_index"])) < 1e-6, f"{tag}: target exit price"
+                )
+            elif exit_row["reason"] == "expiry":
+                check(
+                    exit_bar.timestamp.date() == expiry,
+                    f"{tag}: expiry exit on {exit_bar.timestamp.date()} != {expiry}",
+                )
+                check(ets.time() >= dt_time(15, 15), f"{tag}: expiry exit before 15:15")
+                earlier = [
+                    r
+                    for r in ordered[etf]
+                    if r.timestamp.date() == expiry
+                    and bar_close(r.timestamp, etf).time() >= dt_time(15, 15)
+                    and r.timestamp < exit_bar.timestamp
+                ]
+                check(not earlier, f"{tag}: an earlier expiry-day bar already closed at/after 15:15")
+                check(
+                    abs(float(exit_row["index_price"]) - exit_bar.close) < 1e-6,
+                    f"{tag}: expiry exit not at the bar close",
+                )
+            for f in fills:
+                check(datetime.fromisoformat(f["timestamp"]) < ets, f"{tag}: fill after the exit")
+    # 8. money
+    if exit_row and exit_row.get("option_premium") is not None and all(f["option_premium"] is not None for f in fills):
+        gross = round(sum((exit_row["option_premium"] - f["option_premium"]) * f["quantity"] for f in fills), 2)
+        check(abs(gross - float(c["gross_pnl"])) < 0.05, f"{tag}: gross {c['gross_pnl']} != {gross}")
+        check(
+            abs(float(c["gross_pnl"]) - float(c["costs_total"]) - float(c["net_pnl"])) < 0.05,
+            f"{tag}: net != gross - costs",
+        )
+    elif exit_row and fills:
+        check(c["net_pnl"] is None, f"{tag}: unpriced leg but net is {c['net_pnl']}")
+
+
+def tick_fed(result: dict, series: dict[str, list], mother_ts: datetime, tf: str, history) -> dict:
+    """The paper loop's shape: every 20s it re-fetches all CLOSED bars since the
+    mother and ingests them; the engine dedupes. Simulated at one tick per
+    minute over the replay window, then settled the way the loop settles."""
+    contract = result["contract"]
+    mother_row = next(r for r in series[tf] if r.timestamp == mother_ts)
+    fixed = app.FixedCampaignOption(
+        "NIFTY", contract["strike"], date.fromisoformat(contract["expiry"]), "CE", contract["lot_size"], ""
+    )
+    engine = LadderCandleEntryPaper(
+        mother_row,
+        tf,
+        fixed,
+        app._CandleEntryReplayAdapter(),
+        (lambda when, k: history(when, k)) if history is not None else (lambda _w, _k: None),
+        intraday_close=bool(result["intraday_close"]),
+    )
+    end_day = date.fromisoformat(result["horizon_to"])
+    stamps = sorted(
+        {
+            bar_close(r.timestamp, k)
+            for k, rows in series.items()
+            for r in rows
+            if mother_ts.date() <= r.timestamp.date() <= end_day
+        }
+    )
+    idx = {k: 0 for k in series}
+    ordered = {k: sorted(rows, key=lambda r: bar_close(r.timestamp, k)) for k, rows in series.items()}
+    seen: dict[str, list] = {k: [] for k in series}
+    for t in stamps:
+        for k, rows in ordered.items():
+            while idx[k] < len(rows) and bar_close(rows[idx[k]].timestamp, k) <= t:
+                if rows[idx[k]].timestamp.date() <= end_day:
+                    seen[k].append(rows[idx[k]])
+                idx[k] += 1
+        engine.ingest({k: list(v) for k, v in seen.items()})  # the whole window again, like the poll
+        if engine.status in {"CLOSED", "EXPIRED", "KILLED"}:
+            break
+    engine.settle_past_expiry(datetime.now(IST))
+    return engine.get_status()
+
+
+def same(a: dict, b: dict) -> bool:
+    fa = [(f["rung"], f["timestamp"], f["index_price"], f["option_premium"], f["quantity"]) for f in a["fills"]]
+    fb = [(f["rung"], f["timestamp"], f["index_price"], f["option_premium"], f["quantity"]) for f in b["fills"]]
+    ea = a["exit"] and (
+        a["exit"]["timestamp"],
+        a["exit"]["reason"],
+        a["exit"]["index_price"],
+        a["exit"]["option_premium"],
+    )
+    eb = b["exit"] and (
+        b["exit"]["timestamp"],
+        b["exit"]["reason"],
+        b["exit"]["index_price"],
+        b["exit"]["option_premium"],
+    )
+    return fa == fb and ea == eb and a["net_pnl"] == b["net_pnl"] and a["status"] == b["status"]
+
+
+async def main() -> None:
+    all_tf = {tf: await cached(tf) for tf in ("1m", "5m", "15m", "1h")}
+    latest = min(rows[-1].timestamp for rows in all_tf.values())
+    print(f"cache: 1m..1h to {latest}")
+    picks: list[tuple[datetime, str]] = []
+    for tf in ("5m", "15m", "1h"):
+        pool = [r for r in all_tf[tf] if r.timestamp.date() < latest.date() - timedelta(days=50)]
+        picks += [(r.timestamp, tf) for r in random.sample(pool, min(N, len(pool)))]
+    pool1 = [r for r in all_tf["1m"] if r.timestamp.date() < latest.date() - timedelta(days=50)]
+    picks += [(r.timestamp, "1m") for r in random.sample(pool1, min(max(2, N // 4), len(pool1)))]
+    print(f"{len(picks)} mothers")
+    outcomes = {"target": 0, "expiry": 0, "open": 0, "no_buy": 0}
+    nets: list[float] = []
+    for mother_ts, tf in picks:
+        try:
+            result = await app.candle_entry_backtest(
+                app.CandleEntryBacktestPayload(
+                    mother_timestamp=mother_ts.replace(tzinfo=None).isoformat(), timeframe=tf
+                ),
+                request(),
+            )
+        except Exception as exc:  # a refused mother is a finding, not a crash
+            FAILS.append(f"{mother_ts} {tf}: backtest raised {exc}")
+            continue
+        stages = result["stages"]
+        expiry = date.fromisoformat(result["contract"]["expiry"])
+        series = {
+            k: [r for r in all_tf[k] if mother_ts.date() <= r.timestamp.date() <= min(expiry, latest.date())]
+            for k in stages
+        }
+        verify_one(result, series, mother_ts, tf)
+        history, _ = app._candle_entry_pricing(None, mother_ts.date(), min(expiry, latest.date()))
+        paper = tick_fed(result, series, mother_ts, tf, history)
+        check(same(result["campaign"], paper), f"{mother_ts} {tf}: tick-fed paper != backtest")
+        c = result["campaign"]
+        if not c["fills"]:
+            outcomes["no_buy"] += 1
+        elif c["exit"] is None:
+            outcomes["open"] += 1
+        else:
+            outcomes[c["exit"]["reason"]] = outcomes.get(c["exit"]["reason"], 0) + 1
+        if c["net_pnl"] is not None:
+            nets.append(c["net_pnl"])
+    print(f"checks: {CHECKS}, failures: {len(FAILS)}")
+    for line in FAILS[:40]:
+        print("  FAIL", line)
+    print(f"outcomes: {outcomes}; priced rounds {len(nets)}, sum net {round(sum(nets), 2)}")
+
+
+asyncio.run(main())

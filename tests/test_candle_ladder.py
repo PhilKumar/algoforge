@@ -5,6 +5,7 @@ from engine.candle_ladder import (
     LadderCandle,
     LadderError,
     TwoRedLadder,
+    closed_at,
     ladder_from,
     order_events,
 )
@@ -18,7 +19,7 @@ def bar(timeframe: str, offset: int, o: float, h: float, low: float, c: float) -
     return LadderCandle(timeframe, START + timedelta(minutes=minutes * offset), o, h, low, c)
 
 
-def a_ladder(mother: LadderCandle, stages, *, premium=50.0, lots=(1, 2, 3, 4), require_new_low=True):
+def a_ladder(mother: LadderCandle, stages, *, premium=50.0, lots=(1, 2, 3, 4), require_new_low=True, **kw):
     return TwoRedLadder(
         mother,
         stages=stages,
@@ -27,6 +28,7 @@ def a_ladder(mother: LadderCandle, stages, *, premium=50.0, lots=(1, 2, 3, 4), r
         lot_size=65,
         lots=lots,
         require_new_low=require_new_low,
+        **kw,
     )
 
 
@@ -92,6 +94,50 @@ class StopPlacementTests(unittest.TestCase):
         self._two_reds(ladder)
         ladder.on_candle(bar("1m", 4, 99, 99.5, 95, 96))  # red 3, closes 96
         self.assertEqual(ladder.stages[0].stop, 99.0)
+
+    def test_the_two_reds_must_be_back_to_back(self):
+        # Phil's "1st/previous red candle": a green between two reds starts
+        # the count over. On the 10-Aug-2026 mother the stale first red armed
+        # a stop BELOW the market and "filled" at a price never traded.
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("1m",))
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))  # red 1, closes 102
+        ladder.on_candle(bar("1m", 3, 102, 103.5, 101.5, 103))  # green: the run is broken
+        ladder.on_candle(bar("1m", 4, 103, 103.2, 100, 101))  # red again -- but the FIRST of a new pair
+        self.assertIsNone(ladder.stages[0].stop)
+        self.assertEqual(len(ladder.stages[0].reds), 1)
+        ladder.on_candle(bar("1m", 5, 101, 101.2, 98, 99))  # second red of the new pair -> arm at 101
+        self.assertEqual(ladder.stages[0].stop, 101.0)
+
+    def test_a_red_that_closes_higher_breaks_the_run_too(self):
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("1m",))
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))  # red 1, closes 102
+        ladder.on_candle(bar("1m", 3, 104, 104.5, 102.5, 103))  # red, but closes ABOVE 102
+        self.assertEqual(ladder.stages[0].reds, [])
+        self.assertIsNone(ladder.stages[0].stop)
+
+    def test_a_resting_stop_survives_a_green_that_does_not_reach_it(self):
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("1m",))
+        self._two_reds(ladder)  # armed at 102
+        ladder.on_candle(bar("1m", 4, 99, 100.5, 98.5, 100))  # green, high below the stop
+        self.assertEqual(ladder.stages[0].stop, 102.0)  # the order is on the book
+        ladder.on_candle(bar("1m", 5, 100, 102.5, 99.5, 102))  # reaches it
+        self.assertEqual(len(ladder.fills), 1)
+        self.assertEqual(ladder.fills[0].index_price, 102.0)
+
+    def test_a_fresh_pair_after_a_green_moves_the_resting_stop_lower(self):
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("1m",))
+        self._two_reds(ladder)  # armed at 102
+        ladder.on_candle(bar("1m", 4, 99, 100.5, 98.5, 100))  # green, no fill
+        ladder.on_candle(bar("1m", 5, 100, 100.2, 97, 98))  # red 1 of a new pair
+        self.assertEqual(ladder.stages[0].stop, 102.0)  # one red is not a pair
+        ladder.on_candle(bar("1m", 6, 98, 98.5, 95, 96))  # red 2 -> the stop trails to 98
+        self.assertEqual(ladder.stages[0].stop, 98.0)
 
 
 class EscalationTests(unittest.TestCase):
@@ -237,6 +283,139 @@ class ExitTests(unittest.TestCase):
         self.assertEqual(ladder.exit_timeframe, "1h")
         self.assertGreater(ladder.exit_timestamp, fill.timestamp)
         self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=120))
+
+
+class PricingMomentTests(unittest.TestCase):
+    """Every premium is read at the bar's CLOSE -- the moment the engine acts.
+
+    That is when a paper campaign sees the bar and buys, so a backtest priced
+    the same way agrees with it; and it is the only minute a 15m or 1H rung
+    still has a live quote for. A kill is the one exception: it happens now.
+    """
+
+    def _ladder_recording_minutes(self, stages=("15m",), **kw):
+        asked: list = []
+
+        def premium(when, _strike, _side):
+            asked.append(when)
+            return 50.0
+
+        mother = bar("15m", 0, 100, 110, 99, 105)
+        ladder = TwoRedLadder(
+            mother,
+            stages=stages,
+            strike_for=lambda _ts, price: (int(price // 50 * 50), "CE"),
+            premium_lookup=premium,
+            lot_size=65,
+            **kw,
+        )
+        return ladder, asked
+
+    def _fill_the_first_rung(self, ladder):
+        ladder.on_candle(bar("15m", 4, 105, 106, 104, 105))  # 10:15
+        ladder.on_candle(bar("15m", 5, 105, 105.5, 101, 102))  # 10:30, red 1
+        ladder.on_candle(bar("15m", 6, 102, 102.5, 98, 99))  # 10:45, red 2 -> arm at 102
+        ladder.on_candle(bar("15m", 7, 99, 103, 98.5, 102.5))  # 11:00, fills
+
+    def test_a_fill_is_priced_at_the_bar_close_not_its_open(self):
+        ladder, asked = self._ladder_recording_minutes()
+        self._fill_the_first_rung(ladder)
+        # The 11:00 bar closes at 11:15; the fill keeps its open for display.
+        self.assertEqual(asked, [START + timedelta(minutes=120)])
+        self.assertEqual(ladder.fills[0].timestamp, START + timedelta(minutes=105))
+        self.assertEqual(ladder.fills[0].priced_at, START + timedelta(minutes=120))
+
+    def test_a_target_exit_is_priced_when_its_bar_closed(self):
+        ladder, asked = self._ladder_recording_minutes()
+        self._fill_the_first_rung(ladder)
+        ladder.on_candle(bar("15m", 8, 102.5, 105, 102, 104.5))  # 11:15 bar, closes 11:30
+        self.assertEqual(ladder.exit_reason, "target")
+        self.assertEqual(asked[-1], START + timedelta(minutes=135))
+        self.assertEqual(ladder.exit_priced_at, ladder.exit_timestamp)
+
+    def test_a_kill_is_priced_at_the_moment_of_the_kill(self):
+        ladder, asked = self._ladder_recording_minutes()
+        self._fill_the_first_rung(ladder)
+        now = START + timedelta(minutes=123)
+        ladder.kill(LadderCandle("15m", now, 101, 101, 101, 101), 101.0)
+        self.assertEqual(ladder.status, "KILLED")
+        self.assertEqual(asked[-1], now)
+
+    def test_the_last_bar_of_the_day_closes_at_the_session_end(self):
+        stub = LadderCandle("1h", START.replace(hour=15, minute=15), 100, 101, 99, 100)
+        self.assertEqual(closed_at(stub), START.replace(hour=15, minute=30))
+        last_minute = LadderCandle("1m", START.replace(hour=15, minute=29), 100, 101, 99, 100)
+        self.assertEqual(closed_at(last_minute), START.replace(hour=15, minute=30))
+        # An ordinary bar is untouched, and so is a daily bar (session-measured).
+        self.assertEqual(closed_at(bar("1h", 1, 100, 101, 99, 100)), START + timedelta(minutes=120))
+        self.assertEqual(closed_at(LadderCandle("1d", START, 1, 2, 0, 1)), START + timedelta(minutes=375))
+
+
+class SessionEndTests(unittest.TestCase):
+    """The expiry day, and the optional flat-by-3:15 rule, end the ladder."""
+
+    def _ladder(self, **kw):
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        return a_ladder(mother, ("1m",), **kw)
+
+    def _one_fill(self, ladder):
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))
+        ladder.on_candle(bar("1m", 3, 102, 102.5, 98, 99))
+        ladder.on_candle(bar("1m", 4, 99, 103, 98.5, 102.5))
+        self.assertEqual(len(ladder.fills), 1)
+
+    def test_a_ladder_with_no_expiry_holds_through_the_close(self):
+        ladder = self._ladder()
+        self._one_fill(ladder)
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=14), 100, 100.5, 99, 100))
+        self.assertIsNone(ladder.exit_timestamp)
+        self.assertEqual(ladder.status, "OPEN")
+
+    def test_the_expiry_day_sells_the_basket_on_the_first_bar_closing_at_or_after_three_fifteen(self):
+        ladder = self._ladder(expiry=START.date())
+        self._one_fill(ladder)
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=13), 100, 100.5, 99, 100))
+        self.assertIsNone(ladder.exit_timestamp)  # closes 15:14, too early
+        last = LadderCandle("1m", START.replace(hour=15, minute=14), 100, 100.5, 99, 100.25)
+        ladder.on_candle(last)
+        self.assertEqual(ladder.status, "EXPIRED")
+        self.assertEqual(ladder.exit_reason, "expiry")
+        self.assertEqual(ladder.exit_index_price, 100.25)  # sold at that bar's close
+        self.assertEqual(ladder.exit_timestamp, START.replace(hour=15, minute=15))
+
+    def test_a_setup_that_never_bought_expires_at_the_close_of_the_expiry_day(self):
+        ladder = self._ladder(expiry=START.date())
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=14), 100, 100.5, 99, 100))
+        self.assertEqual(ladder.status, "EXPIRED")
+        self.assertEqual(ladder.fills, [])
+        self.assertEqual(ladder.events[-1]["event"], "session_ended_without_a_trade")
+
+    def test_before_the_expiry_day_the_close_changes_nothing(self):
+        ladder = self._ladder(expiry=START.date() + timedelta(days=7))
+        self._one_fill(ladder)
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=14), 100, 100.5, 99, 100))
+        self.assertIsNone(ladder.exit_timestamp)
+
+    def test_intraday_close_sells_at_three_fifteen_and_ends_the_campaign(self):
+        ladder = self._ladder(intraday_close=True, expiry=START.date() + timedelta(days=30))
+        self._one_fill(ladder)
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=14), 100, 100.5, 99, 100.75))
+        self.assertEqual(ladder.status, "CLOSED")
+        self.assertEqual(ladder.exit_reason, "intraday_close")
+        self.assertEqual(ladder.exit_index_price, 100.75)
+
+    def test_intraday_close_does_not_let_the_three_fifteen_bar_open_a_position(self):
+        ladder = self._ladder(intraday_close=True)
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))
+        ladder.on_candle(bar("1m", 3, 102, 102.5, 98, 99))  # armed at 102
+        # The 15:14 bar rises through the stop AND is the day's last chance:
+        # it must not buy something the next bar has to sell.
+        ladder.on_candle(LadderCandle("1m", START.replace(hour=15, minute=14), 99, 103, 98.5, 102.5))
+        self.assertEqual(ladder.fills, [])
+        self.assertEqual(ladder.status, "CLOSED")
 
 
 if __name__ == "__main__":

@@ -1107,6 +1107,19 @@ class FixedCampaignOption:
     lot_size: int
     security_id: str
 
+    @property
+    def symbol(self) -> str:
+        """The name the recorded-history sources ask for.
+
+        `UpstoxPremiumSource.lookup` reads ``contract.symbol`` (the `Contract`
+        protocol); this class always said ``underlying``. Handed straight to
+        the hybrid lookup, an EXPIRED contract's archive read raised
+        AttributeError -- so a Candle Entry backtest of any mother older than
+        the current monthly failed, and the Test Bench two-red replay had the
+        same hole. One name, both spellings.
+        """
+        return self.underlying
+
 
 @dataclass(frozen=True)
 class PaperOptionOrder:
@@ -2566,6 +2579,7 @@ class LadderCandleEntryPaper:
         *,
         target_fraction: float = 0.25,
         signal_only: bool = False,
+        intraday_close: bool = False,
     ) -> None:
         if not adapter.paper_only or contract.option_type != "CE":
             raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
@@ -2578,6 +2592,7 @@ class LadderCandleEntryPaper:
         self.adapter = adapter
         self.option_premium_lookup = option_premium_lookup
         self.signal_only = bool(signal_only)
+        self.intraday_close = bool(intraday_close)
         self.replay_complete = False
         self.stages = ladder_from(key)
 
@@ -2597,6 +2612,11 @@ class LadderCandleEntryPaper:
             premium_lookup=_premium,
             lot_size=contract.lot_size,
             target_fraction=target_fraction,
+            # The option's own last day ends the ladder from inside the bar
+            # stream, so a live campaign that never reaches its target still
+            # ends where the contract does, and a replay ends on the same bar.
+            expiry=contract.expiry,
+            intraday_close=self.intraday_close,
         )
         # Everything at or before the mother's open is pre-history on every
         # chart; TwoRedLadder skips those itself, this just avoids re-feeding.
@@ -2659,6 +2679,44 @@ class LadderCandleEntryPaper:
                     "status": self.ladder.status,
                 }
             )
+
+    @property
+    def expired_by(self) -> datetime:
+        """The instant the contract is gone: the session end of its expiry day."""
+        return datetime.combine(self.contract.expiry, dt_time(15, 30), tzinfo=self.mother.timestamp.tzinfo)
+
+    def settle_past_expiry(self, now: datetime) -> bool:
+        """End a ladder whose option has expired without the bar stream saying so.
+
+        The expiry-day 15:15 bar normally ends the campaign from inside
+        `on_candle`; this is the fallback for a stream that never carried that
+        bar (a data gap on the last day, a poll that only woke up afterwards).
+        The sale is booked on the last bar the campaign saw -- the latest
+        price it can honestly claim -- never at a made-up minute. Returns True
+        when it ended the campaign here.
+        """
+        if self.ladder.status in {"CLOSED", "EXPIRED", "KILLED"}:
+            return False
+        stamp = now if now.tzinfo is not None else now.replace(tzinfo=self.mother.timestamp.tzinfo)
+        if stamp < self.expired_by:
+            return False
+        last = self._latest
+        if last is None:
+            last = LadderCandle(
+                self.timeframe,
+                self.mother.timestamp,
+                self.mother.open,
+                self.mother.high,
+                self.mother.low,
+                self.mother.close,
+            )
+        had_open_basket = bool(self.ladder.fills)
+        self.ladder.close_at_expiry(last, last.close)
+        if not self.signal_only and had_open_basket and self.ladder.exit_premium is not None:
+            quantity = sum(fill.quantity for fill in self.ladder.fills)
+            if quantity:
+                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+        return True
 
     # ── candle intake ─────────────────────────────────────────
     def ingest(self, batches: Mapping[str, Iterable[IndexCandle]]) -> None:
@@ -2738,6 +2796,7 @@ class LadderCandleEntryPaper:
                     "fill": (
                         {
                             "timestamp": fill.timestamp.isoformat(),
+                            "priced_at": fill.priced_at.isoformat() if fill.priced_at is not None else None,
                             "index_price": fill.index_price,
                             "option_premium": fill.option_premium,
                             "lots": fill.lots,
@@ -2771,6 +2830,8 @@ class LadderCandleEntryPaper:
                     "exit_reason": ladder.exit_reason,
                 }
             )
+        priced_fills = [fill for fill in ladder.fills if fill.option_premium is not None]
+        deployed = round(sum(float(fill.option_premium) * fill.quantity for fill in priced_fills), 2)
         return {
             "mode": "paper",
             "strategy": "candle_entry_ladder",
@@ -2778,7 +2839,8 @@ class LadderCandleEntryPaper:
             "stages": list(self.stages),
             "running": ladder.status not in {"CLOSED", "EXPIRED", "KILLED"},
             "status": ladder.status,
-            "pricing_mode": "signal_only_dhan" if self.signal_only else "current_quote_paper",
+            "intraday_close": self.intraday_close,
+            "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
                 "Historical replay verifies NIFTY entry and target geometry only. "
                 "Fixed-strike option premium and P&L are intentionally withheld."
@@ -2786,6 +2848,42 @@ class LadderCandleEntryPaper:
                 else None
             ),
             "replay_complete": self.replay_complete,
+            # THE MONEY, at the top where the tiles read it. Blank until a
+            # priced round has closed; a leg no source could price leaves the
+            # net blank rather than costing it as though it were free.
+            "net_pnl": ladder.net_pnl,
+            "gross_pnl": ladder.gross_pnl,
+            "costs_total": round(ladder.costs.total, 2) if ladder.costs is not None else None,
+            "deployed_inr": deployed,
+            "unpriced_fills": len(ladder.fills) - len(priced_fills),
+            "fills": [
+                {
+                    "rung": fill.rung,
+                    "timeframe": fill.timeframe,
+                    "timestamp": fill.timestamp.isoformat(),
+                    "priced_at": fill.priced_at.isoformat() if fill.priced_at is not None else None,
+                    "index_price": fill.index_price,
+                    "option_premium": fill.option_premium,
+                    "lots": fill.lots,
+                    "quantity": fill.quantity,
+                    "strike": fill.strike,
+                    "option_type": fill.option_type,
+                    "marked_low": fill.marked_low,
+                }
+                for fill in ladder.fills
+            ],
+            "exit": (
+                {
+                    "timestamp": ladder.exit_timestamp.isoformat(),
+                    "timeframe": ladder.exit_timeframe,
+                    "priced_at": ladder.exit_priced_at.isoformat() if ladder.exit_priced_at is not None else None,
+                    "index_price": ladder.exit_index_price,
+                    "option_premium": ladder.exit_premium,
+                    "reason": ladder.exit_reason,
+                }
+                if ladder.exit_timestamp is not None
+                else None
+            ),
             "mother": {
                 "timeframe": self.timeframe,
                 "timestamp": self.mother.timestamp.isoformat(),
@@ -2880,6 +2978,7 @@ class LadderCandleEntryPaper:
                 "target_fraction": ladder.target_fraction,
                 "signal_only": self.signal_only,
                 "require_new_low": ladder.require_new_low,
+                "intraday_close": self.intraday_close,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
             "contract": {
@@ -2900,6 +2999,8 @@ class LadderCandleEntryPaper:
                 "gate_low": ladder.gate_low,
                 "status": ladder.status,
                 "exit_timestamp": ladder.exit_timestamp.isoformat() if ladder.exit_timestamp else None,
+                "exit_timeframe": ladder.exit_timeframe,
+                "exit_priced_at": ladder.exit_priced_at.isoformat() if ladder.exit_priced_at else None,
                 "exit_index_price": ladder.exit_index_price,
                 "exit_premium": ladder.exit_premium,
                 "exit_reason": ladder.exit_reason,
@@ -2930,6 +3031,7 @@ class LadderCandleEntryPaper:
                         "strike": fill.strike,
                         "option_type": fill.option_type,
                         "marked_low": fill.marked_low,
+                        "priced_at": fill.priced_at.isoformat() if fill.priced_at is not None else None,
                     }
                     for fill in ladder.fills
                 ],
@@ -2986,6 +3088,7 @@ class LadderCandleEntryPaper:
             option_premium_lookup,
             target_fraction=float(config.get("target_fraction") or 0.25),
             signal_only=bool(config.get("signal_only")),
+            intraday_close=bool(config.get("intraday_close")),
         )
         ladder = engine.ladder
         ladder.require_new_low = bool(config.get("require_new_low", True))
@@ -3012,6 +3115,7 @@ class LadderCandleEntryPaper:
                 strike=int(row["strike"]),
                 option_type=str(row["option_type"]),
                 marked_low=float(row["marked_low"]),
+                priced_at=moment(row["priced_at"]) if row.get("priced_at") else None,
             )
             for row in raw_ladder.get("fills") or []
         ]
@@ -3019,6 +3123,8 @@ class LadderCandleEntryPaper:
         ladder.gate_low = float(raw_ladder["gate_low"]) if raw_ladder.get("gate_low") is not None else None
         ladder.status = str(raw_ladder.get("status") or "WAITING_TWO_RED")
         ladder.exit_timestamp = moment(raw_ladder["exit_timestamp"]) if raw_ladder.get("exit_timestamp") else None
+        ladder.exit_timeframe = raw_ladder.get("exit_timeframe")
+        ladder.exit_priced_at = moment(raw_ladder["exit_priced_at"]) if raw_ladder.get("exit_priced_at") else None
         ladder.exit_index_price = raw_ladder.get("exit_index_price")
         ladder.exit_premium = raw_ladder.get("exit_premium")
         ladder.exit_reason = raw_ladder.get("exit_reason")

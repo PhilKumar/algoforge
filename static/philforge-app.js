@@ -1876,6 +1876,11 @@ const PF_DELEGATED_ACTIONS = new Set([
   'hideCascadeOptionsChart',
   'startCandleEntryPaper',
   'killCandleEntryPaper',
+  'runCandleEntryBacktest',
+  'toggleCandleEntryBacktestChart',
+  'loadCandleEntryChart',
+  'hideCandleEntryChart',
+  'setCandleEntrySession',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
   'showInsightsTab',
@@ -2348,6 +2353,7 @@ function _renderCandleEntryStatus(payload) {
   const start = _cascadeOptionsEl('candle-entry-start');
   const kill = _cascadeOptionsEl('candle-entry-kill');
   const monitor = _cascadeOptionsEl('candle-entry-monitor');
+  _lastCandleEntryStatus = campaign || null;
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
     if (summary) summary.textContent = 'No active Candle Entry campaign.';
@@ -2358,20 +2364,21 @@ function _renderCandleEntryStatus(payload) {
   }
   const running = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  if (badge) { badge.textContent = campaign.replay_complete ? `REPLAY · ${state}` : state; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : 'var(--warn)'; }
+  if (badge) { badge.textContent = running ? state : `ENDED · ${state}`; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : 'var(--warn)'; }
   if (start) start.disabled = running;
   if (kill) kill.style.display = running ? '' : 'none';
   const c = campaign.contract || {};
   if (summary) {
-    const signal = campaign.signal_entry || {};
-    const signalLine = signal.index_price == null ? '' : `<br>Index entry signal: ${escapeHtml(_cascadeNumber(signal.index_price))}${signal.exit_timestamp ? ' · Exit reached' : ''}`;
     const pricingLine = campaign.pricing_warning ? `<br><span class="is-warning" style="color:var(--warn);">${escapeHtml(campaign.pricing_warning)}</span>` : '';
     const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
     const filled = rungs.filter(r => r.state === 'filled').length;
     const ladderLine = rungs.length
-      ? `<br>Ladder: ${escapeHtml(rungs.map(r => _TB_TF_LABEL[r.timeframe] || r.timeframe).join(' → '))} · ${escapeHtml(String(filled))} of ${escapeHtml(String(rungs.length))} rung${rungs.length === 1 ? '' : 's'} bought`
+      ? `<br>Ladder: ${escapeHtml(rungs.map(r => _TB_TF_LABEL[r.timeframe] || r.timeframe).join(' → '))} · ${escapeHtml(String(filled))} of ${escapeHtml(String(rungs.length))} rung${rungs.length === 1 ? '' : 's'} bought · ${campaign.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`
       : '';
-    summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · ${escapeHtml(c.expiry || '—')} · lot size ${escapeHtml(String(c.lot_size || '—'))}${ladderLine}<br>Entry stop: ${escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${signalLine}${pricingLine}`;
+    const money = campaign.net_pnl == null
+      ? (campaign.exit ? ' · net P&L unavailable (a leg had no price)' : '')
+      : ` · net ${_cascadeOptionsMoney(campaign.net_pnl)}`;
+    summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · expiry ${escapeHtml(c.expiry || '—')} · lot size ${escapeHtml(String(c.lot_size || '—'))}${ladderLine}<br>Entry stop: ${campaign.entry_stop == null ? '—' : escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${campaign.target_index == null ? '—' : escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${escapeHtml(money)}${pricingLine}`;
   }
   _renderCandleEntryMonitor(campaign);
 }
@@ -2432,30 +2439,32 @@ function _renderCandleEntryMonitor(campaign) {
   const filledRungs = rungs.filter(r => r.state === 'filled');
   const tfLabel = tf => _TB_TF_LABEL[tf] || String(tf || '—');
   const watchLabel = activeRung ? tfLabel(activeRung.timeframe) : tfLabel(campaign.timeframe);
-  const rounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
-  const lastRound = rounds.length ? rounds[rounds.length - 1] : null;
+  const exit = campaign.exit || null;
   const status = String(campaign.status || 'WAITING_TWO_RED');
-  const stateTone = campaign.running ? 'is-info' : (status === 'CLOSED' ? 'is-positive' : 'is-warning');
-  const recoveryValue = `${qualifying.length} of 2 qualifying red candle${qualifying.length === 1 ? '' : 's'}`;
-  const recoveryDetail = qualifying.length ? `Latest qualifying candle: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : `A red ${watchLabel} candle must close below the previous candle.`;
-  const stopValue = campaign.entry_stop == null ? 'Not armed yet' : _cascadeNumber(campaign.entry_stop);
-  const stopDetail = campaign.entry_stop_armed_at ? `Armed after the ${_cascadeOptionsTimestamp(campaign.entry_stop_armed_at)} candle — the FIRST red's close.` : 'It will be set after the second qualifying red candle.';
+  const stateTone = campaign.running ? 'is-info' : (status === 'CLOSED' || status === 'EXPIRED' ? 'is-positive' : 'is-warning');
+  const fullyBought = rungs.length > 0 && !activeRung;
+  const ended = !campaign.running;
+  const recoveryValue = fullyBought ? 'Every rung bought' : ended ? '—' : `${qualifying.length} of 2 back-to-back red candle${qualifying.length === 1 ? '' : 's'}`;
+  const recoveryDetail = fullyBought || ended ? '' : qualifying.length ? `Latest qualifying candle: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : `A red ${watchLabel} candle must close below the candle before it; a green starts the count over.`;
+  const stopValue = fullyBought || ended ? '—' : campaign.entry_stop == null ? 'Not armed yet' : _cascadeNumber(campaign.entry_stop);
+  const stopDetail = fullyBought || ended ? '' : campaign.entry_stop_armed_at ? `Armed after the ${_cascadeOptionsTimestamp(campaign.entry_stop_armed_at)} candle — the FIRST red's close.` : 'It will be set after the second qualifying red candle.';
   let positionValue = 'No open paper position';
-  let positionDetail = 'P&L will appear once a quote-backed paper trade has closed.';
+  let positionDetail = 'Fills are priced at the close of the bar that reaches the stop — the live quote when the bar is fresh, recorded history when it is older.';
   let nextStep = qualifying.length < 2 ? `Waiting for another qualifying red candle on the ${watchLabel} chart` : `Watching for a ${watchLabel} recovery above the entry stop`;
   if (openFill) {
     positionValue = `Open · ${filledRungs.length} rung${filledRungs.length === 1 ? '' : 's'} · ${openFill.quantity || '—'} quantity`;
-    positionDetail = `Last buy at ${_cascadeNumber(openFill.index_price)}${openFill.option_premium == null ? '' : ` · option premium ₹${_cascadeNumber(openFill.option_premium)}`} · ${openFill.lots || 1} lot${(openFill.lots || 1) === 1 ? '' : 's'}`;
+    positionDetail = `Last buy at ${_cascadeNumber(openFill.index_price)}${openFill.option_premium == null ? ' · option premium unavailable for that minute' : ` · option premium ₹${_cascadeNumber(openFill.option_premium)}`} · ${openFill.lots || 1} lot${(openFill.lots || 1) === 1 ? '' : 's'}${campaign.deployed_inr ? ` · ₹${_cascadeNumber(campaign.deployed_inr)} deployed` : ''}`;
     nextStep = activeRung
       ? `Watching the target on every chart, and the ${tfLabel(activeRung.timeframe)} chart for rung ${activeRung.rung} after a new low`
       : 'Ladder fully bought — watching the index target to close the whole basket';
-  } else if (campaign.signal_entry?.index_price != null) {
-    positionValue = campaign.signal_entry.exit_timestamp ? 'Historical signal closed' : 'Historical signal open';
-    positionDetail = `Index signal at ${_cascadeNumber(campaign.signal_entry.index_price)} · option premium and P&L are unavailable for replay.`;
-    nextStep = campaign.signal_entry.exit_timestamp ? 'Historical replay complete' : 'Watching the historical index target';
-  } else if (lastRound) {
-    positionValue = `Closed · net P&L ₹${_cascadeNumber(lastRound.net_pnl)}`;
-    positionDetail = `${String(lastRound.exit_reason || 'exit').replaceAll('_', ' ')} at ${_cascadeOptionsTimestamp(lastRound.closed_at)}`;
+  } else if (exit) {
+    const reason = String(exit.reason || 'exit').replaceAll('_', ' ');
+    positionValue = campaign.net_pnl == null ? `Closed · ${reason}` : `Closed · net P&L ${_cascadeOptionsMoney(campaign.net_pnl)}`;
+    positionDetail = `${reason} at ${_cascadeOptionsTimestamp(exit.timestamp)} · index ${_cascadeNumber(exit.index_price)}${exit.option_premium == null ? ' · sale premium unavailable' : ` · sold at ₹${_cascadeNumber(exit.option_premium)}`}${campaign.costs_total != null ? ` · costs ₹${_cascadeNumber(campaign.costs_total)}` : ''}`;
+    nextStep = 'Campaign has completed';
+  } else if (!campaign.running && filledRungs.length === 0) {
+    positionValue = 'No trade';
+    positionDetail = 'The two-red setup never completed before the campaign ended.';
     nextStep = 'Campaign has completed';
   }
   overview.innerHTML = [
@@ -2463,7 +2472,7 @@ function _renderCandleEntryMonitor(campaign) {
     _candleEntryOverviewRow('Recovery progress', recoveryValue, recoveryDetail),
     _candleEntryOverviewRow('Entry stop', stopValue, stopDetail, campaign.entry_stop == null ? '' : 'is-warning'),
     _candleEntryOverviewRow('Index target', campaign.target_index == null ? 'Set after entry' : _cascadeNumber(campaign.target_index), campaign.target_index == null ? 'The target is calculated once the entry is triggered.' : 'The paper position closes when this target is reached.'),
-    _candleEntryOverviewRow('Paper position', positionValue, positionDetail, openFill ? 'is-positive' : ''),
+    _candleEntryOverviewRow('Paper position', positionValue, positionDetail, openFill ? 'is-positive' : (exit && campaign.net_pnl != null ? (campaign.net_pnl >= 0 ? 'is-positive' : 'is-warning') : '')),
     _candleEntryOverviewRow('What happens next', nextStep),
   ].join('');
   if (rungsEl) {
@@ -2473,7 +2482,7 @@ function _renderCandleEntryMonitor(campaign) {
       const stateTxt = rungStateLabel[rung.state] || String(rung.state || '').toUpperCase();
       const stopTxt = fill ? _cascadeNumber(fill.index_price) : (rung.entry_stop == null ? '—' : _cascadeNumber(rung.entry_stop));
       const filledTxt = fill ? _cascadeOptionsTimestamp(fill.timestamp) : '—';
-      const premiumTxt = fill && fill.option_premium != null ? `₹${_cascadeNumber(fill.option_premium)}` : '—';
+      const premiumTxt = fill && fill.option_premium != null ? `₹${_cascadeNumber(fill.option_premium)}` : (fill ? 'no price' : '—');
       const tone = rung.state === 'filled' ? 'candle-entry-strong' : (rung.state === 'armed' ? '' : 'candle-entry-muted');
       return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td></tr>`;
     }).join('') : '<tr><td colspan="7" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
@@ -2522,22 +2531,61 @@ function _ceRenderTimeframes() {
   if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[select.value] || '';
 }
 
+// The Session switch: Hold (target or expiry) or Close 3:15. Same shape as the
+// Fib Boundary form's switch, same delegated-action wiring.
+function setCandleEntrySession(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'hold';
+  const input = document.getElementById('candle-entry-session');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('candle-entry-session-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+}
+
+function _candleEntryIntradayClose() {
+  return (document.getElementById('candle-entry-session')?.value || 'hold') === 'intraday';
+}
+
+// Field for field what Backtest sends. The two routes trade ONE ladder, so
+// their payloads have to be one too.
+function _candleEntryPayload() {
+  return {
+    mother_timestamp: _cascadeOptionsEl('candle-entry-mother-timestamp')?.value,
+    timeframe: _cascadeOptionsEl('candle-entry-timeframe')?.value || '5m',
+    ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
+    intraday_close: _candleEntryIntradayClose(),
+  };
+}
+
 async function startCandleEntryPaper() {
-  const timeframe = _cascadeOptionsEl('candle-entry-timeframe')?.value || '1h';
-  const timestamp = _cascadeOptionsEl('candle-entry-mother-timestamp')?.value;
-  if (!timestamp) { _setCandleEntryFormStatus('Choose a completed mother timestamp.', 'error'); return; }
-  _setCandleEntryFormStatus(`Checking the ${_TB_TF_LABEL[timeframe] || timeframe} mother candle…`, 'busy');
+  const payload = _candleEntryPayload();
+  if (!payload.mother_timestamp) { _setCandleEntryFormStatus('Choose a completed mother timestamp.', 'error'); return; }
+  _setCandleEntryFormStatus(`Checking the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} mother candle and catching up…`, 'busy');
   let response;
   try {
-    response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: timestamp, timeframe }) });
+    response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   } catch (error) {
     _setCandleEntryFormStatus(error?.message || 'Unable to reach the paper campaign service.', 'error');
     return;
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !['started', 'replayed'].includes(data.status)) { _setCandleEntryFormStatus(pfErrorText(data, 'Candle Entry campaign did not start.'), 'error'); return; }
-  _setCandleEntryFormStatus(data.status === 'replayed' ? 'Historical replay completed. Fixed-strike P&L is withheld.' : 'Ladder paper campaign started. No live order will be sent.', 'success');
-  _renderCandleEntryStatus({ campaign: data.campaign });
+  if (!response.ok || data.status !== 'started') { _setCandleEntryFormStatus(_apiErrorMessage(data, 'Candle Entry campaign did not start.'), 'error'); return; }
+  const c = data.campaign || {};
+  if (c.running) {
+    _setCandleEntryFormStatus(`Paper campaign started${data.caught_up_to ? ` · caught up to ${_cascadeOptionsTimestamp(data.caught_up_to)}` : ''}. No live order will be sent.`, 'success');
+  } else {
+    _setCandleEntryFormStatus(
+      c.net_pnl == null ? `Campaign caught up and already ended (${String(c.status || '').replaceAll('_', ' ').toLowerCase()}).` : `Campaign caught up and already ended · net ${_cascadeOptionsMoney(c.net_pnl)}`,
+      c.net_pnl == null ? 'muted' : (c.net_pnl >= 0 ? 'success' : 'error'),
+    );
+  }
+  _renderCandleEntryStatus({ campaign: c });
 }
 
 async function killCandleEntryPaper() {
@@ -2545,9 +2593,268 @@ async function killCandleEntryPaper() {
   if (!confirmed) return;
   const response = await fetch('/api/candle-entry/paper/kill', { method: 'POST', credentials: 'same-origin' });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.status !== 'killed') { _setCandleEntryFormStatus(pfErrorText(data, 'Candle Entry kill could not be confirmed.'), 'error'); return; }
+  if (!response.ok || data.status !== 'killed') { _setCandleEntryFormStatus(_apiErrorMessage(data, 'Candle Entry kill could not be confirmed.'), 'error'); return; }
   _setCandleEntryFormStatus('Candle Entry campaign killed.', 'success');
   _renderCandleEntryStatus({ campaign: data.campaign });
+}
+
+// ── Candle Entry · backtest (real premiums) ─────────────────────────────
+let _lastCandleEntryBacktest = null;
+let _lastCandleEntryStatus = null;
+let _candleEntryBacktestChartTf = '';
+
+async function runCandleEntryBacktest() {
+  const payload = _candleEntryPayload();
+  if (!payload.mother_timestamp) { _setCandleEntryFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
+  const button = document.getElementById('candle-entry-backtest-btn');
+  if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
+  _setCandleEntryFormStatus(`Replaying the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} ladder on recorded prices…`, 'busy');
+  try {
+    const response = await fetch('/api/candle-entry/backtest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Backtest failed (${response.status})`));
+    _renderCandleEntryBacktest(data);
+    const net = data.campaign?.net_pnl;
+    _setCandleEntryFormStatus(
+      net == null ? (data.still_open ? 'Replayed — the basket is still open (target not reached, option not expired).' : 'Replayed — no priced round to report.') : `Replayed · net ${_cascadeOptionsMoney(net)}`,
+      net == null ? 'muted' : (net >= 0 ? 'success' : 'error'),
+    );
+  } catch (error) {
+    _setCandleEntryFormStatus(error.message || 'Backtest failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '◱ Backtest · real P&L'; }
+  }
+}
+
+// The last replay is filed server-side, so re-opening the page brings it back
+// instead of paying for it again. Never fatal.
+async function _restoreLastCandleEntryBacktest() {
+  if (_lastCandleEntryBacktest) return;
+  try {
+    const response = await fetch('/api/candle-entry/backtests/latest', { credentials: 'same-origin' });
+    if (!response.ok) return;
+    const data = await response.json().catch(() => ({}));
+    const payload = data && data.run && data.run.payload;
+    if (!payload || payload.status !== 'ok' || _lastCandleEntryBacktest) return;
+    _renderCandleEntryBacktest(payload);
+    const note = document.getElementById('candle-entry-backtest-note');
+    if (note && data.run.created_at) note.textContent = `${note.textContent} · saved run from ${_cascadeOptionsTimestamp(data.run.created_at)}`;
+  } catch (_error) {
+    /* No saved run, or it cannot be read — the panel simply stays closed. */
+  }
+}
+
+function _renderCandleEntryBacktest(data) {
+  const panel = document.getElementById('candle-entry-backtest');
+  if (panel) panel.style.display = '';
+  const c = data.campaign || {};
+  _lastCandleEntryBacktest = data;
+  _candleEntryCollapseBacktestChart();
+  const charts = data.charts || {};
+  const hasChart = Object.keys(charts).some(tf => Array.isArray(charts[tf]?.candles) && charts[tf].candles.length);
+  const chartBtn = document.getElementById('candle-entry-backtest-chart-btn');
+  if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
+  ['candle-entry-backtest-csv', 'candle-entry-backtest-json'].forEach(id => { const a = document.getElementById(id); if (a) a.style.display = ''; });
+
+  const badge = document.getElementById('candle-entry-backtest-badge');
+  if (badge) {
+    const priced = data.pricing === 'recorded_history';
+    const gaps = Number(c.unpriced_fills || 0) + ((data.premium_failures || []).length ? 1 : 0);
+    badge.textContent = !priced ? 'GEOMETRY ONLY' : gaps ? `PRICED · ${c.unpriced_fills || 0} UNPRICED LEG${c.unpriced_fills === 1 ? '' : 'S'}` : (data.still_open ? 'REAL PREMIUMS · STILL OPEN' : 'REAL PREMIUMS');
+    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
+    badge.style.borderColor = badge.style.color;
+  }
+  const contract = document.getElementById('candle-entry-backtest-contract');
+  const k = data.contract || {};
+  if (contract) {
+    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')} · ${data.lot_size} units/lot · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
+  }
+  const gist = document.getElementById('candle-entry-backtest-gist');
+  if (gist) gist.textContent = data.note || '';
+
+  const summary = document.getElementById('candle-entry-backtest-summary');
+  const fills = Array.isArray(c.fills) ? c.fills : [];
+  if (summary) {
+    const exit = c.exit || {};
+    const outcome = fills.length ? (exit.reason ? String(exit.reason).replaceAll('_', ' ') : 'still open') : 'no buy';
+    summary.innerHTML = [
+      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? '#6ee7b7' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
+      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5'),
+      _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
+      _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
+      _cascadeOptionsMetric('Deployed', _cascadeOptionsMoney(Number(c.deployed_inr) || 0), '#fde68a'),
+      _cascadeOptionsMetric('Buys', `${fills.length} · ${fills.reduce((n, f) => n + (Number(f.lots) || 0), 0)} lots`),
+    ].join('');
+  }
+
+  const note = document.getElementById('candle-entry-backtest-note');
+  if (note) {
+    const exit = c.exit;
+    const ended = exit
+      ? `ended ${_cascadeOptionsTimestamp(exit.timestamp)} (${String(exit.reason || '').replaceAll('_', ' ')}) at index ${_cascadeNumber(exit.index_price)}${exit.option_premium != null ? `, sold at ₹${_cascadeNumber(exit.option_premium)}` : ''}`
+      : (fills.length ? `still open at ${data.horizon_to}` : `no buy — the two-red setup never completed by ${data.horizon_to}`);
+    const target = c.target_index != null ? ` · target ${_cascadeNumber(c.target_index)}` : '';
+    const avg = c.average_entry != null ? ` · average entry ${_cascadeNumber(c.average_entry)}` : '';
+    note.textContent = `Mother ${_cascadeOptionsTimestamp((data.mother || {}).timestamp)} · high ${_cascadeNumber((data.mother || {}).high)}${avg}${target} · ${ended} · ${data.candles_replayed} bars replayed`;
+  }
+
+  const gapsEl = document.getElementById('candle-entry-backtest-gaps');
+  if (gapsEl) {
+    const lines = [].concat(
+      (data.premium_failures || []).map(String),
+      (data.premium_stale_fills || []).map(String),
+      fills.filter(f => f.option_premium == null).map(f => `no recorded price for rung ${f.rung} at ${_cascadeOptionsTimestamp(f.priced_at || f.timestamp)}`),
+    );
+    gapsEl.innerHTML = lines.length
+      ? `<div style="padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font:10.5px/1.5 'JetBrains Mono',monospace;"><strong>${lines.length} pricing note${lines.length === 1 ? '' : 's'}</strong><br>${lines.slice(-6).map(escapeHtml).join('<br>')}</div>`
+      : '';
+  }
+
+  const legs = document.getElementById('candle-entry-backtest-legs');
+  if (legs) {
+    const sold = c.exit && c.exit.option_premium != null ? Number(c.exit.option_premium) : null;
+    legs.innerHTML = fills.length ? fills.map(f => {
+      const pnl = sold == null || f.option_premium == null ? null : (sold - Number(f.option_premium)) * Number(f.quantity);
+      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+      return `<tr style="border-bottom:1px solid var(--border);">`
+        + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.rung))}</strong></td>`
+        + `<td style="padding:7px 8px;">${escapeHtml(_TB_TF_LABEL[f.timeframe] || String(f.timeframe))}</td>`
+        + `<td style="padding:7px 8px;" title="priced at ${escapeHtml(_cascadeOptionsTimestamp(f.priced_at || f.timestamp))}">${escapeHtml(_cascadeOptionsTimestamp(f.timestamp))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(_cascadeNumber(f.index_price))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(Number(f.strike).toLocaleString('en-IN'))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${f.option_premium == null ? '—' : '₹' + escapeHtml(_cascadeNumber(f.option_premium))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.lots))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${escapeHtml(String(f.quantity))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;">${sold == null ? '—' : '₹' + escapeHtml(_cascadeNumber(sold))}</td>`
+        + `<td style="padding:7px 8px;text-align:right;color:${color};font-weight:800;">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`
+        + `</tr>`;
+    }).join('') : '<tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No rung was bought in this window.</td></tr>';
+  }
+}
+
+function _candleEntryCollapseBacktestChart() {
+  const wrap = document.getElementById('candle-entry-backtest-chart-wrap');
+  const box = document.getElementById('candle-entry-backtest-chart');
+  const strip = document.getElementById('candle-entry-backtest-chart-strip');
+  const btn = document.getElementById('candle-entry-backtest-chart-btn');
+  if (wrap) wrap.style.display = 'none';
+  if (box) box.innerHTML = '';
+  if (strip) strip.innerHTML = '';
+  if (btn) btn.textContent = '↗ Journal chart';
+}
+
+function _candleEntryDrawBacktestChart() {
+  const data = _lastCandleEntryBacktest;
+  const box = document.getElementById('candle-entry-backtest-chart');
+  if (!data || !box) return;
+  const charts = data.charts || {};
+  const tfs = (data.stages || Object.keys(charts)).filter(tf => charts[tf]);
+  const tf = tfs.includes(_candleEntryBacktestChartTf) ? _candleEntryBacktestChartTf : (tfs[0] || '');
+  _candleEntryBacktestChartTf = tf;
+  if (typeof pfBenchDrawChart === 'function' && charts[tf]) pfBenchDrawChart(box, charts[tf]);
+}
+
+function toggleCandleEntryBacktestChart() {
+  const wrap = document.getElementById('candle-entry-backtest-chart-wrap');
+  const box = document.getElementById('candle-entry-backtest-chart');
+  const strip = document.getElementById('candle-entry-backtest-chart-strip');
+  const btn = document.getElementById('candle-entry-backtest-chart-btn');
+  if (!wrap || !box) return;
+  if (wrap.style.display !== 'none' && box.innerHTML) {
+    _candleEntryCollapseBacktestChart();
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    return;
+  }
+  const data = _lastCandleEntryBacktest;
+  if (!data) return;
+  // The overlay and this journal share ONE canvas renderer; put the other away.
+  hideCandleEntryChart();
+  wrap.style.display = '';
+  const charts = data.charts || {};
+  const tfs = (data.stages || Object.keys(charts)).filter(tf => charts[tf]);
+  if (strip && !strip.childElementCount && typeof pfChartStrip === 'function' && tfs.length) {
+    pfChartStrip(strip, {
+      timeframes: tfs,
+      active: tfs.includes(_candleEntryBacktestChartTf) ? _candleEntryBacktestChartTf : tfs[0],
+      onTimeframe: (tf) => { _candleEntryBacktestChartTf = tf; _candleEntryDrawBacktestChart(); },
+      zoom: false,
+    });
+  }
+  _candleEntryDrawBacktestChart();
+  if (btn) btn.textContent = '× Hide chart';
+}
+
+// ── Candle Entry · the running campaign's chart ─────────────────────────
+let _candleEntryChartTf = '';
+let _candleEntryChartDrawnKey = '';
+
+async function loadCandleEntryChart() {
+  const el = id => document.getElementById(id);
+  const campaign = _lastCandleEntryStatus;
+  const chart = el('candle-entry-chart');
+  const meta = el('candle-entry-chart-meta');
+  const overlay = el('candle-entry-chart-overlay');
+  const title = el('candle-entry-chart-title');
+  if (!campaign) { _setCandleEntryFormStatus('Start a campaign first — the chart draws what it is watching.', 'error'); return; }
+  const stages = Array.isArray(campaign.stages) && campaign.stages.length ? campaign.stages : [campaign.timeframe];
+  const timeframe = stages.includes(_candleEntryChartTf) ? _candleEntryChartTf : stages[0];
+  _candleEntryChartTf = timeframe;
+  _candleEntryCollapseBacktestChart();
+  pfSetCascadeChartOverlayOpen(overlay, true);
+  if (title) title.textContent = `NIFTY two-red ladder · ${String(campaign.timeframe).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
+  const stripHost = el('candle-entry-chart-strip');
+  if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
+    pfChartStrip(stripHost, {
+      timeframes: stages,
+      active: timeframe,
+      onTimeframe: (tf) => { _candleEntryChartTf = tf; loadCandleEntryChart(); },
+      onRefresh: () => loadCandleEntryChart(),
+      onClose: () => hideCandleEntryChart(),
+    });
+  }
+  if (chart && !chart.querySelector('#pf-bench-canvas-host')) {
+    chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed NIFTY ${escapeHtml(timeframe)} candles…</div>`;
+  }
+  try {
+    const query = new URLSearchParams({ timeframe });
+    const response = await fetch(`/api/candle-entry/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
+    const payload = data.chart || {};
+    const mountedHost = chart ? chart.querySelector('#pf-bench-canvas-host') : null;
+    const canvasIsThisChart = mountedHost && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host === mountedHost;
+    const drawnKey = `${data.mother_timestamp}|${data.timeframe}`;
+    const view = canvasIsThisChart && drawnKey === _candleEntryChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+    const refreshed = canvasIsThisChart && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(payload, view);
+    if (!refreshed && chart && typeof pfBenchDrawChart === 'function') {
+      await pfWaitForCascadeChartLayout();
+      pfBenchDrawChart(chart, payload);
+    }
+    _candleEntryChartDrawnKey = drawnKey;
+    if (meta) {
+      const lines = Array.isArray(payload.lines) ? payload.lines : [];
+      const bought = lines.filter(l => l.filled).length;
+      const armed = lines.length - bought;
+      meta.textContent = `${(payload.candles || []).length} closed ${String(data.timeframe).toUpperCase()} candles · ${bought} rung${bought === 1 ? '' : 's'} bought${armed ? `, ${armed} armed` : ''}${payload.tp_price != null ? ` · target ${_cascadeNumber(payload.tp_price)}` : ''} · ${String(data.campaign_status || '').replaceAll('_', ' ').toLowerCase()} · drag to pan, wheel to zoom, double-click to reset`;
+    }
+  } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+  }
+}
+
+function hideCandleEntryChart() {
+  const overlay = document.getElementById('candle-entry-chart-overlay');
+  if (!overlay || !overlay.classList.contains('is-open')) return;
+  pfSetCascadeChartOverlayOpen(overlay, false);
+  _candleEntryChartTf = '';
+  _candleEntryChartDrawnKey = '';
+  const strip = document.getElementById('candle-entry-chart-strip');
+  if (strip) strip.innerHTML = '';
+  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+  const chart = document.getElementById('candle-entry-chart');
+  if (chart) chart.innerHTML = '';
 }
 
 function _cascadeOptionsChartSvg(payload) {
@@ -2779,6 +3086,11 @@ window.loadCascadeOptionsChart = loadCascadeOptionsChart;
 window.hideCascadeOptionsChart = hideCascadeOptionsChart;
 window.startCandleEntryPaper = startCandleEntryPaper;
 window.killCandleEntryPaper = killCandleEntryPaper;
+window.runCandleEntryBacktest = runCandleEntryBacktest;
+window.toggleCandleEntryBacktestChart = toggleCandleEntryBacktestChart;
+window.loadCandleEntryChart = loadCandleEntryChart;
+window.hideCandleEntryChart = hideCandleEntryChart;
+window.setCandleEntrySession = setCandleEntrySession;
 window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 
 // ══════════════════════════════════════════════════════════════
@@ -3072,6 +3384,7 @@ async function initOptionsCascadePage() {
   _syncFibModeHint();
   _ceRenderTimeframes();
   _restoreLastFibBoundaryBacktest();
+  _restoreLastCandleEntryBacktest();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
   if (!_fibBoundaryPollTimer) {

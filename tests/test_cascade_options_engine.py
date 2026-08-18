@@ -721,6 +721,110 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY", "SELL"])
         self.assertEqual(engine.open_quantity, 0)
 
+    def test_the_contract_answers_to_symbol_as_well_as_underlying(self):
+        # The recorded-history sources read `contract.symbol`; handed this
+        # object, an expired contract's archive read used to raise.
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        self.assertEqual(contract.symbol, "NIFTY")
+
+    def test_status_carries_the_money_and_every_fill_priced_at_the_bar_close(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)
+        engine.ingest(self._two_rung_batches())
+        status = engine.get_status()
+        self.assertEqual(status["deployed_inr"], 100.0 * 195)
+        self.assertEqual(status["unpriced_fills"], 0)
+        self.assertIsNone(status["net_pnl"])
+        self.assertIsNone(status["exit"])
+        self.assertEqual([f["rung"] for f in status["fills"]], [1, 2])
+        # The 09:19 1m fill bar closes 09:20; the 09:35 5m fill bar closes 09:40.
+        self.assertEqual(status["fills"][0]["priced_at"], self._minute(9, 20).isoformat())
+        self.assertEqual(status["fills"][1]["priced_at"], self._minute(9, 40).isoformat())
+        engine.ingest({"1m": [IndexCandle(self._minute(9, 41), 100, 103, 100, 102)]})
+        status = engine.get_status()
+        self.assertEqual(status["exit"]["reason"], "target")
+        self.assertEqual(status["exit"]["priced_at"], self._minute(9, 42).isoformat())
+        self.assertIsNotNone(status["net_pnl"])
+        self.assertAlmostEqual(status["net_pnl"], status["gross_pnl"] - status["costs_total"], places=2)
+
+    def test_the_expiry_day_ends_the_campaign_from_inside_the_stream(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(datetime(2026, 7, 28, 9, 15), 104, 110, 104, 105)
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        engine = LadderCandleEntryPaper(mother, "1m", contract, adapter, lambda _t, _c: 100.0)
+        m = lambda h, mi: datetime(2026, 7, 28, h, mi)  # noqa: E731
+        engine.ingest(
+            {
+                "1m": [
+                    IndexCandle(m(9, 16), 105, 106, 104, 106),
+                    IndexCandle(m(9, 17), 106, 106, 102, 103),
+                    IndexCandle(m(9, 18), 103, 103, 100, 101),
+                    IndexCandle(m(9, 19), 101, 102.5, 100, 102),  # fills at 103? no: high 102.5 < 103
+                    IndexCandle(m(9, 20), 102, 103.5, 101, 103),  # fills rung 1 at 103
+                    IndexCandle(m(15, 13), 100, 100.5, 99, 100),
+                    IndexCandle(m(15, 14), 100, 100.5, 99, 100.25),  # closes 15:15 -> expiry sale
+                ]
+            }
+        )
+        self.assertEqual(engine.status, "EXPIRED")
+        self.assertFalse(engine.get_status()["running"])
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "SELL"])
+        exit_row = engine.get_status()["exit"]
+        self.assertEqual(exit_row["reason"], "expiry")
+        self.assertEqual(exit_row["index_price"], 100.25)
+        self.assertEqual(exit_row["timestamp"], m(15, 15).isoformat())
+
+    def test_settle_past_expiry_ends_a_stream_that_never_carried_the_last_bar(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(datetime(2026, 7, 27, 9, 15), 104, 110, 104, 105)
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        engine = LadderCandleEntryPaper(mother, "1m", contract, adapter, lambda _t, _c: 100.0)
+        m = lambda h, mi: datetime(2026, 7, 27, h, mi)  # noqa: E731
+        engine.ingest(
+            {
+                "1m": [
+                    IndexCandle(m(9, 16), 105, 106, 104, 106),
+                    IndexCandle(m(9, 17), 106, 106, 102, 103),
+                    IndexCandle(m(9, 18), 103, 103, 100, 101),
+                    IndexCandle(m(9, 20), 102, 103.5, 101, 103),  # fills rung 1 at 103
+                ]
+            }
+        )
+        self.assertEqual(engine.status, "OPEN_CLIMBING")
+        # Before the contract is gone, nothing happens.
+        self.assertFalse(engine.settle_past_expiry(datetime(2026, 7, 28, 15, 29)))
+        self.assertTrue(engine.settle_past_expiry(datetime(2026, 7, 28, 15, 31)))
+        self.assertEqual(engine.status, "EXPIRED")
+        self.assertEqual(engine.get_status()["exit"]["reason"], "expiry")
+        self.assertEqual([o.side for o in adapter.orders], ["BUY", "SELL"])
+        self.assertFalse(engine.settle_past_expiry(datetime(2026, 7, 29, 9, 30)))  # already ended
+
+    def test_intraday_close_is_persisted_and_sells_at_three_fifteen(self):
+        adapter = _PaperAdapter()
+        mother = IndexCandle(datetime(2026, 7, 20, 9, 15), 104, 110, 104, 105)
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        engine = LadderCandleEntryPaper(mother, "1m", contract, adapter, lambda _t, _c: 100.0, intraday_close=True)
+        m = lambda h, mi: datetime(2026, 7, 20, h, mi)  # noqa: E731
+        engine.ingest(
+            {
+                "1m": [
+                    IndexCandle(m(9, 16), 105, 106, 104, 106),
+                    IndexCandle(m(9, 17), 106, 106, 102, 103),
+                    IndexCandle(m(9, 18), 103, 103, 100, 101),
+                    IndexCandle(m(9, 20), 102, 103.5, 101, 103),
+                    IndexCandle(m(15, 14), 100, 100.5, 99, 100.5),
+                ]
+            }
+        )
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.get_status()["exit"]["reason"], "intraday_close")
+        restored = LadderCandleEntryPaper.from_dict(
+            engine.to_dict(), adapter=_PaperAdapter(), option_premium_lookup=lambda _t, _c: 1.0
+        )
+        self.assertTrue(restored.intraday_close)
+        self.assertTrue(restored.get_status()["intraday_close"])
+        self.assertEqual(restored.get_status()["exit"], engine.get_status()["exit"])
+
 
 class AnchorToleranceTests(unittest.TestCase):
     """The trendline's slack is measured in candles, not percent of price.

@@ -7,8 +7,9 @@ the live server's (there is ONE per client). So with
 
     PHILFORGE_FIB_OFFLINE=1
 
-`app.py` calls :func:`install` at import and the three Fib Boundary routes --
-backtest, Start (paper) and the chart -- read index candles from
+`app.py` calls :func:`install` at import and the Fib Boundary routes --
+backtest, Start (paper) and the chart -- and the Candle Entry routes
+(backtest, Start, chart) read index candles from
 ``tools/.nifty_cache`` (real Dhan candles, plus the Upstox-fetched extension)
 and premiums from the local Upstox option archive (back-filling an expired
 contract from Upstox when the archive lacks it, with the read-only token in
@@ -95,8 +96,17 @@ def install(app_module: Any) -> None:
     tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 
     class OfflineAdapter:
+        # The Candle Entry paper campaign asks its adapter two things the fib
+        # routes never do: that it is paper-locked, and a place_order to book
+        # its paper fills on. Answered here, recording nothing -- there is no
+        # blotter offline.
+        paper_only = True
+
         def __init__(self, *_a, **_k) -> None:
             pass
+
+        def place_order(self, *_a, **_k):
+            return None
 
         async def async_get_candles(self, symbol, timeframe="5m", *, from_date=None, to_date=None, now=None):
             tf = str(timeframe).lower()
@@ -171,10 +181,16 @@ def install(app_module: Any) -> None:
     async def broker_context(request):
         return ({"id": app_module._request_user_id(request)}, OfflineBroker(), "offline")
 
+    def candle_entry_pricing(_broker, from_day, to_day):
+        # The Candle Entry routes' one pricing seam: history + every expiry.
+        src = source_for("NIFTY")
+        return history_lookup(_broker, "NIFTY", from_day, to_day), sorted(src.expiries() if src is not None else [])
+
     app_module.CascadeOptionsAdapter = OfflineAdapter
     app_module._request_broker_context = broker_context
     app_module._fib_touch_history_lookup = history_lookup
     app_module._fib_touch_expiry_source = expiry_source
+    app_module._candle_entry_pricing = candle_entry_pricing
     try:
         from broker.dhan import ScripMaster
 

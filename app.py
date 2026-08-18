@@ -12,6 +12,7 @@ import hashlib
 import inspect
 import io
 import json
+import math
 import re
 import shutil
 from copy import deepcopy
@@ -1582,6 +1583,9 @@ class _CascadeRuntime:
     last_candle_timestamp: datetime
     task: asyncio.Task | None = None
     running: bool = True
+    # Candle Entry only: whether the engine has been handed recorded option
+    # history for bars older than a live quote. See _candle_entry_arm_history.
+    history_armed: bool = False
 
 
 @dataclass
@@ -1831,8 +1835,10 @@ async def _restore_candle_entry_open_state(
     try:
         payload = json.loads(raw)
         adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        # Live quotes for now, recorded history for anything older -- the poll
+        # arms the history on its first tick when the catch-up needs it.
         engine = LadderCandleEntryPaper.from_dict(
-            payload["engine"], adapter=adapter, option_premium_lookup=_cascade_premium_lookup(broker)
+            payload["engine"], adapter=adapter, option_premium_lookup=_candle_entry_premium_lookup(broker, None)
         )
         last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
         if last.tzinfo is None:
@@ -3984,14 +3990,30 @@ class CandleEntryPaperStartPayload(BaseModel):
     """Mother timestamp and starting chart for the two-red ladder campaign.
 
     The timeframe is where the ladder STARTS; it climbs from there through
-    every slower chart up to 1H (1m -> 1+2+3+4 lots, 15m -> 3+4, and so on).
-    The default keeps the old single-rung 1H behaviour for anything that
-    still posts without a timeframe.
+    every slower chart up to 1H, one lot more on each rung (1m -> 1+2+3+4
+    lots, 15m -> 1+2). The default keeps the old single-rung 1H behaviour for
+    anything that still posts without a timeframe. `intraday_close` sells the
+    basket at 15:15 and ends the campaign that day; off, it holds to its target
+    or the option's expiry.
     """
 
     mother_timestamp: str
     timeframe: str = "1h"
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+    intraday_close: bool = False
+
+
+class CandleEntryBacktestPayload(BaseModel):
+    """The SAME questions Start asks, replayed on recorded option prices.
+
+    Field for field the paper Start payload, so the two routes can never trade
+    different ladders on the same mother.
+    """
+
+    mother_timestamp: str
+    timeframe: str = "5m"
+    ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+    intraday_close: bool = False
 
 
 class FibBoundaryPaperStartPayload(BaseModel):
@@ -10080,33 +10102,160 @@ def _parse_cascade_mother_timestamp(raw: str) -> datetime:
     return parsed.replace(tzinfo=IST) if parsed.tzinfo is None else parsed.astimezone(IST)
 
 
-def _historical_candle_entry_contract(
-    mother: IndexCandle, candles: list[IndexCandle], ce_offset_steps: int
-) -> FixedCampaignOption:
-    """Resolve the contract that was valid at a historical mother candle.
+def _candle_entry_contract(mother: IndexCandle, expiries: list[date], ce_offset_steps: int) -> FixedCampaignOption:
+    """The one CE the ladder holds, chosen the way a campaign started TODAY chooses it.
 
-    Today's ScripMaster cannot be used as an expiry calendar for a past trade:
-    it drops expired weekly contracts.  The index sessions returned by Dhan let
-    us derive the correct Tuesday/holiday-shifted next-weekly expiry instead.
-    The empty security id is deliberate—historical replay never requests an
-    LTP or submits even a paper broker order for that expired contract.
+    Monthly (Phil, 2026-07-30: "Monthly for everything"), inside the 15-45
+    DTE window when one exists and the closest otherwise -- exactly
+    `CascadeOptionsAdapter._next_expiry`, fed the expiries known for the
+    mother's own date so a past mother resolves the contract that existed
+    THEN. The old replay path took the next weekly here while a same-day
+    start took the monthly, so a backtest and a paper run of one mother held
+    different options; they hold the same one now.
+
+    Sized by the mother's date too (`_nifty_lot_size_on`), never by today's
+    chain. The empty security id is deliberate -- nothing on this path needs
+    it: paper orders are recorded in memory, quotes are asked by
+    strike/expiry, and history is looked up the same way.
+    """
+    if not expiries:
+        raise HTTPException(status_code=503, detail="No NIFTY option expiry could be named for that mother.")
+    # The engine's own rule, reached through its module: the offline harness
+    # swaps this module's adapter name for a candle reader that has no rule.
+    from engine.cascade_options import CascadeOptionsAdapter as _EngineAdapter
+
+    try:
+        expiry = _EngineAdapter._next_expiry(expiries, mother.timestamp.date(), "NIFTY", monthly_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"No monthly NIFTY expiry after that mother: {exc}") from exc
+    atm = int(math.floor(float(mother.close) / 50.0 + 0.5) * 50)
+    strike = atm + int(ce_offset_steps) * 50
+    return FixedCampaignOption("NIFTY", strike, expiry, "CE", _nifty_lot_size_on(mother.timestamp.date()), "")
+
+
+def _candle_entry_pricing(broker: DhanClient, from_day: date, to_day: date):
+    """Recorded NIFTY option prices over a window, and every expiry a source can name.
+
+    Returns ``(history, expiries)``: `history(when, contract)` is the hybrid
+    lookup (Upstox for an expired contract, Dhan's own option candles for a
+    listed one, forward/back-scanned inside the day and disclosed on
+    ``.stale_fills``; ``.source_failures`` says when a source broke), or None
+    when no source is reachable. `expiries` is Upstox's expired chain ∪ the
+    scrip master's live one, so a mother from any month resolves its own
+    monthly. BLOCKING -- call it off the event loop. The offline harness
+    replaces this one function to run the same routes with no broker.
+    """
+    upstox_source = None
+    upstox_expiries: list = []
+    try:
+        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
+
+        try:
+            from upstox_token_manager import ensure_fresh_token
+
+            ensure_fresh_token()
+        except Exception as exc:
+            _logger.warning("[CANDLE ENTRY] Upstox token pre-check skipped: %s", exc)
+        try:
+            upstox_source = UpstoxPremiumSource(backfill_missing=True)
+            upstox_expiries = sorted(upstox_source.available_expiries())
+        except UpstoxAccessError as exc:
+            _logger.warning("[CANDLE ENTRY] Upstox history unavailable, Dhan only: %s", exc)
+    except Exception as exc:
+        _logger.warning("[CANDLE ENTRY] Upstox source unavailable: %s", exc)
+    expiries = _known_option_expiries("NIFTY", upstox_expiries)
+    history = None
+    try:
+        history = _hybrid_premium_lookup(
+            broker, "NIFTY", upstox_source, set(upstox_expiries), from_day, to_day, forward_minutes=1
+        )
+    except Exception as exc:
+        _logger.warning("[CANDLE ENTRY] premium history unavailable: %s", exc)
+    return history, expiries
+
+
+# A quote is "current" for this long. Past it the LTP describes a different
+# minute than the bar being priced, and using it would be a fabrication.
+_CANDLE_ENTRY_LIVE_QUOTE_SECONDS = 7 * 60
+
+
+def _candle_entry_premium_lookup(broker: DhanClient, history=None):
+    """Price a fill by the AGE of its minute: the LTP if it is now, history if not.
+
+    The ladder asks for a price at the moment it acts (the bar's close). In
+    the paper loop that is seconds ago and the live quote answers; on a
+    catch-up or a restart it is older, and only RECORDED history may answer --
+    a live quote must never be pinned on a past minute. With no history an
+    old minute simply has no price and the engine records the gap.
     """
 
-    session_days = {row.timestamp.date() for row in candles}
-    end_day = max(session_days) if session_days else mother.timestamp.date()
-    expiries = _cascade_weekly_expiries(mother.timestamp.date(), end_day, session_days)
-    expiry = next(
-        (value for value in expiries if 6 <= (value - mother.timestamp.date()).days <= 13),
-        None,
-    )
-    if expiry is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Dhan did not return enough NIFTY sessions to resolve this mother candle's next-weekly expiry.",
-        )
-    atm = int(float(mother.close) / 50.0 + 0.5) * 50
-    strike = atm + int(ce_offset_steps) * 50
-    return FixedCampaignOption("NIFTY", strike, expiry, "CE", 65, "")
+    def lookup(when: datetime, contract: FixedCampaignOption) -> float | None:
+        now = datetime.now(IST)
+        stamp = when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
+        if abs((now - stamp).total_seconds()) <= _CANDLE_ENTRY_LIVE_QUOTE_SECONDS:
+            try:
+                value = broker.get_option_ltp(
+                    contract.underlying, contract.strike, contract.expiry.isoformat(), contract.option_type
+                )
+                if float(value or 0) > 0:
+                    return float(value)
+            except Exception:
+                pass
+            # A failed live quote must not fall through to history for a bar
+            # this recent -- history has not recorded it yet.
+            return None
+        if history is None:
+            return None
+        try:
+            value = history(stamp, contract)
+            return float(value) if value is not None and float(value) > 0 else None
+        except Exception as exc:
+            _logger.warning("[CANDLE ENTRY] history lookup failed at %s: %s", stamp, exc)
+            return None
+
+    return lookup
+
+
+class _CandleEntryReplayAdapter:
+    """The paper-order sink for a backtest: paper-locked, records nothing.
+
+    A backtest is not a campaign; its buys must not land on the paper blotter
+    beside the live one's. `LadderCandleEntryPaper` only asks two things of an
+    adapter -- that it is paper-only, and a `place_order` -- so this answers
+    both and does nothing.
+    """
+
+    paper_only = True
+
+    def place_order(self, *_args, **_kwargs):
+        return None
+
+
+def _candle_entry_ladder_candles(timeframe: str, rows) -> list:
+    """Dhan index candles as the ladder's own `LadderCandle`s."""
+    from engine.candle_ladder import LadderCandle
+
+    return [LadderCandle(timeframe, row.timestamp, row.open, row.high, row.low, row.close) for row in rows]
+
+
+def _candle_entry_charts(engine: LadderCandleEntryPaper, batches: Mapping[str, list]) -> dict:
+    """One Canvas payload per chart in the ladder, drawn from the engine's own state.
+
+    `ladder_chart` (the Test Bench's) already draws a TwoRedLadder: fills as
+    solid rungs carrying what they cost, an armed stop dashed, the target, the
+    exit. The mother bar leads each series because the replay stream itself
+    starts strictly after it.
+    """
+    from engine.test_bench import ladder_chart
+
+    charts: dict = {}
+    mother_bar = engine.ladder.mother
+    for timeframe, rows in batches.items():
+        series = _candle_entry_ladder_candles(timeframe, rows)
+        if timeframe == engine.timeframe and not any(row.timestamp == mother_bar.timestamp for row in series):
+            series = [mother_bar, *series]
+        charts[timeframe] = ladder_chart(engine.ladder, series, timeframe=timeframe)
+    return charts
 
 
 def _cascade_gap_adjusted_candles(
@@ -10245,59 +10394,72 @@ async def cascade_paper_chart(mother_timestamp: str, request: Request):
     }
 
 
+def _candle_entry_needs_history(engine: LadderCandleEntryPaper, now: datetime) -> bool:
+    """Will the next bars this campaign prices be too old for a live quote?"""
+    last = engine._latest.timestamp if engine._latest is not None else engine.mother.timestamp
+    return (now - last) > timedelta(seconds=_CANDLE_ENTRY_LIVE_QUOTE_SECONDS)
+
+
+async def _candle_entry_arm_history(runtime: _CascadeRuntime, now: datetime) -> None:
+    """Give a campaign that must price old minutes the recorded history to do it.
+
+    Built once per runtime, off the event loop, and only when the bars about
+    to be read are older than a live quote can honestly describe -- a
+    campaign started on today's mother a minute after it closed never pays
+    for it. After a restart the same rule re-arms the lookup, because the
+    poll's first catch-up walks every bar since the last save.
+    """
+    if getattr(runtime, "history_armed", False):
+        return
+    engine = runtime.engine
+    if not _candle_entry_needs_history(engine, now):
+        return
+    history, _expiries = await asyncio.to_thread(
+        _candle_entry_pricing, runtime.broker, engine.mother.timestamp.date(), now.date()
+    )
+    engine.option_premium_lookup = _candle_entry_premium_lookup(runtime.broker, history)
+    runtime.history_armed = True
+
+
 async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
     """Poll closed NIFTY bars on every ladder chart for the Candle Entry campaign.
 
     The engine dedupes what it has already seen and interleaves the charts by
-    close time itself; this loop only keeps fresh candles flowing in.
+    close time itself; this loop only keeps fresh candles flowing in, and
+    ends the campaign when the option it holds has expired.
     """
 
     while runtime.running and _candle_entry_engines.get(int(user_id)) is runtime:
         try:
-            today = datetime.now(IST).date()
+            now = datetime.now(IST)
+            today = now.date()
             start = runtime.engine.mother.timestamp.date()
+            await _candle_entry_arm_history(runtime, now)
             batches = {}
             for timeframe in runtime.engine.stages:
                 batches[timeframe] = await runtime.adapter.async_get_candles(
-                    "NIFTY", timeframe, from_date=start, to_date=today
+                    "NIFTY", timeframe, from_date=start, to_date=min(today, runtime.engine.contract.expiry)
                 )
             runtime.engine.ingest(batches)
+            # The expiry-day 15:15 bar ends it from inside the stream; this is
+            # the fallback for a stream that never carried that bar.
+            runtime.engine.settle_past_expiry(datetime.now(IST))
             if runtime.engine.status in {"CLOSED", "EXPIRED", "KILLED"}:
                 runtime.running = False
-            await _save_candle_entry_open_state(user_id)
+            await _save_candle_entry_open_state(user_id, force=not runtime.running)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             _logger.warning("[CANDLE ENTRY] NIFTY ladder paper poll failed for user %s: %s", user_id, exc)
+        if not runtime.running:
+            break
         await asyncio.sleep(20)
 
 
-@app.get("/api/candle-entry/paper/status")
-async def candle_entry_paper_status(request: Request):
-    runtime = _candle_entry_engines.get(_request_user_id(request))
-    if runtime is None:
-        return {"status": "not_started", "mode": "paper"}
-    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
-
-
-@app.post("/api/candle-entry/paper/start")
-async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, request: Request):
-    timeframe = str(payload.timeframe or "1h").strip().lower()
-    if timeframe not in LADDER_TIMEFRAMES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.",
-        )
+def _candle_entry_validate_mother(mother_timestamp: datetime, timeframe: str, now: datetime) -> None:
     bar_minutes = TIMEFRAME_MINUTES[timeframe]
-    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
-    now = datetime.now(IST)
     if mother_timestamp.date() > now.date():
         raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
-    if (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Choose a completed mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days.",
-        )
     minutes_since_open = (mother_timestamp.hour * 60 + mother_timestamp.minute) - (9 * 60 + 15)
     if minutes_since_open < 0 or mother_timestamp.time() >= dt_time(15, 30) or minutes_since_open % bar_minutes != 0:
         raise HTTPException(
@@ -10311,6 +10473,71 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     )
     if mother_close_at > now:
         raise HTTPException(status_code=400, detail=f"Mother timestamp must be a completed {timeframe} candle.")
+
+
+async def _candle_entry_load_ladder(
+    adapter, mother_timestamp: datetime, timeframe: str, until: date
+) -> tuple[IndexCandle, dict[str, list[IndexCandle]]]:
+    """Every chart in the ladder from the mother's day to `until`, and the mother bar itself."""
+    stages = tuple(LADDER_TIMEFRAMES[LADDER_TIMEFRAMES.index(timeframe) :])
+    batches: dict[str, list[IndexCandle]] = {}
+    for stage_timeframe in stages:
+        try:
+            batches[stage_timeframe] = await adapter.async_get_candles(
+                "NIFTY", stage_timeframe, from_date=mother_timestamp.date(), to_date=until
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"Unable to load NIFTY {stage_timeframe} candles: {exc}"
+            ) from exc
+    mother = next((row for row in batches[timeframe] if row.timestamp == mother_timestamp), None)
+    if mother is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Dhan has no NIFTY {timeframe} candle opening at "
+                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
+            ),
+        )
+    return mother, batches
+
+
+@app.get("/api/candle-entry/paper/status")
+async def candle_entry_paper_status(request: Request):
+    runtime = _candle_entry_engines.get(_request_user_id(request))
+    if runtime is None:
+        return {"status": "not_started", "mode": "paper"}
+    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+
+
+@app.post("/api/candle-entry/paper/start")
+async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, request: Request):
+    """Start the two-red ladder as a paper campaign on a mother candle.
+
+    A past mother (up to `_CANDLE_ENTRY_HISTORY_DAYS` back) is caught up in
+    time order and priced from RECORDED history at each fill's own minute;
+    from there the poll takes over with live quotes. A mother whose option has
+    already expired simply ends where the contract did -- the same answer the
+    backtest gives, on the monitor. Nothing is signal-only any more: what this
+    route cannot price it leaves blank and says so, it never invents a premium.
+    """
+    timeframe = str(payload.timeframe or "1h").strip().lower()
+    if timeframe not in LADDER_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.",
+        )
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Choose a completed mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days "
+                "for a paper campaign. Older mothers are for the Backtest button."
+            ),
+        )
+    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
@@ -10322,67 +10549,54 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
             detail="A Candle Entry campaign is already running. Kill it before replacing its mother.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    stages = tuple(LADDER_TIMEFRAMES[LADDER_TIMEFRAMES.index(timeframe) :])
-    batches: dict[str, list[IndexCandle]] = {}
-    for stage_timeframe in stages:
-        batches[stage_timeframe] = await adapter.async_get_candles(
-            "NIFTY", stage_timeframe, from_date=mother_timestamp.date(), to_date=now.date()
+    mother, batches = await _candle_entry_load_ladder(adapter, mother_timestamp, timeframe, now.date())
+    # History is built only when something older than a live quote will be
+    # priced: a same-day mother started minutes after it closed never pays
+    # for it, one started hours later (or from a past day) always does.
+    catch_up_is_old = (now - mother_timestamp) > timedelta(seconds=_CANDLE_ENTRY_LIVE_QUOTE_SECONDS)
+    history = None
+    expiries: list[date] = []
+    if catch_up_is_old:
+        history, expiries = await asyncio.to_thread(
+            _candle_entry_pricing, broker_client, mother_timestamp.date(), now.date()
         )
-    candles = batches[timeframe]
-    mother = next((row for row in candles if row.timestamp == mother_timestamp), None)
-    if mother is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Dhan did not return a closed NIFTY {timeframe} candle at that timestamp.",
-        )
-    is_historical_replay = mother_timestamp.date() != now.date()
-    try:
-        contract = (
-            _historical_candle_entry_contract(mother, candles, payload.ce_offset_steps)
-            if is_historical_replay
-            else await asyncio.to_thread(
-                adapter.select_campaign_contract,
-                mother_spot=mother.close,
-                selected_at=mother.timestamp,
-                ce_offset_steps=payload.ce_offset_steps,
-            )
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to select fixed next-weekly CE: {exc}") from exc
+    if not expiries:
+        expiries = _fib_touch_expiry_source(broker_client, "NIFTY")(mother_timestamp.date())
+    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps)
     engine = LadderCandleEntryPaper(
         mother,
         timeframe,
         contract,
         adapter,
-        _cascade_premium_lookup(broker_client),
-        signal_only=is_historical_replay,
+        _candle_entry_premium_lookup(broker_client, history),
+        intraday_close=bool(payload.intraday_close),
     )
-    if is_historical_replay:
-        # A replay must not run past the option's own life.
-        replay = {
+    # Catch up on every bar since the mother, in close-time order, capped at
+    # the option's own life. The poll takes over from here.
+    engine.ingest(
+        {
             stage_timeframe: [row for row in rows if row.timestamp.date() <= contract.expiry]
             for stage_timeframe, rows in batches.items()
         }
-        engine.ingest(replay)
-        remaining = [rows[-1] for rows in replay.values() if rows]
-        final_candle = max(remaining, key=lambda row: row.timestamp) if remaining else mother
-        engine.finish_replay(final_candle, reached_expiry=now.date() >= contract.expiry)
+    )
+    engine.settle_past_expiry(now)
     runtime = _CascadeRuntime(
         engine=engine,
         adapter=adapter,
         broker=broker_client,
         last_candle_timestamp=mother.timestamp,
-        running=not is_historical_replay,
+        running=engine.status not in {"CLOSED", "EXPIRED", "KILLED"},
     )
+    runtime.history_armed = history is not None
     _candle_entry_engines[user_id] = runtime
     if runtime.running:
         runtime.task = asyncio.create_task(_run_candle_entry_paper_loop(user_id, runtime))
     await _save_candle_entry_open_state(user_id, force=True)
     return {
-        "status": "replayed" if is_historical_replay else "started",
+        "status": "started",
         "mode": "paper",
+        "caught_up_to": engine._latest.timestamp.isoformat() if engine._latest is not None else None,
+        "priced_from_history": history is not None,
         "campaign": {**engine.get_status(), "running": runtime.running},
     }
 
@@ -10407,6 +10621,272 @@ async def candle_entry_paper_kill(request: Request):
         runtime.task.cancel()
     await _save_candle_entry_open_state(_request_user_id(request), force=True)
     return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
+
+
+def _candle_entry_backtest_key(user_id: int) -> str:
+    return f"candle_entry_backtest_latest:{int(user_id)}"
+
+
+@app.post("/api/candle-entry/backtest")
+async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Request):
+    """Replay a mother through the SAME ladder Start trades, on recorded option prices.
+
+    Same engine, same contract rule, same pricing moment as the paper
+    campaign -- fed historical candles and priced from recorded option history
+    instead of a live quote. Nothing is placed and nothing lands on the paper
+    blotter. Any mother the candle sources cover may be replayed; the window
+    runs to the option's own expiry and no further.
+    """
+    timeframe = str(payload.timeframe or "5m").strip().lower()
+    if timeframe not in LADDER_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.")
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load NIFTY candles.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    # A monthly contract sits at most 45 days out, so that is the most a
+    # replay can need; the exact end is the expiry, known once the mother is.
+    horizon_guess = min(now.date(), mother_timestamp.date() + timedelta(days=46))
+    mother, batches = await _candle_entry_load_ladder(adapter, mother_timestamp, timeframe, horizon_guess)
+    history, expiries = await asyncio.to_thread(
+        _candle_entry_pricing, broker_client, mother_timestamp.date(), horizon_guess
+    )
+    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps)
+    horizon_to = min(now.date(), contract.expiry)
+    replay = {
+        stage_timeframe: [row for row in rows if row.timestamp.date() <= horizon_to]
+        for stage_timeframe, rows in batches.items()
+    }
+
+    def _run() -> LadderCandleEntryPaper:
+        engine = LadderCandleEntryPaper(
+            mother,
+            timeframe,
+            contract,
+            _CandleEntryReplayAdapter(),
+            (lambda when, contract_: history(when, contract_)) if history is not None else (lambda _w, _c: None),
+            intraday_close=bool(payload.intraday_close),
+        )
+        engine.ingest(replay)
+        engine.settle_past_expiry(now)
+        return engine
+
+    try:
+        engine = await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
+
+    from engine.test_bench import ladder_result
+
+    campaign = engine.get_status()
+    reported = ladder_result(
+        engine.ladder,
+        instrument="NIFTY",
+        timeframe=timeframe,
+        mother_timestamp=mother_timestamp.isoformat(),
+        lot_size=contract.lot_size,
+    )
+    reported["summary"]["expiry"] = contract.expiry.isoformat()
+    still_open = bool(engine.ladder.fills) and engine.ladder.exit_timestamp is None
+    result = {
+        "status": "ok",
+        "mode": "backtest",
+        "engine": "candle_entry_ladder",
+        "pricing": "recorded_history" if history is not None else "unpriced",
+        "symbol": "NIFTY",
+        "side": "CE",
+        "timeframe": timeframe,
+        "stages": list(engine.stages),
+        "lot_size": contract.lot_size,
+        "intraday_close": bool(payload.intraday_close),
+        "mother": {
+            "timestamp": mother_timestamp.isoformat(),
+            "open": mother.open,
+            "high": mother.high,
+            "low": mother.low,
+            "close": mother.close,
+        },
+        "contract": campaign["contract"],
+        "candles_replayed": sum(len(rows) for rows in replay.values()),
+        "horizon_to": horizon_to.isoformat(),
+        "still_open": still_open,
+        "campaign": campaign,
+        "summary": reported["summary"],
+        "entries": reported["entries"],
+        "premium_failures": list(getattr(history, "source_failures", []) or []),
+        "premium_stale_fills": list(getattr(history, "stale_fills", []) or []),
+        "charts": _candle_entry_charts(engine, replay),
+        "note": (
+            f"NIFTY CE two-red ladder from a {timeframe} mother, climbing {' → '.join(engine.stages)}. "
+            f"Same engine the Start button trades; every price is a recorded option trade at the bar's close, "
+            f"and a minute nothing printed is a listed gap, never a fabricated zero."
+            if history is not None
+            else "No recorded option history was reachable, so this replay is geometry only — no prices, no P&L."
+        ),
+    }
+    if still_open:
+        result["note"] += (
+            f" Still OPEN at {horizon_to.isoformat()} — the option has not expired and the target is not reached."
+        )
+    # Kept, so a page reload brings the last replay back without paying for it again.
+    try:
+        await _db_mod.set_app_state(
+            _candle_entry_backtest_key(_request_user_id(request)),
+            json.dumps({"created_at": now.isoformat(), "payload": result}, default=str),
+        )
+    except Exception as exc:
+        _logger.warning("[CANDLE ENTRY] could not save backtest: %s", exc)
+    return result
+
+
+async def _candle_entry_latest_backtest(request: Request) -> dict | None:
+    raw = await _db_mod.get_app_state(_candle_entry_backtest_key(_request_user_id(request)))
+    if not raw:
+        return None
+    try:
+        saved = json.loads(raw)
+    except Exception:
+        return None
+    return saved if isinstance(saved, dict) and isinstance(saved.get("payload"), dict) else None
+
+
+@app.get("/api/candle-entry/backtests/latest")
+async def candle_entry_latest_backtest(request: Request):
+    """The last replay this user ran, ready to re-render. `null` when none was ever run."""
+    saved = await _candle_entry_latest_backtest(request)
+    if saved is None:
+        return {"status": "ok", "run": None}
+    return {"status": "ok", "run": {"created_at": saved.get("created_at"), "payload": saved["payload"]}}
+
+
+@app.get("/api/candle-entry/backtests/latest/export.json")
+async def export_candle_entry_backtest_json(request: Request):
+    saved = await _candle_entry_latest_backtest(request)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="No Candle Entry backtest has been run yet.")
+    body = json.dumps(saved["payload"], ensure_ascii=False, indent=2, default=str)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="candle-entry-backtest.json"'},
+    )
+
+
+@app.get("/api/candle-entry/backtests/latest/export.csv")
+async def export_candle_entry_backtest_csv(request: Request):
+    import csv
+
+    saved = await _candle_entry_latest_backtest(request)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="No Candle Entry backtest has been run yet.")
+    payload = saved["payload"]
+    campaign = payload.get("campaign") or {}
+    exit_row = campaign.get("exit") or {}
+    output = io.StringIO()
+    fields = [
+        "row_type",
+        "mother_timestamp",
+        "timeframe",
+        "rung",
+        "chart",
+        "timestamp",
+        "priced_at",
+        "index_price",
+        "strike",
+        "expiry",
+        "option_premium",
+        "lots",
+        "quantity",
+        "exit_reason",
+        "net_pnl",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    contract = payload.get("contract") or {}
+    for fill in campaign.get("fills") or []:
+        writer.writerow(
+            {
+                "row_type": "fill",
+                "mother_timestamp": (payload.get("mother") or {}).get("timestamp"),
+                "timeframe": payload.get("timeframe"),
+                "rung": fill.get("rung"),
+                "chart": fill.get("timeframe"),
+                "timestamp": fill.get("timestamp"),
+                "priced_at": fill.get("priced_at"),
+                "index_price": fill.get("index_price"),
+                "strike": fill.get("strike"),
+                "expiry": contract.get("expiry"),
+                "option_premium": fill.get("option_premium"),
+                "lots": fill.get("lots"),
+                "quantity": fill.get("quantity"),
+                "exit_reason": "",
+                "net_pnl": "",
+            }
+        )
+    if exit_row:
+        writer.writerow(
+            {
+                "row_type": "exit",
+                "mother_timestamp": (payload.get("mother") or {}).get("timestamp"),
+                "timeframe": payload.get("timeframe"),
+                "rung": "",
+                "chart": exit_row.get("timeframe"),
+                "timestamp": exit_row.get("timestamp"),
+                "priced_at": exit_row.get("priced_at"),
+                "index_price": exit_row.get("index_price"),
+                "strike": contract.get("strike"),
+                "expiry": contract.get("expiry"),
+                "option_premium": exit_row.get("option_premium"),
+                "lots": "",
+                "quantity": "",
+                "exit_reason": exit_row.get("reason"),
+                "net_pnl": campaign.get("net_pnl"),
+            }
+        )
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="candle-entry-backtest.csv"'},
+    )
+
+
+@app.get("/api/candle-entry/paper/chart")
+async def candle_entry_paper_chart(request: Request, timeframe: str = ""):
+    """The running (or just-ended) campaign drawn on one of its ladder's charts.
+
+    Built from the engine's own state -- its fills, armed stop, target and
+    exit -- over the closed NIFTY bars of the chart asked for, through the
+    same `ladder_chart` the backtest and the Test Bench draw with.
+    """
+    runtime = _candle_entry_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Candle Entry campaign to draw. Start one, or run a backtest.")
+    engine = runtime.engine
+    key = str(timeframe or engine.timeframe).strip().lower()
+    if key not in engine.stages:
+        raise HTTPException(status_code=400, detail=f"This ladder's charts are {', '.join(engine.stages)}.")
+    now = datetime.now(IST)
+    until = min(now.date(), engine.contract.expiry)
+    try:
+        rows = await runtime.adapter.async_get_candles(
+            "NIFTY", key, from_date=engine.mother.timestamp.date(), to_date=until
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {key} candles: {exc}") from exc
+    chart = _candle_entry_charts(engine, {key: rows})[key]
+    return {
+        "status": "ok",
+        "timeframe": key,
+        "stages": list(engine.stages),
+        "mother_timestamp": engine.mother.timestamp.isoformat(),
+        "campaign_status": engine.status,
+        "chart": chart,
+    }
 
 
 # ── Fib-boundary paper strategy (manual mother, CE/PE, one target then done) ──
