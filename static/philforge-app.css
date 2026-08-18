@@ -79,6 +79,10 @@
   .pf-cascade-calendar[hidden] { display: none; }
   .pf-cascade-calendar-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; font:700 12px 'JetBrains Mono',monospace; }
   .pf-cascade-calendar-nav { width:30px; height:30px; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,.04); color:var(--text); cursor:pointer; }
+  .pf-cascade-calendar-navs { display:inline-flex; gap:4px; }
+  .pf-cascade-calendar-jump { display:inline-flex; gap:6px; }
+  .pf-cascade-calendar-jump select { padding:4px 6px; font:700 12px 'JetBrains Mono',monospace; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,.04); color:var(--text); }
+  [data-theme="light"] .pf-cascade-calendar-jump select { background:#fff; color:#0f172a; }
   .pf-cascade-calendar-weekdays, .pf-cascade-calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:4px; }
   .pf-cascade-calendar-weekdays { margin-bottom:4px; color:var(--muted); font:9px 'JetBrains Mono',monospace; text-align:center; }
   .pf-cascade-calendar-day { min-height:32px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text); font:11px 'JetBrains Mono',monospace; cursor:pointer; }

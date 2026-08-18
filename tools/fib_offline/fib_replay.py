@@ -6,6 +6,7 @@ Usage: python fib_replay.py 2026-07-22T09:15 15m CE levels [intraday]
 
 import glob
 import json
+import os
 import sys
 from datetime import date, datetime
 from types import SimpleNamespace
@@ -17,11 +18,13 @@ from engine.cascade_options import Candle  # noqa: E402
 from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder  # noqa: E402
 
 CACHE = "/Users/philipkumar/Documents/PhilForge/tools/.nifty_cache"
+SYMBOL = os.environ.get("SYMBOL", "NIFTY").upper()
+STRIKE_STEP = {"NIFTY": 50.0, "BANKNIFTY": 100.0, "FINNIFTY": 50.0, "MIDCPNIFTY": 25.0, "SENSEX": 100.0}[SYMBOL]
 
 
-def load(tf: str) -> list[Candle]:
+def load(tf: str, symbol: str = None) -> list[Candle]:
     rows: dict[str, list] = {}
-    for f in glob.glob(f"{CACHE}/NIFTY_{tf}_*.json"):
+    for f in glob.glob(f"{CACHE}/{symbol or SYMBOL}_{tf}_*.json"):
         d = json.load(open(f))
         lst = d if isinstance(d, list) else d.get("candles") or d.get("data") or []
         for r in lst:
@@ -51,7 +54,11 @@ def _listed_source():
     )
     _mod = _ilu.module_from_spec(_spec)
     _spec.loader.exec_module(_mod)
-    return _mod.ListedPremiumSource(UpstoxPremiumSource(cache_only=False, backfill_missing=True))
+    from engine.cascade_instruments import premium_key
+
+    return _mod.ListedPremiumSource(
+        UpstoxPremiumSource(underlying_key=premium_key(SYMBOL), cache_only=False, backfill_missing=True), symbol=SYMBOL
+    )
 
 
 def main() -> None:
@@ -66,19 +73,21 @@ def main() -> None:
     expiries = src.expiries()
 
     def premium(when: datetime, strike: float, expiry: date, opt: str):
-        c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
+        c = SimpleNamespace(symbol=SYMBOL, underlying=SYMBOL, strike=float(strike), expiry=expiry, option_type=opt)
         return src.lookup(when, c)
 
     def expiry_source(on: date):
         return [e for e in expiries if e >= on]
 
-    lot = 65 if mother.date() >= date(2026, 1, 1) else 75
+    from engine.backtest import get_lot_size
+
+    lot = int(get_lot_size(SYMBOL, mother.date()))
     cfg = FibTouchConfig(
-        symbol="NIFTY",
+        symbol=SYMBOL,
         side=side,
         mother_timestamp=mother,
         lot_size=lot,
-        strike_step=50.0,
+        strike_step=STRIKE_STEP,
         timeframe=tf,
         entry_timeframe="1m",
         capital_cap_inr=75000.0,

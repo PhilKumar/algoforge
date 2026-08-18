@@ -26,14 +26,14 @@ times = sys.argv[7].split(",") if len(sys.argv) > 7 else ["09:15"]
 out_csv = sys.argv[8] if len(sys.argv) > 8 else None
 rows_out = []
 
-from fib_replay import _listed_source  # noqa: E402
+from fib_replay import STRIKE_STEP, SYMBOL, _listed_source  # noqa: E402
 
 src = _listed_source()
 expiries = src.expiries()
 
 
 def premium(when, strike, expiry, opt):
-    c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
+    c = SimpleNamespace(symbol=SYMBOL, underlying=SYMBOL, strike=float(strike), expiry=expiry, option_type=opt)
     return src.lookup(when, c)
 
 
@@ -54,13 +54,13 @@ while d <= end:
         mother = datetime(d.year, d.month, d.day, hh, mm)
         if mother not in geo_stamps:
             continue
-        lot = int(get_lot_size("NIFTY", d))
+        lot = int(get_lot_size(SYMBOL, d))
         cfg = FibTouchConfig(
-            symbol="NIFTY",
+            symbol=SYMBOL,
             side=side,
             mother_timestamp=mother,
             lot_size=lot,
-            strike_step=50.0,
+            strike_step=STRIKE_STEP,
             timeframe=tf,
             entry_timeframe="1m",
             capital_cap_inr=75000.0,

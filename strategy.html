@@ -2444,7 +2444,7 @@
 
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — every level, or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · auto trendlines + stacked fibs · every level <em>or</em> where two meet</span></button>
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · auto trendlines + stacked fibs · <em>Lone</em> (every level) or <em>Partner</em> (where two meet)</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
@@ -2458,7 +2458,7 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
       <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#7dd3fc;">PAPER CAMPAIGNS ON LIVE PRICES · ONE MOTHER, ONE LADDER</div>
       <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
-      <div style="margin-top:3px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">your mother &rarr; trendlines &rarr; stacked fibs &rarr; every level, or only where two meet</div>
+      <div style="margin-top:3px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">your mother &rarr; trendlines &rarr; stacked fibs &rarr; Lone (every level) or Partner (where two meet)</div>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
            the code's own numbers, and the losing measurement stated as
@@ -2485,7 +2485,7 @@
         </section>
         <section>
           <h5>4 &middot; What it buys &mdash; the switch</h5>
-          <p><strong>Every level</strong>: L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16 of every drawn fib, each one that many fib-spans below its own 0.<br><strong>Where two meet</strong>: only the <strong>spaces</strong> where a level of one fib sits next to a level of another — the deepest two, off levels 1 &middot; 2 &middot; 4 &middot; 8. The ladder is still drawn in full; only what may be bought is narrower. A zone is named by its two levels ("2-8"); its <em>top</em> line is the trigger — a touch there collects it, and the turn buys, exactly as a level does — and the panel shows how deep it may still be worked (a wide zone to its middle, a zone under 10 points to its bottom). Only zones the fall has actually reached count, and only the deepest two of those. If the market draws just <strong>one</strong> fib there is nothing to meet: that lone fib's own L4 and L8 are the zones instead.</p>
+          <p><strong>Lone</strong> (every level): L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16 of every drawn fib, each one that many fib-spans below its own 0.<br><strong>Where two meet</strong>: only the <strong>spaces</strong> where a level of one fib sits next to a level of another — the deepest two, off levels 1 &middot; 2 &middot; 4 &middot; 8. The ladder is still drawn in full; only what may be bought is narrower. A zone is named by its two levels ("2-8"); its <em>top</em> line is the trigger — a touch there collects it, and the turn buys, exactly as a level does — and the panel shows how deep it may still be worked (a wide zone to its middle, a zone under 10 points to its bottom). Only zones the fall has actually reached count, and only the deepest two of those. If the market draws just <strong>one</strong> fib there is nothing to meet: that lone fib's own L4 and L8 are the zones instead.</p>
         </section>
         <section>
           <h5>5 &middot; A touch COLLECTS. The turn buys.</h5>
@@ -2540,7 +2540,7 @@
         </section>
         <section>
           <h5>4 &middot; என்ன வாங்குகிறது &mdash; அந்த switch</h5>
-          <p><strong>ஒவ்வொரு level</strong>: வரையப்பட்ட ஒவ்வொரு fib-இன் L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16; ஒவ்வொன்றும் அதன் சொந்த 0-க்குக் கீழே அத்தனை fib-அளவுகள்.<br><strong>இரண்டு சந்திக்கும் இடம்</strong>: ஒரு fib-இன் level இன்னொரு fib-இன் level-க்கு அருகில் அமையும் <strong>இடைவெளிகள்</strong> மட்டும் &mdash; அதில் ஆழமான இரண்டு, levels 1 &middot; 2 &middot; 4 &middot; 8-இல் இருந்து. Ladder முழுவதும் வரையப்படும்; வாங்கக்கூடியது மட்டுமே குறுகும். ஒரு zone அதன் இரண்டு levels-ஆல் பெயரிடப்படும் (&ldquo;2-8&rdquo;); அதன் <em>மேல்</em> கோடுதான் trigger &mdash; அங்கே தொடுவது சேகரிக்கும், திருப்பம் வாங்கும், ஒரு level போலவே &mdash; panel அது எவ்வளவு ஆழம் வரை வேலை செய்யலாம் எனக் காட்டும் (அகலமான zone அதன் நடு வரை, 10 புள்ளிக்குக் கீழான zone அதன் அடி வரை). வீழ்ச்சி உண்மையில் எட்டிய zones மட்டுமே கணக்கில்; அவற்றில் ஆழமான இரண்டு மட்டுமே. சந்தை <strong>ஒரே ஒரு</strong> fib-ஐ மட்டும் வரைந்தால் சந்திக்க எதுவும் இல்லை: அந்த தனி fib-இன் சொந்த L4, L8 தான் zones.</p>
+          <p><strong>Lone</strong> (ஒவ்வொரு level): வரையப்பட்ட ஒவ்வொரு fib-இன் L2 &middot; L3 &middot; L4 &middot; L6 &middot; L8 &middot; L12 &middot; L16; ஒவ்வொன்றும் அதன் சொந்த 0-க்குக் கீழே அத்தனை fib-அளவுகள்.<br><strong>Partner</strong> (இரண்டு சந்திக்கும் இடம்): ஒரு fib-இன் level இன்னொரு fib-இன் level-க்கு அருகில் அமையும் <strong>இடைவெளிகள்</strong> மட்டும் &mdash; அதில் ஆழமான இரண்டு, levels 1 &middot; 2 &middot; 4 &middot; 8-இல் இருந்து. Ladder முழுவதும் வரையப்படும்; வாங்கக்கூடியது மட்டுமே குறுகும். ஒரு zone அதன் இரண்டு levels-ஆல் பெயரிடப்படும் (&ldquo;2-8&rdquo;); அதன் <em>மேல்</em> கோடுதான் trigger &mdash; அங்கே தொடுவது சேகரிக்கும், திருப்பம் வாங்கும், ஒரு level போலவே &mdash; panel அது எவ்வளவு ஆழம் வரை வேலை செய்யலாம் எனக் காட்டும் (அகலமான zone அதன் நடு வரை, 10 புள்ளிக்குக் கீழான zone அதன் அடி வரை). வீழ்ச்சி உண்மையில் எட்டிய zones மட்டுமே கணக்கில்; அவற்றில் ஆழமான இரண்டு மட்டுமே. சந்தை <strong>ஒரே ஒரு</strong> fib-ஐ மட்டும் வரைந்தால் சந்திக்க எதுவும் இல்லை: அந்த தனி fib-இன் சொந்த L4, L8 தான் zones.</p>
         </section>
         <section>
           <h5>5 &middot; Touch சேகரிக்கும். திருப்பம் வாங்கும்.</h5>
@@ -2648,8 +2648,8 @@
                fcdfb34 and nothing outside a test could reach it until now. -->
           <input type="hidden" id="fibx-buy-mode" value="levels">
           <div id="fibx-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Every level of every drawn fib" aria-checked="true"><span>⑃ Levels</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Where two meet</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
           </div>
         </div>
         <div>

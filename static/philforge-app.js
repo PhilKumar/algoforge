@@ -251,7 +251,6 @@ const ICO = {
     // Never hide the minute already in the box — a value set before the
     // timeframe changed must stay selectable rather than silently snap.
     if (!minutes.includes(selectedDate.getMinutes())) minutes = [...minutes, selectedDate.getMinutes()].sort((a, b) => a - b);
-    const monthName = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(visibleMonth);
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('');
     // A mother candle is a bar that has already printed, so a field marked
     // no-future must not offer one that has not. Nothing stopped it before, and
@@ -271,7 +270,18 @@ const ICO = {
     const hours = Array.from({ length: 24 }, (_, hour) => `<option value="${hour}" ${hour === selectedDate.getHours() ? 'selected' : ''}>${pad(hour)}</option>`).join('');
     const minuteOptions = minutes.map(minute => `<option value="${minute}" ${minute === selectedDate.getMinutes() ? 'selected' : ''}>${pad(minute)}</option>`).join('');
     const timeControls = dateOnlyPicker ? '' : `<div class="pf-cascade-calendar-time"><select aria-label="Hour" data-pf-calendar-hour>${hours}</select><select aria-label="Minute" data-pf-calendar-minute>${minuteOptions}</select></div>`;
-    popover.innerHTML = `<div class="pf-cascade-calendar-head"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-1" aria-label="Previous month">‹</button><span>${monthName}</span><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="1" aria-label="Next month">›</button></div><div class="pf-cascade-calendar-weekdays">${weekdays}</div><div class="pf-cascade-calendar-days">${days}</div>${timeControls}<div class="pf-cascade-calendar-actions"><button class="btn btn-sm" type="button" data-pf-calendar-cancel>Cancel</button><button class="btn btn-sm" type="button" data-pf-calendar-apply>Apply</button></div>`;
+    // YEARS, not just months (Phil, 2026-08-18: "cannot modify years easily
+    // ... arrows only for month and not years"). « » step a year, ‹ › a month,
+    // and the month/year in the middle are two selects so a mother from 2024
+    // is three clicks away, not twenty.
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const yearNow = now.getFullYear();
+    const yearOptions = [];
+    for (let y = yearNow - 6; y <= yearNow + (noFuture ? 0 : 2); y += 1) yearOptions.push(`<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`);
+    if (!yearOptions.some(o => o.includes(`value="${year}"`))) yearOptions.unshift(`<option value="${year}" selected>${year}</option>`);
+    const monthOptions = monthNames.map((name, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${name}</option>`).join('');
+    const jump = `<span class="pf-cascade-calendar-jump"><select aria-label="Month" data-pf-calendar-month>${monthOptions}</select><select aria-label="Year" data-pf-calendar-year>${yearOptions.join('')}</select></span>`;
+    popover.innerHTML = `<div class="pf-cascade-calendar-head"><span class="pf-cascade-calendar-navs"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-12" aria-label="Previous year" title="${year - 1}">«</button><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="-1" aria-label="Previous month">‹</button></span>${jump}<span class="pf-cascade-calendar-navs"><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="1" aria-label="Next month">›</button><button class="pf-cascade-calendar-nav" type="button" data-pf-calendar-nav="12" aria-label="Next year" title="${year + 1}">»</button></span></div><div class="pf-cascade-calendar-weekdays">${weekdays}</div><div class="pf-cascade-calendar-days">${days}</div>${timeControls}<div class="pf-cascade-calendar-actions"><button class="btn btn-sm" type="button" data-pf-calendar-cancel>Cancel</button><button class="btn btn-sm" type="button" data-pf-calendar-apply>Apply</button></div>`;
   }
 
   function open(input) {
@@ -305,6 +315,12 @@ const ICO = {
     });
   }
 
+  document.addEventListener('change', event => {
+    if (!popover || !activeInput || !popover.contains(event.target)) return;
+    const target = event.target;
+    if (target.matches('[data-pf-calendar-month]')) { visibleMonth.setMonth(Number(target.value)); render(); }
+    else if (target.matches('[data-pf-calendar-year]')) { visibleMonth.setFullYear(Number(target.value)); render(); }
+  });
   document.addEventListener('click', event => {
     if (popover && !popover.contains(event.target)) { close(); return; }
     const action = event.target.closest('[data-pf-calendar-nav], [data-pf-calendar-day], [data-pf-calendar-apply], [data-pf-calendar-cancel]');
@@ -2859,8 +2875,8 @@ function _syncFibLevelsHint() {
     const session = (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday' ? ' · OUT 3:15' : ' · CARRIES';
     levelsHint.textContent = (buys === 'convergence' ? 'ZONES · L1·L2·L4·L8' : 'L2·L3·L4·L6·L8·L12·L16') + session;
     levelsHint.title = buys === 'convergence'
-      ? 'Buys only where a level of one fib meets a level of another — the deepest two spaces.'
-      : 'Buys every level of every drawn fib, one lot each.';
+      ? 'Partner: buys only where a level of one fib meets a level of another — the deepest two spaces.'
+      : 'Lone: buys every level of every drawn fib, one lot each.';
   }
 
   // Do not advertise a real-money path while the server's fill/reconciliation
@@ -4136,7 +4152,7 @@ async function loadFibBoundaryChart(_event, button) {
       const newest = fibs ? data.fibs[fibs - 1] : null;
       const noZones = String(data.buy_mode) === 'convergence' && !(data.zones || []).length;
       meta.textContent = noZones
-        ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'} · WHERE TWO MEET has no zone here — nothing is buyable on this mother yet`
+        ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'} · PARTNER has no zone here — nothing is buyable on this mother yet`
         : newest
         ? `${data.candles.length} closed ${viewedOn} candles · ${fibs} fib${fibs === 1 ? '' : 's'}, ${(data.trendlines || []).length} trendline${(data.trendlines || []).length === 1 ? '' : 's'} · newest ${newest.fib1}–${newest.fib0} (${newest.span} pts) · ${(data.levels || []).length} levels${source} · drag to pan, wheel to zoom, double-click to reset`
         : `${data.candles.length} closed ${viewedOn} candles · ${data.note}`;

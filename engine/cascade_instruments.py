@@ -82,8 +82,11 @@ INDEX_SPECS: dict[str, IndexSpec] = {
     "FINNIFTY": IndexSpec("FINNIFTY", "27", "IDX_I"),
     "MIDCPNIFTY": IndexSpec("MIDCPNIFTY", "442", "IDX_I"),
     # BSE index, but its candles come from IDX_I like the rest -- and from id 51,
-    # NOT the "1" the live feed uses in its own id space.
-    "SENSEX": IndexSpec("SENSEX", "51", "IDX_I"),
+    # NOT the "1" the live feed uses in its own id space. Its option premiums
+    # come from Upstox under BSE_INDEX|SENSEX: 97 weekly expiries Oct-2024 ..
+    # Aug-2026 in the expired archive, checked 2026-08-18 (a 77,500 CE on the
+    # 13-Aug expiry priced 357.90 at 10:15 that day).
+    "SENSEX": IndexSpec("SENSEX", "51", "IDX_I", premium_key="BSE_INDEX|SENSEX"),
 }
 
 

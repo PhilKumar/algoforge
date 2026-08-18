@@ -1218,5 +1218,41 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(seen["deep_carry"])
 
 
+class PerSymbolPremiumSourceTests(unittest.IsolatedAsyncioTestCase):
+    """The fib history lookup must build Upstox with the SYMBOL'S underlying
+    key. Built with the default (NIFTY) it listed NIFTY's Tuesdays for a
+    SENSEX replay and back-filled from NIFTY's chain, so every expired SENSEX
+    contract fell through to Dhan and went unpriced."""
+
+    def _seen_key(self, symbol):
+        seen = {}
+
+        class _Src:
+            def __init__(self, **kwargs):
+                seen.update(kwargs)
+
+            def available_expiries(self):
+                return set()
+
+        with (
+            patch("data.cascade_upstox.UpstoxPremiumSource", _Src),
+            patch.object(app_module, "_hybrid_premium_lookup", lambda *a, **k: "lookup"),
+        ):
+            out = app_module._fib_touch_history_lookup(_Broker(), symbol, date(2026, 8, 1), date(2026, 8, 10))
+        return out, seen
+
+    def test_sensex_and_banknifty_get_their_own_key(self):
+        _out, seen = self._seen_key("SENSEX")
+        self.assertEqual(seen.get("underlying_key"), "BSE_INDEX|SENSEX")
+        _out, seen = self._seen_key("BANKNIFTY")
+        self.assertEqual(seen.get("underlying_key"), "NSE_INDEX|Nifty Bank")
+        _out, seen = self._seen_key("NIFTY")
+        self.assertEqual(seen.get("underlying_key"), "NSE_INDEX|Nifty 50")
+
+    def test_a_symbol_without_a_key_is_dhan_only(self):
+        _out, seen = self._seen_key("FINNIFTY")
+        self.assertEqual(seen, {}, "no Upstox source is built at all")
+
+
 if __name__ == "__main__":
     unittest.main()

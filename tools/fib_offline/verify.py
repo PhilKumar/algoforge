@@ -21,7 +21,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fib_replay import _listed_source, load  # noqa: E402
+from fib_replay import STRIKE_STEP, SYMBOL, _listed_source, load  # noqa: E402
 
 from engine.backtest import get_lot_size  # noqa: E402
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES, FibTouchConfig, FibTouchLadder  # noqa: E402
@@ -35,7 +35,7 @@ LOOKUPS: list[tuple] = []
 
 
 def premium(when, strike, expiry, opt):
-    c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
+    c = SimpleNamespace(symbol=SYMBOL, underlying=SYMBOL, strike=float(strike), expiry=expiry, option_type=opt)
     price = src.lookup(when, c)
     LOOKUPS.append((when, float(strike), expiry, opt, price))
     return price
@@ -47,11 +47,11 @@ def expiry_source(on):
 
 def make(tf, side, mode, mother, **kw):
     cfg = FibTouchConfig(
-        symbol="NIFTY",
+        symbol=SYMBOL,
         side=side,
         mother_timestamp=mother,
-        lot_size=int(get_lot_size("NIFTY", mother.date())),
-        strike_step=50.0,
+        lot_size=int(get_lot_size(SYMBOL, mother.date())),
+        strike_step=STRIKE_STEP,
         timeframe=tf,
         entry_timeframe="1m",
         capital_cap_inr=75000.0,
@@ -198,10 +198,15 @@ for tf, side, mode in configs:
                 f"{mother}",
             )
         # 5. lot size by date, quantity = lots*lot
-        lot = int(get_lot_size("NIFTY", mother.date()))
-        exp_lot = 25 if mother.date() < date(2025, 1, 1) else 75 if mother.date() < date(2026, 1, 1) else 65
+        lot = int(get_lot_size(SYMBOL, mother.date()))
+        if SYMBOL == "NIFTY":
+            exp_lot = 25 if mother.date() < date(2025, 1, 1) else 75 if mother.date() < date(2026, 1, 1) else 65
+        elif SYMBOL == "SENSEX":
+            exp_lot = 10 if mother.date() < date(2024, 11, 20) else 20
+        else:
+            exp_lot = lot
         check(
-            "5 lot size by mother date (25/75/65)",
+            "5 lot size by mother date",
             lot == exp_lot and st["lot_size"] == lot,
             f"{mother} lot {lot} status {st['lot_size']}",
         )
@@ -211,8 +216,8 @@ for tf, side, mode in configs:
         for f in fills:
             ts = datetime.fromisoformat(f["timestamp"])
             c = SimpleNamespace(
-                symbol="NIFTY",
-                underlying="NIFTY",
+                symbol=SYMBOL,
+                underlying=SYMBOL,
                 strike=float(f["strike"]),
                 expiry=date.fromisoformat(f["expiry"]),
                 option_type=side,
@@ -238,8 +243,8 @@ for tf, side, mode in configs:
             )
         # 8. contract: strike = ATM-2 of the fill index; expiry >= 4 days out and one per campaign
         for f in fills:
-            atm = round(float(f["index_price"]) / 50.0) * 50
-            want = atm - 100 if side == "CE" else atm + 100
+            atm = round(float(f["index_price"]) / STRIKE_STEP) * STRIKE_STEP
+            want = atm - 2 * STRIKE_STEP if side == "CE" else atm + 2 * STRIKE_STEP
             check(
                 "8 strike = ATM-2 of the fill price",
                 abs(float(f["strike"]) - want) < 1e-6,
@@ -267,7 +272,7 @@ for tf, side, mode in configs:
         # 10b. levels: no premium ever fabricated -- every lookup that returned a price is a real archive bar
         for when, strike, expiry, opt, price in LOOKUPS[:50]:
             if price is not None:
-                cc = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=strike, expiry=expiry, option_type=opt)
+                cc = SimpleNamespace(symbol=SYMBOL, underlying=SYMBOL, strike=strike, expiry=expiry, option_type=opt)
                 bar = src.lookup(when, cc)
                 check(
                     "10 no fabricated premium",

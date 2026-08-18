@@ -11987,8 +11987,22 @@ def _fib_touch_history_lookup(broker: DhanClient, symbol: str, from_day: date, t
         premium_source = None
         upstox_expiries: list = []
         try:
-            premium_source = UpstoxPremiumSource(backfill_missing=True)
-            upstox_expiries = sorted(premium_source.available_expiries())
+            # THE SYMBOL'S OWN Upstox underlying, not NIFTY's. Built with the
+            # default key, a BANKNIFTY or SENSEX replay listed NIFTY's expiries
+            # (Tuesdays) and back-filled from NIFTY's chain, so every expired
+            # SENSEX contract went to Dhan, which no longer serves it: unpriced.
+            # A symbol with no key (FINNIFTY, MIDCPNIFTY) is Dhan-only, as
+            # its `backtestable` flag already says.
+            from engine.cascade_instruments import InstrumentError as _InstrErr
+            from engine.cascade_instruments import premium_key as _premium_key
+
+            try:
+                key = _premium_key(symbol)
+            except _InstrErr:
+                key = ""
+            if key:
+                premium_source = UpstoxPremiumSource(underlying_key=key, backfill_missing=True)
+                upstox_expiries = sorted(premium_source.available_expiries())
         except UpstoxAccessError as exc:
             _logger.warning("[FIB TOUCH] %s Upstox history unavailable, Dhan only: %s", symbol, exc)
         return _hybrid_premium_lookup(

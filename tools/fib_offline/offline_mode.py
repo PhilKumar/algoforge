@@ -116,33 +116,55 @@ def install(app_module: Any) -> None:
                 out.append(c)
             return out
 
-    try:
-        archive = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
-    except UpstoxAccessError as exc:
-        _log.warning("[FIB OFFLINE] Upstox token unusable, archive only: %s", exc)
-        archive = UpstoxPremiumSource(cache_only=True, backfill_missing=False)
-    # Expired contracts from the archive, LISTED ones from Upstox's live
-    # historical API -- so a mother from this week can be priced too.
+    # Expired contracts from the archive (per symbol -- each index has its own
+    # Upstox underlying key), LISTED ones from Upstox's live historical API,
+    # so a mother from this week can be priced too. Built lazily per symbol.
     import importlib.util as _ilu
+
+    from engine.cascade_instruments import InstrumentError, premium_key
 
     _spec = _ilu.spec_from_file_location("fib_offline_listed", os.path.join(_HERE, "upstox_listed.py"))
     _listed = _ilu.module_from_spec(_spec)
     _spec.loader.exec_module(_listed)
-    source = _listed.ListedPremiumSource(archive)
-    expiries = source.expiries()
+    _sources: dict[str, Any] = {}
 
-    def history_lookup(_broker, _symbol, _from, _to):
+    def source_for(symbol: str):
+        sym = str(symbol).upper()
+        if sym in _sources:
+            return _sources[sym]
+        try:
+            key = premium_key(sym)
+        except InstrumentError:
+            key = None
+        archive = None
+        if key:
+            try:
+                archive = UpstoxPremiumSource(underlying_key=key, cache_only=False, backfill_missing=True)
+            except UpstoxAccessError as exc:
+                _log.warning("[FIB OFFLINE] %s Upstox token unusable, archive only: %s", sym, exc)
+                archive = UpstoxPremiumSource(underlying_key=key, cache_only=True, backfill_missing=False)
+        src = _listed.ListedPremiumSource(archive, symbol=sym) if archive is not None else None
+        _sources[sym] = src
+        return src
+
+    def history_lookup(_broker, symbol, _from, _to):
+        src = source_for(symbol)
+
         def lookup(when: datetime, contract) -> Optional[float]:
+            if src is None:
+                return None
             stamp = when.replace(tzinfo=None) if when.tzinfo is not None else when
-            return source.lookup(stamp, contract)
+            return src.lookup(stamp, contract)
 
         lookup.source_failures = []
         lookup.stale_fills = []
         return lookup
 
-    def expiry_source(_broker, _symbol):
+    def expiry_source(_broker, symbol):
+        src = source_for(symbol)
+
         def on(day: date):
-            return [e for e in expiries if e >= day]
+            return [e for e in (src.expiries() if src is not None else []) if e >= day]
 
         return on
 
@@ -156,7 +178,11 @@ def install(app_module: Any) -> None:
     try:
         from broker.dhan import ScripMaster
 
-        ScripMaster.get_expiries = classmethod(lambda cls, *_a, **_k: [e.isoformat() for e in expiries])
+        ScripMaster.get_expiries = classmethod(
+            lambda cls, symbol="NIFTY", *_a, **_k: [
+                e.isoformat() for e in (source_for(symbol).expiries() if source_for(symbol) is not None else [])
+            ]
+        )
         ScripMaster.get_lot_size = classmethod(lambda cls, symbol, expiry, *_a, **_k: int(_lot(str(symbol), expiry)))
     except Exception as exc:
         _log.warning("[FIB OFFLINE] ScripMaster not patched: %s", exc)

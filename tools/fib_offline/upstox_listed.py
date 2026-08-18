@@ -31,9 +31,15 @@ _log = logging.getLogger("philforge.fib_offline.listed")
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(os.path.dirname(_HERE))
 _CACHE = os.path.join(_ROOT, "tools", ".nifty_cache", "upstox_listed")
-_MASTER = os.path.join(_CACHE, "nse_master.json")
-_MASTER_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
 _ENV = os.path.join(_ROOT, ".env")
+# Which exchange master lists each index's options, and the segment they sit in.
+_EXCHANGE = {
+    "NIFTY": ("NSE", "NSE_FO"),
+    "BANKNIFTY": ("NSE", "NSE_FO"),
+    "FINNIFTY": ("NSE", "NSE_FO"),
+    "MIDCPNIFTY": ("NSE", "NSE_FO"),
+    "SENSEX": ("BSE", "BSE_FO"),
+}
 
 
 def _token() -> str:
@@ -60,6 +66,9 @@ class ListedPremiumSource:
     def __init__(self, archive: Any, *, symbol: str = "NIFTY") -> None:
         self.archive = archive
         self.symbol = symbol.upper()
+        exchange, self._segment = _EXCHANGE.get(self.symbol, ("NSE", "NSE_FO"))
+        self._master_path = os.path.join(_CACHE, f"{exchange.lower()}_master_{self.symbol.lower()}.json")
+        self._master_url = f"https://assets.upstox.com/market-quote/instruments/exchange/{exchange}.json.gz"
         self._archive_expiries = set(archive.available_expiries())
         self._keys: dict[tuple[date, float, str], str] = {}
         self._listed_expiries: set[date] = set()
@@ -72,13 +81,13 @@ class ListedPremiumSource:
     def _load_master(self) -> None:
         rows = None
         try:
-            if os.path.exists(_MASTER) and time.time() - os.path.getmtime(_MASTER) < 24 * 3600:
-                rows = json.load(open(_MASTER))
+            if os.path.exists(self._master_path) and time.time() - os.path.getmtime(self._master_path) < 24 * 3600:
+                rows = json.load(open(self._master_path))
         except Exception:
             rows = None
         if rows is None:
             try:
-                r = requests.get(_MASTER_URL, timeout=90)
+                r = requests.get(self._master_url, timeout=90)
                 r.raise_for_status()
                 data = json.loads(gzip.decompress(r.content))
                 rows = [
@@ -89,11 +98,11 @@ class ListedPremiumSource:
                         "key": d.get("instrument_key"),
                     }
                     for d in data
-                    if d.get("segment") == "NSE_FO"
+                    if d.get("segment") == self._segment
                     and d.get("underlying_symbol") == self.symbol
                     and d.get("instrument_type") in ("CE", "PE")
                 ]
-                json.dump(rows, open(_MASTER, "w"))
+                json.dump(rows, open(self._master_path, "w"))
             except Exception as exc:
                 _log.warning("[FIB OFFLINE] Upstox instrument master unavailable: %s", exc)
                 rows = []
