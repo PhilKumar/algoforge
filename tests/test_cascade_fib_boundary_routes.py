@@ -1190,6 +1190,16 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(seen["deep_carry"])
 
+    async def test_the_target_rule_reaches_both_routes_and_defaults_to_fixed(self):
+        for route, cls in (
+            (app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload),
+            (app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload),
+        ):
+            seen = await self._config_seen_by(route, cls)
+            self.assertFalse(seen["trailing_stop"])
+            seen = await self._config_seen_by(route, cls, trailing_target=True)
+            self.assertTrue(seen["trailing_stop"])
+
     async def test_backtest_passes_the_same_switch(self):
         seen = await self._config_seen_by(app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload)
         self.assertTrue(seen["deep_carry"])

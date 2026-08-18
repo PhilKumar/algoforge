@@ -2507,6 +2507,7 @@
         <section>
           <h5>9 &middot; The target, and the order left on the broker</h5>
           <p><strong>0.25 of the way back from your average entry up to the mother's high</strong> — and once L4 or deeper has filled, the ask widens to <strong>0.5</strong>. It is recomputed on <em>every</em> buy, because every buy moves the average. A matching <strong>SELL order rests on the broker</strong> at that price, so it fills whether or not this app is watching; it is cancelled and re-placed each time a new buy moves the target. A leg whose sell price cannot be measured from real quotes is left without a resting order rather than given a made-up one.</p>
+          <p><strong>Or trail it.</strong> The form's <em>Target</em> switch: <strong>Fixed</strong> sells the basket the moment the index reaches the target. <strong>Trailing</strong> does not sell there — reaching the target only <em>arms</em> the trail; the engine then remembers the best price seen since, and sells the whole basket when a 1m candle <strong>closes</strong> one fib span (the newest fib's 0−1 distance) below that best. A wick under the line does not count. Measured on 5m CE, Oct 2024–Jul 2026, blind mothers: fixed ₹1.80L → trailing ₹3.66L, worst day unchanged.</p>
         </section>
         <section>
           <h5>10 &middot; No stop loss</h5>
@@ -2561,6 +2562,7 @@
         <section>
           <h5>9 &middot; இலக்கு, மற்றும் broker-இல் வைக்கப்படும் ஆர்டர்</h5>
           <p><strong>உங்கள் சராசரி நுழைவிலிருந்து mother-இன் high வரை 0.25</strong> &mdash; L4 அல்லது ஆழத்தில் நிரம்பியதும் கேள்வி <strong>0.5</strong>-ஆக விரிவடையும். <em>ஒவ்வொரு</em> வாங்கலிலும் மறுகணக்கு, ஏனெனில் ஒவ்வொரு வாங்கலும் சராசரியை நகர்த்துகிறது. அதே விலையில் ஒரு <strong>SELL ஆர்டர் broker-இல் தங்கும்</strong>; இந்த app பார்த்துக்கொண்டிருந்தாலும் இல்லாவிட்டாலும் அது நிறைவேறும். புதிய வாங்கல் இலக்கை நகர்த்தும் ஒவ்வொரு முறையும் அது ரத்து செய்யப்பட்டு மீண்டும் வைக்கப்படும். உண்மையான விலைகளிலிருந்து அளக்க முடியாத leg-க்கு கற்பனை விலை கொடுக்காமல், ஆர்டர் இல்லாமலே விடப்படும்.</p>
+          <p><strong>அல்லது trail செய்யுங்கள்.</strong> Form-இன் <em>Target</em> switch: <strong>Fixed</strong> &mdash; index இலக்கை எட்டியவுடன் basket விற்கப்படும். <strong>Trailing</strong> &mdash; அங்கே விற்காது; இலக்கை எட்டுவது trail-ஐ <em>arm</em> மட்டுமே செய்யும்; அதன் பிறகு engine கண்ட சிறந்த விலையை நினைவில் வைத்து, அந்தச் சிறந்ததற்கு ஒரு fib span (புதிய fib-இன் 0&minus;1 தூரம்) கீழே ஒரு 1m candle <strong>close</strong> ஆனால் முழு basket-ஐயும் விற்கும். கோட்டுக்குக் கீழே wick மட்டும் கணக்கில் வராது. 5m CE, அக் 2024&ndash;ஜூலை 2026 அளவீடு: fixed &#8377;1.80L &rarr; trailing &#8377;3.66L, மோசமான நாள் மாறவில்லை.</p>
         </section>
         <section>
           <h5>10 &middot; Stop loss இல்லை</h5>
@@ -2657,6 +2659,15 @@
           <div id="fibx-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" aria-checked="true"><span>⇢ Hold one more day</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" aria-checked="false"><span>⏱ Close at 3:15 anyway</span></button>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Fixed: the basket is sold when the index reaches the target (a quarter of the way back to the mother; half once L4 or deeper has filled). Trailing: reaching the target only ARMS a trail — the basket rides on and is sold when a 1m candle CLOSES one fib span below the best price seen since. Measured on 5m CE, Oct 2024–Jul 2026: fixed ₹1.80L → trailing ₹3.66L, same worst day.">Target</label>
+          <!-- Phil, 2026-08-18: "add the trailing target option to the form". -->
+          <input type="hidden" id="fibx-target-mode" value="fixed">
+          <div id="fibx-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" aria-checked="true"><span>◎ Fixed · sell at target</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" aria-checked="false"><span>↗ Trailing · give back 1 span</span></button>
           </div>
         </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>

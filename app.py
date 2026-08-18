@@ -4038,6 +4038,11 @@ class FibTouchStartPayload(BaseModel):
     # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
     # next session's 15:15. On by default; the form can switch it off.
     deep_carry: bool = Field(default=True)
+    # THE EXIT. Fixed: sell the basket at the index target. Trailing: reaching
+    # the target ARMS a trail and the basket rides until a 1m close gives back
+    # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22
+    # months, +Rs 1.80L fixed -> +Rs 3.66L trailing).
+    trailing_target: bool = Field(default=False)
     # THE MERGE'S SWITCH. Phil folded Fib Boundary and Fib Space into one
     # strategy on 2026-08-15: same geometry, and this decides what it buys --
     # "levels" (every level of every fib) or "convergence" (only where two
@@ -4090,6 +4095,11 @@ class FibTouchBacktestPayload(BaseModel):
     # holding more than DEEP_CARRY_RUNGS bought rungs at 15:15 carries to the
     # next session's 15:15. On by default; the form can switch it off.
     deep_carry: bool = Field(default=True)
+    # THE EXIT. Fixed: sell the basket at the index target. Trailing: reaching
+    # the target ARMS a trail and the basket rides until a 1m close gives back
+    # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22
+    # months, +Rs 1.80L fixed -> +Rs 3.66L trailing).
+    trailing_target: bool = Field(default=False)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -10718,6 +10728,7 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
         buy_mode=buy_mode,
         intraday_close=bool(payload.intraday_close),
         deep_carry=bool(payload.deep_carry),
+        trailing_stop=bool(payload.trailing_target),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +
@@ -11456,6 +11467,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         buy_mode=buy_mode,
         intraday_close=bool(payload.intraday_close),
         deep_carry=bool(payload.deep_carry),
+        trailing_stop=bool(payload.trailing_target),
     )
 
     def _run() -> dict:

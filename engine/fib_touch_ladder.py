@@ -2291,7 +2291,17 @@ class FibTouchLadder:
                 "intraday_close_at": config.intraday_close_at.strftime("%H:%M"),
                 "deep_carry": config.deep_carry,
                 "deep_carry_rungs": config.deep_carry_rungs,
+                # The exit rule. A restart that forgot it would sell a trailing
+                # campaign at its fixed target the moment it came back.
+                "trailing_stop": config.trailing_stop,
+                "trail_span_multiple": config.trail_span_multiple,
             },
+            # An ARMED trail is a decision already taken: the target was reached
+            # and the position is riding. Coming back unarmed would re-arm at
+            # whatever high the first bar after the restart shows, which is
+            # lower than the best the campaign has really seen.
+            "trail_armed": self._trail_armed,
+            "trail_best": self._trail_best,
             "mode": getattr(self.executor, "mode", "paper"),
             "status": self.status,
             "mother_high": self.mother_high,
@@ -2428,6 +2438,8 @@ class FibTouchLadder:
             ),
             deep_carry=bool(terms.get("deep_carry", True)),
             deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
+            trailing_stop=bool(terms.get("trailing_stop", False)),
+            trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),
         )
         engine = cls(
             config,
@@ -2505,6 +2517,8 @@ class FibTouchLadder:
         engine.rounds = [dict(row) for row in (raw.get("rounds") or [])]
         engine._rearm_below = raw.get("rearm_below")
         engine._lowest_low = raw.get("lowest_low")
+        engine._trail_armed = bool(raw.get("trail_armed", False))
+        engine._trail_best = float(raw["trail_best"]) if raw.get("trail_best") is not None else None
         locked = raw.get("expiry_locked")
         # A ladder written before the expiry lock existed still has one contract
         # series in its fills; take it from there rather than leaving it free to
@@ -2602,8 +2616,21 @@ class FibTouchLadder:
             "target_index": round(self.target_index, 2) if self.target_index is not None else None,
             "target_fraction": self.target_fraction,
             "trailing_stop": self.config.trailing_stop,
+            "trail_span_multiple": self.config.trail_span_multiple,
             "trail_armed": self._trail_armed,
             "trail_best": round(self._trail_best, 2) if self._trail_best is not None else None,
+            # Where the trail would sell RIGHT NOW: best minus (plus, PE) the
+            # give-back. None until the target has armed it.
+            "trail_stop": (
+                round(
+                    self._trail_best - (self.anchor.span if self.anchor else 0.0) * self.config.trail_span_multiple
+                    if self.side == "CE"
+                    else self._trail_best + (self.anchor.span if self.anchor else 0.0) * self.config.trail_span_multiple,
+                    2,
+                )
+                if self._trail_armed and self._trail_best is not None
+                else None
+            ),
             "mother_high": self.mother_high,
             "mother_low": self.mother_low,
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,

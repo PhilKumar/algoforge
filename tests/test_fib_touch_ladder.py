@@ -2256,5 +2256,39 @@ class DeepCarryTests(unittest.TestCase):
         self.assertEqual(payload["deep_carry_rungs"], DEEP_CARRY_RUNGS)
 
 
+class TrailingPersistenceTests(unittest.TestCase):
+    """The exit rule and an ARMED trail must survive a restart: a trailing
+    campaign that came back as fixed would be sold at its target on the first
+    bar, and one that came back unarmed would re-arm at a lower best."""
+
+    def test_the_rule_and_the_armed_trail_survive_a_restart(self):
+        engine, candles, _ = ladder(trailing_stop=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        target = engine.target_index
+        assert target is not None
+        base = candles[-1].timestamp
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, target + 30, 24_505, target + 25))
+        self.assertTrue(engine._trail_armed)
+        self.assertEqual(engine._trail_best, target + 30)
+        self.assertEqual(engine.status, "OPEN", "the trail rides; nothing sold at the target")
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertTrue(back.config.trailing_stop)
+        self.assertTrue(back._trail_armed)
+        self.assertEqual(back._trail_best, target + 30)
+        self.assertEqual(back.get_status()["trail_stop"], round(target + 30 - back.anchor.span, 2))
+
+    def test_the_status_payload_names_the_stop_only_once_armed(self):
+        engine, candles, _ = ladder(trailing_stop=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        payload = engine.get_status()
+        self.assertTrue(payload["trailing_stop"])
+        self.assertIsNone(payload["trail_stop"])
+
+
 if __name__ == "__main__":
     unittest.main()

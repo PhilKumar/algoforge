@@ -1861,6 +1861,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryBuyMode',
   'setFibBoundarySession',
   'setFibBoundaryDeepCarry',
+  'setFibBoundaryTarget',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -3295,7 +3296,11 @@ function _renderFibBoundaryCampaign(root, campaign) {
         ? _cascadeOptionsMetric('Net P&L', Number.isFinite(net) ? _cascadeOptionsMoney(net) : (rounds.length ? '—' : 'nothing bought'), net > 0 ? '#6ee7b7' : net < 0 ? '#fca5a5' : 'var(--muted)')
         : flat && rounds.length
           ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? '#6ee7b7' : '#fca5a5')
-          : _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
+          : campaign.trail_armed && campaign.trail_stop != null
+            // The target has been reached and the trail is riding: what
+            // matters now is where it would sell, and the best it has seen.
+            ? _cascadeOptionsMetric(`Trail stop · best ${_cascadeNumber(campaign.trail_best)}`, _cascadeNumber(campaign.trail_stop), '#fde68a')
+            : _cascadeOptionsMetric(campaign.trailing_stop ? 'Target · then trail' : 'Index target', _cascadeNumber(campaign.target_index)),
       ended
         ? _cascadeOptionsMetric(`Ended · ${endedWhy}`, endedWhen || '—', 'var(--muted)')
         : flat && campaign.rearm_below != null
@@ -3469,6 +3474,7 @@ async function startFibBoundaryPaper() {
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
+    trailing_target: _fibTrailingTarget(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -3956,6 +3962,26 @@ function _fibDeepCarry() {
   return (document.getElementById('fibx-deep-carry')?.value || 'hold') === 'hold';
 }
 
+// Fixed target or trailing exit (Phil, 2026-08-18).
+function setFibBoundaryTarget(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'fixed';
+  const input = document.getElementById('fibx-target-mode');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-target-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+}
+
+function _fibTrailingTarget() {
+  return (document.getElementById('fibx-target-mode')?.value || 'fixed') === 'trailing';
+}
+
 function _syncFibDeepCarryRow() {
   const row = document.getElementById('fibx-deep-carry-row');
   if (row) row.style.display = _fibIntradayClose() ? '' : 'none';
@@ -4130,6 +4156,7 @@ async function runFibBoundaryBacktest() {
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
+    trailing_target: _fibTrailingTarget(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -4336,6 +4363,7 @@ window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
 window.setFibBoundarySession = setFibBoundarySession;
 window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
+window.setFibBoundaryTarget = setFibBoundaryTarget;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;
