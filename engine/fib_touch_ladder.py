@@ -669,6 +669,11 @@ class FibTouchConfig:
     # on to its exit, later rungs are marked UNFUNDED exactly as the rupee
     # cap marks them. 0 = no limit (every measurement before this date).
     max_buys: int = 0
+    # Phil, 2026-08-18: "incrementing 1 lot on each level" -- with this on,
+    # the n-th buy of a round takes n x lots_per_rung (1, 2, 3 ...), so the
+    # deeper, cheaper turns carry more of the basket. Off (every buy the
+    # same size) is the default and every measurement before this date.
+    lot_ramp: bool = False
     # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
     # after the mother is drawn from the first bounce instead of waiting for a
     # trendline. Off by default: measured on the Fib Space side and it does not
@@ -1509,7 +1514,7 @@ class FibTouchLadder:
             self._log(bar.timestamp, "premium_missing", level=rung.level, strike=strike)
             return
 
-        lots = self.config.lots_per_rung
+        lots = self.config.lots_per_rung * ((len(self.fills) + 1) if self.config.lot_ramp else 1)
         quantity = lots * self.config.lot_size
         cost = float(premium) * quantity
         if int(self.config.max_buys) > 0 and len(self.fills) >= int(self.config.max_buys):
@@ -2365,6 +2370,7 @@ class FibTouchLadder:
                 "deep_carry": config.deep_carry,
                 "deep_carry_rungs": config.deep_carry_rungs,
                 "max_buys": config.max_buys,
+                "lot_ramp": config.lot_ramp,
                 # The exit rule. A restart that forgot it would sell a trailing
                 # campaign at its fixed target the moment it came back.
                 "trailing_stop": config.trailing_stop,
@@ -2513,6 +2519,7 @@ class FibTouchLadder:
             deep_carry=bool(terms.get("deep_carry", False)),
             deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
             max_buys=int(terms.get("max_buys", 0) or 0),
+            lot_ramp=bool(terms.get("lot_ramp", False)),
             trailing_stop=bool(terms.get("trailing_stop", False)),
             trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),
         )
@@ -2665,6 +2672,7 @@ class FibTouchLadder:
             "deep_carry": self.config.deep_carry,
             "deep_carry_rungs": self.config.deep_carry_rungs,
             "max_buys": self.config.max_buys,
+            "lot_ramp": self.config.lot_ramp,
             "buy_stop": round(self._buy_stop, 2) if self._buy_stop is not None else None,
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when

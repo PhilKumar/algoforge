@@ -2303,6 +2303,17 @@ class MaxBuysTests(unittest.TestCase):
         )
         self.assertEqual(back.config.max_buys, 1)
 
+    def test_the_lot_ramp_buys_one_then_two(self):
+        engine = self.two_turns(lot_ramp=True, cap=500_000.0)
+        self.assertEqual([f.lots for f in engine.fills], [1, 2])
+        self.assertEqual([f.quantity for f in engine.fills], [65, 130])
+        self.assertTrue(
+            FibTouchLadder.from_dict(
+                engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+            ).config.lot_ramp
+        )
+        self.assertEqual([f.lots for f in self.two_turns().fills], [1, 1], "off by default")
+
     def test_a_negative_cap_is_refused(self):
         with self.assertRaises(FibTouchError):
             FibTouchConfig(

@@ -99,7 +99,7 @@ while d <= end:
             strike_step=STRIKE_STEP,
             timeframe=tf,
             entry_timeframe="1m",
-            capital_cap_inr=75000.0,
+            capital_cap_inr=float(os.environ.get("CAP", "75000") or 75000),
             itm_steps=2,
             min_dte=4,
             buy_mode=buy_mode,
@@ -111,6 +111,7 @@ while d <= end:
             deep_target=os.environ.get("DEEP_TARGET", "1") == "1",
             deep_carry=os.environ.get("DEEP_CARRY", "0") == "1",
             max_buys=int(os.environ.get("MAX_BUYS", "0") or 0),
+            lot_ramp=os.environ.get("LOT_RAMP", "0") == "1",
         )
         eng = FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
         hz = mother.date() + timedelta(days=10)
