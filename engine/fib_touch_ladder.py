@@ -65,6 +65,7 @@ __all__ = [
     "FibTouchLadder",
     "GEOMETRY_TIMEFRAMES",
     "TIMEFRAME_MINUTES",
+    "TERMINAL_STATUSES",
     "ExecutionRefused",
     "PaperExecutor",
     "LiveExecutor",
@@ -117,8 +118,10 @@ DEEP_TARGET_FRACTION = 0.5
 # that happened to poke through.
 REBASE_WATCH_BARS = 5
 
-# Statuses no further candle can change.
-_TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
+# Statuses no further candle can change. Public as TERMINAL_STATUSES so the
+# paper poll and the restore path stop on the same set the engine does.
+TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
+_TERMINAL_STATUSES = TERMINAL_STATUSES
 
 # The charts a mother candle may be read on. Entries are always watched on 1m.
 GEOMETRY_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
@@ -1117,6 +1120,14 @@ class FibTouchLadder:
             existing = known.get(row.key)
             if existing is not None:
                 # Price is a property of the fib, which never moves once drawn.
+                # A rung restored from disk may have come back without the
+                # fields a redraw knows -- fill them in, keep its state.
+                if existing.drawn_at is None:
+                    existing.drawn_at = row.drawn_at
+                if existing.zone_floor is None and row.zone_floor is not None:
+                    existing.zone_floor = row.zone_floor
+                    existing.zone_label = row.zone_label
+                    existing.zone_bottom_fib_id = row.zone_bottom_fib_id
                 rebuilt.append(existing)
                 continue
             rebuilt.append(row)
@@ -1573,15 +1584,20 @@ class FibTouchLadder:
             # happened, but close the trade with no buys.. And wait for my next
             # MC." The engine no longer picks its own mother; he does.
             self.status = "MOTHER_BROKEN"
-            self.exit_reason = "mother_broken_no_buys"
+            # "no buys" only when the campaign never bought. A mother that
+            # banked a round, parked for a lower low and then broke holds
+            # nothing NOW, but it did trade -- calling that "no buys" put a
+            # profitable campaign under a label that says it never happened.
+            self.exit_reason = "mother_broken" if self.rounds else "mother_broken_no_buys"
             self.exit_timestamp = bar.timestamp
             self.exit_index = float(bar.close)
             self.gross_pnl = self.gross_pnl or 0.0
             self.costs_total = self.costs_total or 0.0
             self.net_pnl = self.net_pnl or 0.0
+            self._clear_resting_exits()
             self._log(
                 bar.timestamp,
-                "mother_broken_no_buys",
+                self.exit_reason,
                 close=round(float(bar.close), 2),
                 edge=round(edge, 2),
             )
@@ -1920,6 +1936,19 @@ class FibTouchLadder:
         """
         if self.status in _TERMINAL_STATUSES:
             return
+        # NOTHING BEFORE THE MOTHER EXISTS. Both routes fetch the mother's whole
+        # day, so the bars before it arrive too; the geometry already ignored
+        # them, but `_lowest_low` did not, and a 09:15 low was quietly the
+        # "deepest low of the campaign" for a mother typed at 11:15.
+        if bar.timestamp < self.config.mother_timestamp:
+            return
+        # THE SAME BAR TWICE IS NOT A NEW BAR. The paper poll re-fetches the
+        # stream from the mother's date every tick, and a restart re-feeds it
+        # from the start to rebuild the geometry -- so a bar already read is
+        # simply already read. Without this the geometry saw the whole day
+        # again every ten seconds and drew structures off repeated candles.
+        if self.geometry_history and bar.timestamp <= self.geometry_history[-1].timestamp:
+            return
         self.geometry_history.append(bar)
         is_mother = bar.timestamp == self.config.mother_timestamp
         if is_mother:
@@ -1952,6 +1981,10 @@ class FibTouchLadder:
                 confirmed_at=fib.drawn_timestamp,
                 involvement_candles=self.config.involvement_candles,
             )
+            # A restart rebuilds the geometry by re-feeding the stream, and the
+            # fib it redraws was already announced the first time round.
+            if any(row.get("event") == "fib_drawn" and row.get("fib") == fib.fib_id for row in self.events):
+                continue
             self._log(
                 fib.drawn_timestamp,
                 "fib_drawn",
@@ -1969,6 +2002,14 @@ class FibTouchLadder:
     def on_candle(self, bar: Bar) -> None:
         """Advance the campaign by one CLOSED 1-minute index candle."""
         if self.status in _TERMINAL_STATUSES:
+            return
+        # A bar from before the mother is not part of this campaign. The
+        # backtest route fed the whole day's 1m bars, so a mother typed at
+        # 10:15 met a 09:16 close above its high and was declared broken
+        # before it had even printed (every non-09:15 5m mother in the July
+        # sweep "broke" at 09:15). The start route skipped these by hand; the
+        # engine now refuses them itself so no caller can get this wrong.
+        if bar.timestamp < self.config.mother_timestamp:
             return
         if self.history:
             last = self.history[-1]
@@ -1991,6 +2032,17 @@ class FibTouchLadder:
         # his next MC -- applies here exactly as it does after arming.
         if self.anchor is None and self.mother_high is not None and self._try_mother_break(bar):
             return
+        # 15:15 ENDS THE DAY, and so the campaign -- WHATEVER state it is in.
+        # An intraday mother lives for its own session (Phil, 2026-08-16:
+        # "tomorrow gets a fresh one"). Until 2026-08-18 this was only checked
+        # once a swing existed and the ladder was not parked, so a mother that
+        # had drawn nothing by 15:15, or had banked a round and was waiting
+        # for a lower low, carried overnight and bought the NEXT day -- the
+        # 21-Jul-2026 09:15 5m mother closed at 15:15 on the 22nd. Checked
+        # before anything can buy: a rung touched at 15:14 must not open a
+        # position the very next bar has to close.
+        if self._try_intraday_close(bar):
+            return
         if self.anchor is None:
             return
         # The bar that confirmed the swing is the earliest one that may trade;
@@ -2008,11 +2060,6 @@ class FibTouchLadder:
         # ladder in the same instant.
         if self.status == "WAITING_NEW_LOW":
             self._try_rearm(bar)
-            return
-        # 15:15 ENDS THE DAY, and so the campaign. Checked before anything can
-        # buy: a rung touched at 15:14 must not open a position the very next
-        # bar has to close.
-        if self._try_intraday_close(bar):
             return
         # In order, and the order is the rule: what the candle REACHED, then
         # whether the fall has turned, then the one buy that turn allows.
@@ -2221,6 +2268,14 @@ class FibTouchLadder:
                     # level look buyable again.
                     "fib_id": rung.fib_id,
                     "armed": rung.armed,
+                    # When the parent fib was drawn, and -- in convergence
+                    # mode -- the space this rung is. A zone rung's KEY is
+                    # built from these, so a restart that dropped them could
+                    # never match the rung to its redrawn structure again.
+                    "drawn_at": rung.drawn_at.isoformat() if rung.drawn_at else None,
+                    "zone_floor": rung.zone_floor,
+                    "zone_label": rung.zone_label,
+                    "zone_bottom_fib_id": rung.zone_bottom_fib_id,
                 }
                 for rung in self.rungs
             ],
@@ -2228,6 +2283,7 @@ class FibTouchLadder:
             # reds have already printed and a stop is sitting armed.
             "reds": list(self._reds),
             "buy_stop": self._buy_stop,
+            "stop_bar": self._stop_bar.isoformat() if self._stop_bar else None,
             "fills": [
                 {
                     "buy_number": fill.buy_number,
@@ -2245,6 +2301,10 @@ class FibTouchLadder:
                     # forgets that two of its buys were different structures'
                     # level 2, and every rung key collapses back to "L2".
                     "fib_id": fill.fib_id,
+                    # Every rung this one buy spent. The deep-target rule reads
+                    # it, so a restart that lost it could hand a fall through
+                    # L4 the shallow quarter target.
+                    "covered": list(fill.covered),
                 }
                 for fill in self.fills
             ],
@@ -2339,11 +2399,16 @@ class FibTouchLadder:
                 filled_at=datetime.fromisoformat(row["filled_at"]) if row.get("filled_at") else None,
                 fib_id=int(row.get("fib_id") or 0),
                 armed=bool(row.get("armed")),
+                drawn_at=datetime.fromisoformat(row["drawn_at"]) if row.get("drawn_at") else None,
+                zone_floor=float(row["zone_floor"]) if row.get("zone_floor") is not None else None,
+                zone_label=str(row.get("zone_label") or ""),
+                zone_bottom_fib_id=int(row.get("zone_bottom_fib_id") or 0),
             )
             for row in raw.get("rungs") or []
         ]
         engine._reds = [float(v) for v in (raw.get("reds") or [])]
         engine._buy_stop = float(raw["buy_stop"]) if raw.get("buy_stop") is not None else None
+        engine._stop_bar = datetime.fromisoformat(raw["stop_bar"]) if raw.get("stop_bar") else None
         engine.fills = [
             TouchFill(
                 buy_number=int(row["buy_number"]),
@@ -2358,6 +2423,7 @@ class FibTouchLadder:
                 option_type=str(row["option_type"]),
                 order_id=str(row.get("order_id") or ""),
                 fib_id=int(row.get("fib_id") or 0),
+                covered=[str(key) for key in (row.get("covered") or [])],
             )
             for row in raw.get("fills") or []
         ]

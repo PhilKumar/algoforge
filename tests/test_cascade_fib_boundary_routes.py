@@ -994,5 +994,152 @@ class FibBoundaryChartTimeframeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("base_timeframe must be one of", str(raised.exception.detail))
 
 
+class _StreamAdapter:
+    """A Dhan stand-in that serves fixed candle streams per timeframe and
+    counts how often each was asked for."""
+
+    def __init__(self, streams: dict):
+        self.streams = streams
+        self.asked: dict = {}
+
+    async def async_get_candles(self, _symbol, timeframe="5m", *, from_date=None, to_date=None, now=None):
+        self.asked[timeframe] = self.asked.get(timeframe, 0) + 1
+        return list(self.streams.get(str(timeframe).lower(), []))
+
+
+class FibBoundaryPaperLoopTests(unittest.IsolatedAsyncioTestCase):
+    """The poll that drives a running paper ladder, tick by tick.
+
+    Until 2026-08-18 it read the mother's own chart only until the FIRST swing
+    existed, so a paper ladder never drew a second fib while the backtest of
+    the same mother drew three; and it went on polling Dhan every ten seconds
+    for a MOTHER_BROKEN campaign nothing could change.
+    """
+
+    def _rows(self):
+        return [
+            (24_660, 24_780, 24_640, 24_642),
+            (24_642, 24_644, 24_620, 24_622),
+            (24_622, 24_624, 24_600, 24_602),
+            (24_602, 24_612, 24_600, 24_610),
+            (24_610, 24_620, 24_608, 24_618),
+            (24_618, 24_650, 24_615, 24_645),
+            (24_645, 24_700, 24_640, 24_695),
+            (24_695, 24_698, 24_680, 24_682),
+            (24_682, 24_684, 24_670, 24_672),
+            (24_672, 24_674, 24_560, 24_570),  # FIB 1 drawn
+            (24_570, 24_640, 24_565, 24_635),
+            (24_635, 24_690, 24_630, 24_640),
+            (24_640, 24_642, 24_505, 24_510),  # FIB 2 drawn
+        ]
+
+    def _ladder(self, timeframe="5m"):
+        from datetime import date as _date
+
+        from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder
+
+        base = datetime(2026, 8, 6, 9, 15)
+        step = 5 if timeframe == "5m" else 1
+        geometry = [
+            app_module.IndexCandle(base + timedelta(minutes=i * step), o, h, low, c)
+            for i, (o, h, low, c) in enumerate(self._rows())
+        ]
+        engine = FibTouchLadder(
+            FibTouchConfig(
+                symbol="NIFTY",
+                side="CE",
+                mother_timestamp=geometry[0].timestamp,
+                lot_size=65,
+                strike_step=50.0,
+                timeframe=timeframe,
+                entry_timeframe="1m",
+            ),
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [_date(2026, 8, 11)],
+        )
+        return engine, geometry
+
+    async def _one_tick(self, runtime, user_id=11):
+        """Run the loop for exactly one iteration."""
+        app_module._fib_boundary_engines[user_id] = {"NIFTY": runtime}
+
+        async def _stop_after_first_sleep(_seconds):
+            runtime.running = False
+
+        with patch.object(app_module.asyncio, "sleep", _stop_after_first_sleep):
+            await app_module._run_fib_boundary_paper_loop(user_id, runtime)
+
+    async def test_the_mothers_chart_is_read_on_every_tick_not_only_until_the_first_swing(self):
+        engine, geometry = self._ladder()
+        # First tick: only the bars up to FIB 1 exist yet.
+        adapter = _StreamAdapter({"5m": geometry[:10], "1m": []})
+        runtime = app_module._CascadeRuntime(engine, adapter, _Broker(), geometry[0].timestamp, running=True)
+        await self._one_tick(runtime)
+        self.assertEqual(len(engine.geometry.fibs), 1)
+        self.assertIsNotNone(engine.anchor)
+        # Second tick, later in the day: the market drew a second structure.
+        adapter.streams["5m"] = geometry
+        runtime.running = True
+        await self._one_tick(runtime)
+        self.assertEqual(len(engine.geometry.fibs), 2, "the second fib is drawn on a paper ladder too")
+        self.assertEqual(adapter.asked["5m"], 2, "the mother's chart is fetched every tick")
+
+    async def test_a_restarted_ladder_gets_its_geometry_back_from_the_stream(self):
+        from engine.fib_touch_ladder import FibTouchLadder
+
+        engine, geometry = self._ladder()
+        for bar in geometry:
+            engine.on_geometry_candle(bar)
+        self.assertEqual(len(engine.geometry.fibs), 2)
+        revived = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(revived.geometry.fibs, [])
+        adapter = _StreamAdapter({"5m": geometry, "1m": []})
+        runtime = app_module._CascadeRuntime(revived, adapter, _Broker(), geometry[-1].timestamp, running=True)
+        await self._one_tick(runtime)
+        self.assertEqual(len(revived.geometry.fibs), 2)
+        self.assertEqual([r.key for r in revived.rungs], [r.key for r in engine.rungs])
+        self.assertEqual(len(revived.get_status()["fibs"]), 2, "and the chart payload shows them again")
+
+    async def test_a_one_minute_mother_rebuilds_from_the_entry_stream(self):
+        from engine.fib_touch_ladder import FibTouchLadder
+
+        engine, geometry = self._ladder(timeframe="1m")
+        for bar in geometry:
+            engine.on_candle(bar)
+        self.assertEqual(len(engine.geometry.fibs), 2)
+        revived = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        adapter = _StreamAdapter({"1m": geometry})
+        # last_candle_timestamp is the LAST bar: every 1m bar is "already traded on".
+        runtime = app_module._CascadeRuntime(revived, adapter, _Broker(), geometry[-1].timestamp, running=True)
+        await self._one_tick(runtime)
+        self.assertEqual(len(revived.geometry.fibs), 2)
+        self.assertEqual(len(revived.history), 0, "no bar was traded on twice")
+
+    async def test_a_broken_mother_stops_the_poll(self):
+        engine, geometry = self._ladder()
+        for bar in geometry:
+            engine.on_geometry_candle(bar)
+        broken = app_module.IndexCandle(geometry[-1].timestamp + timedelta(minutes=5), 24_700, 24_800, 24_690, 24_790)
+        adapter = _StreamAdapter({"5m": geometry, "1m": [broken]})
+        runtime = app_module._CascadeRuntime(engine, adapter, _Broker(), geometry[0].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = {"NIFTY": runtime}
+        slept = []
+
+        async def _sleep(seconds):
+            slept.append(seconds)
+            if len(slept) > 3:
+                runtime.running = False  # safety net: the loop should have stopped itself
+
+        with patch.object(app_module.asyncio, "sleep", _sleep):
+            await app_module._run_fib_boundary_paper_loop(11, runtime)
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertFalse(runtime.running)
+        self.assertEqual(len(slept), 1, "one tick saw the break and the poll ended")
+
+
 if __name__ == "__main__":
     unittest.main()

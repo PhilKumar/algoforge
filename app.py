@@ -134,6 +134,7 @@ from engine.fib_touch_ladder import (
     symbol_terms,
 )
 from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
+from engine.fib_touch_ladder import TERMINAL_STATUSES as _FIB_TOUCH_TERMINAL_STATUSES
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
 from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
 from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
@@ -1916,7 +1917,7 @@ async def _restore_fib_boundary_open_state(
             last = datetime.fromisoformat(str(record.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
             if last.tzinfo is None:
                 last = last.replace(tzinfo=IST)
-            running = bool(record.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
+            running = bool(record.get("running")) and engine.status not in _FIB_TOUCH_TERMINAL_STATUSES
             runtimes[symbol] = _CascadeRuntime(engine, adapter, broker, last, running=running)
         except Exception as exc:
             _logger.warning("[FIB TOUCH] Skipping invalid persisted ladder for user %s: %s", user_id, exc)
@@ -10501,18 +10502,33 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
         try:
             today = datetime.now(IST).date()
             start = engine.config.mother_timestamp.date()
-            # The slow stream only matters until the swing is frozen; after that
-            # it is settled geometry and re-fetching it every tick is waste.
-            if timeframe != "1m" and engine.anchor is None:
+            # The mother's own chart is read EVERY tick, not only until the first
+            # swing: since the 2026-08-15 merge fibs STACK, so a new structure
+            # can be drawn at any point in the campaign, and stopping this
+            # stream at the first anchor left the paper ladder frozen on one
+            # fib while the backtest of the same mother drew three. The
+            # engine ignores a bar it has already read, so re-feeding the
+            # stream from the mother's date is how a restarted process gets
+            # its geometry back, and a no-op every other tick.
+            if timeframe != "1m":
                 for row in await runtime.adapter.async_get_candles(symbol, timeframe, from_date=start, to_date=today):
                     engine.on_geometry_candle(row)
             candles = await runtime.adapter.async_get_candles(symbol, "1m", from_date=start, to_date=today)
             for candle in candles:
                 if candle.timestamp <= runtime.last_candle_timestamp:
+                    # Already traded on. For a 1m mother the entry bars ARE the
+                    # geometry bars, so hand them to the geometry anyway -- a
+                    # restart comes back with the structures unbuilt, and this
+                    # is the only stream that can rebuild them. No-op once read.
+                    if timeframe == "1m":
+                        engine.on_geometry_candle(candle)
                     continue
                 runtime.last_candle_timestamp = candle.timestamp
                 engine.on_candle(candle)
-            if engine.status in {"CLOSED", "EXPIRED"}:
+            # Any terminal state ends the poll. A MOTHER_BROKEN or KILLED
+            # ladder used to keep asking Dhan for the whole day every ten
+            # seconds, forever, for a campaign nothing could change.
+            if engine.status in _FIB_TOUCH_TERMINAL_STATUSES:
                 runtime.running = False
             await _save_fib_boundary_open_state(user_id)
         except asyncio.CancelledError:

@@ -732,17 +732,14 @@ async def set_app_state(key: str, value: str) -> None:
     state_value = str(value)
     now = _now_iso()
     async with aiosqlite.connect(config.DB_PATH) as db:
-        cursor = await db.execute("SELECT key FROM app_state WHERE key = ? LIMIT 1", (state_key,))
-        row = await cursor.fetchone()
-        if row:
-            await db.execute(
-                "UPDATE app_state SET value = ?, updated_at = ? WHERE key = ?", (state_value, now, state_key)
-            )
-        else:
-            await db.execute(
-                "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)",
-                (state_key, state_value, now),
-            )
+        # ONE statement, not SELECT-then-INSERT. Two savers of the same key
+        # (a Start route's forced save and the paper loop's first tick) both
+        # saw no row and both inserted; the second died on the UNIQUE index.
+        await db.execute(
+            "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (state_key, state_value, now),
+        )
         await db.commit()
 
 

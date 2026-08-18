@@ -2028,5 +2028,143 @@ class DeepTargetTests(unittest.TestCase):
         self.assertEqual(engine.get_status()["target_fraction"], 0.5)
 
 
+class BarsBeforeTheMotherTests(unittest.TestCase):
+    """The July-2026 sweep, 2026-08-18: every 5m mother typed after 09:15
+    "broke" at 09:15 -- the backtest fed the whole day's 1m bars, and a 09:16
+    close above a later mother's high ended a campaign that had not started."""
+
+    def test_an_entry_bar_before_the_mother_cannot_break_it(self):
+        engine, candles, _ = ladder(mother_index=2)
+        # Give the engine its mother first, the way the geometry stream does.
+        engine.on_geometry_candle(candles[2])
+        self.assertIsNotNone(engine.mother_high)
+        # Now a 1m bar from BEFORE the mother, closing well above its high.
+        engine.on_candle(Bar(candles[0].timestamp, 24_700, 24_800, 24_690, 24_790))
+        self.assertNotEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.history, [], "and it is not part of the campaign's history")
+
+    def test_a_geometry_bar_before_the_mother_is_ignored(self):
+        engine, candles, _ = ladder(mother_index=2)
+        engine.on_geometry_candle(Bar(candles[0].timestamp, 24_660, 24_780, 24_100, 24_642))
+        self.assertIsNone(engine._lowest_low, "a low from before the mother is not the campaign's low")
+        self.assertEqual(engine.geometry_history, [])
+
+    def test_the_same_geometry_bar_twice_is_read_once(self):
+        """The paper poll re-fetches the stream from the mother's date on every
+        tick, and a restart re-feeds it to rebuild the geometry."""
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_geometry_candle(bar)
+        fibs_once = len(engine.geometry.fibs)
+        events_once = len(engine.events)
+        for bar in candles:
+            engine.on_geometry_candle(bar)
+        self.assertEqual(len(engine.geometry.fibs), fibs_once)
+        self.assertEqual(len(engine.geometry_history), len(candles))
+        self.assertEqual(len(engine.events), events_once, "no fib is announced twice")
+
+    def test_a_restart_rebuilds_the_geometry_from_the_stream(self):
+        """`to_dict` stores what the ladder decided, not the candles; feeding
+        the stream again after `from_dict` must put the same fibs back with the
+        same rung keys, and keep every rung's state."""
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back.geometry.fibs, [], "the structures are not on disk")
+        for bar in candles:
+            back.on_geometry_candle(bar)
+        self.assertEqual(len(back.geometry.fibs), len(engine.geometry.fibs))
+        self.assertEqual([r.key for r in back.rungs], [r.key for r in engine.rungs])
+        self.assertEqual([r.status for r in back.rungs], [r.status for r in engine.rungs])
+        self.assertTrue(all(r.drawn_at is not None for r in back.rungs), "drawn_at is filled back in")
+        self.assertEqual(len(back.fills), 1)
+
+
+class IntradayEndsTheDayWhateverTheStateTests(unittest.TestCase):
+    """The 21-Jul-2026 09:15 5m mother, intraday, drew nothing by 15:15,
+    carried overnight and closed at 15:15 on the 22nd. Phil's rule is that an
+    intraday mother lives for its own session; tomorrow gets a fresh one."""
+
+    def _at(self, hh, mm):
+        return datetime(2026, 8, 6, hh, mm)
+
+    def test_a_mother_with_no_swing_yet_still_ends_at_1515(self):
+        engine, candles, _ = ladder(intraday=True)
+        engine.on_candle(candles[0])  # the mother, nothing drawn
+        self.assertIsNone(engine.anchor)
+        engine.on_candle(Bar(self._at(15, 15), 24_650, 24_655, 24_645, 24_650))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "intraday_close")
+
+    def test_a_parked_mother_ends_at_1515_instead_of_waiting_overnight(self):
+        engine, candles, _ = ladder(intraday=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        take_the_turn(engine, base, 24_502)
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        engine.on_candle(Bar(self._at(15, 15), 24_570, 24_575, 24_565, 24_570))
+        self.assertEqual(engine.status, "CLOSED")
+        self.assertEqual(engine.exit_reason, "intraday_close")
+        self.assertEqual(len(engine.rounds), 1, "the banked round is kept")
+        self.assertIsNotNone(engine.net_pnl)
+
+
+class MotherBrokenAfterARoundTests(unittest.TestCase):
+    def test_a_campaign_that_banked_a_round_is_not_labelled_no_buys(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        base = candles[-1].timestamp
+        take_the_turn(engine, base, 24_502)
+        engine.on_candle(Bar(base + timedelta(minutes=2), 24_510, 24_580, 24_505, 24_575))
+        self.assertEqual(engine.status, "WAITING_NEW_LOW")
+        net = engine.net_pnl
+        engine.on_candle(Bar(base + timedelta(minutes=3), 24_575, 24_800, 24_570, 24_790))
+        self.assertEqual(engine.status, "MOTHER_BROKEN")
+        self.assertEqual(engine.exit_reason, "mother_broken")
+        self.assertEqual(engine.net_pnl, net, "and the round's money is still the campaign's")
+
+    def test_a_campaign_that_never_bought_still_says_so(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        engine.on_candle(Bar(candles[-1].timestamp + timedelta(minutes=1), 24_575, 24_800, 24_570, 24_790))
+        self.assertEqual(engine.exit_reason, "mother_broken_no_buys")
+
+
+class PersistedTurnAndCoverageTests(unittest.TestCase):
+    def test_the_covered_rungs_survive_a_restart(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_295, sweep_from=24_612)
+        self.assertIn(4, engine.fills[0].covered_levels)
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back.fills[0].covered, engine.fills[0].covered)
+        self.assertEqual(back.target_fraction, DEEP_TARGET_FRACTION, "the deep target is not lost on restart")
+
+    def test_an_armed_stop_remembers_the_bar_that_armed_it(self):
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        step = timedelta(seconds=1)
+        start = candles[-1].timestamp
+        engine.on_candle(Bar(start + step, 24_510, 24_512, 24_495, 24_500))
+        engine.on_candle(Bar(start + 2 * step, 24_500, 24_501, 24_490, 24_494))
+        self.assertIsNotNone(engine._buy_stop)
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back._stop_bar, engine._stop_bar)
+
+
 if __name__ == "__main__":
     unittest.main()

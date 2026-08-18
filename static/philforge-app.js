@@ -3345,7 +3345,11 @@ function _renderFibBoundaryCampaign(root, campaign) {
     const banked = rounds.length
       ? `${rounds.length} round${rounds.length === 1 ? '' : 's'} banked · ${_cascadeOptionsMoney(campaign.net_pnl || 0)} net`
       : '';
-    const open = fills.length ? `${fills.length} open buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
+    // "Open" only while something is HELD. An ended campaign keeps its legs in
+    // `fills` as the record, and calling those open buys on a CLOSED monitor
+    // read as a position that was still on.
+    const holding = (Number(campaign.open_lots) || 0) > 0;
+    const open = fills.length && holding ? `${fills.length} open buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
     fillSummary.textContent = [open, banked].filter(Boolean).join('  ·  ');
     fillSummary.style.color = rounds.length && (Number(campaign.net_pnl) || 0) > 0 ? '#6ee7b7' : 'var(--muted)';
   }
@@ -3382,29 +3386,37 @@ function _renderFibBoundaryCampaign(root, campaign) {
 function _renderFibBoundaryRounds(pair, campaign) {
   const body = pair.querySelector('[data-fx="rounds"]');
   const count = pair.querySelector('[data-fx="round-count"]');
-  // The ladder is one-and-done: one target closes the whole basket and ends
-  // the campaign, so there is at most one round to show.
-  const closed = campaign && ['CLOSED', 'EXPIRED', 'KILLED'].includes(String(campaign.status || ''));
-  if (count) count.textContent = `${closed ? 1 : 0} round${closed ? '' : 's'}`;
+  // ONE ROW PER ROUND, from the rounds the engine banked. A mother can bank
+  // more than one (a new deepest low re-arms it), and it keeps them whatever
+  // ends it -- so this used to read campaign-level fields and say "0 rounds"
+  // over a MOTHER_BROKEN campaign that had made money, and "QTY 0" on a
+  // closed one because the open quantity is zero once the basket is sold.
+  const rounds = campaign && Array.isArray(campaign.rounds) ? campaign.rounds : [];
+  if (count) count.textContent = `${rounds.length} round${rounds.length === 1 ? '' : 's'}`;
   if (!body) return;
-  if (!closed) {
+  if (!rounds.length) {
     const mode = campaign && (campaign.is_live || String(campaign.mode || '').toLowerCase() === 'live') ? 'live' : 'paper';
     body.innerHTML = `<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed ${mode} round</td></tr>`;
     return;
   }
-  const pnl = Number(campaign.net_pnl || 0);
-  const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
   const cell = 'padding:9px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;';
-  body.innerHTML = `<tr style="border-bottom:1px solid var(--border);">`
-    + `<td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#1</td>`
-    + `<td style="${cell}">${escapeHtml(String(campaign.open_quantity || 0))}</td>`
-    + `<td style="${cell}">${escapeHtml(_cascadeNumber(campaign.average_index_entry))}</td>`
-    + `<td style="${cell}">${escapeHtml(_cascadeNumber(campaign.exit_index))}</td>`
-    + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(campaign.gross_pnl))}</td>`
-    + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(campaign.costs_total))}</td>`
-    + `<td class="${_cascadeOptionsToneClass(color)}" style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(campaign.net_pnl))}</td>`
-    + `<td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(campaign.exit_reason || '').replaceAll('_', ' '))}</td>`
-    + `</tr>`;
+  body.innerHTML = rounds.map(round => {
+    const fills = Array.isArray(round.fills) ? round.fills : [];
+    const qty = fills.reduce((n, f) => n + (Number(f.quantity) || 0), 0);
+    const avgEntry = qty ? fills.reduce((n, f) => n + Number(f.index_price) * (Number(f.quantity) || 0), 0) / qty : null;
+    const pnl = Number(round.net_pnl || 0);
+    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    return `<tr style="border-bottom:1px solid var(--border);">`
+      + `<td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(round.round))}</td>`
+      + `<td style="${cell}">${escapeHtml(String(qty))}</td>`
+      + `<td style="${cell}">${escapeHtml(avgEntry == null ? '—' : _cascadeNumber(avgEntry))}</td>`
+      + `<td style="${cell}">${escapeHtml(round.exit_index == null ? '—' : _cascadeNumber(round.exit_index))}</td>`
+      + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(round.gross_pnl))}</td>`
+      + `<td style="${cell}">${escapeHtml(_cascadeOptionsMoney(round.costs_total))}</td>`
+      + `<td class="${_cascadeOptionsToneClass(color)}" style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(round.net_pnl))}</td>`
+      + `<td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(round.exit_reason || '').replaceAll('_', ' '))}</td>`
+      + `</tr>`;
+  }).join('');
 }
 function _renderFibBoundaryEvents(pair, events) {
   const el = pair.querySelector('[data-fx="events"]');
@@ -3600,9 +3612,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // Every buy this mother ever made: the open basket plus every round it has
   // already banked. `fills` is emptied when a round parks the mother, so
   // without the rounds the chart forgets the trade the moment it pays out.
-  const allFills = (campaign.rounds || [])
-    .reduce((acc, round) => acc.concat(Array.isArray(round.fills) ? round.fills : []), [])
-    .concat(campaign.fills || []);
+  const allFills = _fibCampaignFills(campaign);
   // Money ON a rung means money STILL on it -- the open basket only. A banked
   // round releases its rungs to be bought again, so counting its buys here
   // printed "F1 L2 PENDING ₹6,074": a rung waiting for a fresh touch, carrying
@@ -4120,6 +4130,24 @@ async function _restoreLastFibBoundaryBacktest() {
   }
 }
 
+// EVERY buy a campaign made, each counted ONCE. A round that pays at its target
+// empties `fills` and keeps the legs on the round; an intraday close, a broken
+// mother or a kill books the round AND leaves the legs in `fills` as the
+// record. Concatenating the two counted those buys twice -- a 3-buy replay
+// said "6 buys" and drew six markers (2026-08-18).
+function _fibCampaignFills(campaign) {
+  const c = campaign || {};
+  const rounds = Array.isArray(c.rounds) ? c.rounds : [];
+  const banked = rounds.reduce(
+    (acc, round) => acc.concat((Array.isArray(round.fills) ? round.fills : []).map(f => ({ ...f, round: round.round }))),
+    [],
+  );
+  const key = f => `${f.rung_key || ('L' + f.level)}|${f.timestamp}|${f.buy_number}`;
+  const seen = new Set(banked.map(key));
+  const open = (Array.isArray(c.fills) ? c.fills : []).filter(f => !seen.has(key(f)));
+  return banked.concat(open);
+}
+
 function _renderFibBoundaryBacktest(data) {
   const panel = document.getElementById('fibx-backtest');
   if (panel) panel.style.display = '';
@@ -4156,10 +4184,7 @@ function _renderFibBoundaryBacktest(data) {
       _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
       _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
       _cascadeOptionsMetric('Funded', _cascadeOptionsMoney(c.deployed_inr || 0), '#fde68a'),
-      _cascadeOptionsMetric(
-        'Lots',
-        `${c.open_lots || 0} · ${(c.rounds || []).reduce((n, r) => n + (r.fills || []).length, 0) + (c.fills || []).length} buys`,
-      ),
+      _cascadeOptionsMetric('Lots', `${c.open_lots || 0} · ${_fibCampaignFills(c).length} buys`),
     ].join('');
   }
 
@@ -4191,14 +4216,8 @@ function _renderFibBoundaryBacktest(data) {
     // out empties `fills` and parks the mother, so a replay whose OUTCOME says
     // TARGET and whose NET P&L says +Rs 4,941 was showing "No level was
     // touched in this window" underneath it (Phil, 2026-08-16).
-    const rounds = Array.isArray(c.rounds) ? c.rounds : [];
-    const banked = rounds.reduce(
-      (acc, round) => acc.concat((Array.isArray(round.fills) ? round.fills : []).map(f => ({ ...f, round: round.round }))),
-      [],
-    );
-    const seenLeg = new Set(banked.map(f => `${f.rung_key}|${f.timestamp}|${f.buy_number}`));
-    const open = (c.fills || []).filter(f => !seenLeg.has(`${f.rung_key}|${f.timestamp}|${f.buy_number}`));
-    const fills = banked.concat(open);
+    const fills = _fibCampaignFills(c);
+    const banked = fills.filter(f => f.round);
     const exits = c.exit_premiums || [];
     legs.innerHTML = fills.length ? fills.map((f, i) => {
       // A banked leg carries what it actually sold for; an open one falls back
