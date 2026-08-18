@@ -3631,6 +3631,9 @@
     letter-spacing: .03em;
   }
   .pf-tearsheet-open:hover { border-color: var(--accent); }
+  .pf-tearsheet-docs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+  .pf-tearsheet-doc { appearance: none; border: 0; cursor: pointer; background: transparent; color: var(--muted); font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .06em; padding: 6px 12px; border-radius: 999px; }
+  .pf-tearsheet-doc.is-active { background: var(--panel-hi); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-hi); }
   #assets-tearsheet-frame {
     display: block;
     width: 100%;

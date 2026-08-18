@@ -1,0 +1,565 @@
+"""Emit the Fib Boundary tearsheet -- the winning configuration, both books.
+
+Sibling of build_report.py (the five-year options tearsheet). It borrows that
+document's stylesheet, helpers and bilingual toggle verbatim -- read from
+build_report.py at run time, never copied -- so the two read as one family on
+the Assets page.
+
+Every figure comes from tools/fib_offline sweeps of the exact FibTouchLadder
+the Cascade page trades: Lone (every level) · 5m mother · CE and PE · Intraday
+out by 15:15 · Target = Trailing (1 span) · Rs 75,000 cap · ATM-2 · nearest
+expiry >= 4 days, NIFTY, 3 Oct 2024 -> 17 Aug 2026, seven blind mother times a
+session, real recorded premiums, lot 25 / 75 / 65 by date. Nothing here is
+typed by hand.
+
+    python3 tools/tearsheet/build_fib_report.py [CE.csv PE.csv]
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+import pathlib
+import re
+import sys
+import tempfile
+from collections import defaultdict
+from datetime import datetime
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
+
+_HERE = pathlib.Path(__file__).resolve().parent
+_REPO = _HERE.parent.parent
+OUT = _REPO / "docs" / "assets" / "fib-boundary-tearsheet.html"
+DATA = _HERE / "fib_report_data.json"
+
+CE_CSV = (
+    pathlib.Path(sys.argv[1])
+    if len(sys.argv) > 1
+    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "v3" / "levels_5m_CE_trail.csv"
+)
+PE_CSV = (
+    pathlib.Path(sys.argv[2])
+    if len(sys.argv) > 2
+    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "v3" / "levels_5m_PE_trail.csv"
+)
+SX_CE_CSV = (
+    pathlib.Path(sys.argv[3])
+    if len(sys.argv) > 3
+    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "sensex" / "levels_5m_CE_trail.csv"
+)
+SX_PE_CSV = (
+    pathlib.Path(sys.argv[4])
+    if len(sys.argv) > 4
+    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "sensex" / "levels_5m_PE_fixed.csv"
+)
+
+MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெள்"]
+
+
+# ── the parent document's helpers and stylesheet, borrowed, not copied ─────
+def _borrow():
+    src = (_HERE / "build_report.py").read_text()
+    helpers = {}
+    # r(), lakh(), cls(), curve_svg(), spark(): the exact functions the
+    # five-year sheet formats and draws with.
+    for name in ("r", "lakh", "cls", "curve_svg", "spark"):
+        m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
+        if not m:
+            raise SystemExit(f"build_report.py no longer defines {name}()")
+        exec(m.group(0), helpers)  # noqa: S102  # nosec B102 -- our own file, read at build time
+    style = re.search(r"<style>\n(.*?)</style>", src, re.S)
+    if not style:
+        raise SystemExit("build_report.py has no <style> block to borrow")
+    # The parent's stylesheet sits inside an f-string, so every brace is
+    # doubled in the source; undo that or the CSS is invalid.
+    css = style.group(1).replace("{{", "{").replace("}}", "}")
+    reader = re.search(r'^READER_JS = """\n(.*?)^"""', src, re.S | re.M)
+    if not reader:
+        raise SystemExit("build_report.py has no READER_JS to borrow")
+    return helpers, css, reader.group(1)
+
+
+HELPERS, STYLE, READER_JS = _borrow()
+r, lakh, cls, curve_svg, spark = (HELPERS[k] for k in ("r", "lakh", "cls", "curve_svg", "spark"))
+
+
+# ── data ─────────────────────────────────────────────────────────────
+def load(path: pathlib.Path) -> list[dict]:
+    rows = []
+    with open(path) as fh:
+        for row in csv.DictReader(fh):
+            if int(row.get("rounds") or 0) <= 0:
+                continue
+            m = datetime.fromisoformat(row["mother"])
+            rows.append(
+                {
+                    "mother": m,
+                    "date": m.date(),
+                    "buys": int(row.get("buys") or 0),
+                    "deployed": float(row.get("deployed") or 0),
+                    "gross": float(row.get("gross") or 0),
+                    "costs": float(row.get("costs") or 0),
+                    "net": float(row.get("net") or 0),
+                    "exit_reason": str(row.get("exit_reason") or ""),
+                    "exit": row.get("exit_timestamp") or "",
+                    "lot": int(row.get("lot") or 0),
+                }
+            )
+    rows.sort(key=lambda x: x["mother"])
+    return rows
+
+
+def book(rows: list[dict]) -> dict:
+    net = sum(x["net"] for x in rows)
+    gross = sum(x["gross"] for x in rows)
+    costs = sum(x["costs"] for x in rows)
+    wins = [x for x in rows if x["net"] > 0]
+    losses = [x for x in rows if x["net"] < 0]
+    gw = sum(x["net"] for x in wins)
+    gl = -sum(x["net"] for x in losses)
+    # equity + drawdown, trade by trade
+    eq, peak, dd, dd_from, dd_to, cum = [], 0.0, 0.0, None, None, 0.0
+    peak_at = rows[0]["date"] if rows else None
+    for x in rows:
+        cum += x["net"]
+        eq.append((x["mother"].strftime("%Y-%m-%d"), round(cum, 2)))
+        if cum > peak:
+            peak, peak_at = cum, x["date"]
+        if peak - cum > dd:
+            dd, dd_from, dd_to = peak - cum, peak_at, x["date"]
+    by_month = defaultdict(float)
+    by_year = defaultdict(lambda: {"net": 0.0, "trades": 0, "wins": 0})
+    by_dow = defaultdict(lambda: {"net": 0.0, "trades": 0, "wins": 0})
+    reasons = defaultdict(lambda: {"n": 0, "net": 0.0})
+    for x in rows:
+        by_month[(x["date"].year, x["date"].month)] += x["net"]
+        y = by_year[x["date"].year]
+        y["net"] += x["net"]
+        y["trades"] += 1
+        y["wins"] += x["net"] > 0
+        d = by_dow[x["date"].weekday()]
+        d["net"] += x["net"]
+        d["trades"] += 1
+        d["wins"] += x["net"] > 0
+        rr = reasons[x["exit_reason"]]
+        rr["n"] += 1
+        rr["net"] += x["net"]
+    peak_deployed = max((x["deployed"] for x in rows), default=0.0)
+    return {
+        "trades": len(rows),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": round(100 * len(wins) / len(rows), 1) if rows else 0,
+        "net": round(net, 2),
+        "gross": round(gross, 2),
+        "costs": round(costs, 2),
+        "avg_trade": round(net / len(rows), 2) if rows else 0,
+        "avg_win": round(gw / len(wins), 2) if wins else 0,
+        "avg_loss": round(-gl / len(losses), 2) if losses else 0,
+        "profit_factor": round(gw / gl, 2) if gl else None,
+        "max_dd": round(-dd, 2),
+        "dd_from": dd_from.isoformat() if dd_from else "",
+        "dd_to": dd_to.isoformat() if dd_to else "",
+        "return_over_dd": round(net / dd, 2) if dd else None,
+        "best": max(rows, key=lambda x: x["net"]) if rows else None,
+        "worst": min(rows, key=lambda x: x["net"]) if rows else None,
+        "first": rows[0]["date"].isoformat() if rows else "",
+        "last": rows[-1]["date"].isoformat() if rows else "",
+        "peak_deployed": peak_deployed,
+        "avg_buys": round(sum(x["buys"] for x in rows) / len(rows), 2) if rows else 0,
+        "curve": eq,
+        "by_month": {f"{y}-{m:02d}": round(v, 2) for (y, m), v in sorted(by_month.items())},
+        "by_year": {
+            str(k): {"net": round(v["net"], 2), "trades": v["trades"], "wins": v["wins"]}
+            for k, v in sorted(by_year.items())
+        },
+        "by_dow": {
+            DOW[k]: {"net": round(v["net"], 2), "trades": v["trades"], "wins": v["wins"]}
+            for k, v in sorted(by_dow.items())
+            if k < 5
+        },
+        "reasons": {
+            k: {"n": v["n"], "net": round(v["net"], 2)} for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]["n"])
+        },
+        "best10": sorted(rows, key=lambda x: -x["net"])[:10],
+        "worst10": sorted(rows, key=lambda x: x["net"])[:10],
+        "rows": rows,
+    }
+
+
+CE_ROWS, PE_ROWS = load(CE_CSV), load(PE_CSV)
+SX_CE_ROWS, SX_PE_ROWS = load(SX_CE_CSV), load(SX_PE_CSV)
+CE, PE = book(CE_ROWS), book(PE_ROWS)
+SX, SXPE = book(SX_CE_ROWS), book(SX_PE_ROWS)
+# The two call books together, in time order -- what the desk would carry
+# running this configuration on both indices.
+ALL = book(sorted(CE_ROWS + SX_CE_ROWS, key=lambda x: x["mother"]))
+json.dump(
+    {
+        k: {kk: vv for kk, vv in b.items() if kk not in ("rows", "best10", "worst10", "best", "worst")}
+        for k, b in (("NIFTY_CE", CE), ("NIFTY_PE", PE), ("SENSEX_CE", SX), ("SENSEX_PE", SXPE), ("both_CE", ALL))
+    },
+    open(DATA, "w"),
+    default=str,
+    indent=1,
+)
+
+
+# ── pieces ────────────────────────────────────────────────────────────
+def kpis(b: dict, label_en: str, label_ta: str) -> str:
+    pf = "—" if b["profit_factor"] is None else f"{b['profit_factor']:.2f}"
+    rod = "—" if b["return_over_dd"] is None else f"{b['return_over_dd']:.2f}&times;"
+    return f"""
+<section>
+  <div class="shead"><h2>{t(label_en, label_ta)}</h2></div>
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-l">{t("Net profit", "நிகர லாபம்")}</div>
+      <div class="kpi-v {cls(b["net"])}">{r(b["net"])}</div>
+      <div class="kpi-s">{t("after all charges", "அனைத்து கட்டணங்களுக்குப் பின்")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Trades", "டிரேடுகள்")}</div>
+      <div class="kpi-v">{b["trades"]}</div>
+      <div class="kpi-s">{b["wins"]} {t("won", "வெற்றி")} &middot; {b["losses"]} {t("lost", "நஷ்டம்")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Win rate", "வெற்றி விகிதம்")}</div>
+      <div class="kpi-v">{b["win_rate"]}%</div>
+      <div class="kpi-s">{t("avg", "சராசரி")} {b["avg_buys"]} {t("buys per campaign", "வாங்கல்கள் / campaign")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Profit factor", "லாப காரணி")}</div>
+      <div class="kpi-v">{pf}</div>
+      <div class="kpi-s">{t("gross won &divide; gross lost", "மொத்த லாபம் &divide; மொத்த நஷ்டம்")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Max drawdown", "அதிகபட்ச இறக்கம்")}</div>
+      <div class="kpi-v neg">{r(b["max_dd"])}</div>
+      <div class="kpi-s">{b["dd_from"]} &rarr; {b["dd_to"]}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Return / drawdown", "வருவாய் / இறக்கம்")}</div>
+      <div class="kpi-v">{rod}</div>
+      <div class="kpi-s">{t("profit per rupee of worst dip", "மோசமான இறக்கத்தின் ஒரு ரூபாய்க்கு லாபம்")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Average trade", "சராசரி டிரேட்")}</div>
+      <div class="kpi-v {cls(b["avg_trade"])}">{r(b["avg_trade"])}</div>
+      <div class="kpi-s">{t("win", "வெற்றி")} {r(b["avg_win"])} &middot; {t("loss", "நஷ்டம்")} {r(b["avg_loss"])}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Best &middot; worst day", "சிறந்த &middot; மோசமான நாள்")}</div>
+      <div class="kpi-v"><span class="pos">{r(b["best"]["net"]) if b["best"] else "—"}</span> &middot; <span class="neg">{r(b["worst"]["net"]) if b["worst"] else "—"}</span></div>
+      <div class="kpi-s">{t("peak deployed", "உச்ச பயன்பாடு")} {r(b["peak_deployed"])}</div></div>
+  </div>
+</section>"""
+
+
+def curve_section(b: dict, title_en: str, title_ta: str, anchor: str) -> str:
+    if len(b["curve"]) < 2:
+        return ""
+    line, area, dd, zero, hi, lo = curve_svg(b["curve"])
+    return f"""
+<section id="{anchor}">
+  <div class="shead"><div><h2>{t(title_en, title_ta)}</h2>
+    <p>{t("Cumulative net after charges, one point per campaign, in the order the mothers fired. Shading marks every stretch spent below the previous high.", "கட்டணங்களுக்குப் பின் திரட்டு நிகர, ஒரு campaign-க்கு ஒரு புள்ளி, mother-கள் வந்த வரிசையில். நிழல் = முந்தைய உச்சத்துக்குக் கீழே.")}</p></div></div>
+  <div class="panel">
+    <div class="chart">
+      <svg viewBox="0 0 1040 260" role="img" preserveAspectRatio="none" aria-label="Cumulative net from {b["first"]} to {b["last"]}, ending at {r(b["net"])}">
+        <path d="{dd}" fill="rgba(var(--neg-fill),.13)"/>
+        <path d="{area}" fill="rgba(var(--curve-rgb),.10)"/>
+        <line x1="0" y1="{zero:.1f}" x2="1040" y2="{zero:.1f}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+        <path class="curve-line" d="{line}" fill="none" stroke="var(--curve)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+    </div>
+    <div class="axis"><span>{b["first"]}</span>
+      <span>{t("peak", "உச்சம்")} {r(hi)} &middot; {t("shaded = below previous high", "நிழல் = முந்தைய உச்சத்துக்குக் கீழே")}</span>
+      <span>{b["last"]}</span></div>
+  </div>
+</section>"""
+
+
+def heat(b: dict, title_en: str, title_ta: str) -> str:
+    bm = b["by_month"]
+    if not bm:
+        return ""
+    years = sorted({int(k[:4]) for k in bm})
+    vals = [abs(v) for v in bm.values()] or [1]
+    top = max(vals) or 1
+    head = "".join(f"<th scope='col'>{m}</th>" for m in MON)
+    body = ""
+    for y in years:
+        cells = ""
+        tot = 0.0
+        for m in range(1, 13):
+            v = bm.get(f"{y}-{m:02d}")
+            if v is None:
+                cells += "<td class='flat'>&middot;</td>"
+                continue
+            tot += v
+            a = min(1.0, abs(v) / top) * 0.55 + 0.12
+            colour = f"rgba(16,185,129,{a:.2f})" if v > 0 else f"rgba(239,68,68,{a:.2f})" if v < 0 else "transparent"
+            cells += f"<td style='background:{colour}' title='{y}-{m:02d} {r(v)}'>{r(v / 1000)}k</td>"
+        body += f"<tr><th scope='row'>{y}</th>{cells}<td class='{cls(tot)}'><strong>{r(tot)}</strong></td></tr>"
+    return f"""
+<section>
+  <div class="shead"><div><h2>{t(title_en, title_ta)}</h2>
+    <p>{t("Net after charges by calendar month, thousands of rupees. Colour is the size relative to the largest month.", "மாதவாரி நிகர, ஆயிரங்களில். நிறம் = பெரிய மாதத்துடன் ஒப்பீடு.")}</p></div></div>
+  <div class="tblwrap"><table class="heat">
+    <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th>{head}<th scope="col">{t("Total", "மொத்தம்")}</th></tr></thead>
+    <tbody>{body}</tbody></table></div>
+</section>"""
+
+
+def yearly(b: dict) -> str:
+    rows = ""
+    for y, v in b["by_year"].items():
+        wr = round(100 * v["wins"] / v["trades"], 1) if v["trades"] else 0
+        rows += f"<tr><th scope='row'>{y}</th><td>{v['trades']}</td><td>{wr}%</td><td class='{cls(v['net'])}'><strong>{r(v['net'])}</strong></td><td>{r(v['net'] / v['trades']) if v['trades'] else '—'}</td></tr>"
+    return rows
+
+
+def dow(b: dict) -> str:
+    rows = ""
+    for i, d in enumerate(DOW):
+        v = b["by_dow"].get(d)
+        if not v:
+            continue
+        wr = round(100 * v["wins"] / v["trades"], 1) if v["trades"] else 0
+        rows += f"<tr><th scope='row'>{t(d, DOW_TA[i])}</th><td>{v['trades']}</td><td>{wr}%</td><td class='{cls(v['net'])}'><strong>{r(v['net'])}</strong></td><td>{r(v['net'] / v['trades']) if v['trades'] else '—'}</td></tr>"
+    return rows
+
+
+def reasons(b: dict) -> str:
+    names = {
+        "intraday_close": ("Sold at 15:15", "15:15-இல் விற்பனை"),
+        "target": ("Target reached (fixed)", "இலக்கு எட்டியது"),
+        "trail_stop": ("Trail stop", "Trail stop"),
+        "mother_broken": ("Mother broken", "Mother உடைந்தது"),
+        "expiry_square_off": ("Expiry square-off", "Expiry முடிப்பு"),
+    }
+    rows = ""
+    for k, v in b["reasons"].items():
+        en, ta = names.get(k, (k.replace("_", " "), k.replace("_", " ")))
+        rows += f"<tr><th scope='row'>{t(en, ta)}</th><td>{v['n']}</td><td>{round(100 * v['n'] / b['trades'], 1) if b['trades'] else 0}%</td><td class='{cls(v['net'])}'><strong>{r(v['net'])}</strong></td></tr>"
+    return rows
+
+
+def ten(rows: list[dict]) -> str:
+    out = ""
+    for x in rows:
+        out += (
+            f"<tr><td>{x['mother'].strftime('%d %b %Y %H:%M')}</td><td>{x['buys']}</td><td>{r(x['deployed'])}</td>"
+            f"<td>{x['exit_reason'].replace('_', ' ')}</td><td class='{cls(x['net'])}'><strong>{r(x['net'])}</strong></td></tr>"
+        )
+    return out
+
+
+def side_block(b: dict, side: str, index: str = "NIFTY") -> str:
+    name_en = f"{index} call book (CE)" if side == "CE" else f"{index} put book (PE)"
+    name_ta = f"{index} கால் புத்தகம் (CE)" if side == "CE" else f"{index} புட் புத்தகம் (PE)"
+    return f"""
+{kpis(b, f"{name_en} &mdash; at a glance", f"{name_ta} &mdash; ஒரே பார்வையில்")}
+{curve_section(b, f"{name_en} &mdash; equity curve", f"{name_ta} &mdash; equity வளைவு", f"curve-{index.lower()}-{side.lower()}")}
+{heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரி")}
+<section>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; by year, by weekday, by exit", f"{name_ta} &mdash; ஆண்டு, கிழமை, வெளியேற்றம்")}</h2></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th><th scope="col">{t("Trades", "டிரேடுகள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு டிரேடுக்கு")}</th></tr></thead>
+    <tbody>{yearly(b)}</tbody></table></div>
+  <div class="tblwrap" style="margin-top:12px"><table>
+    <thead><tr><th scope="col">{t("Weekday", "கிழமை")}</th><th scope="col">{t("Trades", "டிரேடுகள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு டிரேடுக்கு")}</th></tr></thead>
+    <tbody>{dow(b)}</tbody></table></div>
+  <div class="tblwrap" style="margin-top:12px"><table>
+    <thead><tr><th scope="col">{t("How the campaign ended", "Campaign எப்படி முடிந்தது")}</th><th scope="col">{t("Count", "எண்ணிக்கை")}</th><th scope="col">{t("Share", "பங்கு")}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
+    <tbody>{reasons(b)}</tbody></table></div>
+</section>
+<section>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; best ten, worst ten", f"{name_ta} &mdash; சிறந்த பத்து, மோசமான பத்து")}</h2></div>
+  <div class="two-up">
+    <div class="tblwrap"><table>
+      <thead><tr><th scope="col">{t("Mother", "Mother")}</th><th scope="col">{t("Buys", "வாங்கல்")}</th><th scope="col">{t("Deployed", "பயன்பாடு")}</th><th scope="col">{t("Ended by", "முடிவு")}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
+      <tbody>{ten(b["best10"])}</tbody></table></div>
+    <div class="tblwrap"><table>
+      <thead><tr><th scope="col">{t("Mother", "Mother")}</th><th scope="col">{t("Buys", "வாங்கல்")}</th><th scope="col">{t("Deployed", "பயன்பாடு")}</th><th scope="col">{t("Ended by", "முடிவு")}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
+      <tbody>{ten(b["worst10"])}</tbody></table></div>
+  </div>
+</section>"""
+
+
+# ── the page ──────────────────────────────────────────────────────────
+months = 23
+page = f"""<title>PhilForge Fib Boundary Tearsheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{STYLE}
+.two-up {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; }}
+table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
+{LANG_CSS}
+</style>
+
+<section class="document-hero">
+  <div class="hero-copy">
+    <p class="eyebrow"><b>TEARSHEET</b>{
+    t("PhilForge &middot; Cascade &middot; Fib Boundary", "PhilForge &middot; Cascade &middot; Fib Boundary")
+}</p>
+    <h1>{
+    t(
+        "Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, 23 Months",
+        "Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, 23 மாதங்கள்",
+    )
+}</h1>
+    <p class="lede">{
+    t(
+        "The one configuration that finished green over 23 months of blind mothers, on the call book. Your mother candle on the 5-minute chart; auto trendlines and stacked fibs; every level of every fib is a rung (Lone); a touch collects and the two-red turn buys one lot of the ATM&minus;2 call; out by 15:15 on the mother's own day; the exit is a trailing target &mdash; reaching the target arms a trail and the basket is sold when a 1-minute close gives back one fib span from the best price since. Rs 75,000 ladder cap, nearest expiry at least four days out. NIFTY (lot 25 &rarr; 75 &rarr; 65, strike step 50) and SENSEX (lot 10 &rarr; 20, strike step 100), each priced from its own real recorded option minutes. <strong>Puts are not traded in this configuration</strong> &mdash; the same rules on the put book lost money on the same walk, and that is stated below rather than hidden.",
+        "23 மாத blind mother-களில் பச்சையாக முடிந்த ஒரே அமைப்பு, கால் புத்தகத்தில். 5-நிமிட chart-இல் உங்கள் mother candle; தானியங்கி trendlines, அடுக்கிய fibs; ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung (Lone); ஒரு touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 கால்-இல் ஒரு lot வாங்கும்; mother-இன் அன்றே 15:15-க்குள் வெளியே; வெளியேற்றம் trailing target. &#8377;75,000 ladder cap, குறைந்தது நான்கு நாள் expiry. NIFTY (lot 25 &rarr; 75 &rarr; 65) மற்றும் SENSEX (lot 10 &rarr; 20), ஒவ்வொன்றும் அதன் சொந்த option நிமிடங்களில் விலை. <strong>இந்த அமைப்பில் புட் வர்த்தகம் இல்லை</strong> &mdash; அதே விதிகள் புட் புத்தகத்தில் அதே நடையில் நஷ்டம்; அது கீழே மறைக்காமல் சொல்லப்பட்டுள்ளது.",
+    )
+}</p>
+    <div class="document-meta" aria-label="Document metadata">
+      <div class="meta-chip"><span>{t("Period", "காலம்")}</span><strong>{ALL["first"]} &rarr; {ALL["last"]}</strong></div>
+      <div class="meta-chip"><span>{t("Campaigns", "Campaign-கள்")}</span><strong>{ALL["trades"]} ({
+    CE["trades"]
+} NIFTY &middot; {SX["trades"]} SENSEX)</strong></div>
+      <div class="meta-chip"><span>{t("Side", "பக்கம்")}</span><strong>{
+    t("CE only &mdash; PE not traded", "CE மட்டும் &mdash; PE இல்லை")
+}</strong></div>
+      <div class="meta-chip"><span>{t("Position size", "பொசிஷன் அளவு")}</span><strong>{
+    t("1 lot per buy, &le; &#8377;75,000 a ladder", "ஒரு வாங்கலுக்கு 1 lot, ladder-க்கு &le; &#8377;75,000")
+}</strong></div>
+      <div class="meta-chip"><span>{t("Costs", "கட்டணங்கள்")}</span><strong>{
+    t("Brokerage, STT, GST, stamp, per leg", "புரோக்கரேஜ், STT, GST, stamp, ஒவ்வொரு leg-க்கும்")
+}</strong></div>
+      <div class="meta-chip"><span>{t("Mothers", "Mother-கள்")}</span><strong>{
+    t("blind: 7 clock times a session, not hand-picked", "blind: அமர்வுக்கு 7 நேரங்கள், கையால் தேர்வு இல்லை")
+}</strong></div>
+    </div>
+  </div>
+  <div class="system-sigil" aria-hidden="true">
+    <div class="sigil-ring ring-one"></div><div class="sigil-ring ring-two"></div><div class="sigil-ring ring-three"></div>
+    <div class="sigil-core">CE</div>
+    <span class="sigil-label label-one">NIFTY</span><span class="sigil-label label-two">SENSEX</span>
+  </div>
+</section>
+
+<section class="reader-toolbar" aria-label="Document tools">
+  <div class="langbar" id="langbar" role="tablist" aria-label="Language / மொழி">
+    <button type="button" role="tab" data-lang="en" aria-selected="true">English</button>
+    <button type="button" role="tab" data-lang="ta" aria-selected="false">தமிழ்</button>
+  </div>
+  <label class="document-search" for="tearsheet-search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+    <input id="tearsheet-search" type="search" placeholder="Search this tearsheet" autocomplete="off"
+           data-ph-en="Search this tearsheet" data-ph-ta="இந்த அறிக்கையில் தேடுங்கள்">
+    <kbd>&#8984; K</kbd>
+  </label>
+  <div class="search-status" id="search-status" aria-live="polite">{t("Full document", "முழு ஆவணம்")}</div>
+</section>
+
+<div class="reader-layout">
+<aside class="document-rail" aria-label="Document navigation">
+  <div class="rail-sticky">
+    <p class="rail-label">{t("On this page", "இந்தப் பக்கத்தில்")}</p>
+    <nav id="document-toc"></nav>
+    <div class="rail-card">
+      <span>{t("DOCUMENT STATE", "ஆவண நிலை")}</span>
+      <strong><i></i> {
+    t("Calls only &middot; net of every charge", "கால் மட்டும் &middot; அனைத்து கட்டணங்களுக்குப் பின்")
+}</strong>
+      <small>{
+    t(
+        "Same engine as the Cascade page &middot; time-ordered walk &middot; verified ten ways, 0 failures",
+        "Cascade பக்கத்தின் அதே engine &middot; நேர வரிசை நடை &middot; பத்து வழி சரிபார்ப்பு, 0 தோல்வி",
+    )
+}</small>
+    </div>
+  </div>
+</aside>
+
+<article class="document-body" id="document-body">
+
+<div class="note">
+  <h2 class="note-h">{t("Read this first", "முதலில் இதைப் படியுங்கள்")}</h2>
+  <p>{
+    t(
+        "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose. Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",
+        "இந்த campaign-கள் ஒவ்வொரு அமர்விலும் ஏழு நிலையான நேரங்களில் தொடங்கின &mdash; ஒரு trader தேர்வு செய்யும் candle-கள் அல்ல. பெரும்பாலான blind mother-கள் வர்த்தகமே செய்யாது. அளக்கப்படுவது <strong>விதி</strong>, paper run இயக்கும் அதே code-இல், நேர வரிசையில் candle-candle-ஆக, உண்மையான premium-களில். <em>உங்கள்</em> mother-கள் சம்பாதிக்குமா என்பதுதான் paper run-இன் வேலை.",
+    )
+}</p>
+  <p>{
+    t(
+        "Ten independent checks were run over hundreds of these campaigns before this was published: the backtest walk equals a tick-simulated paper loop, it is deterministic, no fill happens before its fib's bar has closed, P&amp;L is recomputed from the legs, lot size follows the date, every premium is a recorded archive open, intraday ends on its own day, strike is ATM&minus;2 with one expiry &ge; 4 days per campaign, a broken mother is a real close through the edge. Zero failures.",
+        "இது வெளியிடும் முன் நூற்றுக்கணக்கான campaign-களில் பத்து சுயாதீன சரிபார்ப்புகள்: backtest நடை = paper loop; நிர்ணயம்; fib bar மூடும் முன் fill இல்லை; P&amp;L legs-இலிருந்து மறுகணக்கு; lot தேதிப்படி; ஒவ்வொரு premium-உம் பதிவான open; intraday அன்றே முடியும்; ATM&minus;2, ஒரு expiry &ge; 4 நாள்; mother உடைவு உண்மையான close. பூஜ்ஜியம் தோல்வி.",
+    )
+}</p>
+</div>
+
+{
+    kpis(
+        ALL,
+        "NIFTY + SENSEX call books together &mdash; at a glance",
+        "NIFTY + SENSEX கால் புத்தகங்கள் சேர்த்து &mdash; ஒரே பார்வையில்",
+    )
+}
+{curve_section(ALL, "Both indices &mdash; equity curve", "இரு குறியீடுகள் &mdash; equity வளைவு", "curve-all")}
+
+{side_block(CE, "CE", "NIFTY")}
+{side_block(SX, "CE", "SENSEX")}
+
+<div class="note note-warn">
+  <h2 class="note-h">{
+    t(
+        "The put book is NOT traded in this configuration &mdash; on either index",
+        "இந்த அமைப்பில் புட் புத்தகம் வர்த்தகம் செய்யப்படுவதில்லை &mdash; இரு குறியீடுகளிலும்",
+    )
+}</h2>
+  <p>{
+    t(
+        f"The same rules were replayed on puts (Buy PE, ATM+2) over the same 23 months and lost on both indices. NIFTY: {PE['trades']} campaigns, {PE['wins']} won / {PE['losses']} lost, net {r(PE['net'])}, worst day {r(PE['worst']['net']) if PE['worst'] else '—'}. SENSEX: {SXPE['trades']} campaigns, {SXPE['wins']} won / {SXPE['losses']} lost, net {r(SXPE['net'])}, worst day {r(SXPE['worst']['net']) if SXPE['worst'] else '—'}. Every other put variant measured (fixed target, deeper first rung at L4 or L8, carrying overnight) lost as well. So this sheet, and the recommendation it stands for, is calls only.",
+        f"அதே விதிகள் புட்-இல் (Buy PE, ATM+2) அதே 23 மாதங்களில் replay, இரு குறியீடுகளிலும் நஷ்டம். NIFTY: {PE['trades']} campaign-கள், {PE['wins']} வெற்றி / {PE['losses']} நஷ்டம், நிகர {r(PE['net'])}. SENSEX: {SXPE['trades']} campaign-கள், {SXPE['wins']} / {SXPE['losses']}, நிகர {r(SXPE['net'])}. அளந்த ஒவ்வொரு புட் மாற்றமும் நஷ்டம். எனவே இந்த அறிக்கையும் பரிந்துரையும் கால் மட்டும்.",
+    )
+}</p>
+</div>
+
+<section>
+  <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
+    <p>{
+    t(
+        "Every rupee between the gross result and the account, per leg, per round: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; the same schedule the paper engine books.",
+        "மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கும் round-க்கும்: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; paper engine பதியும் அதே அட்டவணை.",
+    )
+}</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Gross", "மொத்தம்")}</th><th scope="col">{
+    t("Charges", "கட்டணம்")
+}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
+    t("Charges per campaign", "campaign-க்கு கட்டணம்")
+}</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">NIFTY CE</th><td class="{cls(CE["gross"])}">{r(CE["gross"])}</td><td class="neg">{
+    r(-CE["costs"])
+}</td><td class="{cls(CE["net"])}"><strong>{r(CE["net"])}</strong></td><td>{
+    r(CE["costs"] / CE["trades"]) if CE["trades"] else "—"
+}</td></tr>
+      <tr><th scope="row">SENSEX CE</th><td class="{cls(SX["gross"])}">{r(SX["gross"])}</td><td class="neg">{
+    r(-SX["costs"])
+}</td><td class="{cls(SX["net"])}"><strong>{r(SX["net"])}</strong></td><td>{
+    r(SX["costs"] / SX["trades"]) if SX["trades"] else "—"
+}</td></tr>
+      <tr class="trow-total"><th scope="row">{t("Both", "இரண்டும்")}</th><td class="{cls(ALL["gross"])}">{
+    r(ALL["gross"])
+}</td><td class="neg">{r(-ALL["costs"])}</td><td class="{cls(ALL["net"])}"><strong>{r(ALL["net"])}</strong></td><td>{
+    r(ALL["costs"] / ALL["trades"]) if ALL["trades"] else "—"
+}</td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <div class="shead"><h2>{t("What was NOT chosen, and why", "தேர்வு செய்யப்படாதவை, ஏன்")}</h2></div>
+  <p>{
+    t(
+        "On the same 23-month walk: puts lose (see the note above); a fixed target loses; holding a deep basket one more day loses more on every chart and both sides; carrying to expiry with no stop loses about a lakh a quarter on the call book alone (67 campaigns ended at expiry, averaging &minus;&#8377;42,868 each); 15m and 1m mothers do not beat 5m; Partner (where two meet) with a trailing exit is also green on calls but smaller. Those numbers live on the replay report; this sheet is only the configuration that is switched on.",
+        "அதே 23-மாத நடையில்: புட் நஷ்டம் (மேலே); fixed target நஷ்டம்; ஆழமான basket-ஐ ஒரு நாள் அதிகம் வைத்திருப்பது எல்லா chart-களிலும் அதிக நஷ்டம்; stop இல்லாமல் expiry வரை carry செய்வது கால் புத்தகத்தில் மட்டும் காலாண்டுக்கு சுமார் ஒரு லட்சம் நஷ்டம் (67 campaign-கள் expiry-இல், சராசரி &minus;&#8377;42,868); 15m, 1m mother-கள் 5m-ஐ மிஞ்சவில்லை; Partner + trailing கால்-இல் பச்சை, ஆனால் சிறியது. இந்த அறிக்கை இயக்கத்தில் உள்ள அமைப்பு மட்டுமே.",
+    )
+}</p>
+</section>
+
+</article>
+</div>
+{READER_JS}
+{LANG_JS}
+"""
+
+OUT.parent.mkdir(parents=True, exist_ok=True)
+OUT.write_text(page)
+print("wrote", OUT, len(page), "bytes")
+print("CE", CE["trades"], CE["net"], "PE", PE["trades"], PE["net"], "ALL", ALL["trades"], ALL["net"])

@@ -3684,6 +3684,13 @@
          the one thing the frame cannot provide, a way out of it. -->
     <div id="assets-tearsheet-panel" class="pf-architecture-panel pf-tearsheet-panel" role="tabpanel" hidden>
       <div class="pf-tearsheet-bar">
+        <!-- Two documents on one tab (Phil, 2026-08-18): the five-year options
+             sheet, and the Fib Boundary sheet for the configuration that is
+             switched on. Same shell, same theme, one frame. -->
+        <div class="pf-tearsheet-docs" role="tablist" aria-label="Which tearsheet">
+          <button type="button" class="pf-tearsheet-doc is-active" role="tab" aria-selected="true" data-pf-action="pickAssetsTearsheet" data-doc="options">Options · 5-year</button>
+          <button type="button" class="pf-tearsheet-doc" role="tab" aria-selected="false" data-pf-action="pickAssetsTearsheet" data-doc="fib">Fib Boundary · 23-month</button>
+        </div>
         <a class="pf-tearsheet-open" id="assets-tearsheet-open" href="/assets/tearsheet" target="_blank" rel="noopener">Open full document ↗</a>
       </div>
       <!-- src is set from JS so the document arrives already carrying the

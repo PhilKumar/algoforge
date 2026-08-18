@@ -1532,10 +1532,32 @@ function _assetsEffectiveTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 }
 
+// Which tearsheet the tab is showing: the five-year options sheet or the Fib
+// Boundary sheet. One frame, one route (?doc=), one theme contract.
+let _assetsTearsheetDoc = 'options';
+function _assetsTearsheetUrl() {
+  return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;
+}
+function pickAssetsTearsheet(_event, button) {
+  const doc = button && button.dataset ? button.dataset.doc : 'options';
+  if (!doc || doc === _assetsTearsheetDoc) return;
+  _assetsTearsheetDoc = doc;
+  document.querySelectorAll('.pf-tearsheet-doc').forEach(btn => {
+    const on = btn.dataset.doc === doc;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const title = document.getElementById('architecture-view-title');
+  if (title) title.textContent = doc === 'fib' ? 'Fib Boundary Tearsheet' : 'Five-Year Tearsheet';
+  const frame = document.getElementById('assets-tearsheet-frame');
+  if (frame) { frame.addEventListener('load', _syncAssetsTearsheetTheme, { once: true }); frame.src = _assetsTearsheetUrl(); }
+  _syncAssetsTearsheetTheme();
+}
+
 function _syncAssetsTearsheetTheme() {
   const theme = _assetsEffectiveTheme();
   const link = document.getElementById('assets-tearsheet-open');
-  if (link) link.href = `/assets/tearsheet?theme=${theme}`;
+  if (link) link.href = _assetsTearsheetUrl();
   const frame = document.getElementById('assets-tearsheet-frame');
   const framed = frame?.contentDocument;
   if (!framed?.documentElement) return;
@@ -1580,7 +1602,7 @@ function initArchitecturePage(requestedView = _architectureView) {
   if (tearsheet) tearsheet.hidden = !isTearsheet;
   if (title) {
     if (isOverview) title.textContent = "The Eagle's View";
-    else if (isTearsheet) title.textContent = 'Five-Year Tearsheet';
+    else if (isTearsheet) title.textContent = _assetsTearsheetDoc === 'fib' ? 'Fib Boundary Tearsheet' : 'Five-Year Tearsheet';
     else title.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
   }
 
@@ -1590,7 +1612,7 @@ function initArchitecturePage(requestedView = _architectureView) {
     // asked for while they are reading the atlas.
     if (frame && !frame.getAttribute('src')) {
       frame.addEventListener('load', _syncAssetsTearsheetTheme);
-      frame.src = `/assets/tearsheet?theme=${_assetsEffectiveTheme()}`;
+      frame.src = _assetsTearsheetUrl();
     } else {
       _syncAssetsTearsheetTheme();
     }
@@ -1878,6 +1900,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundarySession',
   'setFibBoundaryDeepCarry',
   'setFibBoundaryTarget',
+  'pickAssetsTearsheet',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -4436,6 +4459,7 @@ window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
 window.setFibBoundarySession = setFibBoundarySession;
 window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
 window.setFibBoundaryTarget = setFibBoundaryTarget;
+window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

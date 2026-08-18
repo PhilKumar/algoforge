@@ -295,11 +295,11 @@ test('the tearsheet is served whole and embedded in the workspace it belongs to'
   const framedTheme = () => page.locator('#assets-tearsheet-frame')
     .evaluate((node: HTMLIFrameElement) => node.contentDocument?.documentElement.dataset.theme || '');
   await expect.poll(framedTheme).toBe('dark');
-  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?theme=dark');
+  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?doc=options&theme=dark');
 
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
   await expect.poll(framedTheme).toBe('light');
-  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?theme=light');
+  await expect(page.locator('#assets-tearsheet-open')).toHaveAttribute('href', '/assets/tearsheet?doc=options&theme=light');
   await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
   await expect.poll(framedTheme).toBe('dark');
 

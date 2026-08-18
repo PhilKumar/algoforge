@@ -4553,17 +4553,26 @@ async def serve_assets(request: Request):
 # document shell of its own. Wrapping it here rather than editing it is what
 # keeps the served page identical to the version already shared with buyers.
 _TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "backtest-tearsheet-5yr.html")
+# The second document on the Assets Tearsheet tab: the Fib Boundary
+# configuration that finished green over 23 months, both books. Built by
+# tools/tearsheet/build_fib_report.py from the fib_offline sweeps.
+_FIB_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "fib-boundary-tearsheet.html")
 
 
 @app.get("/assets/tearsheet", response_class=HTMLResponse)
-async def serve_assets_tearsheet(request: Request):
-    """Serve the five-year options tearsheet as a standalone private document."""
+async def serve_assets_tearsheet(request: Request, doc: str = "options"):
+    """Serve a tearsheet as a standalone private document.
+
+    ``doc=options`` (default) is the five-year options tearsheet; ``doc=fib``
+    is the Fib Boundary tearsheet. One route, one shell, one theme contract.
+    """
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
-    if not os.path.exists(_TEARSHEET_PATH):
+    path = _FIB_TEARSHEET_PATH if str(doc).lower() == "fib" else _TEARSHEET_PATH
+    if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Tearsheet document not found")
-    with open(_TEARSHEET_PATH, encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         fragment = handle.read()
     # The workspace owns the theme; the document follows it rather than deciding
     # for itself, or the embed would fight the page around it.
