@@ -671,7 +671,12 @@ function _pfChartCanvasTrendlines(c, p, PAL, labels) {
       var x2 = p.xOf(a2.t), y2 = p.yOf(a2.p);
       if (x2 === x1) return;
       var slope = (y2 - y1) / (x2 - x1);
-      var xLeft = p.padL, xRight = p.padL + p.plotW;
+      // FROM the first anchor, not through it. Every trendline on this site is
+      // carried down from a mother candle's high; drawing it back past the
+      // mother put a line over bars that existed before the structure did
+      // (Phil, 2026-08-18: "just start from that mother candle high"). It still
+      // extends to the right edge -- a standing line is live until broken.
+      var xLeft = Math.max(p.padL, Math.min(x1, x2)), xRight = p.padL + p.plotW;
       var yLeft = y1 + slope * (xLeft - x1), yRight = y1 + slope * (xRight - x1);
       var color = PAL.fibs[(Math.max(1, Number(tl.id) || 1) - 1) % PAL.fibs.length];
       var noFib = tl.bears_fib === false;

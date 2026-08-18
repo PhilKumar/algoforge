@@ -973,7 +973,10 @@ const fibTouchChart = {
     { t: '2026-08-06T09:21:00+05:30', o: 24622, h: 24624, l: 24600, c: 24602, is_mother: true },
     { t: '2026-08-06T09:23:00+05:30', o: 24610, h: 24620, l: 24608, c: 24618, is_mother: false },
     { t: '2026-08-06T09:30:00+05:30', o: 24560, h: 24565, l: 24495, c: 24510, is_mother: false },
-    { t: '2026-08-06T09:35:00+05:30', o: 24510, h: 24512, l: 24395, c: 24410, is_mother: false },
+    // Deep enough that L6 (24,100) sits inside the fitted price range with
+    // only the campaign's own bars on the chart (the two bars before the
+    // mother are no longer drawn).
+    { t: '2026-08-06T09:35:00+05:30', o: 24510, h: 24512, l: 24145, c: 24160, is_mother: false },
   ],
   anchor: fibTouchCampaign.anchor,
   // The route hands the chart the STRUCTURES the ladder drew, not one swing.
@@ -1041,9 +1044,11 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
     return app._pfChartCanvas.paint;
   });
 
-  // Six candles in, six drawn -- a translator that drops the native-price
-  // fallback silently renders none of them.
-  expect(paint).toMatchObject({ candles: 6 });
+  // Six candles in, FOUR drawn: the chart keeps the campaign's own life --
+  // from the mother candle to its end -- and the two bars before the mother
+  // are outside it (Phil, 2026-08-18: "only the trade live times"). A
+  // translator that dropped the native-price fallback would render none.
+  expect(paint).toMatchObject({ candles: 4 });
   const labels = paint.labelTexts as string[];
   // BOTH structures are on the chart. Fibs stack since the merge, and a chart
   // that draws one of them shows prices that are not the ones holding money.

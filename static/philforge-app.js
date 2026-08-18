@@ -3716,7 +3716,10 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // chart on this site uses, because past three the picture is a cat's cradle
   // and the fib that matters is the one nearest the price.
   const convergence = String(payload?.buy_mode || campaign.buy_mode || 'levels') === 'convergence';
-  const fibs = Array.isArray(payload?.fibs) ? payload.fibs : [];
+  const lifeEnd = epoch(campaign.exit_timestamp);
+  const fibs = (Array.isArray(payload?.fibs) ? payload.fibs : [])
+    // A fib drawn after the campaign ended is a later day's structure.
+    .filter(fib => { const at = epoch(fib.drawn_timestamp); return at === null || lifeEnd === null || at <= lifeEnd; });
   const kept = typeof window.pfChartLatestStructures === 'function' ? window.pfChartLatestStructures(fibs) : fibs.slice(-3);
   const newestId = fibs.length ? Number(fibs[fibs.length - 1].fib_id) : null;
   kept.forEach(fib => {
@@ -3868,19 +3871,38 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // ONE MARK PER ROUND. The campaign no longer ends at its first target -- a
   // new deepest low re-arms the same mother -- so a single exit would draw the
   // last sale and silently drop the ones before it.
+  // A SELL mark only where something was SOLD. A campaign that bought nothing
+  // still has an exit_timestamp (15:15, or the mother breaking), and drawing
+  // "SELL 24,627.95 +₹0" there put a sale on a chart with no buy (Phil,
+  // 2026-08-18: "Why it is only showing sell? The buy is not there").
   const exits = (campaign.rounds || [])
+    .filter(round => Array.isArray(round.fills) ? round.fills.length > 0 : true)
     .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: Number(round.net_pnl) || 0 }))
     .filter(row => row.t !== null && row.price !== null);
-  if (!exits.length && campaign.exit_timestamp && campaign.exit_index != null) {
+  if (!exits.length && campaign.exit_timestamp && campaign.exit_index != null && allFills.length) {
     const at = epoch(campaign.exit_timestamp), p = price(campaign.exit_index);
     if (at !== null && p !== null) exits.push({ t: at, price: p, pnl: Number(campaign.net_pnl) || 0 });
   }
+
+  // THE CAMPAIGN'S OWN LIFE, and nothing else. Phil, 2026-08-18: "display
+  // only the trade live times... not after or before". The route serves the
+  // mother's whole day and every day to the horizon; the chart keeps the bars
+  // from the mother candle to the bar the campaign ended on (to the last bar
+  // while it is still running). With no campaign at all -- the chart opened
+  // before Start -- every bar stays.
+  const motherEpoch = epoch(campaign.mother_timestamp);
+  const endEpoch = epoch(campaign.exit_timestamp);
+  const framed = motherEpoch !== null
+    ? candles.filter(row => row.t >= motherEpoch && (endEpoch === null || row.t <= endEpoch))
+    : candles;
+  // Structures drawn AFTER the campaign ended belong to a later day, not to it.
+  const inLife = stamp => { const at = epoch(stamp); return at === null || endEpoch === null || at <= endEpoch; };
 
   const holding = (campaign.fills || []).length > 0;
   const resting = (campaign.resting_exits || []).length;
   return {
     timeframe: payload?.timeframe || '1m',
-    candles,
+    candles: framed.length ? framed : candles,
     // No mother BAND -- the one edge the ladder is measured against is drawn as
     // a labelled line above instead, which is what Phil asked for. The mother
     // candle itself is still painted by `is_mother`.
@@ -3889,6 +3911,7 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
     // back through a line, so a chart with the lines missing cannot be checked
     // against the rule that put the fibs there.
     trendlines: (Array.isArray(payload?.trendlines) ? payload.trendlines : [])
+      .filter(tl => inLife(tl.a2 && tl.a2.t) && inLife(tl.drawn_timestamp))
       .map(tl => ({
         id: `tl${tl.id}`,
         a1: { t: epoch(tl.a1 && tl.a1.t), p: Number(tl.a1 && tl.a1.p) },
