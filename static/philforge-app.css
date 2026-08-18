@@ -6322,6 +6322,23 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   display: grid;
   gap: 14px;
   min-width: 0;
+  /* The monitor column is as tall as the setup form beside it and scrolls
+     INSIDE that height (Phil, 2026-08-18: the page grew a long scrollbar and
+     an empty void under the form while two open monitors ran on). Size
+     containment keeps the column's own content out of the row's height, so
+     the row is the form's height and the stack scrolls within it. */
+  align-self: stretch;
+  contain: size;
+  min-height: 460px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  /* Rows at their content height, not shrunk to share the column: a definite
+     column height would otherwise squeeze auto rows to fit and clip them. */
+  grid-auto-rows: max-content;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,.28) transparent;
 }
 #options-cascade-page .fibx-monitor-window {
   position: relative;
@@ -6534,6 +6551,14 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   #options-cascade-page .oc-fib-workspace { grid-template-columns: 1fr; }
   #options-cascade-page .fibx-monitors,
   #options-cascade-page .fibx-backtest-window { grid-column: auto; grid-row: auto; }
+  /* One column: nothing to match heights with, so the stack flows normally. */
+  #options-cascade-page .fibx-monitors {
+    align-self: auto;
+    contain: none;
+    min-height: 0;
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 @media (max-width: 760px) {
   #options-cascade-page .oc-hero,

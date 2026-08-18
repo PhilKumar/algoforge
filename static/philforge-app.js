@@ -4421,7 +4421,7 @@ function _renderFibBoundaryBacktest(data) {
         + `<td style="padding:7px 8px;text-align:right;">${out == null ? '—' : '₹' + escapeHtml(_cascadeNumber(out))}</td>`
         + `<td style="padding:7px 8px;text-align:right;color:${color};font-weight:800;">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`
         + `</tr>`;
-    }).join('') : '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--muted);">No level was touched in this window.</td></tr>';
+    }).join('') : '<tr><td colspan="9" style="padding:16px;text-align:center;color:var(--muted);">No level was touched in this window.</td></tr>';
   }
 }
 
