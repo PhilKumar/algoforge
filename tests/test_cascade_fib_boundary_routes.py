@@ -1169,7 +1169,9 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         payload = payload_cls(mother_timestamp=mother.replace(tzinfo=None).isoformat(), timeframe="5m", **fields)
         with (
-            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, _Broker(), "user"))),
+            patch.object(
+                app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, _Broker(), "user"))
+            ),
             patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _StreamAdapter({"5m": rows, "1m": rows})),
             patch.object(app_module, "FibTouchConfig", spy),
             patch("broker.dhan.ScripMaster.get_expiries", lambda *a, **k: []),
