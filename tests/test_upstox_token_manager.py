@@ -92,6 +92,20 @@ class ValidityProbeTest(unittest.TestCase):
         with patch.object(utm.requests, "get", return_value=_resp(401)):
             self.assertFalse(utm.token_is_valid("tok"))
 
+    def test_the_probe_is_a_data_endpoint_not_the_profile(self):
+        """/user/profile answers 401 UDAPI1221 to every host regardless of the
+        token; probing it declared a valid token dead on every run."""
+        seen = {}
+
+        def get(url, **kw):
+            seen["url"] = url
+            return _resp(200)
+
+        with patch.object(utm.requests, "get", get):
+            utm.token_is_valid("tok")
+        self.assertIn("/expired-instruments/expiries", seen["url"])
+        self.assertNotIn("/user/profile", seen["url"])
+
     def test_empty_token_is_invalid(self):
         self.assertFalse(utm.token_is_valid(""))
 

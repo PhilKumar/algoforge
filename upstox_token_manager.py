@@ -51,6 +51,13 @@ ENV_PATH = REPO_ROOT / ".env"
 AUTH_DIALOG = "https://api.upstox.com/v2/login/authorization/dialog"
 TOKEN_URL = "https://api.upstox.com/v2/login/authorization/token"
 PROFILE_URL = "https://api.upstox.com/v2/user/profile"
+# The validity PROBE. /user/profile answers 401 UDAPI1221 ("static IP") to every
+# request from every host, whether or not the token is good -- it has a
+# different IP rule from the data endpoints this app actually calls. Probing it
+# declared a perfectly valid Analytics token dead on every run and logged a
+# refresh attempt that could never be configured. The expiries listing is a
+# data endpoint: 200 with a live token, 401 with a dead one.
+PROBE_URL = "https://api.upstox.com/v2/expired-instruments/expiries?instrument_key=NSE_INDEX%7CNifty%2050"
 
 # Undocumented consent endpoints (version-sensitive; see module docstring).
 _SVC = "https://service.upstox.com/login/open/v6/auth"
@@ -102,7 +109,7 @@ def token_is_valid(token: str) -> bool:
         return False
     try:
         resp = requests.get(
-            PROFILE_URL,
+            PROBE_URL,
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             timeout=15,
         )
