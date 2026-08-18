@@ -662,6 +662,13 @@ class FibTouchConfig:
     # DEEP_CARRY_RUNGS for the measurement.
     deep_carry: bool = False
     deep_carry_rungs: int = DEEP_CARRY_RUNGS
+    # HOW DEEP A ROUND MAY GO. Phil, 2026-08-18, reading the drawdown: over
+    # 23 months every campaign that reached six or more buys lost, and the
+    # first two or three buys made all the money. With this above zero a
+    # round stops adding lots after `max_buys` fills -- the basket held runs
+    # on to its exit, later rungs are marked UNFUNDED exactly as the rupee
+    # cap marks them. 0 = no limit (every measurement before this date).
+    max_buys: int = 0
     # See SpaceGeometry.seed_first_fib -- with this on, the FIRST structure
     # after the mother is drawn from the first bounce instead of waiting for a
     # trendline. Off by default: measured on the Fib Space side and it does not
@@ -713,6 +720,8 @@ class FibTouchConfig:
             raise FibTouchError(f"buy_mode must be one of {', '.join(BUY_MODES)}")
         if int(self.deep_carry_rungs) < 0:
             raise FibTouchError("deep_carry_rungs cannot be negative")
+        if int(self.max_buys) < 0:
+            raise FibTouchError("max_buys cannot be negative")
 
     @property
     def working_side(self) -> str:
@@ -1503,6 +1512,21 @@ class FibTouchLadder:
         lots = self.config.lots_per_rung
         quantity = lots * self.config.lot_size
         cost = float(premium) * quantity
+        if int(self.config.max_buys) > 0 and len(self.fills) >= int(self.config.max_buys):
+            # The buy cap ends the ladder for this round, the same way the
+            # rupee cap does: what is held runs on, nothing more is added.
+            for remaining in self.rungs:
+                if remaining.status in {"PENDING", "COLLECTED"}:
+                    remaining.status = "UNFUNDED"
+            self.status = "OPEN_CAPPED"
+            self._log(
+                bar.timestamp,
+                "buy_cap_reached",
+                level=rung.level,
+                buys=len(self.fills),
+                max_buys=int(self.config.max_buys),
+            )
+            return
         if self.deployed_inr + cost > self.config.capital_cap_inr:
             # The cap ends the ladder.  Every remaining rung is marked so
             # the console can draw it as priced-but-unfunded rather than
@@ -2340,6 +2364,7 @@ class FibTouchLadder:
                 "intraday_close_at": config.intraday_close_at.strftime("%H:%M"),
                 "deep_carry": config.deep_carry,
                 "deep_carry_rungs": config.deep_carry_rungs,
+                "max_buys": config.max_buys,
                 # The exit rule. A restart that forgot it would sell a trailing
                 # campaign at its fixed target the moment it came back.
                 "trailing_stop": config.trailing_stop,
@@ -2487,6 +2512,7 @@ class FibTouchLadder:
             ),
             deep_carry=bool(terms.get("deep_carry", False)),
             deep_carry_rungs=int(terms.get("deep_carry_rungs", DEEP_CARRY_RUNGS)),
+            max_buys=int(terms.get("max_buys", 0) or 0),
             trailing_stop=bool(terms.get("trailing_stop", False)),
             trail_span_multiple=float(terms.get("trail_span_multiple", 1.0)),
         )
@@ -2638,6 +2664,7 @@ class FibTouchLadder:
             "intraday_close_at": self.config.intraday_close_at.strftime("%H:%M"),
             "deep_carry": self.config.deep_carry,
             "deep_carry_rungs": self.config.deep_carry_rungs,
+            "max_buys": self.config.max_buys,
             "buy_stop": round(self._buy_stop, 2) if self._buy_stop is not None else None,
             "fills": [fill.as_dict() for fill in self.fills],
             # Legs already settled at their own expiry. They leave `fills` when

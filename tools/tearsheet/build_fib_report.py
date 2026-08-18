@@ -38,10 +38,10 @@ DATA = _HERE / "fib_report_data.json"
 # Where the fib_offline sweeps wrote their CSVs (FIB_SWEEP_DIR=/tmp/fib_offline
 # on the machine that ran them); the four files can also be named outright.
 SWEEPS = pathlib.Path(os.environ.get("FIB_SWEEP_DIR") or pathlib.Path(tempfile.gettempdir()) / "fib_offline")
-CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v3" / "levels_5m_CE_trail.csv"
-PE_CSV = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else SWEEPS / "v3" / "levels_5m_PE_trail.csv"
-SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "sensex" / "levels_5m_CE_trail.csv"
-SX_PE_CSV = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else SWEEPS / "sensex" / "levels_5m_PE_fixed.csv"
+CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v4" / "NIFTY_CE_trail_max0.csv"
+PE_CSV = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else SWEEPS / "v4" / "NIFTY_PE_trail_max0.csv"
+SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "v4" / "SENSEX_CE_trail_max0.csv"
+SX_PE_CSV = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else SWEEPS / "v4" / "SENSEX_PE_fixed_max0.csv"
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -489,7 +489,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
   <h2 class="note-h">{t("Read this first", "முதலில் இதைப் படியுங்கள்")}</h2>
   <p>{
     t(
-        "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose &mdash; and are counted <strong>one at a time per index</strong>, exactly as the page runs: a clock-time mother that fires while an earlier campaign is still open is not taken (an earlier sheet counted those overlaps twice; this one does not). Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",
+        "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose &mdash; and are counted <strong>one at a time per index</strong>, exactly as the page runs: a clock-time mother that fires while an earlier campaign is still open is not taken. Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",
         "இந்த campaign-கள் ஒவ்வொரு அமர்விலும் ஏழு நிலையான நேரங்களில் தொடங்கின &mdash; ஒரு trader தேர்வு செய்யும் candle-கள் அல்ல &mdash; ஒரு குறியீட்டுக்கு <strong>ஒரு நேரத்தில் ஒரு campaign</strong> மட்டும் கணக்கிடப்பட்டது, பக்கம் இயங்குவது போலவே (முந்தைய campaign திறந்திருக்கும்போது வரும் mother எடுக்கப்படாது). பெரும்பாலான blind mother-கள் வர்த்தகமே செய்யாது. அளக்கப்படுவது <strong>விதி</strong>, paper run இயக்கும் அதே code-இல், நேர வரிசையில் candle-candle-ஆக, உண்மையான premium-களில். <em>உங்கள்</em> mother-கள் சம்பாதிக்குமா என்பதுதான் paper run-இன் வேலை.",
     )
 }</p>

@@ -59,12 +59,23 @@ def make(tf, side, mode, mother, **kw):
         min_dte=4,
         buy_mode=mode,
         intraday_close=True,
+        trailing_stop=bool(os.environ.get("TRAIL")),
+        max_buys=int(os.environ.get("MAX_BUYS", "0") or 0),
         **kw,
     )
     return FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
 
 
 ALL = {tf: load(tf) for tf in ("1m", "5m", "15m")}
+
+# Optional: a sweep CSV to cross-check row by row (SWEEP_CSV=/tmp/fib_offline/v4/NIFTY_CE_trail_max0.csv).
+SWEEP_ROWS = None
+SWEEP_SIDE = os.environ.get("SWEEP_SIDE", "CE")
+if os.environ.get("SWEEP_CSV"):
+    import csv as _csv
+
+    SWEEP_ROWS = {row["mother"]: row for row in _csv.DictReader(open(os.environ["SWEEP_CSV"]))}
+    print(f"cross-checking against {os.environ['SWEEP_CSV']} ({len(SWEEP_ROWS)} rows)")
 
 
 def window(tf, mother, days=10):
@@ -131,6 +142,11 @@ stamps5 = [
 ]
 random.shuffle(stamps5)
 mothers = stamps5[:N]
+if SWEEP_ROWS:
+    # Cross-checking a sweep: draw the sample from ITS mothers so every row can be compared.
+    pool = [datetime.fromisoformat(k) for k in SWEEP_ROWS]
+    random.shuffle(pool)
+    mothers = pool[:N]
 
 results = Counter()
 fails: list[str] = []
@@ -268,6 +284,21 @@ for tf, side, mode in configs:
                     "10 convergence buys only zones",
                     any(str(k).startswith("Z") for k in f.get("covered", [])),
                     f"{mother} covered {f.get('covered')}",
+                )
+        # 11. the buy count the sweep/tearsheet publish equals the fill EVENTS.
+        # A finished campaign keeps its last round's legs in `fills` as well as
+        # in the round; the sweep once summed both and doubled every closed row.
+        open_still = bool(st.get("fills")) and st["status"] not in {"CLOSED", "EXPIRED", "MOTHER_BROKEN", "KILLED"}
+        published = sum(len(r_["fills"]) for r_ in rounds) + (len(st.get("fills") or []) if open_still else 0)
+        events = sum(1 for e in a.events if e.get("event") == "fill")
+        check("11 published buys = fill events", published == events, f"{mother} {published} vs {events}")
+        if SWEEP_ROWS is not None and mode == "levels" and side == SWEEP_SIDE:
+            row = SWEEP_ROWS.get(mother.isoformat())
+            if row is not None:
+                check(
+                    "11 sweep CSV row = fresh replay (buys, net)",
+                    int(row["buys"]) == events and abs(float(row["net"]) - float(st.get("net_pnl") or 0)) < 0.01,
+                    f"{mother} csv buys {row['buys']} net {row['net']} vs {events} {st.get('net_pnl')}",
                 )
         # 10b. levels: no premium ever fabricated -- every lookup that returned a price is a real archive bar
         for when, strike, expiry, opt, price in LOOKUPS[:50]:

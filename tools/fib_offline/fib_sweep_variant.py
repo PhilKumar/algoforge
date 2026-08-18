@@ -110,6 +110,7 @@ while d <= end:
             target_fraction=float(os.environ.get("TARGET") or 0.25),
             deep_target=os.environ.get("DEEP_TARGET", "1") == "1",
             deep_carry=os.environ.get("DEEP_CARRY", "0") == "1",
+            max_buys=int(os.environ.get("MAX_BUYS", "0") or 0),
         )
         eng = FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
         hz = mother.date() + timedelta(days=10)
@@ -125,7 +126,10 @@ while d <= end:
         st = eng.get_status()
         rounds = st.get("rounds") or []
         net = sum(float(r.get("net_pnl") or 0) for r in rounds)
-        fills = sum(len(r.get("fills") or []) for r in rounds) + len(st.get("fills") or [])
+        # A finished campaign keeps its last round's legs in `fills` as well as
+        # in the round -- counting both doubled `buys` on every closed row.
+        open_still = bool(st.get("fills")) and st["status"] not in {"CLOSED", "EXPIRED", "MOTHER_BROKEN", "KILLED"}
+        fills = sum(len(r.get("fills") or []) for r in rounds) + (len(st.get("fills") or []) if open_still else 0)
         gaps = st.get("data_gaps") or []
         print(
             f"{mother:%Y-%m-%d %H:%M} {st['status']:<14} {str(st.get('exit_reason')):<22} "

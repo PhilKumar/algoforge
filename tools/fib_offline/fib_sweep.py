@@ -84,7 +84,10 @@ while d <= end:
         st = eng.get_status()
         rounds = st.get("rounds") or []
         net = sum(float(r.get("net_pnl") or 0) for r in rounds)
-        fills = sum(len(r.get("fills") or []) for r in rounds) + len(st.get("fills") or [])
+        # A finished campaign keeps its last round's legs in `fills` as well as
+        # in the round -- counting both doubled `buys` on every closed row.
+        open_still = bool(st.get("fills")) and st["status"] not in {"CLOSED", "EXPIRED", "MOTHER_BROKEN", "KILLED"}
+        fills = sum(len(r.get("fills") or []) for r in rounds) + (len(st.get("fills") or []) if open_still else 0)
         gaps = st.get("data_gaps") or []
         print(
             f"{mother:%Y-%m-%d %H:%M} {st['status']:<14} {str(st.get('exit_reason')):<22} "

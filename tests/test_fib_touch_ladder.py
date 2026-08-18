@@ -2263,6 +2263,53 @@ class DeepCarryTests(unittest.TestCase):
         self.assertEqual(payload["deep_carry_rungs"], DEEP_CARRY_RUNGS)
 
 
+class MaxBuysTests(unittest.TestCase):
+    """Phil, 2026-08-18, reading the drawdown: every campaign that reached six
+    or more buys lost over 23 months. `max_buys` stops a round adding lots
+    after that many fills; what is held runs on to its exit."""
+
+    def two_turns(self, **overrides):
+        engine, candles, _ = ladder(**overrides)
+        for bar in candles:
+            engine.on_candle(bar)
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        take_the_turn(engine, last.timestamp, 24_295, sweep_from=24_500)
+        return engine
+
+    def test_zero_is_the_default_and_means_no_limit(self):
+        self.assertEqual(
+            FibTouchConfig(
+                symbol="NIFTY", side="CE", mother_timestamp=IST_START, lot_size=65, strike_step=50.0
+            ).max_buys,
+            0,
+        )
+        self.assertEqual(len(self.two_turns().fills), 2)
+
+    def test_the_cap_stops_the_next_buy_and_marks_the_rungs(self):
+        engine = self.two_turns(max_buys=1)
+        self.assertEqual(len(engine.fills), 1, "the second turn bought nothing")
+        self.assertEqual(engine.status, "OPEN_CAPPED")
+        self.assertTrue([rung.key for rung in engine.rungs if rung.status == "UNFUNDED"])
+        self.assertTrue(any(e["event"] == "buy_cap_reached" for e in engine.events))
+
+    def test_a_cap_of_two_lets_both_buys_through(self):
+        self.assertEqual(len(self.two_turns(max_buys=2).fills), 2)
+
+    def test_it_survives_a_restart_and_shows_in_the_status(self):
+        engine = self.two_turns(max_buys=1)
+        self.assertEqual(engine.get_status()["max_buys"], 1)
+        back = FibTouchLadder.from_dict(
+            engine.to_dict(), premium_lookup=lambda *a: 200.0, expiry_source=lambda on: [date(2026, 8, 11)]
+        )
+        self.assertEqual(back.config.max_buys, 1)
+
+    def test_a_negative_cap_is_refused(self):
+        with self.assertRaises(FibTouchError):
+            FibTouchConfig(
+                symbol="NIFTY", side="CE", mother_timestamp=IST_START, lot_size=65, strike_step=50.0, max_buys=-1
+            )
+
+
 class TrailingPersistenceTests(unittest.TestCase):
     """The exit rule and an ARMED trail must survive a restart: a trailing
     campaign that came back as fixed would be sold at its target on the first
