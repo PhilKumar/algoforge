@@ -542,7 +542,9 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     )
 }</p></div></div>
   <div class="tblwrap"><table>
-    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Session", "அமர்வு")}</th><th scope="col">{
+    t("Exit", "வெளியேற்றம்")
+}</th><th scope="col">{t("Buys a round", "round-க்கு வாங்கல்")}</th><th scope="col">{
     t("Campaigns", "Campaign-கள்")
 }</th><th scope="col">{t("Buys per campaign", "வாங்கல்/campaign")}</th><th scope="col">{
     t("Cost per buy", "ஒரு வாங்கல்")
@@ -552,19 +554,25 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     t("Net", "நிகர")
 }</th><th scope="col">{t("Net &divide; cap", "நிகர &divide; cap")}</th></tr></thead>
     <tbody>
-      <tr><th scope="row">NIFTY CE</th><td>{CE["trades"]}</td><td>{CE["avg_buys"]}</td><td>{r(CE["per_buy"])}</td><td>{
-    r(CE["avg_deployed"])
-}</td><td>{r(CE["median_deployed"])}</td><td>{r(CE["peak_deployed"])}</td><td class="{cls(CE["net"])}"><strong>{
-    r(CE["net"])
-}</strong></td><td>{CE["return_on_cap"]}%</td></tr>
-      <tr><th scope="row">SENSEX CE</th><td>{SX["trades"]}</td><td>{SX["avg_buys"]}</td><td>{r(SX["per_buy"])}</td><td>{
-    r(SX["avg_deployed"])
-}</td><td>{r(SX["median_deployed"])}</td><td>{r(SX["peak_deployed"])}</td><td class="{cls(SX["net"])}"><strong>{
-    r(SX["net"])
-}</strong></td><td>{SX["return_on_cap"]}%</td></tr>
-      <tr class="trow-total"><th scope="row">{t("Both", "இரண்டும்")}</th><td>{ALL["trades"]}</td><td>{
-    ALL["avg_buys"]
-}</td><td>{r(ALL["per_buy"])}</td><td>{r(ALL["avg_deployed"])}</td><td>{r(ALL["median_deployed"])}</td><td>{
+      <tr><th scope="row">NIFTY CE</th><td>{
+    t("Intraday &middot; out by 15:15", "Intraday &middot; 15:15-க்குள்")
+}</td><td>{t("Trailing", "Trailing")}</td><td>&le; 4</td><td>{CE["trades"]}</td><td>{CE["avg_buys"]}</td><td>{
+    r(CE["per_buy"])
+}</td><td>{r(CE["avg_deployed"])}</td><td>{r(CE["median_deployed"])}</td><td>{r(CE["peak_deployed"])}</td><td class="{
+    cls(CE["net"])
+}"><strong>{r(CE["net"])}</strong></td><td>{CE["return_on_cap"]}%</td></tr>
+      <tr><th scope="row">SENSEX CE</th><td>{
+    t("Intraday &middot; out by 15:15", "Intraday &middot; 15:15-க்குள்")
+}</td><td>{t("Trailing", "Trailing")}</td><td>&le; 4</td><td>{SX["trades"]}</td><td>{SX["avg_buys"]}</td><td>{
+    r(SX["per_buy"])
+}</td><td>{r(SX["avg_deployed"])}</td><td>{r(SX["median_deployed"])}</td><td>{r(SX["peak_deployed"])}</td><td class="{
+    cls(SX["net"])
+}"><strong>{r(SX["net"])}</strong></td><td>{SX["return_on_cap"]}%</td></tr>
+      <tr class="trow-total"><th scope="row">{t("Both", "இரண்டும்")}</th><td>{
+    t("Intraday &middot; out by 15:15", "Intraday &middot; 15:15-க்குள்")
+}</td><td>{t("Trailing", "Trailing")}</td><td>&le; 4</td><td>{ALL["trades"]}</td><td>{ALL["avg_buys"]}</td><td>{
+    r(ALL["per_buy"])
+}</td><td>{r(ALL["avg_deployed"])}</td><td>{r(ALL["median_deployed"])}</td><td>{
     r(ALL["peak_deployed"])
 }</td><td class="{cls(ALL["net"])}"><strong>{r(ALL["net"])}</strong></td><td>{
     t("&#8377;1,50,000 for both indices", "இரு குறியீடுகளுக்கும் &#8377;1,50,000")
