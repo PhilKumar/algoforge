@@ -6122,6 +6122,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .oc-tab.is-active { border-color: rgba(2,132,199,.5); color: #075985; background: linear-gradient(180deg, #e0f2fe, #bae6fd); box-shadow: 0 3px 8px rgba(2,132,199,.16), inset 0 1px 0 rgba(255,255,255,.8); }
 [data-theme="light"] #options-cascade-page > .card-glass:first-child { border-color: rgba(2,132,199,.24) !important; background: linear-gradient(110deg, rgba(240,249,255,.95), rgba(248,250,252,.96)) !important; }
 [data-theme="light"] #fibx-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
+/* The Start / Backtest / Kill row under the Candle Entry form: one flex row,
+   the same buttons the Fib Boundary form uses, wrapping on a phone. */
+.candle-entry-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:12px; }
+.candle-entry-actions .btn { min-height:38px; margin:0 !important; }
+.candle-entry-backtest-window { margin-top:14px; }
 .candle-entry-monitor { margin-top:14px; overflow:hidden; border:1px solid rgba(96,165,250,.26); border-radius:12px; background:linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
 .candle-entry-monitor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.14); }
 .candle-entry-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
@@ -6319,30 +6324,38 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .fibx-monitors {
   grid-column: 2;
   grid-row: 1;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
-  /* The monitor column is as tall as the setup form beside it and scrolls
-     INSIDE that height (Phil, 2026-08-18: the page grew a long scrollbar and
-     an empty void under the form while two open monitors ran on). Size
-     containment keeps the column's own content out of the row's height, so
-     the row is the form's height and the stack scrolls within it. */
+  /* The monitor column is as tall as the setup form beside it, and every OPEN
+     monitor scrolls INSIDE its own card (Phil, 2026-08-18: "the scroll bar
+     inside the panel, not outside" -- and no void under the form). Size
+     containment keeps the column's content out of the row's height, so the
+     row is the form's height; the cards share it and each body scrolls. */
   align-self: stretch;
   contain: size;
   min-height: 460px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  align-content: start;
-  /* Rows at their content height, not shrunk to share the column: a definite
-     column height would otherwise squeeze auto rows to fit and clip them. */
-  grid-auto-rows: max-content;
-  padding-right: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148,163,184,.28) transparent;
+  overflow: hidden;
 }
+#options-cascade-page .oc-fib-setup-card { margin-bottom: 0; }  /* bottoms flush with the monitors */
 #options-cascade-page .fibx-monitor-window {
   position: relative;
   border-color: rgba(56,189,248,.27);
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+#options-cascade-page .fibx-monitor-window > .cascade-options-window-head { flex: 0 0 auto; }
+/* Chromium/WebKit wrap a details element's content in ::details-content; it
+   is that box, not the body, that is the flex item -- so it must be the one
+   allowed to shrink, and pass the height down to the body. */
+#options-cascade-page .fibx-monitor-window::details-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 #options-cascade-page .fibx-monitor-window > .cascade-options-window-head {
   padding-right: 300px;
@@ -6373,6 +6386,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   display: grid;
   grid-template-rows: 0fr;
   overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0 15px;
   opacity: 0;
   transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1), padding .28s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
@@ -6385,6 +6400,14 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .fibx-monitor-body-inner {
   min-height: 0;
   overflow: hidden;
+}
+/* Open: the body is the scroll region, so the bar sits inside the card. */
+#options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body > .fibx-monitor-body-inner {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,.28) transparent;
 }
 /* Each ladder gets its own results + events pair, so the pairs stack too. No
    gap here: .oc-fib-lower-grid already carries margin-top:14px, and both would
@@ -6557,8 +6580,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
     contain: none;
     min-height: 0;
     overflow: visible;
-    padding-right: 0;
   }
+  #options-cascade-page .fibx-monitor-window { flex: none; }
+  #options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body > .fibx-monitor-body-inner { overflow-y: visible; padding-right: 0; }
 }
 @media (max-width: 760px) {
   #options-cascade-page .oc-hero,
