@@ -1,5 +1,10 @@
 {
  "NIFTY_CE": {
+  "avg_deployed": 33008.56,
+  "median_deployed": 25875.0,
+  "per_buy": 9937.32,
+  "cap": 75000.0,
+  "return_on_cap": 158.4,
   "trades": 286,
   "wins": 180,
   "losses": 106,
@@ -1246,6 +1251,11 @@
   }
  },
  "NIFTY_PE": {
+  "avg_deployed": 27428.67,
+  "median_deployed": 22278.75,
+  "per_buy": 9052.81,
+  "cap": 75000.0,
+  "return_on_cap": -65.4,
   "trades": 268,
   "wins": 151,
   "losses": 117,
@@ -2420,6 +2430,11 @@
   }
  },
  "SENSEX_CE": {
+  "avg_deployed": 31129.18,
+  "median_deployed": 23360.0,
+  "per_buy": 9345.0,
+  "cap": 75000.0,
+  "return_on_cap": 124.2,
   "trades": 299,
   "wins": 180,
   "losses": 119,
@@ -3718,6 +3733,11 @@
   }
  },
  "SENSEX_PE": {
+  "avg_deployed": 28675.91,
+  "median_deployed": 24495.0,
+  "per_buy": 8835.81,
+  "cap": 75000.0,
+  "return_on_cap": -236.8,
   "trades": 273,
   "wins": 154,
   "losses": 119,
@@ -4912,6 +4932,11 @@
   }
  },
  "both_CE": {
+  "avg_deployed": 32047.99,
+  "median_deployed": 24740.0,
+  "per_buy": 9634.16,
+  "cap": 150000.0,
+  "return_on_cap": 141.3,
   "trades": 585,
   "wins": 360,
   "losses": 225,

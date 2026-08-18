@@ -101,7 +101,7 @@ def load(path: pathlib.Path) -> list[dict]:
     return rows
 
 
-def book(rows: list[dict]) -> dict:
+def book(rows: list[dict], cap: float = 75000.0) -> dict:
     net = sum(x["net"] for x in rows)
     gross = sum(x["gross"] for x in rows)
     costs = sum(x["costs"] for x in rows)
@@ -137,7 +137,14 @@ def book(rows: list[dict]) -> dict:
         rr["n"] += 1
         rr["net"] += x["net"]
     peak_deployed = max((x["deployed"] for x in rows), default=0.0)
+    deps = sorted(x["deployed"] for x in rows)
+    total_buys = sum(x["buys"] for x in rows)
     return {
+        "avg_deployed": round(sum(deps) / len(deps), 2) if deps else 0,
+        "median_deployed": round(deps[len(deps) // 2], 2) if deps else 0,
+        "per_buy": round(sum(deps) / total_buys, 2) if total_buys else 0,
+        "cap": cap,
+        "return_on_cap": round(100 * net / cap, 1),
         "trades": len(rows),
         "wins": len(wins),
         "losses": len(losses),
@@ -185,7 +192,7 @@ CE, PE = book(CE_ROWS), book(PE_ROWS)
 SX, SXPE = book(SX_CE_ROWS), book(SX_PE_ROWS)
 # The two call books together, in time order -- what the desk would carry
 # running this configuration on both indices.
-ALL = book(sorted(CE_ROWS + SX_CE_ROWS, key=lambda x: x["mother"]))
+ALL = book(sorted(CE_ROWS + SX_CE_ROWS, key=lambda x: x["mother"]), cap=150000.0)  # one Rs 75k ladder per index
 json.dump(
     {
         k: {kk: vv for kk, vv in b.items() if kk not in ("rows", "best10", "worst10", "best", "worst")}
@@ -228,7 +235,16 @@ def kpis(b: dict, label_en: str, label_ta: str) -> str:
       <div class="kpi-s">{t("win", "வெற்றி")} {r(b["avg_win"])} &middot; {t("loss", "நஷ்டம்")} {r(b["avg_loss"])}</div></div>
     <div class="kpi"><div class="kpi-l">{t("Best &middot; worst day", "சிறந்த &middot; மோசமான நாள்")}</div>
       <div class="kpi-v"><span class="pos">{r(b["best"]["net"]) if b["best"] else "—"}</span> &middot; <span class="neg">{r(b["worst"]["net"]) if b["worst"] else "—"}</span></div>
-      <div class="kpi-s">{t("peak deployed", "உச்ச பயன்பாடு")} {r(b["peak_deployed"])}</div></div>
+      <div class="kpi-s">{t("net after charges", "கட்டணங்களுக்குப் பின்")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Deployed per campaign", "Campaign-க்கு பயன்பாடு")}</div>
+      <div class="kpi-v">{r(b["avg_deployed"])}</div>
+      <div class="kpi-s">{t("avg", "சராசரி")} &middot; {t("median", "இடைநிலை")} {r(b["median_deployed"])} &middot; {t("max", "அதிகபட்சம்")} {r(b["peak_deployed"])} {t("(summed over a campaign's rounds; one round never exceeds the cap)", "(campaign-இன் rounds சேர்த்து; ஒரு round cap-ஐ மீறாது)")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Cost per buy", "ஒரு வாங்கலுக்கு")}</div>
+      <div class="kpi-v">{r(b["per_buy"])}</div>
+      <div class="kpi-s">{t("one lot of the ATM&minus;2 call, avg", "ATM&minus;2 கால் ஒரு lot, சராசரி")}</div></div>
+    <div class="kpi"><div class="kpi-l">{t("Return on the cap", "cap மீது வருவாய்")}</div>
+      <div class="kpi-v {cls(b["net"])}">{b["return_on_cap"]}%</div>
+      <div class="kpi-s">{t("net &divide;", "நிகர &divide;")} {r(b["cap"])} {t("(one &#8377;75,000 ladder per index)", "(ஒரு குறியீட்டுக்கு &#8377;75,000)")}</div></div>
   </div>
 </section>"""
 
@@ -497,6 +513,47 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     )
 }</p>
 </div>
+
+<section>
+  <div class="shead"><div><h2>{
+    t("Capital at work &mdash; what one campaign costs", "பயன்பாட்டில் மூலதனம் &mdash; ஒரு campaign-இன் செலவு")
+}</h2>
+    <p>{
+    t(
+        "Every buy is ONE lot of the ATM&minus;2 call, paid in full (no margin, no leverage). A campaign adds a lot each time the fall turns at a fresh rung, up to the &#8377;75,000 ladder cap; whatever is held is sold by 15:15 the same day, so the cap is also the most a single round can lose in principle. A campaign that banks a round and re-arms on a new low spends the cap again, which is why &ldquo;max deployed&rdquo; over a campaign's rounds can exceed it. One campaign per index runs at a time: &#8377;75,000 per index, &#8377;1,50,000 for both.",
+        "ஒவ்வொரு வாங்கலும் ATM&minus;2 கால்-இன் ஒரு lot, முழு premium (margin இல்லை). ஒவ்வொரு புதிய rung-இன் திருப்பத்திலும் ஒரு lot சேரும், &#8377;75,000 cap வரை; அன்றே 15:15-க்குள் விற்பனை. ஒரு குறியீட்டுக்கு ஒரு campaign மட்டும்.",
+    )
+}</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{
+    t("Campaigns", "Campaign-கள்")
+}</th><th scope="col">{t("Buys per campaign", "வாங்கல்/campaign")}</th><th scope="col">{
+    t("Cost per buy", "ஒரு வாங்கல்")
+}</th><th scope="col">{t("Deployed per campaign, avg", "பயன்பாடு / campaign, சராசரி")}</th><th scope="col">{
+    t("Median", "இடைநிலை")
+}</th><th scope="col">{t("Max (over its rounds)", "அதிகபட்சம் (rounds சேர்த்து)")}</th><th scope="col">{
+    t("Net", "நிகர")
+}</th><th scope="col">{t("Net &divide; cap", "நிகர &divide; cap")}</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">NIFTY CE</th><td>{CE["trades"]}</td><td>{CE["avg_buys"]}</td><td>{r(CE["per_buy"])}</td><td>{
+    r(CE["avg_deployed"])
+}</td><td>{r(CE["median_deployed"])}</td><td>{r(CE["peak_deployed"])}</td><td class="{cls(CE["net"])}"><strong>{
+    r(CE["net"])
+}</strong></td><td>{CE["return_on_cap"]}%</td></tr>
+      <tr><th scope="row">SENSEX CE</th><td>{SX["trades"]}</td><td>{SX["avg_buys"]}</td><td>{r(SX["per_buy"])}</td><td>{
+    r(SX["avg_deployed"])
+}</td><td>{r(SX["median_deployed"])}</td><td>{r(SX["peak_deployed"])}</td><td class="{cls(SX["net"])}"><strong>{
+    r(SX["net"])
+}</strong></td><td>{SX["return_on_cap"]}%</td></tr>
+      <tr class="trow-total"><th scope="row">{t("Both", "இரண்டும்")}</th><td>{ALL["trades"]}</td><td>{
+    ALL["avg_buys"]
+}</td><td>{r(ALL["per_buy"])}</td><td>{r(ALL["avg_deployed"])}</td><td>{r(ALL["median_deployed"])}</td><td>{
+    r(ALL["peak_deployed"])
+}</td><td class="{cls(ALL["net"])}"><strong>{r(ALL["net"])}</strong></td><td>{
+    t("&#8377;1,50,000 for both indices", "இரு குறியீடுகளுக்கும் &#8377;1,50,000")
+}: {round(100 * ALL["net"] / 150000.0, 1)}%</td></tr>
+    </tbody></table></div>
+</section>
 
 <section>
   <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
