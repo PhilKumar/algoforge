@@ -154,6 +154,28 @@ def load_engine_run(path, side_label):
     return out
 
 
+def _seam_days(export_trades, spliced, tag):
+    """How the engine's trading days sit inside the export's over the shared window.
+
+    engine-only days should be zero (the engine never trades a day the export did
+    not); export-only days are either the call book's 2-day cool-off, which the
+    export does not apply, or contracts Upstox holds no minute history for."""
+    ex = {t["date"] for t in export_trades if t["date"] >= SPLICE_FROM}
+    en = {t["date"] for t in spliced if t["source"] == "engine"}
+    big = sorted(date.fromisoformat(t["date"]) for t in spliced if t["source"] == "engine" and t["net"] > 20000)
+    cool = 0
+    for d in sorted(ex - en):
+        dd = date.fromisoformat(d)
+        if any(0 < (dd - b).days <= 4 for b in big):
+            cool += 1
+    return {
+        f"{tag}_engine_only_days": len(en - ex),
+        f"{tag}_export_only_days": len(ex - en),
+        f"{tag}_export_only_cooloff": cool,
+        f"{tag}_export_only_net": round(sum(t["net"] for t in export_trades if t["date"] in (ex - en)), 2),
+    }
+
+
 def splice(export_trades, engine_trades):
     """Export before SPLICE_FROM, engine from it. One book, two sources."""
     return [t for t in export_trades if t["date"] < SPLICE_FROM] + [
@@ -432,6 +454,8 @@ def build(honest_fill: bool, pe_file: str = PE_FILE, spliced: bool = True) -> di
             "ce_engine_net": round(sum(t["net"] for t in ce if t["source"] == "engine"), 2),
             "pe_export_net_same_window": round(sum(t["net"] for t in pe_export if t["date"] >= SPLICE_FROM), 2),
             "ce_export_net_same_window": round(sum(t["net"] for t in ce_export if t["date"] >= SPLICE_FROM), 2),
+            **_seam_days(pe_export, pe, "pe"),
+            **_seam_days(ce_export, ce, "ce"),
         },
         "fill_correction": {
             "applied": honest_fill,
