@@ -909,6 +909,23 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     raw_price_df = df_raw.copy().sort_index()
     raw_day_cache = {trade_date: day_df for trade_date, day_df in raw_price_df.groupby(raw_price_df.index.date)}
 
+    # Sessions that end before the square-off are not tradeable intraday. NSE's
+    # muhurat session is about an hour, so 15:20 never arrives, the timed exit
+    # never fires, and a position opened there is carried to the next session --
+    # it surfaces as a single enormous overnight "EOD" trade that nobody could
+    # have taken. No entry is taken on such a day. Set skip_stub_sessions False
+    # to keep them.
+    stub_sessions = set()
+    if not is_daily and bool(sc.get("skip_stub_sessions", True)):
+        for trade_date, day_df in raw_day_cache.items():
+            if len(day_df) and day_df.index[-1].time() < combined_sqoff:
+                stub_sessions.add(trade_date)
+        if stub_sessions:
+            print(
+                f"[BT] skipping {len(stub_sessions)} stub session(s): "
+                f"{', '.join(str(d) for d in sorted(stub_sessions))}"
+            )
+
     def _history_frame(position, raw=False):
         history_key = position.get("option_history_key")
         if not history_key:
@@ -1549,6 +1566,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if daily_loss_hit:
                 max_daily_loss_hit = True
             if trades_today >= max_tpd or daily_loss_hit or skip_sessions_left > 0:
+                equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
+                prev_prev_row = prev_row
+                prev_row = row
+                continue
+            if cd in stub_sessions:
                 equity.append({"time": str(ts)[:16], "equity": round(total_pnl, 2)})
                 prev_prev_row = prev_row
                 prev_row = row

@@ -21,6 +21,7 @@ H = D["headline"]
 BW = D["best_worst"]
 DAY = D["daily"]
 FC = D["fill_correction"]
+SP = D["splice"]
 OUT = str(_REPO / "docs" / "assets" / "backtest-tearsheet-5yr.html")
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -583,13 +584,13 @@ PARA32 = t(
 )
 
 PARA33 = t(
-    """The five-year record above comes from an external platform. This section is our own engine re-running the same rules against Upstox's expired-option tick history &mdash; real premiums that actually traded, not a model.""",
-    """மேலே உள்ள ஐந்தாண்டு பதிவு ஒரு வெளிப்புற தளத்திலிருந்து வந்தது. இந்தப் பகுதி நமது சொந்த என்ஜின் அதே விதிகளை Upstox-இன் காலாவதியான ஆப்ஷன் டிக் வரலாற்றில் மீண்டும் ஓட்டியது &mdash; உண்மையில் வர்த்தகமான பிரீமியங்கள், மாதிரி அல்ல.""",
+    f"""Real option premiums exist from {SP["from"]}: Upstox's expired-contract minute bars. Before that date the only record is the exported backtest, so the book on this page is the two joined at that date &mdash; export up to the eve of it, our own engine's real-premium run from it onward, on the same rules. The join is not a guess: each engine run was checked against the export day by day before it was used, and the two agree on which days the strategy trades.""",
+    f"""உண்மையான ஆப்ஷன் பிரீமியங்கள் {SP["from"]} முதல் உள்ளன: Upstox இன் காலாவதியான காண்ட்ராக்ட் நிமிட பார்கள். அதற்கு முன் ஏற்றுமதி செய்யப்பட்ட பேக்டெஸ்ட் மட்டுமே பதிவு. எனவே இப்பக்கத்தின் புத்தகம் அந்தத் தேதியில் இரண்டும் இணைந்தது &mdash; அதற்கு முந்தைய நாள் வரை ஏற்றுமதி, அதிலிருந்து அதே விதிகளில் நமது என்ஜினின் உண்மையான பிரீமிய ஓட்டம். இணைப்பு ஊகம் அல்ல: ஒவ்வொரு என்ஜின் ஓட்டமும் பயன்படுத்தும் முன் ஏற்றுமதியுடன் நாள்வாரியாக ஒப்பிடப்பட்டது; உத்தி எந்த நாட்களில் வர்த்தகம் செய்கிறது என்பதில் இரண்டும் ஒத்துப்போகின்றன.""",
 )
 
 PARA34 = t(
-    f"""Put book {r(H["upstox_pe"]["net"])} at {H["upstox_pe"]["win_rate"]}% win. Call book {r(H["upstox_ce"]["net"])} at {H["upstox_ce"]["win_rate"]}% &mdash; with a {r(H["upstox_ce"]["max_dd"])} drawdown and {H["upstox_ce"]["streak_loss"]} consecutive losers along the way. On real premiums the call book is close to break-even and carries most of the pain.""",
-    f"""PUT புத்தகம் {r(H["upstox_pe"]["net"])}, வெற்றி {H["upstox_pe"]["win_rate"]}%. CALL புத்தகம் {r(H["upstox_ce"]["net"])}, வெற்றி {H["upstox_ce"]["win_rate"]}% &mdash; {r(H["upstox_ce"]["max_dd"])} இறக்கத்துடன், வழியில் {H["upstox_ce"]["streak_loss"]} தொடர் நஷ்டங்கள். உண்மையான பிரீமியங்களில் CALL புத்தகம் கிட்டத்தட்ட சமநிலையில் உள்ளது, வலியின் பெரும்பகுதியை அதுவே சுமக்கிறது.""",
+    f"""Over the window both can see, the put book's real-premium run trades on {SP["pe_engine_from"]} days and every one of them is a day the export also traded, with none it did not; the call book's on {SP["ce_engine_from"]}, likewise. The days the export has and the engine does not are contracts Upstox holds no minute history for, and they are simply absent rather than invented. On money the two disagree where they should: the export paid its exits at prices no order could get, and the real premiums do not. Put book over the window: {r(SP["pe_engine_net"])} on real premiums against {r(SP["pe_export_net_same_window"])} in the export. Call book: {r(SP["ce_engine_net"])} against {r(SP["ce_export_net_same_window"])} &mdash; within four percent, because the call book never had a target to be misfilled on.""",
+    f"""இரண்டும் காணக்கூடிய காலத்தில், PUT புத்தகத்தின் உண்மையான பிரீமிய ஓட்டம் {SP["pe_engine_from"]} நாட்களில் வர்த்தகம் செய்கிறது; அவை ஒவ்வொன்றும் ஏற்றுமதியும் வர்த்தகம் செய்த நாட்கள், அது செய்யாத நாள் ஒன்றும் இல்லை; CALL புத்தகம் {SP["ce_engine_from"]} நாட்களில், அதேபோல். ஏற்றுமதியில் இருந்து என்ஜினில் இல்லாத நாட்கள், Upstox இல் நிமிட வரலாறு இல்லாத காண்ட்ராக்டுகள்; அவை கற்பனை செய்யப்படாமல் விடப்பட்டுள்ளன. பணத்தில் இரண்டும் வேறுபட வேண்டிய இடத்தில் வேறுபடுகின்றன: ஏற்றுமதி எந்த ஆர்டரும் பெற முடியாத விலையில் வெளியேற்றியது; உண்மையான பிரீமியங்கள் அப்படிச் செய்வதில்லை. இக்காலத்தில் PUT புத்தகம்: உண்மையான பிரீமியத்தில் {r(SP["pe_engine_net"])}, ஏற்றுமதியில் {r(SP["pe_export_net_same_window"])}. CALL புத்தகம்: {r(SP["ce_engine_net"])} எதிர் {r(SP["ce_export_net_same_window"])} &mdash; நான்கு சதவீதத்திற்குள், ஏனெனில் CALL புத்தகத்தில் தவறாக நிறைவேற்ற இலக்கே இருந்ததில்லை.""",
 )
 
 PARA35 = t(
@@ -1034,7 +1035,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
   <div class="hero-copy">
     <p class="eyebrow"><b>TEARSHEET</b>{t("PhilForge &middot; Strategy Research", "PhilForge &middot; உத்தி ஆய்வு")}</p>
     <h1>{t("NIFTY Weekly Options &mdash; Five-Year Tearsheet", "NIFTY வாராந்திர ஆப்ஷன்ஸ் &mdash; ஐந்தாண்டு அறிக்கை")}</h1>
-    <p class="lede">{t("A directional intraday options-buying programme on the NIFTY 50 index, trading a put book and a call book side by side. Every trade below has been restated onto the exchange lot size that was actually in force on its expiry, and charged real Indian F&amp;O costs. Figures are net.", "NIFTY 50 குறியீட்டில் இன்ட்ராடே ஆப்ஷன் வாங்கும் உத்தி &mdash; ஒரு PUT புத்தகமும் ஒரு CALL புத்தகமும் இணையாக இயங்குகின்றன. கீழே உள்ள ஒவ்வொரு டிரேடும், அதன் எக்ஸ்பயரி அன்று உண்மையில் அமலில் இருந்த லாட் அளவுக்கு மீண்டும் கணக்கிடப்பட்டு, இந்திய F&amp;O கட்டணங்கள் முழுமையாக கழிக்கப்பட்டுள்ளன. எல்லா எண்களும் நிகரம் (net).")}</p>
+    <p class="lede">{t("A directional intraday options-buying programme on the NIFTY 50 index, trading a put book and a call book side by side. From October 2024 every trade is priced on the real Upstox option premium of the contract it traded; before that, on the exported backtest. Every trade is on the exchange lot size actually in force on its expiry, and charged real Indian F&amp;O costs. Figures are net.", "NIFTY 50 குறியீட்டில் இன்ட்ராடே ஆப்ஷன் வாங்கும் உத்தி &mdash; ஒரு PUT புத்தகமும் ஒரு CALL புத்தகமும் இணையாக இயங்குகின்றன. அக்டோபர் 2024 முதல் ஒவ்வொரு டிரேடும் அது வர்த்தகம் செய்த காண்ட்ராக்டின் உண்மையான Upstox பிரீமியத்தில்; அதற்கு முன் ஏற்றுமதி செய்யப்பட்ட பேக்டெஸ்டில். ஒவ்வொரு டிரேடும் அதன் எக்ஸ்பயரி அன்று அமலில் இருந்த லாட் அளவில், இந்திய F&amp;O கட்டணங்கள் கழிக்கப்பட்டு. எல்லா எண்களும் நிகரம் (net).")}</p>
     <div class="document-meta" aria-label="Document metadata">
       <div class="meta-chip"><span>{t("Period", "காலம்")}</span><strong>{H["combined"]["first"]} &rarr; {H["combined"]["last"]}</strong></div>
       <div class="meta-chip"><span>{t("Trades", "டிரேடுகள்")}</span><strong>{H["combined"]["trades"]}</strong></div>
@@ -1074,7 +1075,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
     <div class="rail-card">
       <span>{t("DOCUMENT STATE", "ஆவண நிலை")}</span>
       <strong><i></i> {t("Net of every charge", "அனைத்து கட்டணங்களுக்குப் பின்")}</strong>
-      <small>{H["combined"]["trades"]} {t("trades &middot; lot sizes restated &middot; re-priced on Upstox premiums", "டிரேடுகள் &middot; லாட் அளவுகள் திருத்தப்பட்டவை &middot; Upstox பிரீமியங்களில் மறு விலையீடு")}</small>
+      <small>{H["combined"]["trades"]} {t("trades &middot; lot sizes restated &middot; real Upstox premiums from Oct 2024", "டிரேடுகள் &middot; லாட் அளவுகள் திருத்தப்பட்டவை &middot; அக் 2024 முதல் உண்மையான Upstox பிரீமியங்கள்")}</small>
     </div>
   </div>
 </aside>
@@ -1470,31 +1471,32 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
 </section>
 
 <section>
-  <div class="shead"><div><h2>{t("Independent re-pricing on real traded premiums", "உண்மையில் வர்த்தகமான பிரீமியங்களில் தனி சரிபார்ப்பு")}</h2>
+  <div class="shead"><div><h2>{t("Two sources, one book: where the seam is", "இரு மூலங்கள், ஒரு புத்தகம்: இணைப்பு எங்கே")}</h2>
     <p>{PARA33}</p></div></div>
   <div class="split">
     <div class="panel">
-      <h3>{t("What matched", "எவை பொருந்தின")}</h3>
+      <h3>{t("Before", "முன்")} {SP["from"]}: {t("exported backtest", "ஏற்றுமதி செய்யப்பட்ட பேக்டெஸ்ட்")}</h3>
       <dl class="deflist">
-        <div><dt>{t("Window re-priced", "மறு விலையிடப்பட்ட காலம்")}</dt><dd>{H["upstox_combined"]["first"]} &rarr; {H["upstox_combined"]["last"]}</dd></div>
-        <div><dt>{t("Trading days cross-checked", "சரிபார்க்கப்பட்ட வர்த்தக நாட்கள்")}</dt><dd>211 of 211</dd></div>
-        <div><dt>{t("Entry premium agreement", "நுழைவு பிரீமிய ஒத்திசைவு")}</dt><dd>&plusmn;&#8377;0.51</dd></div>
-        <div><dt>{t("Trades, our engine", "டிரேடுகள், நமது என்ஜின்")}</dt><dd>{H["upstox_combined"]["trades"]}</dd></div>
-        <div><dt>{t("Net, our engine", "நிகரம், நமது என்ஜின்")}</dt><dd class="pos">{r(H["upstox_combined"]["net"])}</dd></div>
-        <div><dt>{t("Profit factor", "லாப காரணி")}</dt><dd>{H["upstox_combined"]["profit_factor"]}</dd></div>
+        <div><dt>{t("Put trades", "PUT டிரேடுகள்")}</dt><dd>{SP["pe_export_before"]}</dd></div>
+        <div><dt>{t("Call trades", "CALL டிரேடுகள்")}</dt><dd>{SP["ce_export_before"]}</dd></div>
+        <div><dt>{t("Priced on", "விலை")}</dt><dd>{t("platform export, restated", "தள ஏற்றுமதி, திருத்தப்பட்டது")}</dd></div>
+        <div><dt>{t("Why not real premiums", "ஏன் உண்மையான பிரீமியம் இல்லை")}</dt><dd>{t("none exist before Oct 2024", "அக் 2024க்கு முன் இல்லை")}</dd></div>
       </dl>
     </div>
-    <div class="panel small">
-      <h3>{t("Re-priced equity", "மறு விலையிடப்பட்ட வளர்ச்சி")} <span class="pos">{r(H["upstox_combined"]["net"])}</span></h3>
-      <svg viewBox="0 0 330 84" role="img" aria-label="Cumulative profit on Upstox real premiums, ending {r(H["upstox_combined"]["net"])}">
-        <line x1="0" y1="{up_zero:.1f}" x2="330" y2="{up_zero:.1f}" stroke="var(--line)" stroke-dasharray="3 4"/>
-        <path d="{up_line}" fill="none" stroke="var(--curve)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-      </svg>
-      <div class="axis"><span>{H["upstox_combined"]["trades"]} trades</span>
-        <span>{H["upstox_combined"]["win_rate"]}% win</span>
-        <span>DD {r(H["upstox_combined"]["max_dd"])}</span></div>
-      <p style="margin:12px 0 0;font-size:13px">{PARA34}</p>
+    <div class="panel">
+      <h3>{t("From", "இருந்து")} {SP["from"]}: {t("real Upstox premiums", "உண்மையான Upstox பிரீமியங்கள்")}</h3>
+      <dl class="deflist">
+        <div><dt>{t("Put trades", "PUT டிரேடுகள்")}</dt><dd>{SP["pe_engine_from"]}</dd></div>
+        <div><dt>{t("Call trades", "CALL டிரேடுகள்")}</dt><dd>{SP["ce_engine_from"]}</dd></div>
+        <div><dt>{t("Priced on", "விலை")}</dt><dd>{t("1-minute contract bars", "1 நிமிட காண்ட்ராக்ட் பார்கள்")}</dd></div>
+        <div><dt>{t("Put, this window", "PUT, இந்தக் காலம்")}</dt><dd>{r(SP["pe_engine_net"])} <span class="flat">{t("vs export", "ஏற்றுமதியில்")} {r(SP["pe_export_net_same_window"])}</span></dd></div>
+        <div><dt>{t("Call, this window", "CALL, இந்தக் காலம்")}</dt><dd>{r(SP["ce_engine_net"])} <span class="flat">{t("vs export", "ஏற்றுமதியில்")} {r(SP["ce_export_net_same_window"])}</span></dd></div>
+      </dl>
     </div>
+  </div>
+  <div class="note" style="margin-top:14px">
+    <h2 class="note-h">{t("The seam joins one strategy to itself", "இணைப்பு ஒரே உத்தியை அதனுடனேயே சேர்க்கிறது")}</h2>
+    <p>{PARA34}</p>
   </div>
 </section>
 

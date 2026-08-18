@@ -55,6 +55,12 @@ PE_TARGET_FILE = "pe_target10000_5yr.csv"
 CE_FILE = "ce_5yr.csv"
 PE_UPSTOX_FILE = "pe_upstox_real.csv"
 CE_UPSTOX_FILE = "ce_upstox_real.csv"
+# From this date the book is priced on real Upstox option premiums by our own
+# engine; before it, only the external export exists. The published book is the
+# SPLICE of the two: export up to the eve of the cut, engine from the cut on.
+SPLICE_FROM = "2024-10-03"
+PE_ENGINE_FILE = "pe_engine_real.csv"  # Results run 376: PE_NoTarget, the saved strategy
+CE_ENGINE_FILE = "ce_engine_real.csv"  # Results run 355: CE_SL15_NoMonTue on real premiums
 
 
 def src(name: str) -> Path:
@@ -105,9 +111,54 @@ def load_external(path, side_label, honest_fill=False):
                 "premium": entry * qty,
                 "as_exported": float(r["Profit"]),
                 "hold_min": int((xt - et).total_seconds() // 60),
+                "source": "export",
             }
         )
     return out
+
+
+def load_engine_run(path, side_label):
+    """Our engine's real-premium run, exported by the app (already net of fees).
+
+    Older exports stamped the flat lot of the day; the lot is re-read from each
+    contract's expiry so Oct-Dec 2024 is 25 and not 50."""
+    out = []
+    for r in csv.DictReader(open(path, newline="")):
+        et = datetime.strptime(r["entry_time"], "%Y-%m-%d %H:%M")
+        xt = datetime.strptime(r["exit_time"], "%Y-%m-%d %H:%M")
+        entry, exit_ = float(r["entry_price"]), float(r["exit_price"])
+        expiry = date.fromisoformat(r["contract_expiry"][:10]) if r.get("contract_expiry") else None
+        lot = get_option_contract_lot_size("26000", expiry) if expiry else int(r["qty"]) // LOTS
+        qty = LOTS * lot
+        gross = (exit_ - entry) * qty
+        fee = _calc_fees((entry + exit_) * qty, gross)
+        out.append(
+            {
+                "side": side_label,
+                "symbol": r["strike"],
+                "entry": entry,
+                "exit": exit_,
+                "qty": qty,
+                "lot": lot,
+                "date": et.date().isoformat(),
+                "entry_time": et.isoformat(sep=" "),
+                "net": round(gross - fee, 2),
+                "fee": round(fee, 2),
+                "turnover": (entry + exit_) * qty,
+                "premium": entry * qty,
+                "as_exported": float(r["pnl"]),
+                "hold_min": int((xt - et).total_seconds() // 60),
+                "source": "engine",
+            }
+        )
+    return out
+
+
+def splice(export_trades, engine_trades):
+    """Export before SPLICE_FROM, engine from it. One book, two sources."""
+    return [t for t in export_trades if t["date"] < SPLICE_FROM] + [
+        t for t in engine_trades if t["date"] >= SPLICE_FROM
+    ]
 
 
 def load_upstox(path, side_label):
@@ -280,11 +331,20 @@ def peak_day_premium(trades):
     return max(by_day.values())
 
 
-def build(honest_fill: bool, pe_file: str = PE_FILE) -> dict:
-    pe = load_external(src(pe_file), "PE", False)
-    ce = load_external(src(CE_FILE), "CE", honest_fill)
+def build(honest_fill: bool, pe_file: str = PE_FILE, spliced: bool = True) -> dict:
+    pe_export = load_external(src(pe_file), "PE", False)
+    ce_export = load_external(src(CE_FILE), "CE", honest_fill)
     upe = load_upstox(src(PE_UPSTOX_FILE), "PE")
     uce = load_upstox(src(CE_UPSTOX_FILE), "CE")
+    if spliced:
+        # Export before the cut, real-premium engine run from it. Both engine
+        # runs were checked against the export day-for-day: PE 207/207 days in
+        # common and 0 extra, CE 79/79 and 0 extra -- the same strategies, so the
+        # seam joins one book to itself, not two different books.
+        pe = splice(pe_export, load_engine_run(src(PE_ENGINE_FILE), "PE"))
+        ce = splice(ce_export, load_engine_run(src(CE_ENGINE_FILE), "CE"))
+    else:
+        pe, ce = pe_export, ce_export
     both = pe + ce
 
     by_day = defaultdict(float)
@@ -362,6 +422,17 @@ def build(honest_fill: bool, pe_file: str = PE_FILE) -> dict:
     return {
         "generated": date.today().isoformat(),
         "honest_fill": honest_fill,
+        "splice": {
+            "from": SPLICE_FROM,
+            "pe_export_before": sum(1 for t in pe if t["source"] == "export"),
+            "pe_engine_from": sum(1 for t in pe if t["source"] == "engine"),
+            "ce_export_before": sum(1 for t in ce if t["source"] == "export"),
+            "ce_engine_from": sum(1 for t in ce if t["source"] == "engine"),
+            "pe_engine_net": round(sum(t["net"] for t in pe if t["source"] == "engine"), 2),
+            "ce_engine_net": round(sum(t["net"] for t in ce if t["source"] == "engine"), 2),
+            "pe_export_net_same_window": round(sum(t["net"] for t in pe_export if t["date"] >= SPLICE_FROM), 2),
+            "ce_export_net_same_window": round(sum(t["net"] for t in ce_export if t["date"] >= SPLICE_FROM), 2),
+        },
         "fill_correction": {
             "applied": honest_fill,
             "pe_published": round(pe_published, 2),
@@ -526,7 +597,7 @@ def main():
         # and require it to reproduce what was published in Aug 2026. If that
         # matches, the loaders, lot rule, fee model and every derived statistic
         # are faithful, and the current book can be trusted too.
-        data = build(False, PE_TARGET_FILE)
+        data = build(False, PE_TARGET_FILE, spliced=False)
     else:
         data = build(args.honest_fill)
     if args.check:
