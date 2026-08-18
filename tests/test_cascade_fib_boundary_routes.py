@@ -4,6 +4,7 @@ import shutil
 import sys
 import unittest
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -1208,6 +1209,45 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
         seen = await self._config_seen_by(app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload)
         mother = datetime.fromisoformat(str(seen["mother_timestamp"]).replace("+05:30", ""))
         self.assertEqual(seen["lot_size"], app_module._nifty_lot_size_on(mother.date()))
+
+    async def test_a_same_day_mother_started_hours_later_gets_recorded_prices(self):
+        """2026-08-18: a 09:25 mother started at 19:17 recorded 255 "no quote"
+        gaps and bought nothing, while the backtest of the same mother bought
+        at 10:57 -- Start built the history lookup only for a mother from
+        another day. Any catch-up older than the live-quote window needs it."""
+        now = datetime.now(app_module.IST)
+        if now.time() < dt_time(9, 45) or now.weekday() >= 5:
+            self.skipTest("needs a same-day mother that is already hours old")
+        mother = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        rows = [
+            app_module.IndexCandle(mother + timedelta(minutes=5 * i), 24_600 - i, 24_610 - i, 24_590 - i, 24_600 - i)
+            for i in range(-12, 12)
+        ]
+        history_calls = []
+
+        def history(_broker, symbol, from_day, to_day):
+            history_calls.append((symbol, from_day, to_day))
+            return None
+
+        def stop_here(*a, **k):
+            raise app_module.HTTPException(status_code=418, detail="captured")
+
+        payload = app_module.FibTouchStartPayload(
+            mother_timestamp=mother.replace(tzinfo=None).isoformat(), timeframe="5m"
+        )
+        with (
+            patch.object(
+                app_module, "_request_broker_context", AsyncMock(return_value=({"id": 11}, _Broker(), "user"))
+            ),
+            patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: _StreamAdapter({"5m": rows, "1m": rows})),
+            patch.object(app_module, "_fib_touch_history_lookup", history),
+            patch.object(app_module, "FibTouchLadder", stop_here),
+            patch("broker.dhan.ScripMaster.get_expiries", lambda *a, **k: []),
+        ):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_paper_start(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 418, raised.exception.detail)
+        self.assertEqual(history_calls, [("NIFTY", mother.date(), now.date())], "today's old mother reads history too")
 
     async def test_backtest_passes_the_same_switch(self):
         seen = await self._config_seen_by(app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload)

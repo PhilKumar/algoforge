@@ -1901,11 +1901,15 @@ async def _restore_fib_boundary_open_state(
                 else _FibTouchPaperExecutor()
             )
             mother_day = datetime.fromisoformat(engine_state["config"]["mother_timestamp"]).date()
-            # Same rule as the start route: only an old mother pays for the
-            # blocking Upstox construction.
+            # Same rule as the start route: any bar older than the live-quote
+            # window is priced from history, so a restart that has to catch up
+            # more than a few minutes -- same-day mother or not -- builds it.
+            last_seen = datetime.fromisoformat(str(record.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=IST)
             history = (
                 _fib_touch_history_lookup(broker, symbol, mother_day, datetime.now(IST).date())
-                if mother_day != datetime.now(IST).date()
+                if (datetime.now(IST) - last_seen) > timedelta(seconds=_FIB_TOUCH_LIVE_QUOTE_SECONDS)
                 else None
             )
             engine = FibTouchLadder.from_dict(
@@ -10776,11 +10780,15 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     executor = (
         _FibTouchLiveExecutor(broker_client, terms.symbol, armed=True) if mode == "live" else _FibTouchPaperExecutor()
     )
-    # A mother from an earlier day needs RECORDED prices; today's needs none,
-    # and building the Upstox source blocks, so it is only paid for when the
-    # campaign will actually read from it.
+    # Any bar older than the live-quote window needs RECORDED prices -- a
+    # mother from an earlier day, and equally TODAY'S mother started hours
+    # after it fired: the catch-up walk below prices fills at their own
+    # minute, and a same-day 09:25 mother started at 19:17 on 2026-08-18
+    # recorded 255 "no quote" gaps and bought nothing where the backtest of
+    # the same mother, which builds this lookup, bought at 10:57. Building
+    # the source blocks, so it is skipped only when nothing old will be read.
     history = None
-    if mother_timestamp.date() != now.date():
+    if (now - mother_timestamp) > timedelta(seconds=_FIB_TOUCH_LIVE_QUOTE_SECONDS):
         history = await asyncio.to_thread(
             _fib_touch_history_lookup, broker_client, terms.symbol, mother_timestamp.date(), now.date()
         )
