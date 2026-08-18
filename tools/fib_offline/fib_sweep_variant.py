@@ -11,7 +11,6 @@ import os
 
 from fib_replay import load  # noqa: E402
 
-from data.cascade_upstox import UpstoxPremiumSource  # noqa: E402
 from engine.backtest import get_lot_size  # noqa: E402
 from engine.fib_touch_ladder import HALVING_LEVELS, FibTouchConfig  # noqa: E402
 from engine.fib_touch_ladder import FibTouchLadder as _Base
@@ -63,14 +62,15 @@ times = sys.argv[7].split(",") if len(sys.argv) > 7 else ["09:15"]
 out_csv = sys.argv[8] if len(sys.argv) > 8 else None
 rows_out = []
 
-src = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
-expiries = sorted(src.available_expiries())
+from fib_replay import _listed_source  # noqa: E402
+
+src = _listed_source()
+expiries = src.expiries()
 
 
 def premium(when, strike, expiry, opt):
     c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
-    bar = src.lookup(when, c)
-    return float(bar.open) if bar is not None and bar.open > 0 else None
+    return src.lookup(when, c)
 
 
 def expiry_source(on):

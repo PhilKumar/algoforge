@@ -41,6 +41,19 @@ def load(tf: str) -> list[Candle]:
     return out
 
 
+def _listed_source():
+    """Archive (expired) + Upstox listed contracts, one lookup returning the OPEN or None."""
+    import importlib.util as _ilu
+    import os as _os
+
+    _spec = _ilu.spec_from_file_location(
+        "fib_offline_listed", _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "upstox_listed.py")
+    )
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod.ListedPremiumSource(UpstoxPremiumSource(cache_only=False, backfill_missing=True))
+
+
 def main() -> None:
     mother = datetime.fromisoformat(sys.argv[1])
     tf = sys.argv[2]
@@ -49,13 +62,12 @@ def main() -> None:
     intraday = (sys.argv[5] if len(sys.argv) > 5 else "intraday") == "intraday"
     horizon_days = 10
 
-    src = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
-    expiries = sorted(src.available_expiries())
+    src = _listed_source()
+    expiries = src.expiries()
 
     def premium(when: datetime, strike: float, expiry: date, opt: str):
         c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
-        bar = src.lookup(when, c)
-        return float(bar.open) if bar is not None and bar.open > 0 else None
+        return src.lookup(when, c)
 
     def expiry_source(on: date):
         return [e for e in expiries if e >= on]

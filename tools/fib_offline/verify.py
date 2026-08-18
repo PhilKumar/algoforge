@@ -21,24 +21,22 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fib_replay import load  # noqa: E402
+from fib_replay import _listed_source, load  # noqa: E402
 
-from data.cascade_upstox import UpstoxPremiumSource  # noqa: E402
 from engine.backtest import get_lot_size  # noqa: E402
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES, FibTouchConfig, FibTouchLadder  # noqa: E402
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 60
 random.seed(18)
 
-src = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
-EXPIRIES = sorted(src.available_expiries())
+src = _listed_source()
+EXPIRIES = src.expiries()
 LOOKUPS: list[tuple] = []
 
 
 def premium(when, strike, expiry, opt):
     c = SimpleNamespace(symbol="NIFTY", underlying="NIFTY", strike=float(strike), expiry=expiry, option_type=opt)
-    bar = src.lookup(when, c)
-    price = float(bar.open) if bar is not None and bar.open > 0 else None
+    price = src.lookup(when, c)
     LOOKUPS.append((when, float(strike), expiry, opt, price))
     return price
 
@@ -222,7 +220,7 @@ for tf, side, mode in configs:
             bar = src.lookup(ts, c)
             check(
                 "6 fill premium = recorded open",
-                bar is not None and abs(float(bar.open) - float(f["premium"])) < 1e-9,
+                bar is not None and abs(float(bar) - float(f["premium"])) < 1e-9,
                 f"{mother} {f['timestamp']} {f['strike']}",
             )
         # 7. intraday: ends on the mother's day, at or before 15:15 (or mother broken / expiry earlier)
@@ -273,7 +271,7 @@ for tf, side, mode in configs:
                 bar = src.lookup(when, cc)
                 check(
                     "10 no fabricated premium",
-                    bar is not None and abs(float(bar.open) - price) < 1e-9,
+                    bar is not None and abs(float(bar) - price) < 1e-9,
                     f"{when} {strike}",
                 )
 

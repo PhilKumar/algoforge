@@ -2628,7 +2628,9 @@
             </div>
           </div>
         </div>
-        <div style="margin-top:10px;">
+        <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
+        <div class="fibx-switch-grid">
+        <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
           <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
                on 2026-08-15: same trendlines, same fibs, and this decides
@@ -2637,40 +2639,41 @@
                fcdfb34 and nothing outside a test could reach it until now. -->
           <input type="hidden" id="fibx-buy-mode" value="levels">
           <div id="fibx-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" aria-checked="true"><span>⑃ Every level</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" aria-checked="false"><span>◈ Where two meet</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Every level of every drawn fib" aria-checked="true"><span>⑃ Levels</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Where two meet</span></button>
           </div>
         </div>
-        <div style="margin-top:10px;">
+        <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
           <!-- Phil, 2026-08-16: "I need intraday close at 3:15 and normal
                option to be selected from console UI." -->
           <input type="hidden" id="fibx-session" value="intraday">
           <div id="fibx-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" aria-checked="true"><span>⏱ Intraday · 3:15</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" aria-checked="false"><span>↗ Normal · carry</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
           </div>
         </div>
-        <div id="fibx-deep-carry-row" style="margin-top:10px;">
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Intraday only. A ladder that has bought MORE than 4 rungs by 15:15 without reaching its target can be held to the next day's 15:15. Off by default: measured honestly on Oct 2024–Jul 2026 it lost more on every chart and both sides (5m CE −₹31k → −₹58k). Try it per campaign if you want.">Deep ladder · more than 4 rungs at 3:15</label>
+        <div id="fibx-deep-carry-row">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Intraday only. A ladder that has bought MORE than 4 rungs by 15:15 without reaching its target can be held to the next day's 15:15. Off by default: measured honestly on Oct 2024–Jul 2026 it lost more on every chart and both sides (5m CE −₹31k → −₹58k). Try it per campaign if you want.">Deep ladder · &gt;4 rungs at 3:15</label>
           <!-- Phil, 2026-08-18: "Make it permanent and if I wanted to close it as
                an intraday, allow me to close it." Built, then measured again
                without the look-ahead the first replay had: it loses. Default is
                close; the switch is his. -->
           <input type="hidden" id="fibx-deep-carry" value="close">
           <div id="fibx-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" aria-checked="true"><span>⏱ Close at 3:15</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" aria-checked="false"><span>⇢ Hold one more day</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="Sell at 15:15 whatever the depth" aria-checked="true"><span>⏱ Close 3:15</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="A basket with more than 4 rungs bought is held to the next day's 15:15" aria-checked="false"><span>⇢ Hold a day</span></button>
           </div>
         </div>
-        <div style="margin-top:10px;">
+        <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Fixed: the basket is sold when the index reaches the target (a quarter of the way back to the mother; half once L4 or deeper has filled). Trailing: reaching the target only ARMS a trail — the basket rides on and is sold when a 1m candle CLOSES one fib span below the best price seen since. Measured on 5m CE, Oct 2024–Jul 2026, out at 15:15: fixed −₹31k → trailing +₹1.14L, same worst day.">Target</label>
           <!-- Phil, 2026-08-18: "add the trailing target option to the form". -->
           <input type="hidden" id="fibx-target-mode" value="fixed">
           <div id="fibx-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" aria-checked="true"><span>◎ Fixed · sell at target</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" aria-checked="false"><span>↗ Trailing · give back 1 span</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" title="Sell the basket when the index reaches the target" aria-checked="true"><span>◎ Fixed</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" title="Reaching the target arms a trail; sold when a 1m close gives back one fib span from the best" aria-checked="false"><span>↗ Trailing</span></button>
           </div>
+        </div>
         </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
         <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>

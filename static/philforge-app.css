@@ -6323,6 +6323,18 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .fibx-monitor-window > .cascade-options-window-head {
   padding-right: 300px;
 }
+/* The four rule switches, two to a row: What it buys · Session / Deep ladder ·
+   Target. One switch per row made the form a column of four identical pills. */
+#options-cascade-page .fibx-switch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 10px;
+}
+#options-cascade-page .fibx-switch-grid .scalp-toggle-btn span { white-space: nowrap; }
+@media (max-width: 560px) {
+  #options-cascade-page .fibx-switch-grid { grid-template-columns: minmax(0, 1fr); }
+}
 #options-cascade-page .fibx-monitor-strip-actions {
   position: absolute;
   z-index: 2;

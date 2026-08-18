@@ -117,17 +117,24 @@ def install(app_module: Any) -> None:
             return out
 
     try:
-        source = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
+        archive = UpstoxPremiumSource(cache_only=False, backfill_missing=True)
     except UpstoxAccessError as exc:
         _log.warning("[FIB OFFLINE] Upstox token unusable, archive only: %s", exc)
-        source = UpstoxPremiumSource(cache_only=True, backfill_missing=False)
-    expiries = sorted(source.available_expiries())
+        archive = UpstoxPremiumSource(cache_only=True, backfill_missing=False)
+    # Expired contracts from the archive, LISTED ones from Upstox's live
+    # historical API -- so a mother from this week can be priced too.
+    import importlib.util as _ilu
+
+    _spec = _ilu.spec_from_file_location("fib_offline_listed", os.path.join(_HERE, "upstox_listed.py"))
+    _listed = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_listed)
+    source = _listed.ListedPremiumSource(archive)
+    expiries = source.expiries()
 
     def history_lookup(_broker, _symbol, _from, _to):
         def lookup(when: datetime, contract) -> Optional[float]:
             stamp = when.replace(tzinfo=None) if when.tzinfo is not None else when
-            bar = source.lookup(stamp, contract)
-            return float(bar.open) if bar is not None and bar.open > 0 else None
+            return source.lookup(stamp, contract)
 
         lookup.source_failures = []
         lookup.stale_fills = []

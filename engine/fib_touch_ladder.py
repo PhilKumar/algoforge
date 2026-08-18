@@ -1486,7 +1486,9 @@ class FibTouchLadder:
         try:
             strike, expiry = self._resolve_contract(bar.timestamp, fill_index)
         except FibTouchError as exc:
-            self.data_gaps.append(f"{bar.timestamp.isoformat()}: {exc}")
+            # One line with a count, not one per bar: an unresolvable expiry
+            # printed 1,798 identical rows on the 10-Aug-2026 replay.
+            self._note_gap(f"cannot pick a contract: {exc}", bar.timestamp)
             self._log(bar.timestamp, "contract_unavailable", level=rung.level, detail=str(exc))
             return
         premium = self.premium_lookup(bar.timestamp, strike, expiry, self.side)
