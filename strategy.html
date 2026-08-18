@@ -2586,7 +2586,16 @@
           <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
           <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother timestamp · IST</label>
+        <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
+             made a 1m mother impossible to type. -->
+        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div><label for="fibx-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
+        </div>
+        <!-- Phil, 2026-08-18: mother timestamp, ladder cap and ITM steps first -- they are what he types; the switches below are settings. -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
           <div>
             <label for="fibx-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
             <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
@@ -2676,14 +2685,6 @@
         </div>
         </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
-        <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
-        <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
-             made a 1m mother impossible to type. -->
-        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label for="fibx-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
-        </div>
         <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-blocked"></div>
