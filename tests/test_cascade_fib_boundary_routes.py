@@ -1200,6 +1200,15 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
             seen = await self._config_seen_by(route, cls, trailing_target=True)
             self.assertTrue(seen["trailing_stop"])
 
+    async def test_a_past_mothers_paper_start_is_sized_like_the_backtest(self):
+        """The Start route read the lot off the EARLIEST listed expiry, which is
+        right for today's mother and wrong for a replay of one from another
+        lot era: 2026-08-05 sized at 25 in the offline server while the
+        backtest of the same mother sized at 65."""
+        seen = await self._config_seen_by(app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload)
+        mother = datetime.fromisoformat(str(seen["mother_timestamp"]).replace("+05:30", ""))
+        self.assertEqual(seen["lot_size"], app_module._nifty_lot_size_on(mother.date()))
+
     async def test_backtest_passes_the_same_switch(self):
         seen = await self._config_seen_by(app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload)
         self.assertFalse(seen["deep_carry"])

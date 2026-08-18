@@ -10714,16 +10714,26 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     # Lot size is asked of the scrip master per expiry, because it changes on
     # effective dates; the registry value is only the fallback.
     lot_size = terms.lot_size
-    try:
-        from broker.dhan import ScripMaster
+    if terms.symbol == "NIFTY" and mother_timestamp.date() < now.date():
+        # A PAST mother is a replay, and it must be sized the way the backtest
+        # sizes it -- by the mother's own date -- or the two routes disagree
+        # on the same candle. Read from the live chain, the earliest listed
+        # expiry decided the lot: fine for today's mother, wrong for one from
+        # last year (2026-08-05 sized at 25 in the offline server; the
+        # backtest of the same mother at 65).
+        lot_size = _nifty_lot_size_on(mother_timestamp.date())
+    else:
+        try:
+            from broker.dhan import ScripMaster
 
-        chain = [date.fromisoformat(str(v)[:10]) for v in (ScripMaster.get_expiries(terms.symbol) or [])]
-        if chain:
-            live_lot = int(ScripMaster.get_lot_size(terms.symbol, min(chain).isoformat()) or 0)
-            if live_lot > 0:
-                lot_size = live_lot
-    except Exception as exc:
-        _logger.warning("[FIB TOUCH] %s lot size fell back to %s: %s", terms.symbol, lot_size, exc)
+            chain = [date.fromisoformat(str(v)[:10]) for v in (ScripMaster.get_expiries(terms.symbol) or [])]
+            chain = [d for d in chain if d >= now.date()] or chain
+            if chain:
+                live_lot = int(ScripMaster.get_lot_size(terms.symbol, min(chain).isoformat()) or 0)
+                if live_lot > 0:
+                    lot_size = live_lot
+        except Exception as exc:
+            _logger.warning("[FIB TOUCH] %s lot size fell back to %s: %s", terms.symbol, lot_size, exc)
 
     config = FibTouchConfig(
         symbol=terms.symbol,
@@ -18495,6 +18505,25 @@ async def feed_status():
 
 
 # ── Run ───────────────────────────────────────────────────────────
+# LOCAL, NO BROKER. Phil, 2026-08-18: "Give me a page locally so that I can make
+# modifications." With PHILFORGE_FIB_OFFLINE=1 the Fib Boundary routes read the
+# local candle cache and option archive instead of Dhan -- same routes, same
+# engine, same page. Never set by the deploy; see tools/fib_offline/offline_mode.py.
+if os.environ.get("PHILFORGE_FIB_OFFLINE") == "1":
+    try:
+        import importlib.util as _ilu
+
+        _spec = _ilu.spec_from_file_location(
+            "fib_offline_mode",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "fib_offline", "offline_mode.py"),
+        )
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _mod.install(sys.modules[__name__])
+    except Exception as _exc:  # a broken offline mode must not stop the app itself
+        _logger.warning("[FIB OFFLINE] not installed: %s", _exc)
+
+
 if __name__ == "__main__":
     import uvicorn
 
