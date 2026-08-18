@@ -34,26 +34,13 @@ _REPO = _HERE.parent.parent
 OUT = _REPO / "docs" / "assets" / "fib-boundary-tearsheet.html"
 DATA = _HERE / "fib_report_data.json"
 
-CE_CSV = (
-    pathlib.Path(sys.argv[1])
-    if len(sys.argv) > 1
-    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "v3" / "levels_5m_CE_trail.csv"
-)
-PE_CSV = (
-    pathlib.Path(sys.argv[2])
-    if len(sys.argv) > 2
-    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "v3" / "levels_5m_PE_trail.csv"
-)
-SX_CE_CSV = (
-    pathlib.Path(sys.argv[3])
-    if len(sys.argv) > 3
-    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "sensex" / "levels_5m_CE_trail.csv"
-)
-SX_PE_CSV = (
-    pathlib.Path(sys.argv[4])
-    if len(sys.argv) > 4
-    else pathlib.Path(tempfile.gettempdir()) / "fib_offline" / "sensex" / "levels_5m_PE_fixed.csv"
-)
+# Where the fib_offline sweeps wrote their CSVs (FIB_SWEEP_DIR=/tmp/fib_offline
+# on the machine that ran them); the four files can also be named outright.
+SWEEPS = pathlib.Path(os.environ.get("FIB_SWEEP_DIR") or pathlib.Path(tempfile.gettempdir()) / "fib_offline")
+CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v3" / "levels_5m_CE_trail.csv"
+PE_CSV = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else SWEEPS / "v3" / "levels_5m_PE_trail.csv"
+SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "sensex" / "levels_5m_CE_trail.csv"
+SX_PE_CSV = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else SWEEPS / "sensex" / "levels_5m_PE_fixed.csv"
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
