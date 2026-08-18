@@ -2625,7 +2625,8 @@ class FibTouchLadder:
                 round(
                     self._trail_best - (self.anchor.span if self.anchor else 0.0) * self.config.trail_span_multiple
                     if self.side == "CE"
-                    else self._trail_best + (self.anchor.span if self.anchor else 0.0) * self.config.trail_span_multiple,
+                    else self._trail_best
+                    + (self.anchor.span if self.anchor else 0.0) * self.config.trail_span_multiple,
                     2,
                 )
                 if self._trail_armed and self._trail_best is not None
