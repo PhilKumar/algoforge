@@ -3280,14 +3280,26 @@ function _renderFibBoundaryCampaign(root, campaign) {
     // A flat basket has no target and no average, and printing "0.00" for them
     // reads as a broken number rather than as "nothing is held". A parked
     // mother says what it is waiting for instead, and what it has already made.
-    const flat = !fills.length;
+    const flat = (Number(campaign.open_lots) || 0) <= 0;
+    // An ENDED campaign leads with what happened: net money, and when / why
+    // it ended. Those were a small grey line under the buy table while the
+    // tiles still said "index target" for a basket that no longer existed.
+    const ended = ['KILLED', 'CLOSED', 'EXPIRED', 'MOTHER_BROKEN', 'MOTHER_RETESTED', 'STOPPED'].includes(String(campaign.status || '').toUpperCase());
+    // Short on purpose -- the tile is narrow, and "2026-07-23 15:15:00 IST"
+    // ellipsised at the day; "23 Jul 15:15" says the same thing and fits.
+    const endedWhen = campaign.exit_timestamp ? _fibShortStamp(campaign.exit_timestamp) : '';
+    const endedWhy = String(campaign.exit_reason || campaign.status || '').replaceAll('_', ' ');
     summary.innerHTML = [
-      flat && rounds.length
-        ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? '#6ee7b7' : '#fca5a5')
-        : _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
-      flat && campaign.rearm_below != null
-        ? _cascadeOptionsMetric('Re-arms below', _cascadeNumber(campaign.rearm_below), '#fde68a')
-        : _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
+      ended
+        ? _cascadeOptionsMetric('Net P&L', Number.isFinite(net) ? _cascadeOptionsMoney(net) : (rounds.length ? '—' : 'nothing bought'), net > 0 ? '#6ee7b7' : net < 0 ? '#fca5a5' : 'var(--muted)')
+        : flat && rounds.length
+          ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? '#6ee7b7' : '#fca5a5')
+          : _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
+      ended
+        ? _cascadeOptionsMetric(`Ended · ${endedWhy}`, endedWhen || '—', 'var(--muted)')
+        : flat && campaign.rearm_below != null
+          ? _cascadeOptionsMetric('Re-arms below', _cascadeNumber(campaign.rearm_below), '#fde68a')
+          : _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
       _cascadeOptionsMetric('Avg premium', campaign.average_premium == null ? '—' : `₹${_cascadeNumber(campaign.average_premium)}`),
       _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
       // Compact on purpose: the long form ran past the tile and ellipsised the
@@ -3325,18 +3337,23 @@ function _renderFibBoundaryCampaign(root, campaign) {
 
   const fillsEl = fx('fills');
   if (fillsEl) {
-    fillsEl.innerHTML = everyFill.length ? everyFill.map(fill => `<tr style="border-bottom:1px solid var(--border);${fill.round ? 'opacity:.72;' : ''}">`
+    fillsEl.innerHTML = everyFill.length ? everyFill.map(fill => `<tr style="border-bottom:1px solid var(--border);white-space:nowrap;${fill.round ? 'opacity:.72;' : ''}">`
       + `<td style="padding:8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(fill.buy_number))}</strong>${fill.round ? `<span title="A round that already sold" style="margin-left:5px;font-size:9px;color:var(--muted);">R${escapeHtml(String(fill.round))}</span>` : ''}</td>`
       + `<td style="padding:8px;">${escapeHtml(String(fill.rung_key || ('L' + fill.level)))}</td>`
-      + `<td style="padding:8px;">${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</td>`
+      + `<td style="padding:8px;" title="${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}">${escapeHtml(_fibShortStamp(fill.timestamp))}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(_cascadeNumber(fill.index_price))}</td>`
       + `<td style="padding:8px;text-align:right;">${escapeHtml(Number(fill.strike).toLocaleString('en-IN'))} ${escapeHtml(String(fill.option_type))}</td>`
-      + `<td style="padding:8px;">${escapeHtml(String(fill.expiry))}</td>`
       + `<td style="padding:8px;text-align:right;">₹${escapeHtml(_cascadeNumber(fill.premium))}${fill.exit_premium == null ? '' : ` → ₹${escapeHtml(_cascadeNumber(fill.exit_premium))}`}</td>`
-      + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.lots))}</td>`
-      + `<td style="padding:8px;text-align:right;">${escapeHtml(String(fill.quantity))}</td>`
+      + `<td style="padding:8px;text-align:right;" title="${escapeHtml(String(fill.quantity))} qty · exp ${escapeHtml(String(fill.expiry))}">${escapeHtml(String(fill.lots))}</td>`
       + `<td style="padding:8px;text-align:right;font-weight:800;color:#fde68a;">${escapeHtml(_cascadeOptionsMoney(fill.funded_inr))}</td>`
-      + `</tr>`).join('') : '<tr><td colspan="10" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
+      + (() => {
+        // What this leg made, once it has sold. Open legs show a dash.
+        const out = fill.exit_premium;
+        const pnl = out == null ? null : (Number(out) - Number(fill.premium)) * Number(fill.quantity);
+        const tone = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+        return `<td style="padding:8px;text-align:right;font-weight:800;color:${tone};">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`;
+      })()
+      + `</tr>`).join('') : '<tr><td colspan="9" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
   }
   const fillSummary = fx('fill-summary');
   if (fillSummary) {
@@ -4135,6 +4152,17 @@ async function _restoreLastFibBoundaryBacktest() {
 // mother or a kill books the round AND leaves the legs in `fills` as the
 // record. Concatenating the two counted those buys twice -- a 3-buy replay
 // said "6 buys" and drew six markers (2026-08-18).
+// "23 Jul 12:33" -- the buy table's time column. The full IST stamp is on the
+// cell's title; the row has ten columns and the long form wrapped every one
+// of them onto four lines.
+function _fibShortStamp(value) {
+  if (!value) return '—';
+  const d = new Date(String(value).replace(/(\.\d+)?(Z|[+-]\d\d:\d\d)?$/, ''));
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 16);
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${d.getDate()} ${mon} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function _fibCampaignFills(campaign) {
   const c = campaign || {};
   const rounds = Array.isArray(c.rounds) ? c.rounds : [];
@@ -4197,9 +4225,13 @@ function _renderFibBoundaryBacktest(data) {
     const moved = data.chart && data.chart.mother_rebased
       ? ` · mother moved to ${_cascadeOptionsTimestamp(data.chart.mother_timestamp)} (the one typed was passed before any buy)`
       : '';
+    const fibCount = (c.fibs || []).length;
+    const ended = c.exit_timestamp
+      ? ` · ended ${_cascadeOptionsTimestamp(c.exit_timestamp)} (${String(c.exit_reason || c.status || '').replaceAll('_', ' ')})`
+      : ` · still open at ${data.horizon_to}`;
     note.textContent = a
-      ? `Fib ${a.low}–${a.high} (${a.span} pts), confirmed ${_cascadeOptionsTimestamp(a.confirmed_at)} · ${data.candles_replayed} 1m bars to ${data.horizon_to}${moved}`
-      : `No fib formed in ${data.candles_replayed} bars to ${data.horizon_to} — the swing never settled.${moved}`;
+      ? `${fibCount} fib${fibCount === 1 ? '' : 's'} drawn · newest ${a.low}–${a.high} (${a.span} pts), confirmed ${_cascadeOptionsTimestamp(a.confirmed_at)}${ended}${moved}`
+      : `No fib formed — the swing never settled${ended}.${moved}`;
   }
 
   const gapsEl = document.getElementById('fibx-backtest-gaps');
