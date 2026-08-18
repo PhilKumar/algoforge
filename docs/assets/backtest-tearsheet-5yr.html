@@ -649,19 +649,20 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <p><span class="tr"><i lang="en">The two books as they are configured on the live engine right now, read straight off the deployed state &mdash; not a description of an idealised version.</i><i lang="ta">இரண்டு புத்தகங்களும் இப்போது லைவ் என்ஜினில் எப்படி அமைக்கப்பட்டுள்ளனவோ அப்படியே &mdash; இயங்கும் நிலையிலிருந்து நேரடியாக எடுக்கப்பட்டது, கற்பனையான பதிப்பு அல்ல.</i></span></p></div></div>
   <div class="cfg">
     <div class="cfg-card">
-      <h3><span class="tr"><i lang="en">Put book</i><i lang="ta">PUT புத்தகம்</i></span> &mdash; My_First_Run_PE</h3>
+      <h3><span class="tr"><i lang="en">Put book</i><i lang="ta">PUT புத்தகம்</i></span> &mdash; PE_NoTarget</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
         <div><dt><span class="tr"><i lang="en">Instrument &amp; expiry</i><i lang="ta">கருவி &amp; எக்ஸ்பயரி</i></span></dt><dd><span class="tr"><i lang="en">NIFTY, current week</i><i lang="ta">NIFTY, நடப்பு வாரம்</i></span></dd></div>
         <div><dt><span class="tr"><i lang="en">Strike</i><i lang="ta">ஸ்ட்ரைக்</i></span></dt><dd><span class="tr"><i lang="en">nearest &#8377;250 premium</i><i lang="ta">&#8377;250 பிரீமியத்துக்கு அருகில்</i></span></dd></div>
         <div><dt><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></dt><dd><span class="tr"><i lang="en">4 lots, BUY</i><i lang="ta">4 லாட், BUY</i></span></dd></div>
         <div><dt><span class="tr"><i lang="en">Bar</i><i lang="ta">கேண்டில்</i></span></dt><dd><span class="tr"><i lang="en">5m from 1m raw</i><i lang="ta">1m இலிருந்து 5m</i></span></dd></div>
         <div><dt><span class="tr"><i lang="en">Leg stop</i><i lang="ta">ஸ்டாப் லாஸ்</i></span></dt><dd><span class="tr"><i lang="en">20% of premium</i><i lang="ta">பிரீமியத்தில் 20%</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Strategy target</i><i lang="ta">இலக்கு</i></span></dt><dd>&#8377;10,000</dd></div>
+        <div><dt><span class="tr"><i lang="en">Strategy target</i><i lang="ta">இலக்கு</i></span></dt><dd><span class="tr"><i lang="en">none &mdash; runs to a CPR cross or the stop</i><i lang="ta">இல்லை &mdash; CPR கிராஸ் அல்லது ஸ்டாப் வரை</i></span></dd></div>
         <div><dt><span class="tr"><i lang="en">Trades per day</i><i lang="ta">நாளுக்கு டிரேடுகள்</i></span></dt><dd><span class="tr"><i lang="en">1 maximum</i><i lang="ta">அதிகபட்சம் 1</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Square-off</i><i lang="ta">ஸ்கொயர்-ஆஃப்</i></span></dt><dd>15:20 / 15:25</dd></div>
+        <div><dt><span class="tr"><i lang="en">Cool-off</i><i lang="ta">ஓய்வு</i></span></dt><dd><span class="tr"><i lang="en">none</i><i lang="ta">இல்லை</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Square-off</i><i lang="ta">ஸ்கொயர்-ஆஃப்</i></span></dt><dd>15:25</dd></div>
       </dl>
       <div class="cfg-rule"><b><span class="tr"><i lang="en">Entry</i><i lang="ta">நுழைவு</i></span></b>close below EMA_20_5m &middot; CPR not wide &middot;
-        Mon/Tue/Thu/Fri &middot; close below CPR_BC</div>
+        Mon/Tue/Thu/Fri &middot; close below CPR_BC &middot; <span class="tr"><i lang="en">before 11:00</i><i lang="ta">11:00 க்கு முன்</i></span></div>
       <div class="cfg-rule"><b><span class="tr"><i lang="en">Exit</i><i lang="ta">வெளியேற்றம்</i></span></b>close crosses CPR_S1, S2, S3 or TC &mdash; <span class="tr"><i lang="en">either direction</i><i lang="ta">இரு திசையிலும்</i></span></div>
     </div>
     <div class="cfg-card">

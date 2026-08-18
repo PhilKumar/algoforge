@@ -1281,19 +1281,20 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
     <p>{t("The two books as they are configured on the live engine right now, read straight off the deployed state &mdash; not a description of an idealised version.", "இரண்டு புத்தகங்களும் இப்போது லைவ் என்ஜினில் எப்படி அமைக்கப்பட்டுள்ளனவோ அப்படியே &mdash; இயங்கும் நிலையிலிருந்து நேரடியாக எடுக்கப்பட்டது, கற்பனையான பதிப்பு அல்ல.")}</p></div></div>
   <div class="cfg">
     <div class="cfg-card">
-      <h3>{t("Put book", "PUT புத்தகம்")} &mdash; My_First_Run_PE</h3>
+      <h3>{t("Put book", "PUT புத்தகம்")} &mdash; PE_NoTarget</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
         <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{t("NIFTY, current week", "NIFTY, நடப்பு வாரம்")}</dd></div>
         <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{t("nearest &#8377;250 premium", "&#8377;250 பிரீமியத்துக்கு அருகில்")}</dd></div>
         <div><dt>{t("Size", "அளவு")}</dt><dd>{t("4 lots, BUY", "4 லாட், BUY")}</dd></div>
         <div><dt>{t("Bar", "கேண்டில்")}</dt><dd>{t("5m from 1m raw", "1m இலிருந்து 5m")}</dd></div>
         <div><dt>{t("Leg stop", "ஸ்டாப் லாஸ்")}</dt><dd>{t("20% of premium", "பிரீமியத்தில் 20%")}</dd></div>
-        <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>&#8377;10,000</dd></div>
+        <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>{t("none &mdash; runs to a CPR cross or the stop", "இல்லை &mdash; CPR கிராஸ் அல்லது ஸ்டாப் வரை")}</dd></div>
         <div><dt>{t("Trades per day", "நாளுக்கு டிரேடுகள்")}</dt><dd>{t("1 maximum", "அதிகபட்சம் 1")}</dd></div>
-        <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>15:20 / 15:25</dd></div>
+        <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{t("none", "இல்லை")}</dd></div>
+        <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>15:25</dd></div>
       </dl>
       <div class="cfg-rule"><b>{t("Entry", "நுழைவு")}</b>close below EMA_20_5m &middot; CPR not wide &middot;
-        Mon/Tue/Thu/Fri &middot; close below CPR_BC</div>
+        Mon/Tue/Thu/Fri &middot; close below CPR_BC &middot; {t("before 11:00", "11:00 க்கு முன்")}</div>
       <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close crosses CPR_S1, S2, S3 or TC &mdash; {t("either direction", "இரு திசையிலும்")}</div>
     </div>
     <div class="cfg-card">
