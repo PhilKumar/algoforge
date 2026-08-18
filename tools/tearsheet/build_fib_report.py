@@ -77,26 +77,40 @@ r, lakh, cls, curve_svg, spark = (HELPERS[k] for k in ("r", "lakh", "cls", "curv
 
 # ── data ─────────────────────────────────────────────────────────────
 def load(path: pathlib.Path) -> list[dict]:
-    rows = []
+    """The sweep fires a blind mother at seven clock times every session, so
+    its rows OVERLAP: 09:15 and 09:30 mothers on the same day are often the
+    same trades counted twice. The page runs ONE campaign per index at a
+    time, so the book here does too -- a mother is taken only if the
+    previous campaign (buys or not) has already ended when it fires."""
+    raw = []
     with open(path) as fh:
         for row in csv.DictReader(fh):
-            if int(row.get("rounds") or 0) <= 0:
-                continue
-            m = datetime.fromisoformat(row["mother"])
-            rows.append(
-                {
-                    "mother": m,
-                    "date": m.date(),
-                    "buys": int(row.get("buys") or 0),
-                    "deployed": float(row.get("deployed") or 0),
-                    "gross": float(row.get("gross") or 0),
-                    "costs": float(row.get("costs") or 0),
-                    "net": float(row.get("net") or 0),
-                    "exit_reason": str(row.get("exit_reason") or ""),
-                    "exit": row.get("exit_timestamp") or "",
-                    "lot": int(row.get("lot") or 0),
-                }
-            )
+            row["_m"] = datetime.fromisoformat(row["mother"])
+            row["_x"] = datetime.fromisoformat(row["exit_timestamp"]) if row.get("exit_timestamp") else row["_m"]
+            raw.append(row)
+    raw.sort(key=lambda x: x["_m"])
+    rows, busy_until = [], None
+    for row in raw:
+        if busy_until is not None and row["_m"] < busy_until:
+            continue  # a campaign was still running -- the page would not have started this one
+        busy_until = row["_x"]
+        if int(row.get("rounds") or 0) <= 0:
+            continue
+        m = row["_m"]
+        rows.append(
+            {
+                "mother": m,
+                "date": m.date(),
+                "buys": int(row.get("buys") or 0),
+                "deployed": float(row.get("deployed") or 0),
+                "gross": float(row.get("gross") or 0),
+                "costs": float(row.get("costs") or 0),
+                "net": float(row.get("net") or 0),
+                "exit_reason": str(row.get("exit_reason") or ""),
+                "exit": row.get("exit_timestamp") or "",
+                "lot": int(row.get("lot") or 0),
+            }
+        )
     rows.sort(key=lambda x: x["mother"])
     return rows
 
@@ -475,8 +489,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
   <h2 class="note-h">{t("Read this first", "முதலில் இதைப் படியுங்கள்")}</h2>
   <p>{
     t(
-        "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose. Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",
-        "இந்த campaign-கள் ஒவ்வொரு அமர்விலும் ஏழு நிலையான நேரங்களில் தொடங்கின &mdash; ஒரு trader தேர்வு செய்யும் candle-கள் அல்ல. பெரும்பாலான blind mother-கள் வர்த்தகமே செய்யாது. அளக்கப்படுவது <strong>விதி</strong>, paper run இயக்கும் அதே code-இல், நேர வரிசையில் candle-candle-ஆக, உண்மையான premium-களில். <em>உங்கள்</em> mother-கள் சம்பாதிக்குமா என்பதுதான் paper run-இன் வேலை.",
+        "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose &mdash; and are counted <strong>one at a time per index</strong>, exactly as the page runs: a clock-time mother that fires while an earlier campaign is still open is not taken (an earlier sheet counted those overlaps twice; this one does not). Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",
+        "இந்த campaign-கள் ஒவ்வொரு அமர்விலும் ஏழு நிலையான நேரங்களில் தொடங்கின &mdash; ஒரு trader தேர்வு செய்யும் candle-கள் அல்ல &mdash; ஒரு குறியீட்டுக்கு <strong>ஒரு நேரத்தில் ஒரு campaign</strong> மட்டும் கணக்கிடப்பட்டது, பக்கம் இயங்குவது போலவே (முந்தைய campaign திறந்திருக்கும்போது வரும் mother எடுக்கப்படாது). பெரும்பாலான blind mother-கள் வர்த்தகமே செய்யாது. அளக்கப்படுவது <strong>விதி</strong>, paper run இயக்கும் அதே code-இல், நேர வரிசையில் candle-candle-ஆக, உண்மையான premium-களில். <em>உங்கள்</em> mother-கள் சம்பாதிக்குமா என்பதுதான் paper run-இன் வேலை.",
     )
 }</p>
   <p>{
