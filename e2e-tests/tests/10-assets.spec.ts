@@ -230,6 +230,20 @@ test('both visual readers pass accessibility and responsive overflow checks', as
   }
 });
 
+/** The combined net figure of the published tearsheet, formatted the way the
+ *  page prints it (Indian grouping, no rupee sign), read from the report data
+ *  that build_report.py renders from. */
+function tearsheetHeadline(): string {
+  const dataPath = resolve(process.cwd(), '..', 'tools', 'tearsheet', 'report_data.json');
+  const data = JSON.parse(readFileSync(dataPath, 'utf8'));
+  const net = Math.round(Number(data.headline.combined.net));
+  const digits = String(Math.abs(net));
+  if (digits.length <= 3) return digits;
+  const last3 = digits.slice(-3);
+  const rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return `${rest},${last3}`;
+}
+
 test('the tearsheet is served whole and embedded in the workspace it belongs to', async ({ page }) => {
   const unauthenticated = await page.request.get('/assets/tearsheet', { maxRedirects: 0 });
   expect(unauthenticated.status()).toBe(401);
@@ -246,7 +260,9 @@ test('the tearsheet is served whole and embedded in the workspace it belongs to'
   expect(body.startsWith('<!DOCTYPE html>')).toBe(true);
   expect(body).toContain('PhilForge Options Tearsheet');
   // The figure the document exists to publish must survive the round trip.
-  expect(body).toContain('11,60,571');
+  // It is read from the data the page is built from, not pinned by hand:
+  // the tearsheet is regenerated whenever the book changes.
+  expect(body).toContain(tearsheetHeadline());
 
   await page.goto('/app#assets/tearsheet');
   await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
@@ -254,7 +270,7 @@ test('the tearsheet is served whole and embedded in the workspace it belongs to'
 
   const framed = page.frameLocator('#assets-tearsheet-frame');
   await expect(framed.locator('h1')).toBeVisible();
-  await expect(framed.locator('body')).toContainText('11,60,571');
+  await expect(framed.locator('body')).toContainText(tearsheetHeadline());
 
   // The document wears the blueprint reader's chrome rather than its own, so a
   // reader moving between the Tearsheet and CryptoForge tabs sees one design:
