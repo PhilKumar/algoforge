@@ -338,21 +338,27 @@ class TwoRedLadder:
             return
         self.lowest = min(self.lowest, candle.low)
 
-        # An open basket is watching for its target on every chart -- the first
-        # bar to reach it closes everything, whatever timeframe spotted it.
+        # THE EXIT IS READ ON THE CHART THE CAMPAIGN WAS STARTED ON, and only
+        # on a bar that began after the last buy. Two ways a slower chart lied:
         #
-        # ONLY A BAR THAT STARTED AFTER THE LAST BUY COUNTS. A slow chart's bar
-        # SPANS the buy: the 1d bar of the day you bought carries the morning's
-        # high, hours before the rung filled. Without this guard that stale high
-        # cleared the target and the basket was sold at the DAY'S CLOSE -- on
-        # 2025-02-11 that booked a "target" exit for -Rs 6,598, on a day whose
-        # high (23,390 at 09:15) came 90 minutes before the 23,277 entry and
-        # whose close was 23,070. A target must be reached by price the basket
-        # was actually alive for.
-        if self.fills and self._after_last_fill(candle) and self._target_reached(candle):
+        #   * its bar SPANS the buy -- the 1d bar of the day you bought carries
+        #     that morning's high, hours before the rung filled. On 2025-02-11
+        #     NIFTY made 23,390 at 09:15, the rung filled at 23,277 at 10:45,
+        #     and the daily bar sold the basket at the day's close of 23,070:
+        #     -Rs 6,598, booked as a target hit.
+        #   * even a clean one cannot say WHEN inside itself the target was
+        #     touched, and the basket is priced at the bar's close. A daily bar
+        #     that trades through the target at 10:00 and gives it all back
+        #     books the exit at 15:30, at a premium the target never saw.
+        #
+        # The mother's own chart has neither problem: its bars are 1 to 60
+        # minutes, so the close is close to the touch. The slower charts stay
+        # what they are for -- watching for the two reds that buy the next rung.
+        watching = self._exit_chart(candle)
+        if self.fills and watching and self._target_reached(candle):
             return
         # ... and for its stop, if it has been given one.
-        if self.fills and self.exit_timestamp is None and self._after_last_fill(candle) and self._stop_loss_hit(candle):
+        if self.fills and watching and self.exit_timestamp is None and self._stop_loss_hit(candle):
             self._close(candle, float(candle.close), "stop_loss")
             return
 
@@ -576,6 +582,14 @@ class TwoRedLadder:
         stage.armed_at = None
         self.active += 1
         self.status = "OPEN" if self.active >= len(self.stages) else "OPEN_CLIMBING"
+
+    def _exit_chart(self, candle: LadderCandle) -> bool:
+        """May this bar close the basket?
+
+        Only the chart the campaign was started on, and only after the last
+        buy -- see the note in `on_candle` for the two trades that proved it.
+        """
+        return candle.timeframe == self.mother.timeframe and self._after_last_fill(candle)
 
     def _after_last_fill(self, candle: LadderCandle) -> bool:
         """Did this bar begin after the last rung filled?
