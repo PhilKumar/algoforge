@@ -745,6 +745,47 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         self.assertEqual(restored.strike_at, "each_buy")
         self.assertEqual([f.strike for f in restored.ladder.fills], [24300, 24100])
 
+    def test_a_historical_mother_is_watched_only_from_watch_from(self):
+        """Phil, 2026-08-20: after a campaign that did not end in profit, the
+        box's high bar is the mother again and the next campaign starts at
+        once -- rung 1 from NOW. The bars between the mother and now are
+        history this campaign must never trade, however a poll re-fetches."""
+        adapter = _PaperAdapter()
+        mother = IndexCandle(self._minute(9, 15), 104, 110, 104, 105)
+        contract = FixedCampaignOption("NIFTY", 24800, date(2026, 7, 28), "CE", 65, "1")
+        m = self._minute
+        engine = LadderCandleEntryPaper(mother, "1m", contract, adapter, lambda _t, _c: 100.0, watch_from=m(9, 30))
+        # History between the mother and 09:30 holds a perfect two-red setup
+        # and a recovery. Fed in the same batch as later bars, it is ignored.
+        history = [
+            IndexCandle(m(9, 16), 105, 106, 104, 106),
+            IndexCandle(m(9, 17), 106, 106, 102, 103),  # red 1
+            IndexCandle(m(9, 18), 103, 103, 100, 101),  # red 2 -> would arm 103
+            IndexCandle(m(9, 19), 101, 104, 100, 103.5),  # would fill
+        ]
+        live = [
+            IndexCandle(m(9, 30), 103, 103.5, 102, 103),
+            IndexCandle(m(9, 31), 103, 103, 101, 101.5),  # red 1
+            IndexCandle(m(9, 32), 101.5, 101.5, 99, 99.5),  # red 2 -> arm 101.5
+            IndexCandle(m(9, 33), 99.5, 102, 99, 101.8),  # fills at 101.5
+        ]
+        engine.ingest({"1m": history + live})
+        self.assertEqual(len(engine.ladder.fills), 1)
+        self.assertEqual(engine.ladder.fills[0].index_price, 101.5)
+        self.assertEqual(engine.ladder.fills[0].timestamp, m(9, 33))
+        self.assertEqual(engine.get_status()["watch_from"], m(9, 30).isoformat())
+        # The target still reads the MOTHER's high.
+        self.assertAlmostEqual(engine.ladder.target_index, 101.5 + 0.25 * (110 - 101.5), places=2)
+        # A re-poll that hands the history back changes nothing, and it survives a restart.
+        engine.ingest({"1m": history})
+        self.assertEqual(len(engine.ladder.fills), 1)
+        restored = LadderCandleEntryPaper.from_dict(
+            engine.to_dict(), adapter=adapter, option_premium_lookup=lambda _t, _c: 100.0
+        )
+        self.assertEqual(restored.watch_from, m(9, 30))
+        restored.ingest({"1m": history})
+        self.assertEqual(len(restored.ladder.fills), 1)
+
     def test_strike_at_mother_keeps_the_contract_handed_in(self):
         adapter = _PaperAdapter()
         engine = self._engine(adapter)  # default strike_at="mother"

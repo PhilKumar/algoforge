@@ -174,6 +174,15 @@ def main() -> None:
         default="each_buy",
         help="each_buy = every rung ATM of its own fill (the page's rule); first_buy = one contract, ATM of the first fill; mother = ATM of the mother's close",
     )
+    ap.add_argument(
+        "--rechain",
+        default="until_profit",
+        help=(
+            "what happens when a campaign ends: none = wait for the next NEW box high (the original rule); "
+            "always = start again at once on the current box's high bar, watching from the exit; "
+            "until_profit = the same, but only while the last campaign on it did not end in profit"
+        ),
+    )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
@@ -280,28 +289,38 @@ def main() -> None:
         free_from: datetime | None = None
         stale_fills[0] = 0
         candidates = box_mothers(bars) if args.mother == "box" else clock_mothers
-        for mother in candidates:
-            if free_from is not None and mother.timestamp < free_from:
-                continue
-            expiry = pick_expiry(args.expiry, expiries, mother.timestamp.date())
+
+        def current_box_high(at: datetime):
+            """The bar holding the high of the `bars` bars ending at `at` -- the
+            box's own mother as the page would find it at that moment."""
+            rows = [c for c in series[tf] if c.timestamp <= at][-bars:]
+            if len(rows) < bars:
+                return None
+            top = max(rows, key=lambda c: c.high)
+            # the LATEST bar at that high, as the finder returns it
+            for c in reversed(rows):
+                if c.high >= top.high:
+                    return c
+            return top
+
+        def run_campaign(mother, watch_from: datetime | None):
+            """One campaign: the mother's high is the reference, the box is the
+            window ending where the watch starts, and the ladder reads bars
+            from there. `watch_from` None = from the mother itself (the
+            original rule); set = a historical mother, watched from that
+            moment (Phil, 2026-08-20: 'a history mother ... the second trade
+            direct with 1 buy start')."""
+            starts = watch_from or mother.timestamp
+            expiry = pick_expiry(args.expiry, expiries, starts.date())
             if expiry is None:
-                continue
+                return None
             atm = int(mother.close / 50.0 + 0.5) * 50
-            # Two strikes in the money on either side: ATM-100 for a call,
-            # ATM+100 for a put, so the two sides are the same distance in.
             strike = atm + args.strike_offset if side == "CE" else atm - args.strike_offset
-            contract = FixedCampaignOption(
-                "NIFTY", strike, expiry, side, int(get_lot_size("NIFTY", mother.timestamp.date())), ""
-            )
+            contract = FixedCampaignOption("NIFTY", strike, expiry, side, int(get_lot_size("NIFTY", starts.date())), "")
             slip = float(args.slip)
             holder: list = [None]
 
             def slipped(when, contract_, _holder=holder):
-                """The archive price, worsened by --slip rupees per unit AGAINST
-                the campaign: a buy pays more, the sale gets less. The lookup
-                does not know which it is pricing, so it reads the engine --
-                `_close` stamps `exit_timestamp` BEFORE it asks for the sell
-                price, and a basket with fills and an exit stamp is selling."""
                 raw = premium(when, contract_)
                 if raw is None or not slip:
                     return raw
@@ -311,16 +330,9 @@ def main() -> None:
 
             window_end = min(expiry, data_end)
             batches = {
-                k: [c for c in rows if mother.timestamp.date() <= c.timestamp.date() <= window_end]
+                k: [c for c in rows if starts.date() <= c.timestamp.date() <= window_end and c.timestamp >= starts]
                 for k, rows in by_tf_index.items()
             }
-
-            # WHERE THE STRIKE IS CHOSEN is the engine's own rule now --
-            # `strike_at` on LadderCandleEntryPaper -- so this walk and the page
-            # read the same contract at the same moment: "mother" (ATM of the
-            # mother's close), "first_buy" (ATM of the first fill, one contract
-            # for the ladder), or "each_buy" (every rung ATM of its own fill, up
-            # to three contracts sold each at its own price).
             offset_points = args.strike_offset if side == "CE" else -args.strike_offset
             engine = LadderCandleEntryPaper(
                 mother,
@@ -341,7 +353,7 @@ def main() -> None:
             )
             holder[0] = engine
             if bars:
-                before = [c for c in series[tf] if c.timestamp <= mother.timestamp][-bars:]
+                before = [c for c in series[tf] if c.timestamp <= starts][-bars:]
                 engine.ladder.prime_range(
                     [LadderCandle(tf, c.timestamp, c.open, c.high, c.low, c.close) for c in before]
                 )
@@ -351,22 +363,21 @@ def main() -> None:
                 if window_end >= expiry
                 else datetime.combine(window_end, dt_time(0, 0), tzinfo=IST)
             )
-            contract = engine.contract
             st = engine.get_status()
             ended_at = datetime.fromisoformat(st["exit"]["timestamp"]) if st["exit"] else None
             if st["status"] in {"CLOSED", "EXPIRED"}:
                 last = st["latest_closed_candle"]["timestamp"]
-                free_from = ended_at or datetime.fromisoformat(last)
+                freed = ended_at or datetime.fromisoformat(last)
             else:
-                # still open when the data ends: nothing after it can be taken
-                free_from = datetime.combine(data_end + timedelta(days=1), dt_time(0, 0), tzinfo=IST)
+                freed = datetime.combine(data_end + timedelta(days=1), dt_time(0, 0), tzinfo=IST)
             rows_out.append(
                 {
                     "mother": mother.timestamp.isoformat(),
+                    "watch_from": starts.isoformat(),
                     "tf": tf,
                     "expiry": expiry.isoformat(),
-                    "strike": contract.strike,
-                    "lot": contract.lot_size,
+                    "strike": engine.contract.strike,
+                    "lot": engine.contract.lot_size,
                     "buys": len(st["fills"]),
                     "lots": sum(f["lots"] for f in st["fills"]),
                     "first_fill": st["fills"][0]["timestamp"] if st["fills"] else "",
@@ -377,8 +388,6 @@ def main() -> None:
                     "costs": st["costs_total"],
                     "net": st["net_pnl"],
                     "unpriced": st["unpriced_fills"],
-                    # Every leg, so an audit can recompute the money from the
-                    # archive without asking the engine anything.
                     "legs": json.dumps(
                         [
                             {
@@ -398,6 +407,32 @@ def main() -> None:
                     "target_index": st.get("target_index"),
                 }
             )
+            return freed, st
+
+        index = 0
+        while index < len(candidates):
+            mother = candidates[index]
+            index += 1
+            if free_from is not None and mother.timestamp < free_from:
+                continue
+            result = run_campaign(mother, None)
+            if result is None:
+                continue
+            free_from, st = result
+            # RE-CHAIN: while the rule says so, the next campaign starts at once
+            # on the current box's high bar, watching from where the last ended.
+            while args.rechain != "none" and args.mother == "box" and free_from <= candidates[-1].timestamp:
+                if args.rechain == "until_profit" and st["net_pnl"] is not None and st["net_pnl"] > 0:
+                    break
+                if st["status"] not in {"CLOSED", "EXPIRED"}:
+                    break
+                again = current_box_high(free_from)
+                if again is None:
+                    break
+                result = run_campaign(again, free_from)
+                if result is None:
+                    break
+                free_from, st = result
         if args.csv:
             name = (
                 args.csv.replace(".csv", f"_s{stop_pct}_f{fall_pct}.csv") if len(stops) * len(falls) > 1 else args.csv
@@ -424,7 +459,8 @@ def main() -> None:
             "side": side,
             "mother": args.mother,
             "strike_at": args.strike_at,
-            "slip": slip,
+            "rechain": args.rechain,
+            "slip": float(args.slip),
             "depth": int(args.depth),
             "expiry": args.expiry,
             "target": target,

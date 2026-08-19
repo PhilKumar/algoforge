@@ -133,6 +133,7 @@ class PayloadIdentityTests(unittest.TestCase):
             {
                 "mother_mode",
                 "mother_timestamp",
+                "watch_from",
                 "timeframe",
                 "box_bars",
                 "box_position",
@@ -430,3 +431,140 @@ class AutoMotherTests(unittest.IsolatedAsyncioTestCase):
             self.USER, self.setting, now=datetime(2026, 8, 20, 10, 21, tzinfo=IST), find_mother=finder, start=None
         )
         self.assertEqual(len(self.setting["log"]), 1)
+
+
+class AutoRetryTests(unittest.IsolatedAsyncioTestCase):
+    """After a campaign that did NOT end in profit, the box's high bar is the
+    mother again and the next campaign starts at once, watching from the
+    exit. After a PROFIT the next mother must be a new high. Measured
+    2026-08-20: +Rs 3.26L against +Rs 2.83L; retrying after profit lost."""
+
+    USER = {"id": 78}
+
+    def setUp(self):
+        app_module._candle_entry_auto[78] = {"enabled": True, "mode": "paper"}
+        app_module._candle_entry_auto_loaded.add(78)
+        self._orig_save = app_module._save_candle_entry_auto
+
+        async def fake_save(uid):
+            pass
+
+        app_module._save_candle_entry_auto = fake_save
+        self._orig_broker = app_module._resolve_user_broker_client
+        app_module._resolve_user_broker_client = lambda _u, allow_admin_fallback=True: (object(), "test")
+
+    def tearDown(self):
+        app_module._save_candle_entry_auto = self._orig_save
+        app_module._resolve_user_broker_client = self._orig_broker
+        app_module._candle_entry_engines.pop(78, None)
+        app_module._candle_entry_auto.pop(78, None)
+
+    @property
+    def setting(self):
+        return app_module._candle_entry_auto[78]
+
+    def _ended(self, net, mother="2026-08-18T10:00:00+05:30", exit_at="2026-08-20T10:05:00+05:30"):
+        status = {
+            "mother": {"timestamp": mother},
+            "contract": {"strike": 24300, "option_type": "CE"},
+            "status": "CLOSED",
+            "fills": [{"rung": 1}],
+            "exit": {"timestamp": exit_at, "reason": "trail"},
+            "net_pnl": net,
+        }
+        app_module._candle_entry_engines[78] = _Runtime(status, running=False)
+        self.setting["last_mother"] = mother
+
+    async def test_a_losing_campaign_retries_the_same_mother_from_the_exit(self):
+        self._ended(net=-1200.0)
+        mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
+        started = []
+
+        async def finder():
+            return mother, []
+
+        async def starter(payload):
+            started.append(payload)
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=starter
+        )
+        self.assertEqual(out, "started")
+        self.assertEqual(started[0].mother_timestamp, "2026-08-18T10:00:00")
+        self.assertEqual(started[0].watch_from, "2026-08-20T10:05:00")  # from the exit, not the mother
+        self.assertEqual(self.setting["last_watch_from"], "2026-08-20T10:05:00")
+
+    async def test_a_no_buy_campaign_retries_too(self):
+        self._ended(net=None)
+        mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
+        started = []
+
+        async def finder():
+            return mother, []
+
+        async def starter(payload):
+            started.append(payload)
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=starter
+        )
+        self.assertEqual(out, "started")
+        self.assertTrue(started[0].watch_from)
+
+    async def test_a_profitable_campaign_waits_for_a_new_high(self):
+        self._ended(net=4500.0)
+        mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
+
+        async def finder():
+            return mother, []  # the same mother comes back: refused
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(out, "waiting-for-new-high")
+        self.assertFalse(self.setting.get("retry_same"))
+
+
+class ResolveBoxTests(unittest.IsolatedAsyncioTestCase):
+    """watch_from: the look-back moment IS watch_from, and the watch starts there."""
+
+    class _Adapter:
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def async_get_candles(self, _symbol, _timeframe, from_date, to_date):
+            return [row for row in self.rows if from_date <= row.timestamp.date() <= to_date]
+
+    def _day(self, day, highs):
+        out = []
+        for i, high in enumerate(highs):
+            when = datetime.combine(day, datetime.min.time()).replace(hour=9, minute=15, tzinfo=IST) + timedelta(
+                minutes=5 * i
+            )
+            out.append(app_module.IndexCandle(when, high - 5, high, high - 10, high - 2))
+        return out
+
+    async def test_watch_from_keeps_the_old_high_as_mother_and_starts_the_watch_later(self):
+        d1 = self._day(date(2026, 8, 3), [100 + i * 0.1 for i in range(75)])
+        d2 = self._day(date(2026, 8, 4), [108 + i * 0.1 for i in range(75)])
+        d3 = self._day(date(2026, 8, 5), [116 + i * 0.1 for i in range(22)] + [110 - i * 0.1 for i in range(53)])
+        adapter = self._Adapter(d1 + d2 + d3)
+        payload = app_module.CandleEntryBacktestPayload(
+            mother_mode="box", mother_timestamp="", watch_from="2026-08-05T14:00", box_bars=150
+        )
+        mother, window, watch_from = await app_module._candle_entry_resolve_box(
+            adapter, payload, "5m", datetime(2026, 8, 6, 9, 0, tzinfo=IST)
+        )
+        self.assertEqual(mother.timestamp, d3[21].timestamp)  # the box high, 11:00
+        self.assertEqual(watch_from, datetime(2026, 8, 5, 14, 0, tzinfo=IST))
+        self.assertEqual(
+            window[-1].timestamp, datetime(2026, 8, 5, 14, 0, tzinfo=IST)
+        )  # the box ends where the watch starts
+        # watch_from at or before the mother is an ordinary start
+        payload = app_module.CandleEntryBacktestPayload(
+            mother_mode="box", mother_timestamp="", watch_from="2026-08-05T11:00", box_bars=150
+        )
+        _m, _w, wf = await app_module._candle_entry_resolve_box(
+            adapter, payload, "5m", datetime(2026, 8, 6, 9, 0, tzinfo=IST)
+        )
+        self.assertIsNone(wf)

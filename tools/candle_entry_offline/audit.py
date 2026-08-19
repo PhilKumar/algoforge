@@ -69,7 +69,7 @@ def closed_at_local(timeframe: str, opened: datetime) -> datetime:
     return closed
 
 
-def replay_entries(bars_by_tf, stages, mother, side, box_bars, box_pos, depth):
+def replay_entries(bars_by_tf, stages, mother, side, box_bars, box_pos, depth, watch_from=None):
     """The two-red rule, written out again from Phil's words.
 
     Reds (greens on a PE) whose CLOSES step down (up), any number of other
@@ -92,7 +92,7 @@ def replay_entries(bars_by_tf, stages, mother, side, box_bars, box_pos, depth):
     stream = []
     for tf in stages:
         for row in bars_by_tf.get(tf, []):
-            if row.timestamp <= mother.timestamp:
+            if row.timestamp <= mother.timestamp or (watch_from is not None and row.timestamp < watch_from):
                 continue
             stream.append((closed_at_local(tf, row.timestamp), stages.index(tf), tf, row))
     stream.sort(key=lambda item: (item[0], item[1]))
@@ -168,21 +168,46 @@ def main() -> None:
         exit_detail = json.loads(row["exit_detail"] or "{}")
         mi = index_of[mother_ts]
         mother = own[mi]
-        window = own[mi - args.bars + 1 : mi + 1]
+        # A retried campaign (Phil's "history mother") watches from `watch_from`
+        # and reads the box as it stood THEN; an ordinary one from the mother.
+        watch_from = datetime.fromisoformat(row["watch_from"]) if row.get("watch_from") else None
+        if watch_from is not None and watch_from <= mother_ts:
+            watch_from = None
+        starts = watch_from or mother_ts
+        si = max(i for i, b in enumerate(own) if b.timestamp <= starts)
+        window = own[si - args.bars + 1 : si + 1]
 
-        # 1. MOTHER
+        # 1. MOTHER -- it made the N-bar extreme at ITS OWN bar (its trailing
+        # window), and on a retry it is still the extreme of the box as it
+        # stood where the watch started (or the retry would have had a newer
+        # mother).
+        # An ORDINARY mother made a NEW N-bar extreme at its own bar. A RETRY's
+        # mother is the extreme of the box as it stood where the watch started
+        # -- it need not have been a new high when it printed (an older, higher
+        # bar may have rolled out of the window since).
+        own_window = own[mi - args.bars + 1 : mi + 1]
         if side == "CE":
-            check("mother", mother.high >= max(b.high for b in window), f"{mother_ts}: not the {args.bars}-bar high")
+            if watch_from is None:
+                check(
+                    "mother",
+                    mother.high >= max(b.high for b in own_window),
+                    f"{mother_ts}: not the {args.bars}-bar high",
+                )
+            check("mother", mother.high >= max(b.high for b in window), f"{mother_ts}: not the box high at {starts}")
         else:
-            check("mother", mother.low <= min(b.low for b in window), f"{mother_ts}: not the {args.bars}-bar low")
+            if watch_from is None:
+                check(
+                    "mother", mother.low <= min(b.low for b in own_window), f"{mother_ts}: not the {args.bars}-bar low"
+                )
+            check("mother", mother.low <= min(b.low for b in window), f"{mother_ts}: not the box low at {starts}")
 
         # 2. GEOMETRY -- independent replay
         expiry = datetime.fromisoformat(row["expiry"] + "T15:30:00+05:30").date()
         batches = {
-            k: [c for c in rowset if mother_ts.date() <= c.timestamp.date() <= expiry] for k, rowset in series.items()
+            k: [c for c in rowset if starts.date() <= c.timestamp.date() <= expiry] for k, rowset in series.items()
         }
         batches["__box__"] = window
-        mine = replay_entries(batches, stages, mother, side, args.bars, args.pos, args.depth)
+        mine = replay_entries(batches, stages, mother, side, args.bars, args.pos, args.depth, watch_from)
         theirs = [
             {"t": datetime.fromisoformat(f["t"]), "tf": f["tf"], "price": f["index"], "rung": f["rung"]} for f in legs
         ]

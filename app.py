@@ -4031,6 +4031,12 @@ class CandleEntryPaperStartPayload(BaseModel):
     # or before it is the mother); blank means now.
     mother_mode: str = "manual"
     mother_timestamp: str = ""
+    # Box mode only. Set, it is a HISTORICAL mother: the latest box high at or
+    # before this moment is the mother, the box is the window ending here, and
+    # the ladder reads bars from here -- rung 1 from now, never the history
+    # between (Phil, 2026-08-20: "a history mother ... the second trade
+    # direct with 1 buy start"). Blank = the mother's own moment.
+    watch_from: str = ""
     timeframe: str = "1h"
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
@@ -4068,6 +4074,7 @@ class CandleEntryBacktestPayload(BaseModel):
 
     mother_mode: str = "manual"
     mother_timestamp: str = ""
+    watch_from: str = ""
     timeframe: str = "5m"
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
@@ -10620,7 +10627,13 @@ def _candle_entry_regular_sessions(rows: list) -> list:
 
 
 async def _candle_entry_find_box_mother(
-    adapter, timeframe: str, box_bars: int, look_back_from: datetime, *, not_before: datetime | None = None
+    adapter,
+    timeframe: str,
+    box_bars: int,
+    look_back_from: datetime,
+    *,
+    not_before: datetime | None = None,
+    window_at_look_back: bool = False,
 ) -> tuple[IndexCandle, list[IndexCandle]]:
     """Phil's mother, found: the most recent bar at or before `look_back_from`
     whose high is the highest of the `box_bars` bars ending at it.
@@ -10633,6 +10646,10 @@ async def _candle_entry_find_box_mother(
     instead -- the backtest's rule for the next campaign: a box high that
     fired while the last campaign was still open is not taken, and once free
     the next one to print is. `not_before` is the last campaign's exit.
+
+    `window_at_look_back` returns the `box_bars` bars ending at the look-back
+    moment rather than at the mother: the box as it stands NOW, which is what
+    a historical mother retried from now must read.
     """
     per_session = _CANDLE_ENTRY_BARS_PER_SESSION[timeframe]
     box_days = int(box_bars / per_session * 1.6) + 3
@@ -10647,6 +10664,16 @@ async def _candle_entry_find_box_mother(
             status_code=404,
             detail=f"Only {len(rows)} NIFTY {timeframe} candles are available before then; the box needs {box_bars}.",
         )
+    if window_at_look_back:
+        # THE BOX AS IT STANDS: the mother is the bar holding the high of the
+        # last `box_bars` bars -- the latest at that high -- whether or not it
+        # was a NEW high when it printed (an older, higher bar may have rolled
+        # out of the window since). That is Phil's "history mother", and what
+        # the sweep's retry reads.
+        window = rows[-box_bars:]
+        top = max(row.high for row in window)
+        mother = next(row for row in reversed(window) if row.high >= top)
+        return mother, window
     order = range(len(rows) - 1, box_bars - 2, -1)
     if not_before is not None:
         order = range(box_bars - 1, len(rows))
@@ -10663,6 +10690,30 @@ async def _candle_entry_find_box_mother(
             f"{box_bars}-bar high. Pick another chart or name a mother by hand."
         ),
     )
+
+
+async def _candle_entry_resolve_box(adapter, payload, timeframe: str, now: datetime):
+    """Box mode: the mother, its window, and where the watch starts.
+
+    Plain: the look-back moment is `mother_timestamp` (blank = now), the
+    mother is the latest box high at or before it, the watch starts at the
+    mother. With `watch_from`: the look-back moment IS watch_from, and the
+    watch starts there -- a historical mother retried from now.
+    """
+    watch_from = _parse_cascade_mother_timestamp(payload.watch_from) if payload.watch_from else None
+    look_back_from = (
+        watch_from
+        if watch_from is not None
+        else (_parse_cascade_mother_timestamp(payload.mother_timestamp) if payload.mother_timestamp else now)
+    )
+    if look_back_from > now:
+        raise HTTPException(status_code=400, detail="The look-back moment cannot be in the future (IST).")
+    found, window = await _candle_entry_find_box_mother(
+        adapter, timeframe, int(payload.box_bars), look_back_from, window_at_look_back=watch_from is not None
+    )
+    if watch_from is not None and watch_from <= found.timestamp:
+        watch_from = None  # the mother itself is the latest bar: an ordinary start
+    return found, window, watch_from
 
 
 def _candle_entry_mother_mode(value: str) -> str:
@@ -10825,15 +10876,11 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     box_window: list = []
+    watch_from: datetime | None = None
     if mother_mode == "box":
         # The mother is FOUND, not named: the latest bar making the box high
         # at or before the look-back moment (blank = now).
-        look_back_from = _parse_cascade_mother_timestamp(payload.mother_timestamp) if payload.mother_timestamp else now
-        if look_back_from > now:
-            raise HTTPException(status_code=400, detail="The look-back moment cannot be in the future (IST).")
-        found, box_window = await _candle_entry_find_box_mother(
-            adapter, timeframe, int(payload.box_bars), look_back_from
-        )
+        found, box_window, watch_from = await _candle_entry_resolve_box(adapter, payload, timeframe, now)
         mother_timestamp = found.timestamp
     else:
         mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
@@ -10878,6 +10925,7 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
         range_position=float(payload.box_position),
         strike_at=_candle_entry_strike_at(payload.strike_at),
         strike_offset_points=int(payload.ce_offset_steps) * 50,
+        watch_from=watch_from,
     )
     if box_window:
         engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
@@ -10906,6 +10954,7 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
         "status": "started",
         "mode": "paper",
         "mother_mode": mother_mode,
+        "watch_from": watch_from.isoformat() if watch_from is not None else None,
         "box": _candle_entry_box_payload(engine, mother_mode, box_window),
         "caught_up_to": engine._latest.timestamp.isoformat() if engine._latest is not None else None,
         "priced_from_history": history is not None,
@@ -10959,15 +11008,11 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load NIFTY candles.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     box_window: list = []
+    watch_from: datetime | None = None
     if mother_mode == "box":
-        if not payload.mother_timestamp:
+        if not payload.mother_timestamp and not payload.watch_from:
             raise HTTPException(status_code=400, detail="Give the moment to look back from for a box-mother backtest.")
-        look_back_from = _parse_cascade_mother_timestamp(payload.mother_timestamp)
-        if look_back_from > now:
-            raise HTTPException(status_code=400, detail="The look-back moment cannot be in the future (IST).")
-        found, box_window = await _candle_entry_find_box_mother(
-            adapter, timeframe, int(payload.box_bars), look_back_from
-        )
+        found, box_window, watch_from = await _candle_entry_resolve_box(adapter, payload, timeframe, now)
         mother_timestamp = found.timestamp
     else:
         mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
@@ -11000,6 +11045,7 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             range_position=float(payload.box_position),
             strike_at=_candle_entry_strike_at(payload.strike_at),
             strike_offset_points=int(payload.ce_offset_steps) * 50,
+            watch_from=watch_from,
         )
         if box_window:
             engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
@@ -11037,6 +11083,7 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         "stages": list(engine.stages),
         "lot_size": contract.lot_size,
         "mother_mode": mother_mode,
+        "watch_from": watch_from.isoformat() if watch_from is not None else None,
         "box": _candle_entry_box_payload(engine, mother_mode, box_window),
         "strike_at": engine.strike_at,
         "contract_at_mother": {
@@ -11701,7 +11748,12 @@ async def _candle_entry_auto_step(
     if runtime is not None and runtime.running:
         return "busy"
     if runtime is not None:
-        # The last campaign has ended: remember when it freed, once.
+        # The last campaign has ended: remember when it freed, once -- and
+        # whether it ended in PROFIT, which decides what comes next. It did
+        # not: the box's high bar is the mother again and the next campaign
+        # starts at once, rung 1 from now (measured 2026-08-20: +Rs 3.26L
+        # against +Rs 2.83L waiting for a new high; retrying after a PROFIT
+        # as well lost Rs 4.1L). It did: the next mother must be a NEW high.
         st = runtime.engine.get_status()
         mother_key = str((st.get("mother") or {}).get("timestamp"))
         if setting.get("last_mother") == mother_key and not setting.get("_freed_logged") == mother_key:
@@ -11712,6 +11764,8 @@ async def _candle_entry_auto_step(
             )
             setting["free_from"] = str(freed)
             setting["_freed_logged"] = mother_key
+            net = st.get("net_pnl")
+            setting["retry_same"] = not (net is not None and float(net) > 0)
             await _save_candle_entry_auto(uid)
     if now.time() >= _CANDLE_AUTO_LAST_START:
         return "too-late"
@@ -11730,13 +11784,17 @@ async def _candle_entry_auto_step(
         not_before = datetime.fromisoformat(str(setting["last_mother"])) + timedelta(minutes=1)
         if not_before.tzinfo is None:
             not_before = not_before.replace(tzinfo=IST)
+    retry_same = bool(setting.get("retry_same")) and not_before is not None
     finder = find_mother or (
         lambda: _candle_entry_find_box_mother(
             CascadeOptionsAdapter(broker_client, paper_only=True),
             _CANDLE_AUTO_RULE["timeframe"],
             int(_CANDLE_AUTO_RULE["box_bars"]),
-            now,
-            not_before=not_before,
+            # A retry reads the box as it stood at the exit -- the latest high
+            # at or before it, the same mother allowed. Otherwise the FIRST
+            # new high after the exit.
+            not_before if retry_same else now,
+            not_before=None if retry_same else not_before,
         )
     )
     try:
@@ -11749,7 +11807,7 @@ async def _candle_entry_auto_step(
             return "waiting-for-new-high"
         setting["last_error"] = f"{now.strftime('%H:%M')} {exc.detail}"
         return "find-failed"
-    if setting.get("last_mother") == mother.timestamp.isoformat():
+    if setting.get("last_mother") == mother.timestamp.isoformat() and not retry_same:
         return "waiting-for-new-high"
     mother_closes = min(
         mother.timestamp + timedelta(minutes=TIMEFRAME_MINUTES[_CANDLE_AUTO_RULE["timeframe"]]),
@@ -11759,6 +11817,9 @@ async def _candle_entry_auto_step(
         return "waiting-for-candle"
     payload = CandleEntryPaperStartPayload(
         mother_timestamp=mother.timestamp.replace(tzinfo=None).isoformat(),
+        # A retry watches from the moment the last campaign freed, not from
+        # the mother -- the history between was that campaign's.
+        watch_from=(not_before.replace(tzinfo=None).isoformat() if retry_same else ""),
         mode=str(setting.get("mode") or "paper"),
         **_CANDLE_AUTO_RULE,
     )
@@ -11772,6 +11833,8 @@ async def _candle_entry_auto_step(
     setting["last_mother"] = mother.timestamp.isoformat()
     setting["last_start_at"] = now.isoformat()
     setting["last_day"] = today.isoformat()
+    setting["last_watch_from"] = payload.watch_from or None
+    setting.pop("retry_same", None)
     setting.pop("free_from", None)
     setting.pop("_freed_logged", None)
     setting.pop("waiting", None)

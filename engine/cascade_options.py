@@ -2591,6 +2591,7 @@ class LadderCandleEntryPaper:
         range_position: float = 0.5,
         strike_at: str = "mother",
         strike_offset_points: int = -100,
+        watch_from: Optional[datetime] = None,
     ) -> None:
         if not adapter.paper_only or contract.option_type not in ("CE", "PE"):
             raise PaperOnlyViolation("The Candle Entry ladder campaign is paper-only, on a CE or a PE")
@@ -2621,6 +2622,13 @@ class LadderCandleEntryPaper:
         self.strike_offset_points = int(strike_offset_points)
         self.contract_at_mother = contract
         self._contracts: dict[tuple[int, str], FixedCampaignOption] = {}
+        # WHERE THE WATCH STARTS. None = at the mother (the original rule). Set
+        # = a HISTORICAL mother: the box's high bar is the reference for the
+        # target, but the ladder reads bars only from this moment on -- Phil,
+        # 2026-08-20: "a history mother ... the second trade direct with 1 buy
+        # start". Bars between the mother and here are never fed, however a
+        # poll re-fetches them, so the old history is not traded twice.
+        self.watch_from = watch_from if watch_from is not None and watch_from > mother.timestamp else None
         # TWO RUNGS. Phil, 2026-08-19: "Don't climb to the next slower chart
         # after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
         # till 1H." A campaign reads its own chart and the next one up, and
@@ -2826,6 +2834,11 @@ class LadderCandleEntryPaper:
             key = str(timeframe).strip().lower()
             last = self._seen.get(key, self.mother.timestamp)
             fresh = [candle for candle in candles if candle.timestamp > last]
+            if self.watch_from is not None and key not in self._seen:
+                # The watch starts AT watch_from: the bar opening exactly then is
+                # the first one read; everything between the mother and it is
+                # history this campaign never trades.
+                fresh = [candle for candle in fresh if candle.timestamp >= self.watch_from]
             if not fresh:
                 continue
             self._seen[key] = max(candle.timestamp for candle in fresh)
@@ -2976,6 +2989,7 @@ class LadderCandleEntryPaper:
             # or the window is not yet full.
             "box": self._box_status(),
             "strike_at": self.strike_at,
+            "watch_from": self.watch_from.isoformat() if self.watch_from is not None else None,
             "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
                 "Historical replay verifies NIFTY entry and target geometry only. "
@@ -3131,6 +3145,7 @@ class LadderCandleEntryPaper:
                 "stop_loss_pct": ladder.stop_loss_pct,
                 "strike_at": self.strike_at,
                 "strike_offset_points": self.strike_offset_points,
+                "watch_from": self.watch_from.isoformat() if self.watch_from is not None else None,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
             "contract": {
@@ -3257,6 +3272,7 @@ class LadderCandleEntryPaper:
             strike_offset_points=int(
                 config.get("strike_offset_points") if config.get("strike_offset_points") is not None else -100
             ),
+            watch_from=moment(config["watch_from"]) if config.get("watch_from") else None,
         )
         ladder = engine.ladder
         ladder.require_new_low = bool(config.get("require_new_low", True))
