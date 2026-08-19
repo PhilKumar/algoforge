@@ -319,6 +319,63 @@ class ExitTests(unittest.TestCase):
         self.assertGreater(ladder.exit_timestamp, fill.timestamp)
 
 
+class PutMirrorTests(unittest.TestCase):
+    """The PE side is the same rule reflected, not a second engine.
+
+    Mother's LOW instead of its high, two GREEN closes stepping UP instead of
+    two reds stepping down, a sell-stop on the first green's close, and a
+    target a quarter of the way back DOWN toward that low.
+    """
+
+    def _pe(self, mother, stages=("15m",), **kw):
+        return a_ladder(mother, stages, direction="PE", **kw)
+
+    def test_two_greens_step_up_and_the_stop_sits_below_the_market(self):
+        mother = bar("15m", 0, 105, 106, 100, 101)  # mother's low is 100
+        ladder = self._pe(mother)
+        ladder.on_candle(bar("15m", 1, 101, 104, 100.5, 103.5))  # green 1
+        self.assertIsNone(ladder.stages[0].stop, "one green is not a setup")
+        ladder.on_candle(bar("15m", 2, 103.5, 103.8, 103, 103.2))  # red, ignored
+        ladder.on_candle(bar("15m", 3, 103.4, 106, 103.3, 105.5))  # green 2, higher close
+        self.assertEqual(ladder.stages[0].stop, 103.5, "the stop is the FIRST green's close")
+        self.assertLess(ladder.stages[0].stop, 105.5, "a sell-stop must sit below the market")
+
+    def test_it_fills_when_price_breaks_back_down_through_the_stop(self):
+        mother = bar("15m", 0, 105, 106, 100, 101)
+        ladder = self._pe(mother)
+        ladder.on_candle(bar("15m", 1, 101, 104, 100.5, 103.5))
+        ladder.on_candle(bar("15m", 3, 103.4, 106, 103.3, 105.5))
+        ladder.on_candle(bar("15m", 4, 105.5, 105.6, 103.4, 104))  # low ticks the stop
+        self.assertTrue(ladder.fills, "the put rung should have filled")
+        self.assertEqual(ladder.fills[0].index_price, 103.5)
+
+    def test_the_target_sits_below_the_basket_toward_the_mother_s_low(self):
+        mother = bar("15m", 0, 105, 106, 100, 101)
+        ladder = self._pe(mother)
+        ladder.on_candle(bar("15m", 1, 101, 104, 100.5, 103.5))
+        ladder.on_candle(bar("15m", 3, 103.4, 106, 103.3, 105.5))
+        ladder.on_candle(bar("15m", 4, 105.5, 105.6, 103.4, 104))
+        # Entry 103.5, mother's low 100, a quarter of the way down = 102.625,
+        # which rounds to 102.62 the same way every other level here does.
+        self.assertAlmostEqual(ladder.target_index, 102.62, places=2)
+        ladder.on_candle(bar("15m", 5, 104, 104.2, 102.5, 102.8))
+        self.assertEqual(ladder.exit_reason, "target")
+        self.assertEqual(ladder.exit_index_price, 102.62)
+
+    def test_the_box_gate_asks_for_the_top_of_the_range(self):
+        mother = bar("15m", 0, 105, 106, 100, 101)
+        ladder = self._pe(mother, range_bars=2, range_position=0.25)
+        # A box from 100 to 106: a PE may only arm in the top quarter, above
+        # 104.5. The same setting on a CE would ask for below 101.5.
+        ladder.prime_range([bar("15m", -2, 100, 106, 100, 105), bar("15m", -1, 105, 106, 100, 101)])
+        ladder.on_candle(bar("15m", 1, 101, 102, 100.5, 101.5))  # green, but low in the box
+        ladder.on_candle(bar("15m", 2, 101.5, 103, 101, 102.5))  # green, still too low
+        self.assertIsNone(ladder.stages[0].stop, "a PE armed in the bottom of its box")
+        ladder.on_candle(bar("15m", 3, 102.5, 105, 102, 104.8))  # green, top quarter
+        ladder.on_candle(bar("15m", 4, 104.8, 106, 104.7, 105.5))  # green, higher
+        self.assertEqual(ladder.stages[0].stop, 104.8)
+
+
 class TimeStopTests(unittest.TestCase):
     """A time stop is a rule about a position, not about a setup."""
 

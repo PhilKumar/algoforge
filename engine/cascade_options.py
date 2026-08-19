@@ -2590,8 +2590,8 @@ class LadderCandleEntryPaper:
         range_bars: int = 0,
         range_position: float = 0.5,
     ) -> None:
-        if not adapter.paper_only or contract.option_type != "CE":
-            raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
+        if not adapter.paper_only or contract.option_type not in ("CE", "PE"):
+            raise PaperOnlyViolation("The Candle Entry ladder campaign is paper-only, on a CE or a PE")
         key = str(timeframe).strip().lower()
         if key not in LADDER_TIMEFRAMES:
             raise LadderError(f"{timeframe!r} is not one of {', '.join(LADDER_TIMEFRAMES)}")
@@ -2638,6 +2638,9 @@ class LadderCandleEntryPaper:
             min_fall_pct=min_fall_pct,
             range_bars=range_bars,
             range_position=range_position,
+            # The contract decides which way the geometry reads: a CE watches
+            # the mother's high and two reds, a PE its low and two greens.
+            direction=contract.option_type,
             # 0 = the target is the sale. Above 0 the target only ARMS a trail
             # that sells on a close giving back this fraction of the run.
             trail_fraction=trail_fraction,

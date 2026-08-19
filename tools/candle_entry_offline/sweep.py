@@ -145,6 +145,7 @@ def main() -> None:
     ap.add_argument(
         "--hold", default="", help="comma list: sell at 15:15 this many days after the first buy (0 = same day)"
     )
+    ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
         default="clock",
@@ -153,6 +154,7 @@ def main() -> None:
     ap.add_argument("--csv", default="")
     args = ap.parse_args()
     tf = args.tf.lower()
+    side = "PE" if str(args.side).upper() == "PE" else "CE"
     # The ladder's own charts only -- the engine climbs one step and stops.
     stages = ladder_from(tf, int(args.depth))
     intraday = [k for k in stages if k in ("1m", "5m", "15m", "1h")]
@@ -219,7 +221,9 @@ def main() -> None:
             bar = rows[i]
             if not (start <= bar.timestamp.date() <= end):
                 continue
-            if bar.high >= max(r.high for r in rows[i - window + 1 : i + 1]):
+            span = rows[i - window + 1 : i + 1]
+            made_it = bar.high >= max(r.high for r in span) if side == "CE" else bar.low <= min(r.low for r in span)
+            if made_it:
                 candidates.append(bar)
     else:
         candidates = [c for c in series[tf] if start <= c.timestamp.date() <= end and c.timestamp.time() in CLOCK_TIMES]
@@ -240,8 +244,11 @@ def main() -> None:
             if expiry is None:
                 continue
             atm = int(mother.close / 50.0 + 0.5) * 50
+            # Two strikes in the money on either side: ATM-100 for a call,
+            # ATM+100 for a put, so the two sides are the same distance in.
+            strike = atm - 100 if side == "CE" else atm + 100
             contract = FixedCampaignOption(
-                "NIFTY", atm - 100, expiry, "CE", int(get_lot_size("NIFTY", mother.timestamp.date())), ""
+                "NIFTY", strike, expiry, side, int(get_lot_size("NIFTY", mother.timestamp.date())), ""
             )
             engine = LadderCandleEntryPaper(
                 mother,
@@ -299,6 +306,24 @@ def main() -> None:
                     "costs": st["costs_total"],
                     "net": st["net_pnl"],
                     "unpriced": st["unpriced_fills"],
+                    # Every leg, so an audit can recompute the money from the
+                    # archive without asking the engine anything.
+                    "legs": json.dumps(
+                        [
+                            {
+                                "t": f["timestamp"],
+                                "tf": f["timeframe"],
+                                "priced_at": f["priced_at"],
+                                "index": f["index_price"],
+                                "premium": f["option_premium"],
+                                "qty": f["quantity"],
+                                "rung": f["rung"],
+                            }
+                            for f in st["fills"]
+                        ]
+                    ),
+                    "exit_detail": json.dumps(st["exit"] or {}),
+                    "target_index": st.get("target_index"),
                 }
             )
         if args.csv:
@@ -324,6 +349,7 @@ def main() -> None:
         ranked = sorted(nets)
         return {
             "tf": tf,
+            "side": side,
             "mother": args.mother,
             "depth": int(args.depth),
             "expiry": args.expiry,

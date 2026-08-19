@@ -114,6 +114,10 @@ class LadderCandle:
     def is_red(self) -> bool:
         return self.close < self.open
 
+    @property
+    def is_green(self) -> bool:
+        return self.close > self.open
+
 
 def order_events(candles: list[LadderCandle]) -> list[LadderCandle]:
     """Chronological by the moment each bar closed, finest chart first.
@@ -210,6 +214,7 @@ class TwoRedLadder:
         min_fall_pct: float = 0.0,
         range_bars: int = 0,
         range_position: float = 0.5,
+        direction: str = "CE",
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
@@ -220,6 +225,14 @@ class TwoRedLadder:
         self.strike_for = strike_for
         self.premium_lookup = premium_lookup
         self.target_fraction = float(target_fraction)
+        # WHICH WAY THE CAMPAIGN LEANS. "CE" is the rule as Phil wrote it: the
+        # mother's HIGH, two RED closes stepping DOWN, a buy-stop on the first
+        # red's close, and a target a quarter of the way back UP to that high.
+        # "PE" is the same rule in a mirror -- the mother's LOW, two GREEN
+        # closes stepping UP, a sell-stop on the first green's close, and a
+        # target a quarter of the way back DOWN. Every comparison below reads
+        # this, so there is one geometry, not two engines.
+        self.direction = "PE" if str(direction).upper() == "PE" else "CE"
         self.require_new_low = bool(require_new_low)
         # WHEN THE OPTION RUNS OUT. On the expiry day the first bar to close at
         # or after 15:15 sells whatever is open and ends the campaign, bought
@@ -289,8 +302,10 @@ class TwoRedLadder:
         ]
         self.active = 0
         self.fills: list[LadderFill] = []
-        self.lowest: float = mother.low
-        # The low as at the last fill; the next rung may only arm below it.
+        # The furthest price has gone the campaign's way: the running LOW on a
+        # CE, the running HIGH on a PE.
+        self.lowest: float = mother.low if self.direction == "CE" else mother.high
+        # That extreme as at the last fill; the next rung may only arm beyond it.
         self.gate_low: Optional[float] = None
         self.exit_timestamp: Optional[datetime] = None
         self.exit_timeframe: Optional[str] = None
@@ -320,7 +335,10 @@ class TwoRedLadder:
             return None
         # A quarter of the way back to the mother's high, measured from where
         # the basket actually sits -- so a deeper rung pulls the target down.
-        return round(entry + self.target_fraction * (self.mother.high - entry), 2)
+        # A PE reads the mother's LOW and the target sits below the basket.
+        if self.direction == "CE":
+            return round(entry + self.target_fraction * (self.mother.high - entry), 2)
+        return round(entry - self.target_fraction * (entry - self.mother.low), 2)
 
     def _log(self, candle: LadderCandle, event: str, **payload: Any) -> None:
         self.events.append(
@@ -336,7 +354,10 @@ class TwoRedLadder:
     def on_candle(self, candle: LadderCandle) -> None:
         if self.status in {"CLOSED", "EXPIRED", "KILLED"} or candle.timestamp <= self.mother.timestamp:
             return
-        self.lowest = min(self.lowest, candle.low)
+        if self.direction == "CE":
+            self.lowest = min(self.lowest, candle.low)
+        else:
+            self.lowest = max(self.lowest, candle.high)
 
         # THE EXIT IS READ ON THE CHART THE CAMPAIGN WAS STARTED ON, and only
         # on a bar that began after the last buy. Two ways a slower chart lied:
@@ -375,7 +396,8 @@ class TwoRedLadder:
             return
 
         if stage.stop is not None and stage.armed_at is not None and candle.timestamp > stage.armed_at:
-            if candle.high >= stage.stop:
+            triggered = candle.high >= stage.stop if self.direction == "CE" else candle.low <= stage.stop
+            if triggered:
                 self._fill(stage, candle)
                 self._remember_close(candle)
                 return
@@ -411,13 +433,19 @@ class TwoRedLadder:
         low = min(row[1] for row in self._range)
         if high <= low:
             return False
-        return candle.close <= low + self.range_position * (high - low)
+        if self.direction == "CE":
+            return candle.close <= low + self.range_position * (high - low)
+        # The mirror: a PE campaign wants the TOP of the box, measured the same
+        # distance down from the high as a CE measures up from the low.
+        return candle.close >= high - self.range_position * (high - low)
 
     def _fall_gate_open(self, candle: LadderCandle) -> bool:
         """Has price fallen far enough below the mother's high to trade at all?"""
         if not self.min_fall_pct:
             return True
-        return candle.close <= self.mother.high * (1.0 - self.min_fall_pct / 100.0)
+        if self.direction == "CE":
+            return candle.close <= self.mother.high * (1.0 - self.min_fall_pct / 100.0)
+        return candle.close >= self.mother.low * (1.0 + self.min_fall_pct / 100.0)
 
     def _stop_loss_hit(self, candle: LadderCandle) -> bool:
         """Is the basket this far under water at this bar's close?"""
@@ -460,18 +488,24 @@ class TwoRedLadder:
         close of the red that armed it. A stop can never again sit below the
         market at the moment it is placed.
         """
-        if not candle.is_red:
+        if not (candle.is_red if self.direction == "CE" else candle.is_green):
             return
         if not self._fall_gate_open(candle) or not self._range_gate_open(candle):
             return
         # The gate: a rung above the first only starts counting once the market
-        # has actually gone lower than it was when the last rung filled.
-        if self.require_new_low and self.gate_low is not None and candle.low >= self.gate_low:
-            return
-        if stage.reds and candle.close >= stage.reds[-1].close:
-            # A red, but not a lower one: the fall has not continued, so this
-            # is not the next step down. The sequence waits where it is.
-            return
+        # has actually gone further its way than it was when the last rung
+        # filled -- lower on a CE, higher on a PE.
+        if self.require_new_low and self.gate_low is not None:
+            beyond = candle.low < self.gate_low if self.direction == "CE" else candle.high > self.gate_low
+            if not beyond:
+                return
+        if stage.reds:
+            # A bar of the right colour, but not a further one: the move has
+            # not continued, so this is not the next step. The sequence waits.
+            last = stage.reds[-1].close
+            further = candle.close < last if self.direction == "CE" else candle.close > last
+            if not further:
+                return
         stage.reds.append(candle)
         if len(stage.reds) < 2:
             return
@@ -588,8 +622,13 @@ class TwoRedLadder:
 
         Only the chart the campaign was started on, and only after the last
         buy -- see the note in `on_candle` for the two trades that proved it.
+
+        THE FIRST RUNG'S CHART, not the mother's own. On the options page they
+        are the same bar, but the equity page reads a DAILY mother and trades
+        the ladder on 1h, so anchoring to the mother left that strategy with no
+        chart allowed to sell at all (its own tests caught it).
         """
-        return candle.timeframe == self.mother.timeframe and self._after_last_fill(candle)
+        return candle.timeframe == self.stages[0].timeframe and self._after_last_fill(candle)
 
     def _after_last_fill(self, candle: LadderCandle) -> bool:
         """Did this bar begin after the last rung filled?
@@ -609,25 +648,35 @@ class TwoRedLadder:
         # to climb, in which case there is nothing left to wait for.
         if len(self.fills) < self.min_buys_before_exit and self.active < len(self.stages):
             return False
+        # The bar's best price IN THE CAMPAIGN'S FAVOUR: its high on a CE,
+        # its low on a PE.
+        best_of_bar = float(candle.high) if self.direction == "CE" else float(candle.low)
+        reached = best_of_bar >= target if self.direction == "CE" else best_of_bar <= target
+
         if not self.trail_fraction:
-            if candle.high < target:
+            if not reached:
                 return False
             self._close(candle, target, "target")
             return True
 
         if not self._trail_armed:
-            if candle.high < target:
+            if not reached:
                 return False
             self._trail_armed = True
-            self._trail_best = float(candle.high)
+            self._trail_best = best_of_bar
             self._log(candle, "trail_armed", target=target, best=self._trail_best)
             return False
-        self._trail_best = max(float(self._trail_best or 0.0), float(candle.high))
         entry = self.average_entry or 0.0
-        give_back = (self._trail_best - entry) * self.trail_fraction
-        stop = self._trail_best - give_back
-        if float(candle.close) > stop:
-            return False
+        if self.direction == "CE":
+            self._trail_best = max(float(self._trail_best or 0.0), best_of_bar)
+            stop = self._trail_best - (self._trail_best - entry) * self.trail_fraction
+            if float(candle.close) > stop:
+                return False
+        else:
+            self._trail_best = min(float(self._trail_best or best_of_bar), best_of_bar)
+            stop = self._trail_best + (entry - self._trail_best) * self.trail_fraction
+            if float(candle.close) < stop:
+                return False
         self._close(candle, stop, "trail")
         return True
 
