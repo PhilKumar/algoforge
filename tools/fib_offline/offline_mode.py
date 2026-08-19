@@ -188,6 +188,9 @@ def install(app_module: Any) -> None:
 
     app_module.CascadeOptionsAdapter = OfflineAdapter
     app_module._request_broker_context = broker_context
+    # The auto mother resolves a broker PER USER off the request path; offline
+    # it gets the same answer-nothing broker so the chain can run on the cache.
+    app_module._resolve_user_broker_client = lambda _user, allow_admin_fallback=True: (OfflineBroker(), "offline")
     app_module._fib_touch_history_lookup = history_lookup
     app_module._fib_touch_expiry_source = expiry_source
     app_module._candle_entry_pricing = candle_entry_pricing

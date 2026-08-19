@@ -3620,8 +3620,8 @@ function _renderFibBoundaryStatus(payload) {
     if (state) liveGate.classList.add(state);
     liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
   }
-  _renderFibBoundaryRunningTable(campaigns);
   _renderFibBoundaryAuto(payload?.auto);
+  _renderFibBoundaryRunningTable(campaigns);  // after the auto state, so the Start label knows it
 }
 
 // What is running right now, and whether it stands in the way of THIS form. A

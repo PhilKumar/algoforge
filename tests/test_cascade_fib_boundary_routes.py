@@ -1296,3 +1296,254 @@ class PerSymbolPremiumSourceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FibBoundaryAutoMotherTests(unittest.IsolatedAsyncioTestCase):
+    """The auto mother (Phil, 2026-08-19): the 09:15 5m candle is the mother
+    every session; a broken mother is replaced by the breakout candle once it
+    has closed; the day ends at 15:15; tomorrow starts itself. Measured over
+    23 months before it was built (NIFTY CE +1,13,568 / -41,200; SENSEX CE
+    +1,12,244 / -44,662); these tests pin the mechanics, not the money."""
+
+    async def asyncSetUp(self):
+        if TEST_DB.exists():
+            TEST_DB.unlink()
+        app_module.config.DB_PATH = str(TEST_DB)
+        app_module._db_mod.config.DB_PATH = str(TEST_DB)
+        app_module._db_mod._initialized = False
+        app_module._fib_boundary_engines.clear()
+        app_module._fib_boundary_auto.clear()
+        app_module._fib_boundary_auto_loaded.clear()
+        await app_module._db_mod.init_db()
+
+    async def asyncTearDown(self):
+        for runtimes in app_module._fib_boundary_engines.values():
+            for runtime in runtimes.values():
+                if runtime.task:
+                    runtime.task.cancel()
+        app_module._fib_boundary_engines.clear()
+        app_module._fib_boundary_auto.clear()
+        app_module._fib_boundary_auto_loaded.clear()
+
+    # ---- the next-mother arithmetic, pure
+    def test_the_breakout_candle_is_the_next_mother_and_only_moves_forward(self):
+        nm = app_module._fib_auto_breakout_candle
+        IST = app_module.IST
+        m = datetime(2026, 8, 19, 9, 15, tzinfo=IST)
+        # a break at 10:23 lies in the 10:20 bar -> that bar is the new mother
+        self.assertEqual(nm(datetime(2026, 8, 19, 10, 23, tzinfo=IST), m), datetime(2026, 8, 19, 10, 20, tzinfo=IST))
+        # on the grid edge the holder is the bar that opens there
+        self.assertEqual(nm(datetime(2026, 8, 19, 9, 20, tzinfo=IST), m), datetime(2026, 8, 19, 9, 20, tzinfo=IST))
+        # a tick disagreement breaks "inside" the mother's own bar: move forward, never back to the same candle
+        self.assertEqual(nm(datetime(2026, 8, 19, 9, 19, tzinfo=IST), m), datetime(2026, 8, 19, 9, 20, tzinfo=IST))
+        # nothing opens at/after 15:10
+        self.assertIsNone(nm(datetime(2026, 8, 19, 15, 12, tzinfo=IST), m))
+        self.assertEqual(nm(datetime(2026, 8, 19, 15, 9, tzinfo=IST), m), datetime(2026, 8, 19, 15, 5, tzinfo=IST))
+
+    # ---- the route + persistence
+    async def test_enable_persists_and_is_read_back_in_status(self):
+        payload = app_module.FibTouchAutoPayload(symbol="NIFTY", enabled=True, mode="paper", trailing_target=True)
+        out = await app_module.fib_boundary_auto(payload, _DummyRequest())
+        self.assertTrue(out["auto"]["NIFTY"]["enabled"])
+        self.assertEqual(out["auto"]["NIFTY"]["next_mother"], "breakout candle")
+        # a fresh process reads it back from app_state
+        app_module._fib_boundary_auto.clear()
+        app_module._fib_boundary_auto_loaded.clear()
+        status = await app_module.fib_boundary_paper_status(_DummyRequest())
+        self.assertTrue(status["auto"]["NIFTY"]["enabled"])
+        self.assertEqual(status["auto"]["NIFTY"]["first_mother"], "09:15")
+        off = await app_module.fib_boundary_auto(
+            app_module.FibTouchAutoPayload(symbol="NIFTY", enabled=False), _DummyRequest()
+        )
+        self.assertFalse(off["auto"]["NIFTY"]["enabled"])
+
+    async def test_live_mode_is_refused_while_live_execution_is_disabled(self):
+        with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", False):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await app_module.fib_boundary_auto(
+                    app_module.FibTouchAutoPayload(symbol="NIFTY", mode="live"), _DummyRequest()
+                )
+        self.assertEqual(raised.exception.status_code, 503)
+
+    # ---- the step
+    def _setting(self, **over):
+        base = {
+            "enabled": True,
+            "side": "CE",
+            "timeframe": "5m",
+            "capital_cap_inr": 75000.0,
+            "itm_steps": 2,
+            "min_dte": 4,
+            "mode": "paper",
+            "trailing_target": True,
+            "buy_mode": "levels",
+        }
+        base.update(over)
+        return base
+
+    def _user(self):
+        return {"id": 11, "username": "admin"}
+
+    async def _step(self, setting, now, started):
+        """Run one auto step with the ladder start captured instead of executed."""
+
+        async def _fake_start(uid, payload, *, broker_client=None, broker_factory=None):
+            started.append(payload)
+            return {"status": "started"}
+
+        with (
+            patch.object(app_module, "_start_fib_boundary_ladder", _fake_start),
+            patch.object(app_module, "_resolve_user_broker_client", lambda *a, **k: (object(), "user")),
+        ):
+            return await app_module._fib_boundary_auto_step(self._user(), "NIFTY", setting, now=now)
+
+    async def test_it_starts_on_the_0915_bar_at_0920_and_not_before(self):
+        IST = app_module.IST
+        started = []
+        s = self._setting()
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 9, 19, tzinfo=IST), started), "outside-window")
+        self.assertEqual(started, [])
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 9, 20, tzinfo=IST), started), "started")
+        self.assertEqual(len(started), 1)
+        p = started[0]
+        self.assertEqual(p.mother_timestamp, "2026-08-19T09:15:00")
+        self.assertEqual((p.symbol, p.side, p.timeframe, p.mode), ("NIFTY", "CE", "5m", "paper"))
+        self.assertTrue(p.intraday_close, "auto forces intraday")
+        self.assertFalse(p.deep_carry, "auto forces deep carry off")
+        self.assertTrue(p.trailing_target)
+        # the same day is not started twice once the ladder is gone
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 9, 30, tzinfo=IST), started), "day-done")
+        self.assertEqual(len(started), 1)
+
+    async def test_a_day_with_no_0915_bar_is_skipped_after_1000(self):
+        IST = app_module.IST
+        s = self._setting()
+
+        async def _no_bar(uid, payload, *, broker_client=None, broker_factory=None):
+            raise app_module.HTTPException(
+                status_code=400, detail="Dhan has no NIFTY 5m candle opening at 19 Aug 2026 09:15 IST. Check the date."
+            )
+
+        with (
+            patch.object(app_module, "_start_fib_boundary_ladder", _no_bar),
+            patch.object(app_module, "_resolve_user_broker_client", lambda *a, **k: (object(), "user")),
+        ):
+            self.assertEqual(
+                await app_module._fib_boundary_auto_step(
+                    self._user(), "NIFTY", s, now=datetime(2026, 8, 19, 9, 25, tzinfo=IST)
+                ),
+                "no-bar-yet",
+            )
+            self.assertEqual(
+                await app_module._fib_boundary_auto_step(
+                    self._user(), "NIFTY", s, now=datetime(2026, 8, 19, 10, 0, tzinfo=IST)
+                ),
+                "day-skipped",
+            )
+        self.assertEqual(s["skipped_day"], "2026-08-19")
+        started = []
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 10, 30, tzinfo=IST), started), "day-skipped")
+        self.assertEqual(started, [])
+
+    def _ended_runtime(self, status, exit_at, mother=datetime(2026, 8, 19, 9, 15)):
+        from datetime import date as _date
+
+        from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder
+
+        IST = app_module.IST
+        engine = FibTouchLadder(
+            FibTouchConfig(
+                symbol="NIFTY",
+                side="CE",
+                mother_timestamp=mother.replace(tzinfo=IST),
+                lot_size=65,
+                strike_step=50.0,
+                timeframe="5m",
+                entry_timeframe="1m",
+            ),
+            premium_lookup=lambda *a: 200.0,
+            expiry_source=lambda on: [_date(2026, 8, 25)],
+        )
+        engine.status = status
+        engine.exit_reason = "mother_broken_no_buys" if status == "MOTHER_BROKEN" else "intraday_close"
+        engine.exit_timestamp = exit_at.replace(tzinfo=IST)
+        return app_module._CascadeRuntime(
+            engine=engine, adapter=None, broker=None, last_candle_timestamp=exit_at.replace(tzinfo=IST), running=False
+        )
+
+    async def test_a_broken_mother_chains_to_the_breakout_candle_once_it_has_closed(self):
+        IST = app_module.IST
+        s = self._setting(last_day="2026-08-19", _seq=1)
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": self._ended_runtime("MOTHER_BROKEN", datetime(2026, 8, 19, 10, 23))
+        }
+        started = []
+        # 10:24: the breakout candle (10:20) has not closed -> wait
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 10, 24, tzinfo=IST), started), "waiting-for-candle")
+        self.assertEqual(started, [])
+        # 10:25: it has -> start on it
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 10, 25, tzinfo=IST), started), "started")
+        self.assertEqual(started[0].mother_timestamp, "2026-08-19T10:20:00")
+        self.assertEqual(s["_seq"], 2)
+        self.assertEqual(
+            s["log"][-1]["mother"][:16], "2026-08-19T09:15", "the ended campaign is logged before it is replaced"
+        )
+        self.assertEqual(s["log"][-1]["exit_reason"], "mother_broken_no_buys")
+
+    async def test_a_closed_day_does_not_chain_and_a_running_ladder_is_left_alone(self):
+        IST = app_module.IST
+        s = self._setting(last_day="2026-08-19")
+        app_module._fib_boundary_engines[11] = {"NIFTY": self._ended_runtime("CLOSED", datetime(2026, 8, 19, 15, 15))}
+        started = []
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 15, 16, tzinfo=IST), started), "day-done")
+        busy = self._ended_runtime("OPEN", datetime(2026, 8, 19, 11, 0))
+        busy.running = True
+        app_module._fib_boundary_engines[11] = {"NIFTY": busy}
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 11, 5, tzinfo=IST), started), "busy")
+        self.assertEqual(started, [])
+
+    async def test_a_break_too_late_in_the_day_ends_the_chain(self):
+        IST = app_module.IST
+        s = self._setting(last_day="2026-08-19")
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": self._ended_runtime("MOTHER_BROKEN", datetime(2026, 8, 19, 15, 11))
+        }
+        started = []
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 15, 12, tzinfo=IST), started), "day-done")
+        self.assertEqual(started, [])
+
+    async def test_a_stuck_ladder_is_reported_and_never_chained_over(self):
+        IST = app_module.IST
+        s = self._setting(last_day="2026-08-19")
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": self._ended_runtime("EXIT_REFUSED", datetime(2026, 8, 19, 11, 0))
+        }
+        started = []
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 11, 10, tzinfo=IST), started), "stuck")
+        self.assertIn("EXIT_REFUSED", s["alert"])
+        self.assertEqual(started, [])
+
+    async def test_yesterdays_ladder_does_not_block_todays_0915(self):
+        IST = app_module.IST
+        s = self._setting(last_day="2026-08-18")
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": self._ended_runtime("CLOSED", datetime(2026, 8, 18, 15, 15), mother=datetime(2026, 8, 18, 9, 15))
+        }
+        started = []
+        self.assertEqual(await self._step(s, datetime(2026, 8, 19, 9, 20, tzinfo=IST), started), "started")
+        self.assertEqual(started[0].mother_timestamp, "2026-08-19T09:15:00")
+
+    async def test_the_loop_is_not_started_on_a_standby_instance(self):
+        with (
+            patch.object(app_module, "_engine_restore_owner_is_active_instance", lambda: False),
+            patch.object(app_module, "_STARTUP_ENGINE_RESTORE_ENABLED", True),
+            patch.object(app_module, "_SKIP_STARTUP_JOBS", False),
+            patch.object(app_module.config, "AUTO_TOKEN_ENABLED", False),
+            patch.object(app_module, "_STARTUP_SCRIP_MASTER_ENABLED", False),
+            patch.object(app_module, "_STARTUP_TRADE_BACKFILL_ENABLED", False),
+            patch.object(app_module, "_STARTUP_EMPTY_RUN_CLEANUP_ENABLED", False),
+            patch.object(app_module.asyncio, "create_task") as created,
+        ):
+            await app_module._start_token_renewal()
+        names = [str(call.args[0]) for call in created.call_args_list]
+        self.assertFalse(any("_run_fib_boundary_auto_loop" in n for n in names), names)
