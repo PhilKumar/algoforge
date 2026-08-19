@@ -2582,6 +2582,11 @@ class LadderCandleEntryPaper:
         signal_only: bool = False,
         intraday_close: bool = False,
         trail_fraction: float = 0.0,
+        hold_days: Optional[int] = None,
+        stages: Optional[tuple[str, ...]] = None,
+        min_buys_before_exit: int = 1,
+        stop_loss_pct: float = 0.0,
+        min_fall_pct: float = 0.0,
     ) -> None:
         if not adapter.paper_only or contract.option_type != "CE":
             raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
@@ -2595,13 +2600,14 @@ class LadderCandleEntryPaper:
         self.option_premium_lookup = option_premium_lookup
         self.signal_only = bool(signal_only)
         self.intraday_close = bool(intraday_close)
+        self.hold_days = 0 if (intraday_close and hold_days is None) else hold_days
         self.replay_complete = False
         # TWO RUNGS. Phil, 2026-08-19: "Don't climb to the next slower chart
         # after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
         # till 1H." A campaign reads its own chart and the next one up, and
         # stops there: 1m -> 5m, 5m -> 15m, 15m -> 1H, and a 1H start has 1H
         # alone. Lots 1 then 2.
-        self.stages = ladder_from(key, LADDER_DEPTH)
+        self.stages = tuple(stages) if stages else ladder_from(key, LADDER_DEPTH)
 
         def _premium(timestamp: datetime, _strike: int, _option_type: str) -> Optional[float]:
             if self.signal_only:
@@ -2624,6 +2630,10 @@ class LadderCandleEntryPaper:
             # ends where the contract does, and a replay ends on the same bar.
             expiry=contract.expiry,
             intraday_close=self.intraday_close,
+            hold_days=self.hold_days,
+            min_buys_before_exit=min_buys_before_exit,
+            stop_loss_pct=stop_loss_pct,
+            min_fall_pct=min_fall_pct,
             # 0 = the target is the sale. Above 0 the target only ARMS a trail
             # that sells on a close giving back this fraction of the run.
             trail_fraction=trail_fraction,
@@ -2850,6 +2860,7 @@ class LadderCandleEntryPaper:
             "running": ladder.status not in {"CLOSED", "EXPIRED", "KILLED"},
             "status": ladder.status,
             "intraday_close": self.intraday_close,
+            "hold_days": self.hold_days,
             "trail_fraction": ladder.trail_fraction,
             "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
@@ -2990,6 +3001,7 @@ class LadderCandleEntryPaper:
                 "signal_only": self.signal_only,
                 "require_new_low": ladder.require_new_low,
                 "intraday_close": self.intraday_close,
+                "hold_days": self.hold_days,
                 "trail_fraction": ladder.trail_fraction,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
@@ -3105,6 +3117,7 @@ class LadderCandleEntryPaper:
             target_fraction=float(config.get("target_fraction") or 0.25),
             signal_only=bool(config.get("signal_only")),
             intraday_close=bool(config.get("intraday_close")),
+            hold_days=config.get("hold_days"),
             trail_fraction=float(config.get("trail_fraction") or 0.0),
         )
         ladder = engine.ladder

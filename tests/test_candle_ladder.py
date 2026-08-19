@@ -36,10 +36,14 @@ class LadderShapeTests(unittest.TestCase):
     def test_a_one_minute_start_climbs_all_the_way_to_one_hour(self):
         self.assertEqual(ladder_from("1m", 4), ("1m", "5m", "15m", "1h"))
 
-    def test_a_later_start_runs_out_of_chart_rather_than_inventing_one(self):
-        # 15m has only 1h above it. Four lots do not conjure a 4h bar.
-        self.assertEqual(ladder_from("15m", 4), ("15m", "1h"))
-        self.assertEqual(ladder_from("1h", 4), ("1h",))
+    def test_the_chain_runs_1m_to_1w_and_stops_there(self):
+        # Phil, 2026-08-19: three layers from wherever it starts, and a 1H
+        # mother climbs to the daily and the weekly.
+        self.assertEqual(ladder_from("15m", 3), ("15m", "1h", "1d"))
+        self.assertEqual(ladder_from("1h", 3), ("1h", "1d", "1w"))
+        # Nothing above the weekly: a depth of four does not conjure a month.
+        self.assertEqual(ladder_from("1h", 4), ("1h", "1d", "1w"))
+        self.assertEqual(ladder_from("1w", 3), ("1w",))
 
     def test_an_unknown_timeframe_is_refused(self):
         with self.assertRaises(LadderError):

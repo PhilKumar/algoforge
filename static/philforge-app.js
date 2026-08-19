@@ -18258,19 +18258,20 @@ const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 
 // mother; Two Red starts on that chart and climbs to the next one after every
 // buy — so a 1H start has nowhere left to climb and is a single trade.
 const _TB_LADDER = ['1m', '5m', '15m', '1h'];
-const _TB_TF_LABEL = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H' };
+const _TB_TF_LABEL = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H', '1d': '1D', '1w': '1W' };
 
-// The two-red ladder climbs ONE chart and stops (Phil, 2026-08-19), so a
-// starting chart names at most two: 1m → 5m, 5m → 15m, 15m → 1H, 1H alone.
-// Keep in step with LADDER_DEPTH in engine/candle_ladder.py.
+// THREE charts from wherever it starts (Phil, 2026-08-19): 1m → 5m → 15m,
+// 5m → 15m → 1H, 15m → 1H → 1D, 1H → 1D → 1W. Keep in step with LADDER_DEPTH
+// and LADDER_CHAIN in engine/candle_ladder.py.
+const _TB_CHAIN = ['1m', '5m', '15m', '1h', '1d', '1w'];
 function _tbLadderFrom(timeframe) {
-  const start = _TB_LADDER.indexOf(timeframe);
-  return start < 0 ? [] : _TB_LADDER.slice(start, start + 2);
+  const start = _TB_CHAIN.indexOf(timeframe);
+  return start < 0 ? [] : _TB_CHAIN.slice(start, start + 3);
 }
 
 const _TB_STRATEGY_COPY = {
   fib: 'Draws the trendline and fib levels from the mother candle, then buys each deep level the market falls through. The whole basket leaves on the first target, or at expiry.',
-  two_red: 'Waits for two red candles to close — each below the previous red’s close, greens in between do not matter — then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs ONE chart up and waits for two reds again: two rungs, 1 lot then 2. One mother, one trade.',
+  two_red: 'Waits for two red candles to close — each below the previous red’s close, greens in between do not matter — then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs a chart and waits for two reds again: three rungs, 1 lot then 2 then 3. One mother, one trade.',
 };
 
 function _tbRenderTimeframes() {

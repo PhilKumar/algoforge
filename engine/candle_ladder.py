@@ -49,8 +49,15 @@ from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_co
 SESSION_CLOSE_TIME = dt_time(15, 15)
 SESSION_END_TIME = dt_time(15, 30)
 
-# Slowest-last, because that is the direction a campaign climbs.
+# Slowest-last, because that is the direction a campaign climbs. These are the
+# charts a campaign may START on -- the ones the app can fetch and poll.
 LADDER_TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+
+# THE WHOLE CHAIN, including the two slow charts above 1H. Phil, 2026-08-19:
+# "taking the entry on 1m, escalating to 5m and then to 15m -- 3 layers for
+# all. If 1H entry then it goes till 1D and 1W." So a campaign climbs three
+# charts from wherever it starts, and a 1H mother ends on the weekly.
+LADDER_CHAIN: tuple[str, ...] = ("1m", "5m", "15m", "1h", "1d", "1w")
 
 # Minutes per bar, used only to order events by the moment each candle CLOSED.
 #
@@ -70,7 +77,7 @@ DEFAULT_LOTS: tuple[int, ...] = (1, 2, 3, 4)
 # chart after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
 # till 1H." One step up and no further: 1m -> 5m, 5m -> 15m, 15m -> 1H; a 1H
 # start has 1H alone (the chart runs out). Two rungs, 1 lot then 2.
-LADDER_DEPTH = 2
+LADDER_DEPTH = 3
 
 
 class LadderError(ValueError):
@@ -84,12 +91,12 @@ def ladder_from(timeframe: str, depth: int = 4) -> tuple[str, ...]:
     lots were asked for -- the chart runs out before the schedule does.
     """
     key = str(timeframe).strip().lower()
-    if key not in LADDER_TIMEFRAMES:
-        raise LadderError(f"{timeframe!r} is not one of {', '.join(LADDER_TIMEFRAMES)}")
+    if key not in LADDER_CHAIN:
+        raise LadderError(f"{timeframe!r} is not one of {', '.join(LADDER_CHAIN)}")
     if depth < 1:
         raise LadderError("depth must be at least 1")
-    start = LADDER_TIMEFRAMES.index(key)
-    return LADDER_TIMEFRAMES[start : start + depth]
+    start = LADDER_CHAIN.index(key)
+    return LADDER_CHAIN[start : start + depth]
 
 
 @dataclass(frozen=True)
@@ -197,6 +204,10 @@ class TwoRedLadder:
         trail_fraction: float = 0.0,
         expiry: Optional[date] = None,
         intraday_close: bool = False,
+        hold_days: Optional[int] = None,
+        min_buys_before_exit: int = 1,
+        stop_loss_pct: float = 0.0,
+        min_fall_pct: float = 0.0,
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
@@ -220,6 +231,30 @@ class TwoRedLadder:
         # ends as well; it is not carried into tomorrow. Off (the default) the
         # ladder holds to its target or the option's expiry.
         self.intraday_close = bool(intraday_close)
+        # HOW MANY DAYS IT MAY HOLD. Phil asked on 2026-08-19: "how about
+        # holding 1 day?" -- a time stop, counted from the FIRST BUY (from the
+        # mother while nothing is bought). 0 is the intraday rule above: out on
+        # the buy's own day. 1 carries it one night and sells at 15:15 the next
+        # session; a market holiday only pushes that to the next session there
+        # is, which is the safe direction. None holds to the target or expiry.
+        self.hold_days = 0 if (intraday_close and hold_days is None) else hold_days
+        # LET IT CLIMB FIRST. Phil, 2026-08-19: the target is reached so fast
+        # that 93% of campaigns buy once and the ladder never happens. Above 1,
+        # the target is ignored until this many rungs have been bought -- the
+        # basket must be built before it is allowed to take profit. Expiry (and
+        # a time stop) still end it whatever it holds, so this is a delay on
+        # the profit-taking, never a promise to buy more.
+        self.min_buys_before_exit = max(1, int(min_buys_before_exit))
+        # A STOP ON THE PREMIUM. The strategy has none by design, and the whole
+        # measured loss is the handful of baskets that never recover and give
+        # back the entire premium at expiry. Above zero, the basket is sold
+        # when the option is this far below what the basket paid for it,
+        # checked on the close of every bar the ladder reads.
+        self.stop_loss_pct = float(stop_loss_pct)
+        # WAIT FOR A REAL FALL. Phil's cash rule (the 8% gate) is what turned
+        # the equity version: nothing may arm until price is this far below the
+        # mother's high, so a shallow dip is not traded at all.
+        self.min_fall_pct = float(min_fall_pct)
         # HOW BIG A RUNG IS. Left alone, it is the option law: lots x lot size,
         # so rung 3 is three times rung 1 whatever the price did. Phil's cash
         # rule sizes off the FALL instead -- "calculate the percent the market
@@ -296,6 +331,10 @@ class TwoRedLadder:
         # bar to reach it closes everything, whatever timeframe spotted it.
         if self.fills and self._target_reached(candle):
             return
+        # ... and for its stop, if it has been given one.
+        if self.fills and self.exit_timestamp is None and self._stop_loss_hit(candle):
+            self._close(candle, float(candle.close), "stop_loss")
+            return
 
         # The day's last chance to act, checked BEFORE a rung may arm or fill
         # on this bar: a stop reached at 15:14 must not open a position the
@@ -320,6 +359,27 @@ class TwoRedLadder:
 
     def _remember_close(self, candle: LadderCandle) -> None:
         self._last_close[candle.timeframe] = candle.close
+
+    def _fall_gate_open(self, candle: LadderCandle) -> bool:
+        """Has price fallen far enough below the mother's high to trade at all?"""
+        if not self.min_fall_pct:
+            return True
+        return candle.close <= self.mother.high * (1.0 - self.min_fall_pct / 100.0)
+
+    def _stop_loss_hit(self, candle: LadderCandle) -> bool:
+        """Is the basket this far under water at this bar's close?"""
+        if not self.stop_loss_pct or not self.fills:
+            return False
+        priced = [fill for fill in self.fills if fill.option_premium is not None]
+        if len(priced) != len(self.fills):
+            return False
+        quantity = sum(fill.quantity for fill in self.fills)
+        paid = sum(float(fill.option_premium) * fill.quantity for fill in self.fills) / quantity
+        first = self.fills[0]
+        now = self.premium_lookup(closed_at(candle), first.strike, first.option_type)
+        if now is None:
+            return False
+        return float(now) <= paid * (1.0 - self.stop_loss_pct / 100.0)
 
     def _watch_for_reds(self, stage: _Stage, candle: LadderCandle) -> None:
         """Phil's rule, stated by him on 2026-08-19:
@@ -349,6 +409,8 @@ class TwoRedLadder:
         """
         if not candle.is_red:
             return
+        if not self._fall_gate_open(candle):
+            return
         # The gate: a rung above the first only starts counting once the market
         # has actually gone lower than it was when the last rung filled.
         if self.require_new_low and self.gate_low is not None and candle.low >= self.gate_low:
@@ -376,18 +438,25 @@ class TwoRedLadder:
         """Is this bar the day's last chance to act, on a day the ladder must end?"""
         if closed_at(candle).time() < SESSION_CLOSE_TIME:
             return False
-        if self.intraday_close:
+        if self.expiry is not None and candle.timestamp.date() >= self.expiry:
             return True
-        return self.expiry is not None and candle.timestamp.date() >= self.expiry
+        if self.hold_days is None:
+            return False
+        # Counted from the first buy: the position is what is being held. Before
+        # anything is bought the mother's own day starts the clock, so a setup
+        # that never sets up cannot sit forever either.
+        started = self.fills[0].timestamp.date() if self.fills else self.mother.timestamp.date()
+        return candle.timestamp.date() >= started + timedelta(days=int(self.hold_days))
 
     def _end_session(self, candle: LadderCandle) -> None:
         """Sell whatever is open at this bar's close and end the campaign."""
         on_expiry = self.expiry is not None and candle.timestamp.date() >= self.expiry
+        reason = "expiry" if on_expiry else ("intraday_close" if not self.hold_days else "time_stop")
         if not self.fills:
-            self._log(candle, "session_ended_without_a_trade", reason="expiry" if on_expiry else "intraday_close")
+            self._log(candle, "session_ended_without_a_trade", reason=reason)
             self.status = "EXPIRED" if on_expiry else "CLOSED"
             return
-        self._close(candle, float(candle.close), "expiry" if on_expiry else "intraday_close")
+        self._close(candle, float(candle.close), reason)
         if on_expiry:
             self.status = "EXPIRED"
 
@@ -452,6 +521,10 @@ class TwoRedLadder:
     def _target_reached(self, candle: LadderCandle) -> bool:
         target = self.target_index
         if target is None:
+            return False
+        # Not allowed to leave yet -- unless the ladder has run out of charts
+        # to climb, in which case there is nothing left to wait for.
+        if len(self.fills) < self.min_buys_before_exit and self.active < len(self.stages):
             return False
         if not self.trail_fraction:
             if candle.high < target:
