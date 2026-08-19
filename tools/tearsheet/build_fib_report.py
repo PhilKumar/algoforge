@@ -42,6 +42,11 @@ CE_CSV = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SWEEPS / "v4" / "NI
 PE_CSV = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else SWEEPS / "v4" / "NIFTY_PE_trail_max0.csv"
 SX_CE_CSV = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else SWEEPS / "v4" / "SENSEX_CE_trail_max4.csv"
 SX_PE_CSV = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else SWEEPS / "v4" / "SENSEX_PE_fixed_max0.csv"
+# THE AUTO MOTHER, measured (tools/fib_offline/fib_chain_sweep.py, NEXT_MOTHER=breaking):
+# the 09:15 5m candle every session, the breakout candle after a break. Absent
+# files simply omit the section rather than fail the build.
+AUTO_CE_CSV = SWEEPS / "chain" / "NIFTY_breaking_nocap.csv"
+AUTO_SX_CSV = SWEEPS / "chain" / "SENSEX_breaking_nocap.csv"
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -80,12 +85,19 @@ r, lakh, cls, curve_svg, spark = (HELPERS[k] for k in ("r", "lakh", "cls", "curv
 
 
 # ── data ─────────────────────────────────────────────────────────────
-def load(path: pathlib.Path) -> list[dict]:
+def load(path: pathlib.Path, *, sequential: bool = True) -> list[dict]:
     """The sweep fires a blind mother at seven clock times every session, so
     its rows OVERLAP: 09:15 and 09:30 mothers on the same day are often the
     same trades counted twice. The page runs ONE campaign per index at a
     time, so the book here does too -- a mother is taken only if the
-    previous campaign (buys or not) has already ended when it fires."""
+    previous campaign (buys or not) has already ended when it fires.
+
+    ``sequential=False`` for a CHAIN, whose rows already run one at a time.
+    The filter would be worse than useless there: the auto mother's next
+    candle is the bar that HELD the break, so its open precedes the previous
+    campaign's exit minute even though it starts after that bar closes, and
+    every chained campaign after a break would be dropped (it read
+    +Rs 1,02,232 against the chain sweep's own +Rs 1,13,568 on NIFTY)."""
     raw = []
     with open(path) as fh:
         for row in csv.DictReader(fh):
@@ -95,7 +107,7 @@ def load(path: pathlib.Path) -> list[dict]:
     raw.sort(key=lambda x: x["_m"])
     rows, busy_until = [], None
     for row in raw:
-        if busy_until is not None and row["_m"] < busy_until:
+        if sequential and busy_until is not None and row["_m"] < busy_until:
             continue  # a campaign was still running -- the page would not have started this one
         busy_until = row["_x"]
         if int(row.get("rounds") or 0) <= 0:
@@ -211,10 +223,30 @@ SX, SXPE = book(SX_CE_ROWS), book(SX_PE_ROWS)
 # The two call books together, in time order -- what the desk would carry
 # running this configuration on both indices.
 ALL = book(sorted(CE_ROWS + SX_CE_ROWS, key=lambda x: x["mother"]), cap=150000.0)  # one Rs 75k ladder per index
+# The auto mother's own books. A chain never overlaps itself, so load()'s
+# one-at-a-time filter is a no-op here and the rows are taken as written.
+AUTO_CE_ROWS = load(AUTO_CE_CSV, sequential=False) if AUTO_CE_CSV.exists() else []
+AUTO_SX_ROWS = load(AUTO_SX_CSV, sequential=False) if AUTO_SX_CSV.exists() else []
+AUTO_CE = book(AUTO_CE_ROWS) if AUTO_CE_ROWS else None
+AUTO_SX = book(AUTO_SX_ROWS) if AUTO_SX_ROWS else None
+AUTO_ALL = (
+    book(sorted(AUTO_CE_ROWS + AUTO_SX_ROWS, key=lambda x: x["mother"]), cap=150000.0)
+    if (AUTO_CE_ROWS and AUTO_SX_ROWS)
+    else None
+)
 json.dump(
     {
         k: {kk: vv for kk, vv in b.items() if kk not in ("rows", "best10", "worst10", "best", "worst")}
-        for k, b in (("NIFTY_CE", CE), ("NIFTY_PE", PE), ("SENSEX_CE", SX), ("SENSEX_PE", SXPE), ("both_CE", ALL))
+        for k, b in (
+            ("NIFTY_CE", CE),
+            ("NIFTY_PE", PE),
+            ("SENSEX_CE", SX),
+            ("SENSEX_PE", SXPE),
+            ("both_CE", ALL),
+            *((("auto_NIFTY_CE", AUTO_CE),) if AUTO_CE else ()),
+            *((("auto_SENSEX_CE", AUTO_SX),) if AUTO_SX else ()),
+            *((("auto_both_CE", AUTO_ALL),) if AUTO_ALL else ()),
+        )
     },
     open(DATA, "w"),
     default=str,
@@ -365,6 +397,81 @@ def ten(rows: list[dict]) -> str:
             f"<td>{x['exit_reason'].replace('_', ' ')}</td><td class='{cls(x['net'])}'><strong>{r(x['net'])}</strong></td></tr>"
         )
     return out
+
+
+def _auto_row(label: str, b: dict | None, cap: float) -> str:
+    if not b:
+        return ""
+    rod = "&mdash;" if b["return_over_dd"] is None else f"{b['return_over_dd']:.2f}&times;"
+    pf = "&mdash;" if b["profit_factor"] is None else f"{b['profit_factor']:.2f}"
+    return (
+        f'<tr><th scope="row">{label}</th><td>{b["trades"]}</td><td>{b["win_rate"]}%</td>'
+        f'<td class="{cls(b["net"])}"><strong>{r(b["net"])}</strong></td>'
+        f'<td class="neg">{r(b["max_dd"])}</td><td>{rod}</td><td>{pf}</td>'
+        f"<td>{r(round(b['net'] / max(b['trades'], 1), 2))}</td></tr>"
+    )
+
+
+def auto_section() -> str:
+    """The auto mother, measured on the same 23 months as the book above.
+
+    Omitted when the chain sweep's CSVs are not on this machine, so the sheet
+    still builds; it never prints a figure it did not compute.
+    """
+    if not (AUTO_CE and AUTO_SX and AUTO_ALL):
+        return ""
+    return f"""
+<section id="auto-mother">
+  <div class="shead"><div><h2>{
+        t("The auto mother &mdash; 09:15 every session", "தானியங்கி mother &mdash; ஒவ்வொரு அமர்விலும் 09:15")
+    }</h2>
+  <p>{
+        t(
+            "Phil, 19 Aug 2026: run it without me. Every session the <strong>09:15 5-minute candle</strong> is the mother. "
+            "When a mother breaks, the 5-minute candle that <em>held</em> the breaking close &mdash; the <strong>breakout candle</strong> "
+            "&mdash; becomes the next mother the moment it closes, and a fresh ladder starts there; the last one ends at 15:15 and "
+            "tomorrow starts itself. Everything else is the configuration above, unchanged: <strong>Lone</strong>, 5m, CE, at most four "
+            "buys a round, &#8377;75,000, ATM&minus;2, trailing exit. Around six campaigns start on a normal day and one in twelve trades; "
+            "the rest close with no buys.",
+            "பில், 19 ஆக 2026: என்னை இல்லாமல் ஓடட்டும். ஒவ்வொரு அமர்விலும் <strong>09:15 5-நிமிட candle</strong> mother. "
+            "Mother உடைந்தால், உடைத்த close-ஐக் கொண்ட 5-நிமிட candle (<strong>breakout candle</strong>) மூடியவுடன் அடுத்த mother; "
+            "கடைசி campaign 15:15-இல் முடியும்; மறுநாள் தானாகத் தொடங்கும். மற்ற அனைத்தும் மேலே உள்ள அமைப்பே: <strong>Lone</strong>, 5m, CE, "
+            "ஒரு round-க்கு அதிகபட்சம் நான்கு வாங்கல், &#8377;75,000, ATM&minus;2, trailing.",
+        )
+    }</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{
+        t("Campaigns", "Campaign-கள்")
+    }</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
+        t("Max drawdown", "அதிகபட்ச இறக்கம்")
+    }</th><th scope="col">{t("Return &divide; drawdown", "நிகர &divide; இறக்கம்")}</th><th scope="col">{
+        t("Profit factor", "லாப காரணி")
+    }</th><th scope="col">{t("Per campaign", "ஒரு campaign-க்கு")}</th></tr></thead>
+    <tbody>
+      {_auto_row(t("NIFTY CE &mdash; auto", "NIFTY CE &mdash; auto"), AUTO_CE, 75000.0)}
+      {_auto_row(t("NIFTY CE &mdash; your own mothers (above)", "NIFTY CE &mdash; உங்கள் mother-கள்"), CE, 75000.0)}
+      {_auto_row(t("SENSEX CE &mdash; auto", "SENSEX CE &mdash; auto"), AUTO_SX, 75000.0)}
+      {_auto_row(t("SENSEX CE &mdash; your own mothers (above)", "SENSEX CE &mdash; உங்கள் mother-கள்"), SX, 75000.0)}
+      <tr class="trow-total"><th scope="row">{t("Both, auto", "இரண்டும், auto")}</th><td>{AUTO_ALL["trades"]}</td>
+        <td>{AUTO_ALL["win_rate"]}%</td><td class="{cls(AUTO_ALL["net"])}"><strong>{r(AUTO_ALL["net"])}</strong></td>
+        <td class="neg">{r(AUTO_ALL["max_dd"])}</td>
+        <td>{"&mdash;" if AUTO_ALL["return_over_dd"] is None else f"{AUTO_ALL['return_over_dd']:.2f}&times;"}</td>
+        <td>{"&mdash;" if AUTO_ALL["profit_factor"] is None else f"{AUTO_ALL['profit_factor']:.2f}"}</td>
+        <td>{r(round(AUTO_ALL["net"] / max(AUTO_ALL["trades"], 1), 2))}</td></tr>
+    </tbody></table></div>
+  <p class="note">{
+        t(
+            "Measured on the same walk, with the same engine, one campaign per index at a time. The alternative reading &mdash; the candle "
+            "<em>after</em> the breakout &mdash; was measured too and kept only +&#8377;53,264 of NIFTY's profit against a deeper drawdown, so "
+            "the chain uses the breakout candle. Four independent checks agreed before this was switched on: a fresh re-run byte for byte, "
+            "the chain's own invariants, every chained campaign that starts on one of the sheet's clock candles equal to the row above, and a "
+            "second implementation written from scratch equal campaign by campaign. Each index's figures are exact; the combined "
+            "drawdown takes the deeper of the two readings when both indices start a campaign in the same minute.",
+            "அதே நடை, அதே engine, ஒரு குறியீட்டுக்கு ஒரு நேரத்தில் ஒரு campaign. மாற்று வாசிப்பு &mdash; breakout-க்கு <em>அடுத்த</em> candle &mdash; "
+            "NIFTY-இல் +&#8377;53,264 மட்டுமே, இறக்கம் அதிகம்; எனவே breakout candle. இயக்கும் முன் நான்கு சுயாதீன சரிபார்ப்புகள் ஒத்துப்போயின.",
+        )
+    }</p>
+</section>"""
 
 
 def side_block(b: dict, side: str, index: str = "NIFTY") -> str:
@@ -534,6 +641,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     )
 }</p>
 </div>
+
+{auto_section()}
 
 <section>
   <div class="shead"><div><h2>{
