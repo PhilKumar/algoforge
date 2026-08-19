@@ -129,8 +129,8 @@ def pick_expiry(rule: str, expiries: list[date], mother_day: date) -> date | Non
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tf", default="5m")
-    ap.add_argument("--trail", type=float, default=0.0)
-    ap.add_argument("--target", type=float, default=0.25)
+    ap.add_argument("--trail", default="0", help="comma list: 0 = the target is the sale; above 0 it arms a trail")
+    ap.add_argument("--target", default="0.25", help="comma list: how far back toward the mother the target sits")
     ap.add_argument("--expiry", default="weekly4")
     ap.add_argument("--start", default="2024-10-01")
     ap.add_argument("--end", default="")
@@ -233,7 +233,15 @@ def main() -> None:
     # gigabyte, so running a dozen configs as a dozen parallel processes buries
     # the machine in swap (it hung Phil's Mac on 2026-08-19). The data is loaded
     # once here and every configuration walks it in turn.
-    def run_config(stop_pct: float, fall_pct: float, bars: int = 0, pos: float = 0.5, hold: int | None = None) -> dict:
+    def run_config(
+        stop_pct: float,
+        fall_pct: float,
+        bars: int = 0,
+        pos: float = 0.5,
+        hold: int | None = None,
+        target: float = 0.25,
+        trail: float = 0.0,
+    ) -> dict:
         rows_out: list[dict] = []
         free_from: datetime | None = None
         stale_fills[0] = 0
@@ -256,8 +264,8 @@ def main() -> None:
                 contract,
                 _Sink(),
                 premium,
-                target_fraction=args.target,
-                trail_fraction=args.trail,
+                target_fraction=target,
+                trail_fraction=trail,
                 hold_days=hold,
                 min_buys_before_exit=args.min_buys,
                 stop_loss_pct=stop_pct,
@@ -353,8 +361,8 @@ def main() -> None:
             "mother": args.mother,
             "depth": int(args.depth),
             "expiry": args.expiry,
-            "target": args.target,
-            "trail": args.trail,
+            "target": target,
+            "trail": trail,
             "hold": hold,
             "min_buys": args.min_buys,
             "stop": stop_pct,
@@ -380,12 +388,19 @@ def main() -> None:
     windows = [int(x) for x in str(args.bars).split(",") if x != ""]
     positions = [float(x) for x in str(args.pos).split(",") if x != ""]
     holds = [None if x in ("", "none") else int(x) for x in str(args.hold).split(",")] if args.hold != "" else [None]
+    targets = [float(x) for x in str(args.target).split(",") if x != ""]
+    trails = [float(x) for x in str(args.trail).split(",") if x != ""]
     for bars in windows:
         for pos in positions:
             for hold in holds:
-                for fall_pct in falls:
-                    for stop_pct in stops:
-                        print(json.dumps(run_config(stop_pct, fall_pct, bars, pos, hold)), flush=True)
+                for target in targets:
+                    for trail in trails:
+                        for fall_pct in falls:
+                            for stop_pct in stops:
+                                print(
+                                    json.dumps(run_config(stop_pct, fall_pct, bars, pos, hold, target, trail)),
+                                    flush=True,
+                                )
 
 
 if __name__ == "__main__":
