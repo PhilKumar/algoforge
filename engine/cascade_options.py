@@ -2589,6 +2589,8 @@ class LadderCandleEntryPaper:
         min_fall_pct: float = 0.0,
         range_bars: int = 0,
         range_position: float = 0.5,
+        strike_at: str = "mother",
+        strike_offset_points: int = -100,
     ) -> None:
         if not adapter.paper_only or contract.option_type not in ("CE", "PE"):
             raise PaperOnlyViolation("The Candle Entry ladder campaign is paper-only, on a CE or a PE")
@@ -2604,6 +2606,19 @@ class LadderCandleEntryPaper:
         self.intraday_close = bool(intraday_close)
         self.hold_days = 0 if (intraday_close and hold_days is None) else hold_days
         self.replay_complete = False
+        # WHERE THE STRIKE IS CHOSEN. "mother" is the contract handed in, fixed
+        # at the mother's close. "first_buy" re-strikes it the moment the first
+        # rung fills, ATM of THAT index plus `strike_offset_points` (-100 is
+        # two strikes in the money on a call) -- same expiry, same lot. A box
+        # mother is typically days and a hundred-odd points above the first
+        # fill, so the mother's own ATM-2 sat ABOVE the ladder's target on half
+        # the measured campaigns: the call was out of the money at the very
+        # price it was sold at. Choosing at the buy is what a trader does and
+        # it is worth Rs 67k on the 22-month book. The strike is known the
+        # moment it is needed, never earlier.
+        self.strike_at = "first_buy" if str(strike_at).lower() == "first_buy" else "mother"
+        self.strike_offset_points = int(strike_offset_points)
+        self.contract_at_mother = contract
         # TWO RUNGS. Phil, 2026-08-19: "Don't climb to the next slower chart
         # after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
         # till 1H." A campaign reads its own chart and the next one up, and
@@ -2623,7 +2638,7 @@ class LadderCandleEntryPaper:
         self.ladder = TwoRedLadder(
             LadderCandle(key, mother.timestamp, mother.open, mother.high, mother.low, mother.close),
             stages=self.stages,
-            strike_for=lambda _timestamp, _price: (contract.strike, contract.option_type),
+            strike_for=self._strike_for,
             premium_lookup=_premium,
             lot_size=contract.lot_size,
             target_fraction=target_fraction,
@@ -2650,6 +2665,28 @@ class LadderCandleEntryPaper:
         self._seen: dict[str, datetime] = {}
         self._candles_reviewed = 0
         self._latest: Optional[LadderCandle] = None
+
+    def _strike_for(self, _timestamp: datetime, index_price: float) -> tuple[int, str]:
+        """The contract's strike for a rung about to fill.
+
+        Called by the ladder BEFORE it asks for that rung's premium, so a
+        contract re-struck here is the one every later price is read on.
+        Only the FIRST fill may re-strike: one contract for the whole ladder.
+        """
+        if self.strike_at == "first_buy" and not self.ladder.fills:
+            step = 50 if self.contract.underlying.upper() == "NIFTY" else 100
+            atm = int(float(index_price) / step + 0.5) * step
+            strike = atm + self.strike_offset_points
+            if strike != self.contract.strike:
+                self.contract = FixedCampaignOption(
+                    self.contract.underlying,
+                    int(strike),
+                    self.contract.expiry,
+                    self.contract.option_type,
+                    self.contract.lot_size,
+                    "",
+                )
+        return self.contract.strike, self.contract.option_type
 
     # ── passthroughs the routes rely on ──────────────────────
     @property
@@ -2897,6 +2934,7 @@ class LadderCandleEntryPaper:
             # and the line the basket may buy below. None when the gate is off
             # or the window is not yet full.
             "box": self._box_status(),
+            "strike_at": self.strike_at,
             "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
                 "Historical replay verifies NIFTY entry and target geometry only. "
@@ -3048,6 +3086,8 @@ class LadderCandleEntryPaper:
                 "min_fall_pct": ladder.min_fall_pct,
                 "min_buys_before_exit": ladder.min_buys_before_exit,
                 "stop_loss_pct": ladder.stop_loss_pct,
+                "strike_at": self.strike_at,
+                "strike_offset_points": self.strike_offset_points,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
             "contract": {
@@ -3169,6 +3209,10 @@ class LadderCandleEntryPaper:
             min_fall_pct=float(config.get("min_fall_pct") or 0.0),
             range_bars=int(config.get("range_bars") or 0),
             range_position=float(config.get("range_position") or 0.5),
+            strike_at=str(config.get("strike_at") or "mother"),
+            strike_offset_points=int(
+                config.get("strike_offset_points") if config.get("strike_offset_points") is not None else -100
+            ),
         )
         ladder = engine.ladder
         ladder.require_new_low = bool(config.get("require_new_low", True))

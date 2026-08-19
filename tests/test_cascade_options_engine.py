@@ -652,6 +652,53 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         # avg entry (103*65 + 99*130)/195 = 100.33; target a quarter back to 110.
         self.assertAlmostEqual(status["target_index"], 102.75, places=2)
 
+    def test_the_strike_is_chosen_where_the_first_rung_fills(self):
+        """strike_at="first_buy": ATM of the FIRST fill's index plus the offset,
+        same expiry and lot; the premium is read on the new contract from that
+        very fill; the second rung keeps it. The mother's own contract sat
+        above the ladder's target on half the measured campaigns."""
+        adapter = _PaperAdapter()
+        asked = []
+
+        def lookup(_when, contract):
+            asked.append(contract.strike)
+            return 100.0
+
+        mother = IndexCandle(self._minute(9, 15), 24604, 24610, 24604, 24605)
+        at_mother = FixedCampaignOption("NIFTY", 24500, date(2026, 7, 28), "CE", 65, "1")
+        engine = LadderCandleEntryPaper(
+            mother, "1m", at_mother, adapter, lookup, strike_at="first_buy", strike_offset_points=-100
+        )
+        m = self._minute
+        engine.ingest(
+            {
+                "1m": [
+                    IndexCandle(m(9, 16), 24605, 24606, 24604, 24606),
+                    IndexCandle(m(9, 17), 24606, 24606, 24402, 24403),  # red 1
+                    IndexCandle(m(9, 18), 24403, 24403, 24300, 24301),  # red 2 -> stop 24403
+                    IndexCandle(m(9, 19), 24301, 24404, 24300, 24403.5),  # fills at 24403
+                ]
+            }
+        )
+        # ATM of 24403 is 24400; two strikes in = 24300. Not the mother's 24500.
+        self.assertEqual(engine.contract.strike, 24300)
+        self.assertEqual(engine.contract.expiry, date(2026, 7, 28))
+        self.assertEqual(engine.contract.lot_size, 65)
+        self.assertEqual(engine.ladder.fills[0].strike, 24300)
+        self.assertEqual(asked, [24300], "the first premium must be read on the re-struck contract")
+        self.assertEqual(engine.contract_at_mother.strike, 24500)
+        # It survives a restart as the decided contract.
+        restored = LadderCandleEntryPaper.from_dict(engine.to_dict(), adapter=adapter, option_premium_lookup=lookup)
+        self.assertEqual(restored.contract.strike, 24300)
+        self.assertEqual(restored.strike_at, "first_buy")
+
+    def test_strike_at_mother_keeps_the_contract_handed_in(self):
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter)  # default strike_at="mother"
+        engine.ingest(self._two_rung_batches())
+        self.assertEqual(engine.contract.strike, 24800)
+        self.assertEqual(engine.get_status()["strike_at"], "mother")
+
     def test_target_hit_sells_the_whole_basket_together(self):
         adapter = _PaperAdapter()
         engine = self._engine(adapter)

@@ -1886,6 +1886,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setCandleEntryMother',
   'setCandleEntryBox',
   'setCandleEntryMode',
+  'setCandleEntryStrikeAt',
   'setCandleEntryExpiry',
   'setCandleEntryTarget',
   'setCandleEntryExit',
@@ -2637,7 +2638,7 @@ function _syncCandleEntryRecipe() {
   el.textContent = [
     `${tf} start`,
     box ? `mother = the ${bars}-bar high · buys only in the bottom ${pos === '0.5' ? 'half' : 'quarter'} of that box` : 'mother = the candle you name',
-    `CE ATM${itm === 0 ? '' : itm} ${expiry}`,
+    `CE ATM${itm === 0 ? '' : itm} ${(document.getElementById('candle-entry-strike-at')?.value || 'first_buy') === 'first_buy' ? 'at the first buy' : 'at the mother'} · ${expiry}`,
     `${target} target${trailing ? ' → 30% trail' : ', sold'}`,
     session,
     mode,
@@ -2654,12 +2655,15 @@ function _candleEntryPayload() {
     box_bars: Number(document.getElementById('candle-entry-box-bars')?.value || 278),
     box_position: Number(document.getElementById('candle-entry-box-position')?.value || 0.25),
     ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
+    strike_at: document.getElementById('candle-entry-strike-at')?.value || 'first_buy',
     intraday_close: _candleEntryIntradayClose(),
     expiry_rule: document.getElementById('candle-entry-expiry-rule')?.value || 'monthly',
     target_fraction: Number(document.getElementById('candle-entry-target')?.value || 0.25),
     trailing_target: (document.getElementById('candle-entry-exit-mode')?.value || 'fixed') === 'trailing',
   };
 }
+// Where the strike is chosen: at the first buy (a trader's ATM-2) or at the mother.
+function setCandleEntryStrikeAt(_event, button) { _candleEntrySetSwitch('candle-entry-strike-at', 'candle-entry-strike-at-toggle', button?.dataset?.value || 'first_buy'); _syncCandleEntryRecipe(); }
 
 async function startCandleEntryPaper() {
   const payload = { ..._candleEntryPayload(), mode: _candleEntryTradeMode() };
@@ -2772,7 +2776,8 @@ function _renderCandleEntryBacktest(data) {
   const k = data.contract || {};
   if (contract) {
     const boxBit = data.mother_mode === 'box' && data.box ? ` · mother = the ${data.box.bars}-bar high, buys below ${_cascadeNumber(data.box.line_at_mother)} (bottom ${data.box.position === 0.5 ? 'half' : 'quarter'} of ${_cascadeNumber(data.box.low_at_mother)}–${_cascadeNumber(data.box.high_at_mother)})` : '';
-    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')}${boxBit} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
+    const struck = data.strike_at === 'first_buy' ? ' (strike at the first buy)' : ' (strike at the mother)';
+    contract.textContent = `NIFTY ${k.strike || '—'} CE${struck} · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')}${boxBit} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
   }
   const gist = document.getElementById('candle-entry-backtest-gist');
   if (gist) gist.textContent = data.note || '';
@@ -3199,6 +3204,7 @@ window.setCandleEntrySession = setCandleEntrySession;
 window.setCandleEntryMother = setCandleEntryMother;
 window.setCandleEntryBox = setCandleEntryBox;
 window.setCandleEntryMode = setCandleEntryMode;
+window.setCandleEntryStrikeAt = setCandleEntryStrikeAt;
 window.setCandleEntryExpiry = setCandleEntryExpiry;
 window.setCandleEntryTarget = setCandleEntryTarget;
 window.setCandleEntryExit = setCandleEntryExit;

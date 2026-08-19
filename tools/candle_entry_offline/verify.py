@@ -105,9 +105,18 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
     check(mother_row is not None, f"{tag}: mother bar missing")
     if mother_row is None:
         return
-    # 7. contract
-    atm = int(float(mother_row.close) / 50.0 + 0.5) * 50
-    check(contract["strike"] == atm - 100, f"{tag}: strike {contract['strike']} != ATM-2 {atm - 100}")
+    # 7. contract. The strike is ATM-2 of the index WHERE THE FIRST RUNG FILLS
+    # (the page's rule since 2026-08-19); with no fill it is still the
+    # mother's ATM-2, the contract the campaign was opened with.
+    fills = result.get("campaign", {}).get("fills") or []
+    anchor = (
+        float(fills[0]["index_price"]) if fills and result.get("strike_at") == "first_buy" else float(mother_row.close)
+    )
+    atm = int(anchor / 50.0 + 0.5) * 50
+    check(
+        contract["strike"] == atm - 100,
+        f"{tag}: strike {contract['strike']} != ATM-2 {atm - 100} of {'the first fill' if fills else 'the mother'}",
+    )
     check(contract["lot_size"] == int(get_lot_size("NIFTY", mother_ts.date())), f"{tag}: lot size by date")
     expiry = date.fromisoformat(contract["expiry"])
     dte = (expiry - mother_ts.date()).days

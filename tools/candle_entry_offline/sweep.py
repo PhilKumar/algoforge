@@ -168,6 +168,12 @@ def main() -> None:
     ap.add_argument(
         "--shift", type=int, default=0, help="placebo: start the campaign this many bars AFTER the qualifying mother"
     )
+    ap.add_argument(
+        "--strike-at",
+        dest="strike_at",
+        default="first_buy",
+        help="first_buy = ATM of the index where the FIRST rung fills (the page's rule); mother = ATM of the mother's close (the older rule)",
+    )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
@@ -303,38 +309,58 @@ def main() -> None:
                 selling = box is not None and box.ladder.fills and box.ladder.exit_timestamp is not None
                 return max(0.05, raw - slip) if selling else raw + slip
 
-            engine = LadderCandleEntryPaper(
-                mother,
-                tf,
-                contract,
-                _Sink(),
-                slipped,
-                target_fraction=target,
-                trail_fraction=trail,
-                hold_days=hold,
-                min_buys_before_exit=args.min_buys,
-                stop_loss_pct=stop_pct,
-                min_fall_pct=fall_pct,
-                range_bars=bars,
-                range_position=pos,
-            )
-            holder[0] = engine
-            if bars:
-                before = [c for c in series[tf] if c.timestamp <= mother.timestamp][-bars:]
-                engine.ladder.prime_range(
-                    [LadderCandle(tf, c.timestamp, c.open, c.high, c.low, c.close) for c in before]
-                )
             window_end = min(expiry, data_end)
             batches = {
                 k: [c for c in rows if mother.timestamp.date() <= c.timestamp.date() <= window_end]
                 for k, rows in by_tf_index.items()
             }
-            engine.ingest(batches)
-            engine.settle_past_expiry(
-                datetime.combine(window_end, dt_time(15, 31), tzinfo=IST)
-                if window_end >= expiry
-                else datetime.combine(window_end, dt_time(0, 0), tzinfo=IST)
-            )
+
+            def run_with(contract_):
+                engine_ = LadderCandleEntryPaper(
+                    mother,
+                    tf,
+                    contract_,
+                    _Sink(),
+                    slipped,
+                    target_fraction=target,
+                    trail_fraction=trail,
+                    hold_days=hold,
+                    min_buys_before_exit=args.min_buys,
+                    stop_loss_pct=stop_pct,
+                    min_fall_pct=fall_pct,
+                    range_bars=bars,
+                    range_position=pos,
+                )
+                holder[0] = engine_
+                if bars:
+                    before = [c for c in series[tf] if c.timestamp <= mother.timestamp][-bars:]
+                    engine_.ladder.prime_range(
+                        [LadderCandle(tf, c.timestamp, c.open, c.high, c.low, c.close) for c in before]
+                    )
+                engine_.ingest(batches)
+                engine_.settle_past_expiry(
+                    datetime.combine(window_end, dt_time(15, 31), tzinfo=IST)
+                    if window_end >= expiry
+                    else datetime.combine(window_end, dt_time(0, 0), tzinfo=IST)
+                )
+                return engine_
+
+            engine = run_with(contract)
+            if args.strike_at == "first_buy" and engine.ladder.fills:
+                # THE STRIKE WHERE THE TRADER ACTUALLY BUYS. The page fixes the
+                # contract at the mother, but a box mother is typically days and
+                # a few hundred points above the first fill, so ATM-2 OF THE
+                # MOTHER can sit ABOVE the ladder's own target -- the call is out
+                # of the money at the very price it is sold at. Here the strike
+                # is re-chosen from the first fill's index and the campaign is
+                # replayed; the geometry does not read the strike, so the fills
+                # and the exit are the same bars, only the premiums change.
+                first_index = float(engine.ladder.fills[0].index_price)
+                atm_buy = int(first_index / 50.0 + 0.5) * 50
+                strike_buy = atm_buy + args.strike_offset if side == "CE" else atm_buy - args.strike_offset
+                if strike_buy != contract.strike:
+                    contract = FixedCampaignOption("NIFTY", strike_buy, expiry, side, contract.lot_size, "")
+                    engine = run_with(contract)
             st = engine.get_status()
             ended_at = datetime.fromisoformat(st["exit"]["timestamp"]) if st["exit"] else None
             if st["status"] in {"CLOSED", "EXPIRED"}:
@@ -405,6 +431,7 @@ def main() -> None:
             "tf": tf,
             "side": side,
             "mother": args.mother,
+            "strike_at": args.strike_at,
             "slip": slip,
             "depth": int(args.depth),
             "expiry": args.expiry,

@@ -4016,6 +4016,12 @@ class CandleEntryPaperStartPayload(BaseModel):
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+    # WHERE THE STRIKE IS CHOSEN: "first_buy" (ATM of the index where the
+    # first rung fills, plus the offset -- a trader's ATM-2) or "mother" (ATM
+    # of the mother's close, the older rule). Measured 2026-08-19: the
+    # mother's ATM-2 sat above the ladder's own target on half the box-mother
+    # campaigns; choosing at the buy is worth Rs 67k on the 22-month book.
+    strike_at: str = "first_buy"
     intraday_close: bool = False
     # Which contract: "monthly" (15-45 DTE, else the closest -- the rule the
     # ladder ran on) or "weekly4" (the first weekly expiry at least 4 days
@@ -4045,6 +4051,7 @@ class CandleEntryBacktestPayload(BaseModel):
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
+    strike_at: str = "first_buy"
     intraday_close: bool = False
     expiry_rule: str = "monthly"
     target_fraction: float = Field(default=0.25, gt=0, le=1)
@@ -4057,6 +4064,14 @@ class CandleEntryBacktestPayload(BaseModel):
 _CANDLE_ENTRY_TRAIL_FRACTION = 0.3
 _CANDLE_ENTRY_EXPIRY_RULES = ("monthly", "weekly4")
 _CANDLE_ENTRY_MOTHER_MODES = ("manual", "box")
+_CANDLE_ENTRY_STRIKE_AT = ("first_buy", "mother")
+
+
+def _candle_entry_strike_at(value: str) -> str:
+    mode = str(value or "first_buy").strip().lower()
+    if mode not in _CANDLE_ENTRY_STRIKE_AT:
+        raise HTTPException(status_code=400, detail=f"strike_at must be one of {', '.join(_CANDLE_ENTRY_STRIKE_AT)}.")
+    return mode
 
 
 class FibBoundaryPaperStartPayload(BaseModel):
@@ -10766,6 +10781,8 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
         trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
         range_bars=int(payload.box_bars) if mother_mode == "box" else 0,
         range_position=float(payload.box_position),
+        strike_at=_candle_entry_strike_at(payload.strike_at),
+        strike_offset_points=int(payload.ce_offset_steps) * 50,
     )
     if box_window:
         engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
@@ -10886,6 +10903,8 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
             range_bars=int(payload.box_bars) if mother_mode == "box" else 0,
             range_position=float(payload.box_position),
+            strike_at=_candle_entry_strike_at(payload.strike_at),
+            strike_offset_points=int(payload.ce_offset_steps) * 50,
         )
         if box_window:
             engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
@@ -10924,6 +10943,11 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         "lot_size": contract.lot_size,
         "mother_mode": mother_mode,
         "box": _candle_entry_box_payload(engine, mother_mode, box_window),
+        "strike_at": engine.strike_at,
+        "contract_at_mother": {
+            "strike": engine.contract_at_mother.strike,
+            "expiry": engine.contract_at_mother.expiry.isoformat(),
+        },
         "intraday_close": bool(payload.intraday_close),
         "expiry_rule": str(payload.expiry_rule),
         "target_fraction": float(payload.target_fraction),
@@ -10949,8 +10973,13 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             f"NIFTY CE two-red ladder from a {timeframe} mother"
             + (f" (the {payload.box_bars}-bar high, found)" if mother_mode == "box" else "")
             + f", climbing {' → '.join(engine.stages)}. "
-            f"Same engine the Start button trades; every price is a recorded option trade at the bar's close, "
-            f"and a minute nothing printed is a listed gap, never a fabricated zero."
+            + (
+                "Strike chosen at the first buy. "
+                if engine.strike_at == "first_buy"
+                else "Strike fixed at the mother. "
+            )
+            + "Same engine the Start button trades; every price is a recorded option trade at the bar's close, "
+            "and a minute nothing printed is a listed gap, never a fabricated zero."
             if history is not None
             else "No recorded option history was reachable, so this replay is geometry only — no prices, no P&L."
         ),

@@ -137,6 +137,7 @@ class PayloadIdentityTests(unittest.TestCase):
                 "box_bars",
                 "box_position",
                 "ce_offset_steps",
+                "strike_at",
                 "intraday_close",
                 "expiry_rule",
                 "target_fraction",
@@ -151,6 +152,11 @@ class PayloadIdentityTests(unittest.TestCase):
         self.assertEqual(payload.box_bars, 278)
         self.assertEqual(payload.box_position, 0.25)
         self.assertEqual(payload.mother_mode, "manual")
+        # The strike is chosen where the first rung fills -- the mother's own
+        # ATM-2 sat above the target on half the measured campaigns.
+        self.assertEqual(payload.strike_at, "first_buy")
+        with self.assertRaises(app_module.HTTPException):
+            app_module._candle_entry_strike_at("second_buy")
 
     def test_live_is_refused_behind_the_same_gate_as_fib_boundary(self):
         with self.assertRaises(app_module.HTTPException) as caught:
