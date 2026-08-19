@@ -69,10 +69,20 @@ def load(tf: str) -> list[IndexCandle]:
         data = json.load(open(path))
         for row in data if isinstance(data, list) else data.get("candles") or data.get("data") or []:
             rows[row[0]] = row
+    kept = [rows[stamp] for stamp in sorted(rows) if "09:15:00" <= rows[stamp][0][11:19] < "15:30:00"]
+    # NO MUHURAT. Diwali's session is an hour of ceremonial trade that opens in
+    # the afternoon -- 2025-10-21 ran 13:45 to 14:45, twelve 5m bars. Its
+    # candles are as real as any other and that is the problem: they shift the
+    # 278-bar box by half a day, and two reds inside a token session are not
+    # the pattern this rule is about. A session is a session when it starts at
+    # 09:15, which is true of every regular day and of no muhurat.
+    opens: dict[str, str] = {}
+    for r in kept:
+        day = r[0][:10]
+        opens[day] = min(opens.get(day, "99:99:99"), r[0][11:19])
     out = []
-    for stamp in sorted(rows):
-        r = rows[stamp]
-        if not ("09:15:00" <= r[0][11:19] < "15:30:00"):
+    for r in kept:
+        if opens[r[0][:10]] != "09:15:00":
             continue
         out.append(
             IndexCandle(
