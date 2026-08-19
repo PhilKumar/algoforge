@@ -152,9 +152,10 @@ class PayloadIdentityTests(unittest.TestCase):
         self.assertEqual(payload.box_bars, 278)
         self.assertEqual(payload.box_position, 0.25)
         self.assertEqual(payload.mother_mode, "manual")
-        # The strike is chosen where the first rung fills -- the mother's own
-        # ATM-2 sat above the target on half the measured campaigns.
-        self.assertEqual(payload.strike_at, "first_buy")
+        # Every rung takes ATM-2 of its own fill (Phil, 2026-08-19) -- the
+        # mother's own ATM-2 sat above the target on half the campaigns.
+        self.assertEqual(payload.strike_at, "each_buy")
+        self.assertEqual(app_module._candle_entry_strike_at("first_buy"), "first_buy")
         with self.assertRaises(app_module.HTTPException):
             app_module._candle_entry_strike_at("second_buy")
 

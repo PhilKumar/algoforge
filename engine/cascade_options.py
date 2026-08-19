@@ -2616,9 +2616,11 @@ class LadderCandleEntryPaper:
         # price it was sold at. Choosing at the buy is what a trader does and
         # it is worth Rs 67k on the 22-month book. The strike is known the
         # moment it is needed, never earlier.
-        self.strike_at = "first_buy" if str(strike_at).lower() == "first_buy" else "mother"
+        mode = str(strike_at).lower()
+        self.strike_at = mode if mode in ("first_buy", "each_buy") else "mother"
         self.strike_offset_points = int(strike_offset_points)
         self.contract_at_mother = contract
+        self._contracts: dict[tuple[int, str], FixedCampaignOption] = {}
         # TWO RUNGS. Phil, 2026-08-19: "Don't climb to the next slower chart
         # after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
         # till 1H." A campaign reads its own chart and the next one up, and
@@ -2626,10 +2628,13 @@ class LadderCandleEntryPaper:
         # alone. Lots 1 then 2.
         self.stages = tuple(stages) if stages else ladder_from(key, LADDER_DEPTH)
 
-        def _premium(timestamp: datetime, _strike: int, _option_type: str) -> Optional[float]:
+        def _premium(timestamp: datetime, strike: int, option_type: str) -> Optional[float]:
             if self.signal_only:
                 return None
-            value = self.option_premium_lookup(timestamp, self.contract)
+            # Priced on the contract the ladder ASKED for. With one strike that
+            # is `self.contract`; with a strike chosen at every buy the basket
+            # holds up to three, and each leg (and its sale) is read on its own.
+            value = self.option_premium_lookup(timestamp, self.contract_for(int(strike), str(option_type)))
             try:
                 return float(value) if value is not None and float(value) > 0 else None
             except (TypeError, ValueError):
@@ -2666,27 +2671,55 @@ class LadderCandleEntryPaper:
         self._candles_reviewed = 0
         self._latest: Optional[LadderCandle] = None
 
+    def contract_for(self, strike: int, option_type: str) -> FixedCampaignOption:
+        """The campaign's contract at this strike: the one it holds if it
+        matches, else the same expiry, type and lot at the strike asked for."""
+        if int(strike) == self.contract.strike and str(option_type) == self.contract.option_type:
+            return self.contract
+        cached = self._contracts.get((int(strike), str(option_type)))
+        if cached is None:
+            cached = FixedCampaignOption(
+                self.contract.underlying,
+                int(strike),
+                self.contract.expiry,
+                str(option_type),
+                self.contract.lot_size,
+                "",
+            )
+            self._contracts[(int(strike), str(option_type))] = cached
+        return cached
+
     def _strike_for(self, _timestamp: datetime, index_price: float) -> tuple[int, str]:
         """The contract's strike for a rung about to fill.
 
         Called by the ladder BEFORE it asks for that rung's premium, so a
-        contract re-struck here is the one every later price is read on.
-        Only the FIRST fill may re-strike: one contract for the whole ladder.
+        contract struck here is the one that rung's price is read on.
+        "first_buy": only the first fill may re-strike, one contract for the
+        whole ladder. "each_buy" (Phil, 2026-08-19: "for the second buy and
+        3rd buy also we need to select the current strike price"): every rung
+        takes ATM of its own fill plus the offset, and the basket may hold up
+        to three contracts, each sold at its own price at the exit.
         """
-        if self.strike_at == "first_buy" and not self.ladder.fills:
-            step = 50 if self.contract.underlying.upper() == "NIFTY" else 100
-            atm = int(float(index_price) / step + 0.5) * step
-            strike = atm + self.strike_offset_points
+        if self.strike_at == "mother":
+            return self.contract.strike, self.contract.option_type
+        if self.strike_at == "first_buy" and self.ladder.fills:
+            return self.contract.strike, self.contract.option_type
+        step = 50 if self.contract.underlying.upper() == "NIFTY" else 100
+        atm = int(float(index_price) / step + 0.5) * step
+        strike = int(atm + self.strike_offset_points)
+        if not self.ladder.fills:
+            # The first fill decides the campaign's headline contract.
             if strike != self.contract.strike:
                 self.contract = FixedCampaignOption(
                     self.contract.underlying,
-                    int(strike),
+                    strike,
                     self.contract.expiry,
                     self.contract.option_type,
                     self.contract.lot_size,
                     "",
                 )
-        return self.contract.strike, self.contract.option_type
+            return self.contract.strike, self.contract.option_type
+        return self.contract_for(strike, self.contract.option_type).strike, self.contract.option_type
 
     # ── passthroughs the routes rely on ──────────────────────
     @property
@@ -2777,9 +2810,7 @@ class LadderCandleEntryPaper:
         had_open_basket = bool(self.ladder.fills)
         self.ladder.close_at_expiry(last, last.close)
         if not self.signal_only and had_open_basket and self.ladder.exit_premium is not None:
-            quantity = sum(fill.quantity for fill in self.ladder.fills)
-            if quantity:
-                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+            self._sell_every_contract()
         return True
 
     # ── candle intake ─────────────────────────────────────────
@@ -2817,11 +2848,21 @@ class LadderCandleEntryPaper:
         # adapter is paper-locked; these orders exist so the blotter tells the
         # same story as the campaign.
         for fill in self.ladder.fills[fills_before:]:
-            self.adapter.place_order(self.contract, side="BUY", quantity=fill.quantity)
+            self.adapter.place_order(
+                self.contract_for(fill.strike, fill.option_type), side="BUY", quantity=fill.quantity
+            )
         if was_open and self.ladder.exit_timestamp is not None and self.ladder.exit_premium is not None:
-            quantity = sum(fill.quantity for fill in self.ladder.fills)
+            self._sell_every_contract()
+
+    def _sell_every_contract(self) -> None:
+        """Mirror the exit on the paper blotter: one SELL per contract held."""
+        by_contract: dict[tuple[int, str], int] = {}
+        for fill in self.ladder.fills:
+            key = (fill.strike, fill.option_type)
+            by_contract[key] = by_contract.get(key, 0) + fill.quantity
+        for (strike, option_type), quantity in by_contract.items():
             if quantity:
-                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+                self.adapter.place_order(self.contract_for(strike, option_type), side="SELL", quantity=quantity)
 
     def kill_and_close(self, candle: IndexCandle) -> bool:
         """Stop the campaign at the given index price.  Always succeeds."""
@@ -2829,9 +2870,7 @@ class LadderCandleEntryPaper:
         row = LadderCandle(self.timeframe, candle.timestamp, candle.open, candle.high, candle.low, candle.close)
         self.ladder.kill(row, candle.close)
         if not self.signal_only and had_open_basket and self.ladder.exit_premium is not None:
-            quantity = sum(fill.quantity for fill in self.ladder.fills)
-            if quantity:
-                self.adapter.place_order(self.contract, side="SELL", quantity=quantity)
+            self._sell_every_contract()
         return True
 
     # ── reporting ─────────────────────────────────────────────
@@ -2974,6 +3013,8 @@ class LadderCandleEntryPaper:
                     "priced_at": ladder.exit_priced_at.isoformat() if ladder.exit_priced_at is not None else None,
                     "index_price": ladder.exit_index_price,
                     "option_premium": ladder.exit_premium,
+                    # Per contract, when the basket held more than one strike.
+                    "premiums": dict(getattr(ladder, "exit_premiums", {}) or {}),
                     "reason": ladder.exit_reason,
                 }
                 if ladder.exit_timestamp is not None
@@ -3112,6 +3153,7 @@ class LadderCandleEntryPaper:
                 "exit_priced_at": ladder.exit_priced_at.isoformat() if ladder.exit_priced_at else None,
                 "exit_index_price": ladder.exit_index_price,
                 "exit_premium": ladder.exit_premium,
+                "exit_premiums": dict(getattr(ladder, "exit_premiums", {}) or {}),
                 "exit_reason": ladder.exit_reason,
                 "gross_pnl": ladder.gross_pnl,
                 "costs": NiftyOptionsPaperCascade._costs_to_dict(ladder.costs) if ladder.costs else None,
@@ -3252,6 +3294,7 @@ class LadderCandleEntryPaper:
         ladder.exit_priced_at = moment(raw_ladder["exit_priced_at"]) if raw_ladder.get("exit_priced_at") else None
         ladder.exit_index_price = raw_ladder.get("exit_index_price")
         ladder.exit_premium = raw_ladder.get("exit_premium")
+        ladder.exit_premiums = dict(raw_ladder.get("exit_premiums") or {})
         ladder.exit_reason = raw_ladder.get("exit_reason")
         ladder.gross_pnl = raw_ladder.get("gross_pnl")
         ladder.costs = (

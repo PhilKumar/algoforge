@@ -206,8 +206,14 @@ def main() -> None:
         buys = []
         last_fill_ts = None
         for leg in legs:
+            # A leg carries its own strike when the rule picks one per buy.
+            leg_contract = (
+                FixedCampaignOption("NIFTY", int(leg["strike"]), expiry, side, int(row["lot"]), "")
+                if leg.get("strike") is not None
+                else contract
+            )
             priced_at = datetime.fromisoformat(leg["priced_at"]).replace(tzinfo=None)
-            found = src.lookup(priced_at, contract)
+            found = src.lookup(priced_at, leg_contract)
             if found is None:  # the documented fallback: forward 15, back 30, same day
                 for delta in [timedelta(minutes=m) for m in range(1, 16)] + [
                     timedelta(minutes=-m) for m in range(1, 31)
@@ -215,7 +221,7 @@ def main() -> None:
                     probe = priced_at + delta
                     if probe.date() != priced_at.date() or not (dt_time(9, 15) <= probe.time() <= dt_time(15, 30)):
                         continue
-                    if src.lookup(probe, contract) == leg["premium"]:
+                    if src.lookup(probe, leg_contract) == leg["premium"]:
                         found = leg["premium"]
                         break
             check(
@@ -227,7 +233,9 @@ def main() -> None:
             check("no_peeking", fill_ts > mother_ts, f"{mother_ts}: a leg at {fill_ts} is not after the mother")
             last_fill_ts = fill_ts if last_fill_ts is None else max(last_fill_ts, fill_ts)
             if leg["premium"] is not None:
-                buys.append(OptionCostFill(float(leg["premium"]), int(leg["qty"]), 1))
+                buys.append(
+                    (int(leg.get("strike") or row["strike"]), OptionCostFill(float(leg["premium"]), int(leg["qty"]), 1))
+                )
 
         if exit_detail.get("timestamp"):
             check(
@@ -243,18 +251,29 @@ def main() -> None:
                 )
 
         if buys and len(buys) == len(legs) and exit_detail.get("option_premium") and row["net"]:
-            costs = calculate_nifty_option_basket_round_costs(
-                buys=buys,
-                sell_price=float(exit_detail["option_premium"]),
-                sell_lots=sum(int(leg["qty"]) for leg in legs) // int(row["lot"]),
-                sell_quantity=sum(int(leg["qty"]) for leg in legs),
-            )
-            paid = sum(float(leg["premium"]) * int(leg["qty"]) for leg in legs)
-            got = float(exit_detail["option_premium"]) * sum(int(leg["qty"]) for leg in legs)
-            net = got - paid - costs.total
+            # Each contract is sold at ITS OWN recorded price at the exit minute
+            # and charged on its own; the engine's per-contract sells are in
+            # exit_detail["premiums"] and are re-read from the archive here.
+            exit_at = datetime.fromisoformat(exit_detail["priced_at"]).replace(tzinfo=None)
+            net = 0.0
+            ok = True
+            for strike in sorted({k for k, _ in buys}):
+                group = [f for k, f in buys if k == strike]
+                sell = src.lookup(exit_at, FixedCampaignOption("NIFTY", strike, expiry, side, int(row["lot"]), ""))
+                if sell is None:
+                    reported = (exit_detail.get("premiums") or {}).get(f"{strike}{side}")
+                    sell = float(reported) if reported is not None else None
+                if sell is None:
+                    ok = False
+                    break
+                qty = sum(f.quantity for f in group)
+                costs = calculate_nifty_option_basket_round_costs(
+                    buys=group, sell_price=float(sell), sell_lots=qty // int(row["lot"]), sell_quantity=qty
+                )
+                net += float(sell) * qty - sum(f.price * f.quantity for f in group) - costs.total
             check(
                 "money",
-                abs(net - float(row["net"])) < 0.51,
+                (not ok) or abs(net - float(row["net"])) < 0.51,
                 f"{mother_ts}: recomputed net {net:.2f} vs reported {row['net']}",
             )
 

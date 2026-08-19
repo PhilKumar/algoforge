@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any, Callable, Optional
 
-from cascade_costs import OptionCostFill, calculate_nifty_option_basket_round_costs
+from cascade_costs import OptionCostFill, OptionRoundCosts, calculate_nifty_option_basket_round_costs
 
 # The last minute a position is sold on a day it must be flat: the 15:15 IST
 # bar closes at 15:30 on every chart, and the closing auction starts at 15:40,
@@ -78,6 +78,26 @@ DEFAULT_LOTS: tuple[int, ...] = (1, 2, 3, 4)
 # till 1H." One step up and no further: 1m -> 5m, 5m -> 15m, 15m -> 1H; a 1H
 # start has 1H alone (the chart runs out). Two rungs, 1 lot then 2.
 LADDER_DEPTH = 3
+
+
+def _sum_costs(parts: list[OptionRoundCosts]) -> OptionRoundCosts:
+    """The charges of several contracts' round trips, as one schedule.
+
+    Brokerage is per order so it is simply added; every other line is a rate
+    on turnover and adds too. One part returns itself unchanged.
+    """
+    if len(parts) == 1:
+        return parts[0]
+    return OptionRoundCosts(
+        buy_turnover=round(sum(p.buy_turnover for p in parts), 2),
+        sell_turnover=round(sum(p.sell_turnover for p in parts), 2),
+        brokerage=round(sum(p.brokerage for p in parts), 2),
+        stt=round(sum(p.stt for p in parts), 2),
+        exchange_transaction=round(sum(p.exchange_transaction for p in parts), 2),
+        sebi=round(sum(p.sebi for p in parts), 2),
+        stamp=round(sum(p.stamp for p in parts), 2),
+        gst=round(sum(p.gst for p in parts), 2),
+    )
 
 
 class LadderError(ValueError):
@@ -312,6 +332,8 @@ class TwoRedLadder:
         self.exit_priced_at: Optional[datetime] = None
         self.exit_index_price: Optional[float] = None
         self.exit_premium: Optional[float] = None
+        # Per contract, when the basket holds more than one strike.
+        self.exit_premiums: dict[str, Optional[float]] = {}
         self.exit_reason: Optional[str] = None
         self.gross_pnl: Optional[float] = None
         self.costs: Any = None
@@ -727,30 +749,42 @@ class TwoRedLadder:
         self.exit_index_price = float(index_price)
         self.exit_reason = reason
         priced = [fill for fill in self.fills if fill.option_premium is not None]
-        first = self.fills[0]
         # AND PRICED THERE TOO -- the sale is read at the same instant it is
         # stamped, which is when a paper campaign actually sells.
         self.exit_priced_at = priced_at or closed_at(candle)
-        sell = self.premium_lookup(self.exit_priced_at, first.strike, first.option_type)
-        self.exit_premium = sell
-        if sell is None or len(priced) != len(self.fills):
+        # EACH CONTRACT IS SOLD AT ITS OWN PRICE. One strike for the whole
+        # ladder is the common case and this reduces to it exactly; with the
+        # strike chosen at every buy (Phil, 2026-08-19) the basket holds up to
+        # three contracts, each priced and charged on its own and summed.
+        groups: dict[tuple[int, str], list[LadderFill]] = {}
+        for fill in self.fills:
+            groups.setdefault((fill.strike, fill.option_type), []).append(fill)
+        sells = {key: self.premium_lookup(self.exit_priced_at, key[0], key[1]) for key in groups}
+        first_key = (self.fills[0].strike, self.fills[0].option_type)
+        self.exit_premium = sells[first_key]
+        self.exit_premiums = {f"{key[0]}{key[1]}": value for key, value in sells.items()}
+        if any(value is None for value in sells.values()) or len(priced) != len(self.fills):
             # An unpriced leg makes the whole basket's P&L a guess. Report the
             # exit and leave the money blank rather than quietly costing the
             # trade as though the missing leg were free.
             self.status = "CLOSED"
             self._log(candle, "closed_unpriced", reason=reason)
             return
-        quantity = sum(fill.quantity for fill in self.fills)
-        lots = sum(fill.lots for fill in self.fills)
-        self.costs = calculate_nifty_option_basket_round_costs(
-            buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in self.fills],
-            sell_price=float(sell),
-            sell_quantity=quantity,
-            sell_lots=lots,
-        )
-        self.gross_pnl = round(
-            sum((float(sell) - float(fill.option_premium)) * fill.quantity for fill in self.fills), 2
-        )
+        gross = 0.0
+        parts = []
+        for key, fills in groups.items():
+            sell = float(sells[key])
+            parts.append(
+                calculate_nifty_option_basket_round_costs(
+                    buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in fills],
+                    sell_price=sell,
+                    sell_quantity=sum(fill.quantity for fill in fills),
+                    sell_lots=sum(fill.lots for fill in fills),
+                )
+            )
+            gross += sum((sell - float(fill.option_premium)) * fill.quantity for fill in fills)
+        self.costs = _sum_costs(parts)
+        self.gross_pnl = round(gross, 2)
         self.net_pnl = round(self.gross_pnl - self.costs.total, 2)
         self.status = "CLOSED"
         self._log(candle, "closed", reason=reason, net_pnl=self.net_pnl)

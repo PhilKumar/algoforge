@@ -692,6 +692,59 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         self.assertEqual(restored.contract.strike, 24300)
         self.assertEqual(restored.strike_at, "first_buy")
 
+    def test_each_buy_picks_its_own_strike_and_each_is_sold_at_its_own_price(self):
+        """strike_at="each_buy": rung 1 and rung 2 fill hundreds of points apart,
+        so each takes ATM-2 of its own index; at the exit each contract is read
+        at its own premium and charged on its own, and the paper blotter sells
+        one order per contract."""
+        adapter = _PaperAdapter()
+        quotes = {24300: 120.0, 24100: 90.0}  # premiums by strike, flat in time
+        asked = []
+
+        def lookup(_when, contract):
+            asked.append(contract.strike)
+            return quotes[contract.strike]
+
+        mother = IndexCandle(self._minute(9, 15), 24604, 24610, 24604, 24605)
+        at_mother = FixedCampaignOption("NIFTY", 24500, date(2026, 7, 28), "CE", 65, "1")
+        engine = LadderCandleEntryPaper(
+            mother, "1m", at_mother, adapter, lookup, strike_at="each_buy", strike_offset_points=-100
+        )
+        m = self._minute
+        engine.ingest(
+            {
+                "1m": [
+                    IndexCandle(m(9, 16), 24605, 24606, 24604, 24606),
+                    IndexCandle(m(9, 17), 24606, 24606, 24402, 24403),  # red 1
+                    IndexCandle(m(9, 18), 24403, 24403, 24300, 24301),  # red 2 -> stop 24403
+                    IndexCandle(m(9, 19), 24301, 24404, 24300, 24403.5),  # rung 1 fills at 24403 -> strike 24300
+                ],
+                "5m": [
+                    IndexCandle(m(9, 20), 24403, 24404, 24300, 24350),
+                    IndexCandle(m(9, 25), 24350, 24350, 24200, 24203),  # red 1, new low
+                    IndexCandle(m(9, 30), 24203, 24203, 24100, 24101),  # red 2 -> stop 24203
+                    IndexCandle(m(9, 35), 24101, 24204, 24100, 24203.5),  # rung 2 fills at 24203 -> strike 24100
+                ],
+            }
+        )
+        self.assertEqual([f.strike for f in engine.ladder.fills], [24300, 24100])
+        self.assertEqual([o.quantity for o in adapter.orders], [65, 130])
+        self.assertEqual(engine.contract.strike, 24300, "the first fill is the headline contract")
+        # The target (a quarter back to 24610 from the average entry) is reached
+        # on a 1m bar; both contracts are sold, each at its own price.
+        engine.ingest({"1m": [IndexCandle(m(9, 41), 24300, 24400, 24300, 24380)]})
+        self.assertEqual(engine.ladder.exit_reason, "target")
+        self.assertEqual(engine.ladder.exit_premiums, {"24300CE": 120.0, "24100CE": 90.0})
+        # Flat premiums, so gross is zero and the net is exactly minus the
+        # charges of TWO round trips.
+        self.assertEqual(engine.ladder.gross_pnl, 0.0)
+        self.assertLess(engine.ladder.net_pnl, 0)
+        sells = [o for o in adapter.orders if o.side == "SELL"]
+        self.assertEqual(sorted((o.contract.strike, o.quantity) for o in sells), [(24100, 130), (24300, 65)])
+        restored = LadderCandleEntryPaper.from_dict(engine.to_dict(), adapter=adapter, option_premium_lookup=lookup)
+        self.assertEqual(restored.strike_at, "each_buy")
+        self.assertEqual([f.strike for f in restored.ladder.fills], [24300, 24100])
+
     def test_strike_at_mother_keeps_the_contract_handed_in(self):
         adapter = _PaperAdapter()
         engine = self._engine(adapter)  # default strike_at="mother"

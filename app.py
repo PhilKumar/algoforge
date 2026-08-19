@@ -1638,6 +1638,12 @@ _two_red_state_last_save: Dict[int, float] = defaultdict(float)
 _cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _candle_entry_open_state_last_save: Dict[int, float] = defaultdict(float)
 _fib_boundary_open_state_last_save: Dict[int, float] = defaultdict(float)
+# THE AUTO MOTHER. Phil, 2026-08-19: "automate it: every day the 09:15 candle
+# is the mother; if it breaks, move to the next mother the same day; next day
+# start again at the same time." Per user, per symbol, persisted in app_state
+# so a restart or a reload still knows. One task drives every enabled symbol.
+_fib_boundary_auto: Dict[int, Dict[str, dict]] = {}
+_fib_boundary_auto_loaded: set = set()
 _terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _TERMINAL_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
@@ -1670,6 +1676,10 @@ def _candle_entry_open_state_key(user_id: int) -> str:
 
 def _fib_boundary_open_state_key(user_id: int) -> str:
     return f"fib_boundary_open:{int(user_id)}"
+
+
+def _fib_boundary_auto_key(user_id: int) -> str:
+    return f"fib_boundary_auto:{int(user_id)}"
 
 
 def _cascade_premium_lookup(broker: DhanClient):
@@ -4016,12 +4026,14 @@ class CandleEntryPaperStartPayload(BaseModel):
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
-    # WHERE THE STRIKE IS CHOSEN: "first_buy" (ATM of the index where the
-    # first rung fills, plus the offset -- a trader's ATM-2) or "mother" (ATM
-    # of the mother's close, the older rule). Measured 2026-08-19: the
-    # mother's ATM-2 sat above the ladder's own target on half the box-mother
-    # campaigns; choosing at the buy is worth Rs 67k on the 22-month book.
-    strike_at: str = "first_buy"
+    # WHERE THE STRIKE IS CHOSEN: "each_buy" (every rung takes ATM of its own
+    # fill plus the offset -- Phil, 2026-08-19: "for the second buy and 3rd
+    # buy also we need to select the current strike price"), "first_buy"
+    # (one contract, ATM of the first fill) or "mother" (ATM of the mother's
+    # close, the oldest rule). Measured: the mother's ATM-2 sat above the
+    # ladder's own target on half the box-mother campaigns; at each buy the
+    # 22-month book is +Rs 2.83L against +Rs 2.02L at the mother.
+    strike_at: str = "each_buy"
     intraday_close: bool = False
     # Which contract: "monthly" (15-45 DTE, else the closest -- the rule the
     # ladder ran on) or "weekly4" (the first weekly expiry at least 4 days
@@ -4051,7 +4063,7 @@ class CandleEntryBacktestPayload(BaseModel):
     box_bars: int = Field(default=278, ge=20, le=2000)
     box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
-    strike_at: str = "first_buy"
+    strike_at: str = "each_buy"
     intraday_close: bool = False
     expiry_rule: str = "monthly"
     target_fraction: float = Field(default=0.25, gt=0, le=1)
@@ -4064,11 +4076,11 @@ class CandleEntryBacktestPayload(BaseModel):
 _CANDLE_ENTRY_TRAIL_FRACTION = 0.3
 _CANDLE_ENTRY_EXPIRY_RULES = ("monthly", "weekly4")
 _CANDLE_ENTRY_MOTHER_MODES = ("manual", "box")
-_CANDLE_ENTRY_STRIKE_AT = ("first_buy", "mother")
+_CANDLE_ENTRY_STRIKE_AT = ("each_buy", "first_buy", "mother")
 
 
 def _candle_entry_strike_at(value: str) -> str:
-    mode = str(value or "first_buy").strip().lower()
+    mode = str(value or "each_buy").strip().lower()
     if mode not in _CANDLE_ENTRY_STRIKE_AT:
         raise HTTPException(status_code=400, detail=f"strike_at must be one of {', '.join(_CANDLE_ENTRY_STRIKE_AT)}.")
     return mode
@@ -4133,6 +4145,31 @@ class FibTouchStartPayload(BaseModel):
     # "levels" (every level of every fib) or "convergence" (only where two
     # fibs' levels meet). The engine has taken it since fcdfb34; without this
     # field nothing outside a test could ever choose the second half.
+    buy_mode: str = Field(default="levels")
+
+
+class FibTouchAutoPayload(BaseModel):
+    """Switch the AUTO MOTHER on or off for one symbol, with the form's settings.
+
+    Phil, 2026-08-19. With it on, the 09:15 5m candle is the mother every
+    session; when a mother breaks, the 5m candle that held the breaking close
+    (the breakout candle) becomes the next mother as soon as it closes; the
+    day ends at 15:15 and tomorrow starts itself. Measured 23 months before it
+    was built: NIFTY CE +Rs 1,13,568 / max DD -Rs 41,200, SENSEX CE
+    +Rs 1,12,244 / -Rs 44,662 -- against the clock-mother book's +92,658 /
+    -64,127 and +1,19,063 / -43,170. Intraday is forced on and deep carry off:
+    a basket carried into tomorrow would collide with tomorrow's 09:15 start.
+    """
+
+    symbol: str = Field(default="NIFTY")
+    enabled: bool = Field(default=True)
+    side: str = Field(default="CE")
+    timeframe: str = Field(default="5m")
+    capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
+    itm_steps: int = Field(default=2, ge=0, le=10)
+    min_dte: int = Field(default=4, ge=0, le=45)
+    mode: str = Field(default="paper")
+    trailing_target: bool = Field(default=True)
     buy_mode: str = Field(default="levels")
 
 
@@ -11317,7 +11354,249 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             raise
         except Exception as exc:
             _logger.warning("[FIB TOUCH] %s %s paper poll failed for user %s: %s", symbol, timeframe, user_id, exc)
-        await asyncio.sleep(poll)
+        # Nothing changes outside the session; polling Dhan every ten seconds
+        # all night was the standing load that earned the account sustained
+        # 429s on the terminal cascade. Same idle here.
+        await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or poll)
+
+
+# ── the auto mother ─────────────────────────────────────────────────────────
+_FIB_AUTO_FIRST_MOTHER = dt_time(9, 15)
+_FIB_AUTO_LAST_MOTHER_OPEN = dt_time(15, 10)  # a mother opening here closes at 15:15: it could not buy
+_FIB_AUTO_GIVE_UP_AT = dt_time(10, 0)  # no 09:15 bar by now = holiday / half session, skip the day
+_FIB_AUTO_POLL_SEC = 10
+_FIB_AUTO_LOG_DAYS = 30
+
+
+def _fib_auto_breakout_candle(exit_ts: datetime, current_mother: datetime, tf_minutes: int = 5) -> datetime | None:
+    """The next mother after a break: the 5m bar that HELD the breaking 1m
+    close (the breakout candle), never earlier than the mother it replaces.
+
+    Measured 2026-08-19 over 23 months against the alternatives: this beat the
+    clock-mother book on NIFTY and matched it on SENSEX; "the candle after the
+    breakout" lost half of NIFTY's profit and was rejected. The forward-only
+    rule is a guard, not a choice: a 5m and a 1m tape can disagree by a tick,
+    and a 1m close in the last minute of the mother's own bar then reads as a
+    break that would hand the same candle back forever (one NIFTY day looped
+    to the sweep's cap).
+    """
+    base = exit_ts.replace(
+        hour=_FIB_AUTO_FIRST_MOTHER.hour, minute=_FIB_AUTO_FIRST_MOTHER.minute, second=0, microsecond=0
+    )
+    slots = int((exit_ts - base).total_seconds() // (tf_minutes * 60))
+    candidate = base + timedelta(minutes=tf_minutes * max(slots, 0))
+    if candidate <= current_mother:
+        candidate = current_mother + timedelta(minutes=tf_minutes)
+    if candidate.time() >= _FIB_AUTO_LAST_MOTHER_OPEN:
+        return None
+    return candidate
+
+
+async def _fib_boundary_auto_settings(user_id: int) -> Dict[str, dict]:
+    """This user's auto-mother settings, loaded once from app_state."""
+    uid = int(user_id)
+    if uid not in _fib_boundary_auto_loaded:
+        _fib_boundary_auto_loaded.add(uid)
+        try:
+            raw = await _db_mod.get_app_state(_fib_boundary_auto_key(uid))
+            _fib_boundary_auto[uid] = json.loads(raw) if raw else {}
+        except Exception as exc:
+            _logger.warning("[FIB AUTO] could not read settings for user %s: %s", uid, exc)
+            _fib_boundary_auto[uid] = {}
+    return _fib_boundary_auto.setdefault(uid, {})
+
+
+async def _save_fib_boundary_auto(user_id: int) -> None:
+    await _db_mod.set_app_state(
+        _fib_boundary_auto_key(user_id), json.dumps(_fib_boundary_auto.get(int(user_id), {}), default=str)
+    )
+
+
+def _fib_auto_public(setting: dict) -> dict:
+    """What the page is shown: the setting and the recent chain log."""
+    return {k: v for k, v in setting.items() if not str(k).startswith("_")}
+
+
+def _fib_auto_log_campaign(setting: dict, runtime: _CascadeRuntime) -> None:
+    """Append an ENDED campaign to the setting's chain log, once."""
+    st = runtime.engine.get_status()
+    key = str(st.get("mother_timestamp"))
+    log = setting.setdefault("log", [])
+    if any(str(row.get("mother")) == key for row in log):
+        return
+    rounds = st.get("rounds") or []
+    log.append(
+        {
+            "day": key[:10],
+            "seq": int(setting.get("_seq") or len([r for r in log if r.get("day") == key[:10]]) + 1),
+            "mother": key,
+            "status": st.get("status"),
+            "exit_reason": st.get("exit_reason"),
+            "exit_timestamp": st.get("exit_timestamp"),
+            "buys": sum(len(r.get("fills") or []) for r in rounds),
+            "net": round(float(st.get("net_pnl") or 0), 2),
+        }
+    )
+    keep_from = (datetime.now(IST).date() - timedelta(days=_FIB_AUTO_LOG_DAYS)).isoformat()
+    setting["log"] = [row for row in log if str(row.get("day")) >= keep_from][-400:]
+
+
+async def _fib_boundary_auto_step(user: dict, symbol: str, setting: dict, *, now: datetime | None = None) -> str:
+    """One tick of the auto mother for one (user, symbol). Returns what it did.
+
+    09:20 on: no campaign today -> start on the 09:15 bar (skip the day if Dhan
+    has no 09:15 bar by 10:00). A campaign ended MOTHER_BROKEN today -> start on
+    the breakout candle once it has closed. Any other end -> the day is done.
+    A ladder that is stuck (EXIT_REFUSED, or still running after 15:20) is
+    reported and left alone: never start a second ladder on top of it.
+    """
+    now = now or datetime.now(IST)
+    today = now.date()
+    uid = int(user["id"])
+    symbol = str(symbol).upper()
+    if now.weekday() >= 5 or now.time() < dt_time(9, 20):
+        return "outside-window"
+    runtime = _fib_boundary_engines.get(uid, {}).get(symbol)
+    if runtime is not None and runtime.running:
+        if now.time() >= dt_time(15, 20) and runtime.engine.config.mother_timestamp.astimezone(IST).date() == today:
+            setting["alert"] = f"{symbol} ladder still running after 15:20 — not touched"
+        return "busy"
+    if setting.get("skipped_day") == today.isoformat():
+        return "day-skipped"
+    mother: datetime | None = None
+    if runtime is not None and runtime.engine.config.mother_timestamp.astimezone(IST).date() == today:
+        st = runtime.engine.get_status()
+        _fib_auto_log_campaign(setting, runtime)
+        if st.get("status") == "EXIT_REFUSED":
+            setting["alert"] = f"{symbol} ladder is EXIT_REFUSED — needs a hand; auto will not chain"
+            return "stuck"
+        if st.get("status") != "MOTHER_BROKEN" or not st.get("exit_timestamp"):
+            return "day-done"  # 15:15 close, expiry, kill: tomorrow's 09:15 is next
+        exit_ts = datetime.fromisoformat(str(st["exit_timestamp"]))
+        if exit_ts.tzinfo is None:
+            exit_ts = exit_ts.replace(tzinfo=IST)
+        current = runtime.engine.config.mother_timestamp.astimezone(IST)
+        candidate = _fib_auto_breakout_candle(
+            exit_ts, current, _FIB_TOUCH_TF_MINUTES.get(str(setting.get("timeframe") or "5m"), 5)
+        )
+        if candidate is None:
+            return "day-done"
+        if candidate + timedelta(minutes=_FIB_TOUCH_TF_MINUTES.get(str(setting.get("timeframe") or "5m"), 5)) > now:
+            return "waiting-for-candle"  # the breakout candle has not closed yet
+        mother = candidate
+    else:
+        if setting.get("last_day") == today.isoformat():
+            return "day-done"  # started today already and the ladder is gone (deleted)
+        if now.time() >= dt_time(15, 10):
+            return "too-late"
+        mother = datetime.combine(today, _FIB_AUTO_FIRST_MOTHER, tzinfo=IST)
+        setting["_seq"] = 0
+    broker_client, _source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    if broker_client is None:
+        setting["alert"] = "no Dhan account for the auto mother"
+        return "no-broker"
+    payload = FibTouchStartPayload(
+        symbol=symbol,
+        side=str(setting.get("side") or "CE"),
+        mother_timestamp=mother.replace(tzinfo=None).isoformat(),
+        timeframe=str(setting.get("timeframe") or "5m"),
+        capital_cap_inr=float(setting.get("capital_cap_inr") or 75_000),
+        itm_steps=int(setting.get("itm_steps") or 2),
+        min_dte=int(setting.get("min_dte") or 4),
+        mode=str(setting.get("mode") or "paper"),
+        intraday_close=True,
+        deep_carry=False,
+        trailing_target=bool(setting.get("trailing_target", True)),
+        buy_mode=str(setting.get("buy_mode") or "levels"),
+    )
+    try:
+        await _start_fib_boundary_ladder(uid, payload, broker_client=broker_client)
+    except HTTPException as exc:
+        detail = str(exc.detail)
+        setting["last_error"] = f"{now.strftime('%H:%M')} {detail}"
+        if "no " in detail and "candle opening at" in detail and mother.time() == _FIB_AUTO_FIRST_MOTHER:
+            if now.time() >= _FIB_AUTO_GIVE_UP_AT:
+                setting["skipped_day"] = today.isoformat()  # holiday / half session
+                await _save_fib_boundary_auto(uid)
+                return "day-skipped"
+            return "no-bar-yet"
+        await _save_fib_boundary_auto(uid)
+        return "start-failed"
+    setting["_seq"] = int(setting.get("_seq") or 0) + 1
+    setting["last_day"] = today.isoformat()
+    setting["last_mother"] = mother.isoformat()
+    setting["last_start_at"] = now.isoformat()
+    setting.pop("alert", None)
+    setting.pop("last_error", None)
+    await _save_fib_boundary_auto(uid)
+    return "started"
+
+
+async def _run_fib_boundary_auto_loop() -> None:
+    """Drive every enabled auto mother; one task for the whole process."""
+    while True:
+        try:
+            idle = _terminal_cascade_offsession_sleep_sec()
+            if idle:
+                await asyncio.sleep(idle)
+                continue
+            for user in await _db_mod.list_users():
+                uid = int(user["id"])
+                settings = await _fib_boundary_auto_settings(uid)
+                for symbol, setting in list(settings.items()):
+                    if not setting.get("enabled"):
+                        continue
+                    try:
+                        await _fib_boundary_auto_step(user, symbol, setting)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        _logger.warning("[FIB AUTO] %s step failed for user %s: %s", symbol, uid, exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[FIB AUTO] loop error: %s", exc)
+        await asyncio.sleep(_FIB_AUTO_POLL_SEC)
+
+
+@app.post("/api/fib-boundary/auto")
+async def fib_boundary_auto(payload: FibTouchAutoPayload, request: Request):
+    """Switch the auto mother on or off for one symbol, with the form's settings."""
+    try:
+        terms = symbol_terms(payload.symbol)
+    except FibTouchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    side = str(payload.side).upper()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="side must be CE or PE.")
+    timeframe = str(payload.timeframe).lower()
+    if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
+    mode = str(payload.mode).lower()
+    if mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(status_code=503, detail="Fib Boundary live execution is disabled; auto can run paper.")
+    user_id = _request_user_id(request)
+    settings = await _fib_boundary_auto_settings(user_id)
+    previous = settings.get(terms.symbol, {})
+    settings[terms.symbol] = {
+        **{k: v for k, v in previous.items() if k in {"log", "last_day", "last_mother", "skipped_day"}},
+        "enabled": bool(payload.enabled),
+        "side": side,
+        "timeframe": timeframe,
+        "capital_cap_inr": float(payload.capital_cap_inr),
+        "itm_steps": int(payload.itm_steps),
+        "min_dte": int(payload.min_dte),
+        "mode": mode,
+        "trailing_target": bool(payload.trailing_target),
+        "buy_mode": _fib_boundary_buy_mode(payload.buy_mode),
+        "next_mother": "breakout candle",
+        "first_mother": _FIB_AUTO_FIRST_MOTHER.strftime("%H:%M"),
+        "changed_at": datetime.now(IST).isoformat(),
+    }
+    await _save_fib_boundary_auto(user_id)
+    return {"status": "ok", "auto": {sym: _fib_auto_public(v) for sym, v in settings.items()}}
 
 
 @app.get("/api/fib-boundary/symbols")
@@ -11355,11 +11634,13 @@ async def fib_boundary_paper_status(request: Request):
     ]
     modes = {str(campaign.get("mode") or "paper").lower() for campaign in campaigns}
     board_mode = modes.pop() if len(modes) == 1 else ("mixed" if modes else "paper")
+    auto = await _fib_boundary_auto_settings(_request_user_id(request))
     return {
         "status": "ok" if campaigns else "not_started",
         "mode": board_mode,
         "live_available": _FIB_TOUCH_LIVE_EXECUTION_ENABLED,
         "campaigns": campaigns,
+        "auto": {symbol: _fib_auto_public(setting) for symbol, setting in sorted(auto.items())},
     }
 
 
@@ -11372,7 +11653,23 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     the levels to the lot count to the expiry follows Phil's locked spec --
     see engine/fib_touch_ladder.py for why each number is what it is.
     """
+    user_id = _request_user_id(request)
 
+    async def _broker():
+        _user, broker_client, _source = await _request_broker_context(request)
+        return broker_client
+
+    return await _start_fib_boundary_ladder(user_id, payload, broker_factory=_broker)
+
+
+async def _start_fib_boundary_ladder(
+    user_id: int, payload: FibTouchStartPayload, *, broker_client=None, broker_factory=None
+) -> dict:
+    """The Start route's body, shared with the auto mother so both start the
+    SAME ladder the same way: validation, the one-per-symbol guard, candles,
+    lot by date, history for old bars, replay in time order, poll, persist.
+    The broker is resolved AFTER validation (the route's order), either given
+    outright (the auto loop) or through `broker_factory` (the request)."""
     try:
         terms = symbol_terms(payload.symbol)
     except FibTouchError as exc:
@@ -11422,8 +11719,8 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     # it is however far Dhan still serves candles, and the fetch below says so
     # plainly when it runs out.
 
-    user_id = _request_user_id(request)
-    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None and broker_factory is not None:
+        broker_client = await broker_factory()
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a ladder.")
     # One ladder per symbol: a NIFTY ladder no longer blocks a BANKNIFTY start.
@@ -19007,6 +19304,9 @@ async def _start_token_renewal():
         asyncio.create_task(_restore_live_engines())
         asyncio.create_task(_restore_paper_engines())
         asyncio.create_task(_restore_auxiliary_engines())
+        # The Fib Boundary auto mother: one task, active instance only, so a
+        # standby worker never starts a second ladder on the same symbol.
+        asyncio.create_task(_run_fib_boundary_auto_loop())
     elif _STARTUP_ENGINE_RESTORE_ENABLED:
         print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:

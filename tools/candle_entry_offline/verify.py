@@ -105,18 +105,25 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
     check(mother_row is not None, f"{tag}: mother bar missing")
     if mother_row is None:
         return
-    # 7. contract. The strike is ATM-2 of the index WHERE THE FIRST RUNG FILLS
-    # (the page's rule since 2026-08-19); with no fill it is still the
-    # mother's ATM-2, the contract the campaign was opened with.
+    # 7. contract. The headline strike is ATM-2 of the index WHERE THE FIRST
+    # RUNG FILLS (the page's rule since 2026-08-19, for first_buy and each_buy
+    # alike); with no fill it is still the mother's ATM-2, the contract the
+    # campaign was opened with.
     fills = result.get("campaign", {}).get("fills") or []
-    anchor = (
-        float(fills[0]["index_price"]) if fills and result.get("strike_at") == "first_buy" else float(mother_row.close)
-    )
+    at_buy = result.get("strike_at") in ("first_buy", "each_buy")
+    anchor = float(fills[0]["index_price"]) if fills and at_buy else float(mother_row.close)
     atm = int(anchor / 50.0 + 0.5) * 50
     check(
         contract["strike"] == atm - 100,
         f"{tag}: strike {contract['strike']} != ATM-2 {atm - 100} of {'the first fill' if fills else 'the mother'}",
     )
+    if result.get("strike_at") == "each_buy":
+        # 7b. every rung's own strike is ATM-2 of its own fill.
+        for fill in fills:
+            own = int(float(fill["index_price"]) / 50.0 + 0.5) * 50 - 100
+            check(
+                int(fill["strike"]) == own, f"{tag}: rung {fill['rung']} strike {fill['strike']} != its own ATM-2 {own}"
+            )
     check(contract["lot_size"] == int(get_lot_size("NIFTY", mother_ts.date())), f"{tag}: lot size by date")
     expiry = date.fromisoformat(contract["expiry"])
     dte = (expiry - mother_ts.date()).days
@@ -242,7 +249,15 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
                 check(datetime.fromisoformat(f["timestamp"]) < ets, f"{tag}: fill after the exit")
     # 8. money
     if exit_row and exit_row.get("option_premium") is not None and all(f["option_premium"] is not None for f in fills):
-        gross = round(sum((exit_row["option_premium"] - f["option_premium"]) * f["quantity"] for f in fills), 2)
+        # Each contract is sold at its own price: a leg's sale is the exit
+        # premium recorded for ITS strike (one strike -> the headline premium).
+        per = exit_row.get("premiums") or {}
+
+        def sold(f):
+            value = per.get(f"{f['strike']}{f.get('option_type') or 'CE'}")
+            return float(value) if value is not None else float(exit_row["option_premium"])
+
+        gross = round(sum((sold(f) - f["option_premium"]) * f["quantity"] for f in fills), 2)
         check(abs(gross - float(c["gross_pnl"])) < 0.05, f"{tag}: gross {c['gross_pnl']} != {gross}")
         check(
             abs(float(c["gross_pnl"]) - float(c["costs_total"]) - float(c["net_pnl"])) < 0.05,
@@ -258,8 +273,13 @@ def tick_fed(result: dict, series: dict[str, list], mother_ts: datetime, tf: str
     minute over the replay window, then settled the way the loop settles."""
     contract = result["contract"]
     mother_row = next(r for r in series[tf] if r.timestamp == mother_ts)
+    # Start from the contract the campaign was OPENED with (the mother's), and
+    # let the engine choose strikes the way the route did -- at the first buy
+    # or at every buy -- so this replay makes the same decisions, not inherit
+    # the backtest's answers.
+    opened = result.get("contract_at_mother") or contract
     fixed = app.FixedCampaignOption(
-        "NIFTY", contract["strike"], date.fromisoformat(contract["expiry"]), "CE", contract["lot_size"], ""
+        "NIFTY", int(opened["strike"]), date.fromisoformat(contract["expiry"]), "CE", contract["lot_size"], ""
     )
     engine = LadderCandleEntryPaper(
         mother_row,
@@ -268,6 +288,8 @@ def tick_fed(result: dict, series: dict[str, list], mother_ts: datetime, tf: str
         app._CandleEntryReplayAdapter(),
         (lambda when, k: history(when, k)) if history is not None else (lambda _w, _k: None),
         intraday_close=bool(result["intraday_close"]),
+        strike_at=str(result.get("strike_at") or "mother"),
+        strike_offset_points=-100,
     )
     end_day = date.fromisoformat(result["horizon_to"])
     stamps = sorted(

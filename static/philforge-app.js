@@ -1912,6 +1912,8 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryMode',
   'setFibBoundaryBuyMode',
   'setFibBoundarySession',
+  'setFibBoundaryMotherMode',
+  'stopFibBoundaryAuto',
   'setFibBoundaryDeepCarry',
   'setFibBoundaryTarget',
   'pickAssetsTearsheet',
@@ -2638,7 +2640,7 @@ function _syncCandleEntryRecipe() {
   el.textContent = [
     `${tf} start`,
     box ? `mother = the ${bars}-bar high · buys only in the bottom ${pos === '0.5' ? 'half' : 'quarter'} of that box` : 'mother = the candle you name',
-    `CE ATM${itm === 0 ? '' : itm} ${(document.getElementById('candle-entry-strike-at')?.value || 'first_buy') === 'first_buy' ? 'at the first buy' : 'at the mother'} · ${expiry}`,
+    `CE ATM${itm === 0 ? '' : itm} ${({ each_buy: 'at each buy', first_buy: 'at the first buy' })[document.getElementById('candle-entry-strike-at')?.value || 'each_buy'] || 'at the mother'} · ${expiry}`,
     `${target} target${trailing ? ' → 30% trail' : ', sold'}`,
     session,
     mode,
@@ -2655,7 +2657,7 @@ function _candleEntryPayload() {
     box_bars: Number(document.getElementById('candle-entry-box-bars')?.value || 278),
     box_position: Number(document.getElementById('candle-entry-box-position')?.value || 0.25),
     ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
-    strike_at: document.getElementById('candle-entry-strike-at')?.value || 'first_buy',
+    strike_at: document.getElementById('candle-entry-strike-at')?.value || 'each_buy',
     intraday_close: _candleEntryIntradayClose(),
     expiry_rule: document.getElementById('candle-entry-expiry-rule')?.value || 'monthly',
     target_fraction: Number(document.getElementById('candle-entry-target')?.value || 0.25),
@@ -2663,7 +2665,7 @@ function _candleEntryPayload() {
   };
 }
 // Where the strike is chosen: at the first buy (a trader's ATM-2) or at the mother.
-function setCandleEntryStrikeAt(_event, button) { _candleEntrySetSwitch('candle-entry-strike-at', 'candle-entry-strike-at-toggle', button?.dataset?.value || 'first_buy'); _syncCandleEntryRecipe(); }
+function setCandleEntryStrikeAt(_event, button) { _candleEntrySetSwitch('candle-entry-strike-at', 'candle-entry-strike-at-toggle', button?.dataset?.value || 'each_buy'); _syncCandleEntryRecipe(); }
 
 async function startCandleEntryPaper() {
   const payload = { ..._candleEntryPayload(), mode: _candleEntryTradeMode() };
@@ -2776,7 +2778,7 @@ function _renderCandleEntryBacktest(data) {
   const k = data.contract || {};
   if (contract) {
     const boxBit = data.mother_mode === 'box' && data.box ? ` · mother = the ${data.box.bars}-bar high, buys below ${_cascadeNumber(data.box.line_at_mother)} (bottom ${data.box.position === 0.5 ? 'half' : 'quarter'} of ${_cascadeNumber(data.box.low_at_mother)}–${_cascadeNumber(data.box.high_at_mother)})` : '';
-    const struck = data.strike_at === 'first_buy' ? ' (strike at the first buy)' : ' (strike at the mother)';
+    const struck = ({ each_buy: ' (strike at each buy)', first_buy: ' (strike at the first buy)' })[data.strike_at] || ' (strike at the mother)';
     contract.textContent = `NIFTY ${k.strike || '—'} CE${struck} · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')}${boxBit} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
   }
   const gist = document.getElementById('candle-entry-backtest-gist');
@@ -2822,8 +2824,15 @@ function _renderCandleEntryBacktest(data) {
 
   const legs = document.getElementById('candle-entry-backtest-legs');
   if (legs) {
-    const sold = c.exit && c.exit.option_premium != null ? Number(c.exit.option_premium) : null;
+    // Each contract is sold at its own price: read the leg's own strike first,
+    // then the headline exit premium (one strike for the whole ladder).
+    const soldFor = (f) => {
+      const per = c.exit && c.exit.premiums ? c.exit.premiums[`${f.strike}${f.option_type || 'CE'}`] : undefined;
+      if (per != null) return Number(per);
+      return c.exit && c.exit.option_premium != null ? Number(c.exit.option_premium) : null;
+    };
     legs.innerHTML = fills.length ? fills.map(f => {
+      const sold = soldFor(f);
       const pnl = sold == null || f.option_premium == null ? null : (sold - Number(f.option_premium)) * Number(f.quantity);
       const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
       return `<tr style="border-bottom:1px solid var(--border);">`
@@ -3612,6 +3621,7 @@ function _renderFibBoundaryStatus(payload) {
     liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
   }
   _renderFibBoundaryRunningTable(campaigns);
+  _renderFibBoundaryAuto(payload?.auto);
 }
 
 // What is running right now, and whether it stands in the way of THIS form. A
@@ -3624,12 +3634,18 @@ function _renderFibBoundaryRunningTable(campaigns) {
   const running = campaigns.filter(row => row.running);
   const clash = running.some(row => String(row.symbol) === String(picked));
   if (startBtn) {
-    startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
-    startBtn.textContent = clash
-      ? `▶ Kill the ${picked} ladder first`
-      : selectedMode === 'live'
-        ? (_fibBoundaryLiveAvailable ? '▶ Start LIVE monitor · unarmed' : '🔒 Live safety verification pending')
-        : '▶ Start fib-boundary paper';
+    if (_fibMotherMode() === 'auto') {
+      const on = !!(_lastFibBoundaryAuto && _lastFibBoundaryAuto[picked] && _lastFibBoundaryAuto[picked].enabled);
+      startBtn.disabled = selectedMode === 'live' && !_fibBoundaryLiveAvailable;
+      startBtn.textContent = on ? `⟳ Auto is ON for ${picked} · save settings` : `⟳ Enable auto mother · ${picked}`;
+    } else {
+      startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
+      startBtn.textContent = clash
+        ? `▶ Kill the ${picked} ladder first`
+        : selectedMode === 'live'
+          ? (_fibBoundaryLiveAvailable ? '▶ Start LIVE monitor · unarmed' : '🔒 Live safety verification pending')
+          : '▶ Start fib-boundary paper';
+    }
   }
   if (!blocked) return;
   blocked.innerHTML = running.length
@@ -3957,6 +3973,7 @@ async function refreshFibBoundaryStatus() {
 
 async function startFibBoundaryPaper() {
   const el = id => document.getElementById(id);
+  if (_fibMotherMode() === 'auto') return enableFibBoundaryAuto();
   // Nothing about the geometry is typed: the mother names where to look and the
   // server finds the swing around it.
   const payload = {
@@ -4436,6 +4453,114 @@ function setFibBoundaryBuyMode(_event, button) {
     });
   }
   _syncFibLevelsHint();
+}
+
+// THE AUTO MOTHER (Phil, 2026-08-19). Manual: you pick the mother. Auto: the
+// server runs the 09:15 5m candle every session, replaces a broken mother with
+// the breakout candle, ends at 15:15 and starts itself tomorrow. The Start
+// button becomes "Enable auto" and the timestamp input steps aside.
+function setFibBoundaryMotherMode(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'manual';
+  const input = document.getElementById('fibx-mother-mode');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-mother-mode-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  _syncFibMotherModeRow();
+  _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+}
+
+function _fibMotherMode() {
+  return (document.getElementById('fibx-mother-mode')?.value || 'manual') === 'auto' ? 'auto' : 'manual';
+}
+
+function _syncFibMotherModeRow() {
+  const row = document.getElementById('fibx-mother-manual-row');
+  if (row) row.style.display = _fibMotherMode() === 'auto' ? 'none' : '';
+}
+
+async function enableFibBoundaryAuto() {
+  const el = id => document.getElementById(id);
+  const payload = {
+    symbol: el('fibx-symbol')?.value || 'NIFTY',
+    enabled: true,
+    side: el('fibx-side')?.value || 'CE',
+    timeframe: _fibTimeframe(),
+    mode: el('fibx-mode')?.value || 'paper',
+    buy_mode: _fibBuyMode(),
+    trailing_target: _fibTrailingTarget(),
+    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
+    itm_steps: Number(el('fibx-itm')?.value),
+  };
+  if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
+  const button = el('fibx-start');
+  if (button) button.disabled = true;
+  _fibSetFormStatus(`Switching the auto mother on for ${payload.symbol}…`, 'busy');
+  try {
+    const response = await fetch('/api/fib-boundary/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Auto did not switch on (${response.status})`));
+    _fibSetFormStatus(`${payload.symbol} auto mother ON · 09:15 every session · breakout candle on a break · out by 15:15`, 'success');
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Auto did not switch on.', 'error');
+  } finally {
+    if (button) button.disabled = false;
+    refreshFibBoundaryStatus();
+  }
+}
+
+async function stopFibBoundaryAuto(_event, button) {
+  const symbol = button?.dataset?.symbol || document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const ok = await customConfirm(
+    `Switch the auto mother <strong>OFF</strong> for <strong>${escapeHtml(symbol)}</strong>? A ladder already running today keeps running; nothing new starts.`,
+    { title: `Auto mother off · ${symbol}`, icon: ICO.warn(28), okText: 'Switch off', danger: true },
+  );
+  if (!ok) return;
+  try {
+    const response = await fetch('/api/fib-boundary/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, enabled: false }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Auto did not switch off (${response.status})`));
+    _fibSetFormStatus(`${symbol} auto mother OFF.`, 'success');
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'Auto did not switch off.', 'error');
+  } finally {
+    refreshFibBoundaryStatus();
+  }
+}
+
+let _lastFibBoundaryAuto = {};
+function _renderFibBoundaryAuto(auto) {
+  _lastFibBoundaryAuto = auto && typeof auto === 'object' ? auto : {};
+  const panel = document.getElementById('fibx-auto-panel');
+  if (!panel) return;
+  const rows = Object.entries(_lastFibBoundaryAuto).filter(([, s]) => s && (s.enabled || (s.log || []).length));
+  if (!rows.length) { panel.innerHTML = ''; return; }
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  panel.innerHTML = rows.map(([symbol, s]) => {
+    const log = (s.log || []).filter(r => String(r.day) === today);
+    const net = log.reduce((a, r) => a + Number(r.net || 0), 0);
+    const chain = log.length
+      ? `<table class="fibx-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
+        + log.map(r => `<tr><td>${escapeHtml(String(r.seq || ''))}</td><td>${escapeHtml(String(r.mother || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_timestamp || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_reason || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? 0))}</td><td class="${Number(r.net) > 0 ? 'pos' : (Number(r.net) < 0 ? 'neg' : '')}">${escapeHtml(_cascadeOptionsMoney(Number(r.net || 0)))}</td></tr>`).join('')
+        + `</table>`
+      : `<div class="fibx-auto-note">No campaign has ended today yet.</div>`;
+    return `<div class="fibx-auto-card ${s.enabled ? 'is-on' : ''}">`
+      + `<div class="fibx-auto-head"><strong>${escapeHtml(symbol)} · Auto mother ${s.enabled ? 'ON' : 'OFF'}</strong>`
+      + `<span>${escapeHtml(String(s.side || 'CE'))} · ${escapeHtml(String(s.timeframe || '5m').toUpperCase())} · ${escapeHtml(String(s.mode || 'paper'))} · 09:15 every session · breakout candle on a break · out by 15:15</span>`
+      + (s.enabled ? `<button type="button" class="btn cascade-options-control" data-pf-action="stopFibBoundaryAuto" data-symbol="${escapeHtml(symbol)}">Switch off</button>` : '')
+      + `</div>`
+      + (s.alert ? `<div class="fibx-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
+      + (s.last_error ? `<div class="fibx-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
+      + `<div class="fibx-auto-today">Today: ${log.length} campaign${log.length === 1 ? '' : 's'} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}${s.skipped_day === today ? ' · no 09:15 bar — day skipped' : ''}</div>`
+      + chain
+      + `</div>`;
+  }).join('');
 }
 
 // Intraday closes the campaign at 3:15; Normal lets it run to its target,
