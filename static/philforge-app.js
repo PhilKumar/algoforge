@@ -1881,6 +1881,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadCandleEntryChart',
   'hideCandleEntryChart',
   'setCandleEntrySession',
+  'setCandleEntryExpiry',
+  'setCandleEntryTarget',
+  'setCandleEntryExit',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
   'showInsightsTab',
@@ -2552,6 +2555,25 @@ function _candleEntryIntradayClose() {
   return (document.getElementById('candle-entry-session')?.value || 'hold') === 'intraday';
 }
 
+// The three rule switches (Phil, 2026-08-19): which contract, how far back
+// the target sits, fixed or trailing exit. One helper drives all of them.
+function _candleEntrySetSwitch(inputId, groupId, value) {
+  const input = document.getElementById(inputId);
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById(groupId);
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+}
+function setCandleEntryExpiry(_event, button) { _candleEntrySetSwitch('candle-entry-expiry-rule', 'candle-entry-expiry-toggle', button?.dataset?.value || 'monthly'); }
+function setCandleEntryTarget(_event, button) { _candleEntrySetSwitch('candle-entry-target', 'candle-entry-target-toggle', button?.dataset?.value || '0.25'); }
+function setCandleEntryExit(_event, button) { _candleEntrySetSwitch('candle-entry-exit-mode', 'candle-entry-exit-toggle', button?.dataset?.value || 'fixed'); }
+
 // Field for field what Backtest sends. The two routes trade ONE ladder, so
 // their payloads have to be one too.
 function _candleEntryPayload() {
@@ -2560,6 +2582,9 @@ function _candleEntryPayload() {
     timeframe: _cascadeOptionsEl('candle-entry-timeframe')?.value || '5m',
     ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
     intraday_close: _candleEntryIntradayClose(),
+    expiry_rule: document.getElementById('candle-entry-expiry-rule')?.value || 'monthly',
+    target_fraction: Number(document.getElementById('candle-entry-target')?.value || 0.25),
+    trailing_target: (document.getElementById('candle-entry-exit-mode')?.value || 'fixed') === 'trailing',
   };
 }
 
@@ -2667,7 +2692,7 @@ function _renderCandleEntryBacktest(data) {
   const contract = document.getElementById('candle-entry-backtest-contract');
   const k = data.contract || {};
   if (contract) {
-    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')} · ${data.lot_size} units/lot · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
+    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
   }
   const gist = document.getElementById('candle-entry-backtest-gist');
   if (gist) gist.textContent = data.note || '';
@@ -3091,6 +3116,9 @@ window.toggleCandleEntryBacktestChart = toggleCandleEntryBacktestChart;
 window.loadCandleEntryChart = loadCandleEntryChart;
 window.hideCandleEntryChart = hideCandleEntryChart;
 window.setCandleEntrySession = setCandleEntrySession;
+window.setCandleEntryExpiry = setCandleEntryExpiry;
+window.setCandleEntryTarget = setCandleEntryTarget;
+window.setCandleEntryExit = setCandleEntryExit;
 window.killCascadeOptionsPaper = killCascadeOptionsPaper;
 
 // ══════════════════════════════════════════════════════════════

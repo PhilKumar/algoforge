@@ -4001,6 +4001,15 @@ class CandleEntryPaperStartPayload(BaseModel):
     timeframe: str = "1h"
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
     intraday_close: bool = False
+    # Which contract: "monthly" (15-45 DTE, else the closest -- the rule the
+    # ladder ran on) or "weekly4" (the first weekly expiry at least 4 days
+    # after the mother). Phil asked for the weekly on 2026-08-19.
+    expiry_rule: str = "monthly"
+    # How far back toward the mother high the basket sells (0.25 as built).
+    target_fraction: float = Field(default=0.25, gt=0, le=1)
+    # Off: the target is the sale. On: the target arms a trail that sells on
+    # a close giving back 30% of the gain from the average entry.
+    trailing_target: bool = False
 
 
 class CandleEntryBacktestPayload(BaseModel):
@@ -4014,6 +4023,16 @@ class CandleEntryBacktestPayload(BaseModel):
     timeframe: str = "5m"
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
     intraday_close: bool = False
+    expiry_rule: str = "monthly"
+    target_fraction: float = Field(default=0.25, gt=0, le=1)
+    trailing_target: bool = False
+
+
+# The give-back a trailing exit allows: once the target is touched the basket
+# rides, and sells on a close 30% of its gain below the best high seen (the
+# figure the NSE two-red study used; 0 would be the fixed target again).
+_CANDLE_ENTRY_TRAIL_FRACTION = 0.3
+_CANDLE_ENTRY_EXPIRY_RULES = ("monthly", "weekly4")
 
 
 class FibBoundaryPaperStartPayload(BaseModel):
@@ -10102,7 +10121,9 @@ def _parse_cascade_mother_timestamp(raw: str) -> datetime:
     return parsed.replace(tzinfo=IST) if parsed.tzinfo is None else parsed.astimezone(IST)
 
 
-def _candle_entry_contract(mother: IndexCandle, expiries: list[date], ce_offset_steps: int) -> FixedCampaignOption:
+def _candle_entry_contract(
+    mother: IndexCandle, expiries: list[date], ce_offset_steps: int, expiry_rule: str = "monthly"
+) -> FixedCampaignOption:
     """The one CE the ladder holds, chosen the way a campaign started TODAY chooses it.
 
     Monthly (Phil, 2026-07-30: "Monthly for everything"), inside the 15-45
@@ -10124,10 +10145,23 @@ def _candle_entry_contract(mother: IndexCandle, expiries: list[date], ce_offset_
     # swaps this module's adapter name for a candle reader that has no rule.
     from engine.cascade_options import CascadeOptionsAdapter as _EngineAdapter
 
-    try:
-        expiry = _EngineAdapter._next_expiry(expiries, mother.timestamp.date(), "NIFTY", monthly_only=True)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"No monthly NIFTY expiry after that mother: {exc}") from exc
+    rule = str(expiry_rule or "monthly").lower()
+    if rule not in _CANDLE_ENTRY_EXPIRY_RULES:
+        raise HTTPException(
+            status_code=400, detail=f"expiry_rule must be one of {', '.join(_CANDLE_ENTRY_EXPIRY_RULES)}."
+        )
+    if rule == "weekly4":
+        # The first expiry of any kind at least four calendar days out --
+        # weeklies and monthlies alike sit in one chain.
+        later = [value for value in sorted(set(expiries)) if (value - mother.timestamp.date()).days >= 4]
+        if not later:
+            raise HTTPException(status_code=422, detail="No NIFTY weekly expiry at least 4 days after that mother.")
+        expiry = later[0]
+    else:
+        try:
+            expiry = _EngineAdapter._next_expiry(expiries, mother.timestamp.date(), "NIFTY", monthly_only=True)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"No monthly NIFTY expiry after that mother: {exc}") from exc
     atm = int(math.floor(float(mother.close) / 50.0 + 0.5) * 50)
     strike = atm + int(ce_offset_steps) * 50
     return FixedCampaignOption("NIFTY", strike, expiry, "CE", _nifty_lot_size_on(mother.timestamp.date()), "")
@@ -10562,14 +10596,16 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
         )
     if not expiries:
         expiries = _fib_touch_expiry_source(broker_client, "NIFTY")(mother_timestamp.date())
-    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps)
+    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps, payload.expiry_rule)
     engine = LadderCandleEntryPaper(
         mother,
         timeframe,
         contract,
         adapter,
         _candle_entry_premium_lookup(broker_client, history),
+        target_fraction=float(payload.target_fraction),
         intraday_close=bool(payload.intraday_close),
+        trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
     )
     # Catch up on every bar since the mother, in close-time order, capped at
     # the option's own life. The poll takes over from here.
@@ -10654,7 +10690,7 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
     history, expiries = await asyncio.to_thread(
         _candle_entry_pricing, broker_client, mother_timestamp.date(), horizon_guess
     )
-    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps)
+    contract = _candle_entry_contract(mother, expiries, payload.ce_offset_steps, payload.expiry_rule)
     horizon_to = min(now.date(), contract.expiry)
     replay = {
         stage_timeframe: [row for row in rows if row.timestamp.date() <= horizon_to]
@@ -10668,7 +10704,9 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             contract,
             _CandleEntryReplayAdapter(),
             (lambda when, contract_: history(when, contract_)) if history is not None else (lambda _w, _c: None),
+            target_fraction=float(payload.target_fraction),
             intraday_close=bool(payload.intraday_close),
+            trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
         )
         engine.ingest(replay)
         engine.settle_past_expiry(now)
@@ -10704,6 +10742,9 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         "stages": list(engine.stages),
         "lot_size": contract.lot_size,
         "intraday_close": bool(payload.intraday_close),
+        "expiry_rule": str(payload.expiry_rule),
+        "target_fraction": float(payload.target_fraction),
+        "trailing_target": bool(payload.trailing_target),
         "mother": {
             "timestamp": mother_timestamp.isoformat(),
             "open": mother.open,

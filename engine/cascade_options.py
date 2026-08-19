@@ -2580,6 +2580,7 @@ class LadderCandleEntryPaper:
         target_fraction: float = 0.25,
         signal_only: bool = False,
         intraday_close: bool = False,
+        trail_fraction: float = 0.0,
     ) -> None:
         if not adapter.paper_only or contract.option_type != "CE":
             raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
@@ -2617,6 +2618,9 @@ class LadderCandleEntryPaper:
             # ends where the contract does, and a replay ends on the same bar.
             expiry=contract.expiry,
             intraday_close=self.intraday_close,
+            # 0 = the target is the sale. Above 0 the target only ARMS a trail
+            # that sells on a close giving back this fraction of the run.
+            trail_fraction=trail_fraction,
         )
         # Everything at or before the mother's open is pre-history on every
         # chart; TwoRedLadder skips those itself, this just avoids re-feeding.
@@ -2840,6 +2844,7 @@ class LadderCandleEntryPaper:
             "running": ladder.status not in {"CLOSED", "EXPIRED", "KILLED"},
             "status": ladder.status,
             "intraday_close": self.intraday_close,
+            "trail_fraction": ladder.trail_fraction,
             "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
                 "Historical replay verifies NIFTY entry and target geometry only. "
@@ -2979,6 +2984,7 @@ class LadderCandleEntryPaper:
                 "signal_only": self.signal_only,
                 "require_new_low": ladder.require_new_low,
                 "intraday_close": self.intraday_close,
+                "trail_fraction": ladder.trail_fraction,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
             "contract": {
@@ -3008,6 +3014,10 @@ class LadderCandleEntryPaper:
                 "costs": NiftyOptionsPaperCascade._costs_to_dict(ladder.costs) if ladder.costs else None,
                 "net_pnl": ladder.net_pnl,
                 "last_close": dict(ladder._last_close),
+                # An armed trail must survive a restart, or the basket forgets
+                # it was riding and sells at the fixed target it already passed.
+                "trail_armed": ladder._trail_armed,
+                "trail_best": ladder._trail_best,
                 "stages": [
                     {
                         "rung": stage.rung,
@@ -3089,6 +3099,7 @@ class LadderCandleEntryPaper:
             target_fraction=float(config.get("target_fraction") or 0.25),
             signal_only=bool(config.get("signal_only")),
             intraday_close=bool(config.get("intraday_close")),
+            trail_fraction=float(config.get("trail_fraction") or 0.0),
         )
         ladder = engine.ladder
         ladder.require_new_low = bool(config.get("require_new_low", True))
@@ -3134,6 +3145,8 @@ class LadderCandleEntryPaper:
         )
         ladder.net_pnl = raw_ladder.get("net_pnl")
         ladder._last_close = {str(key): float(value) for key, value in (raw_ladder.get("last_close") or {}).items()}
+        ladder._trail_armed = bool(raw_ladder.get("trail_armed"))
+        ladder._trail_best = float(raw_ladder["trail_best"]) if raw_ladder.get("trail_best") is not None else None
         ladder.events = list(raw_ladder.get("events") or [])[-100:]
         engine._seen = {str(key): moment(value) for key, value in (payload.get("seen") or {}).items()}
         engine._candles_reviewed = int(payload.get("candles_reviewed") or 0)

@@ -54,6 +54,17 @@ class ContractRuleTests(unittest.TestCase):
         contract = app_module._candle_entry_contract(mother, [date(2026, 8, 25)], -4)
         self.assertEqual(contract.strike, 23900)
 
+    def test_the_weekly_rule_takes_the_first_expiry_at_least_four_days_out(self):
+        mother = self._mother(datetime(2026, 7, 22, 9, 15), 24110.0)  # a Wednesday
+        expiries = [date(2026, 7, 28), date(2026, 8, 4), date(2026, 8, 25)]
+        contract = app_module._candle_entry_contract(mother, expiries, -2, "weekly4")
+        self.assertEqual(contract.expiry, date(2026, 7, 28))  # 6 days: the first one >= 4
+        mother = self._mother(datetime(2026, 7, 25, 9, 15), 24110.0)  # 3 days before the 28th
+        contract = app_module._candle_entry_contract(mother, expiries, -2, "weekly4")
+        self.assertEqual(contract.expiry, date(2026, 8, 4))
+        with self.assertRaises(app_module.HTTPException):
+            app_module._candle_entry_contract(mother, expiries, -2, "fortnightly")
+
     def test_no_expiry_at_all_is_refused_plainly(self):
         mother = self._mother(datetime(2026, 7, 22, 9, 15), 24110.0)
         with self.assertRaises(app_module.HTTPException) as caught:
@@ -115,7 +126,18 @@ class PayloadIdentityTests(unittest.TestCase):
         start = set(app_module.CandleEntryPaperStartPayload.model_fields)
         backtest = set(app_module.CandleEntryBacktestPayload.model_fields)
         self.assertEqual(start, backtest)
-        self.assertEqual(start, {"mother_timestamp", "timeframe", "ce_offset_steps", "intraday_close"})
+        self.assertEqual(
+            start,
+            {
+                "mother_timestamp",
+                "timeframe",
+                "ce_offset_steps",
+                "intraday_close",
+                "expiry_rule",
+                "target_fraction",
+                "trailing_target",
+            },
+        )
 
     def test_intraday_defaults_off_the_way_the_ladder_was_measured(self):
         self.assertFalse(app_module.CandleEntryPaperStartPayload(mother_timestamp="2026-08-10T12:30").intraday_close)

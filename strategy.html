@@ -2793,11 +2793,11 @@
             </section>
             <section>
               <h5>4 &middot; The contract</h5>
-              <p>One NIFTY CE for the whole ladder, fixed at the mother: the <strong>monthly</strong> expiry (15&ndash;45 days out when one exists, else the closest), strike <strong>ATM&minus;2</strong> (adjustable), lot size as it stood on the mother's date. A past mother resolves the contract that existed THEN &mdash; the same rule a campaign started today uses.</p>
+              <p>One NIFTY CE for the whole ladder, fixed at the mother: the <strong>monthly</strong> expiry (15&ndash;45 days out when one exists, else the closest) or, with <strong>Expiry = Weekly &ge;4d</strong>, the first weekly at least four days after the mother; strike <strong>ATM&minus;2</strong> (adjustable), lot size as it stood on the mother's date. A past mother resolves the contract that existed THEN &mdash; the same rule a campaign started today uses.</p>
             </section>
             <section>
               <h5>5 &middot; One exit</h5>
-              <p>The whole basket leaves together at <strong>0.25</strong> of the way from the average entry back toward the mother's high, recomputed at every fill. <strong>No stop loss.</strong> On the option's expiry day the first bar closing at or after 15:15 sells whatever the target did not. With <strong>Session = Close 3:15</strong> that same rule applies every day: out at 3:15 and the campaign ends that day, bought or not.</p>
+              <p>The whole basket leaves together at <strong>&frac14;</strong> (or <strong>&frac12;</strong>, by the Target switch) of the way from the average entry back toward the mother's high, recomputed at every fill. <strong>Exit = Trailing</strong> makes that touch arm a trail instead: the basket rides and sells on a close giving back 30% of its gain from the average entry. <strong>No stop loss.</strong> On the option's expiry day the first bar closing at or after 15:15 sells whatever the target did not. With <strong>Session = Close 3:15</strong> that same rule applies every day: out at 3:15 and the campaign ends that day, bought or not.</p>
             </section>
             <section>
               <h5>6 &middot; Prices, and when they are read</h5>
@@ -2853,6 +2853,35 @@
           <div id="candle-entry-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setCandleEntrySession" role="radio" title="Runs to its target or the option's expiry" aria-checked="true"><span>↗ Hold</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="intraday" data-pf-action="setCandleEntrySession" role="radio" title="Out at 15:15 and the campaign ends that day" aria-checked="false"><span>⏱ Close 3:15</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="fibx-switch-grid candle-entry-switch-grid" style="margin-top:12px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Expiry</label>
+          <!-- Phil, 2026-08-19: "weekly expiry >= 4 days". Monthly is the rule
+               the ladder ran on; the weekly is the first expiry at least four
+               days after the mother. -->
+          <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
+          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which contract">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest) — more road for a basket with no stop-loss" aria-checked="true"><span>▦ Monthly</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Target</label>
+          <input type="hidden" id="candle-entry-target" value="0.25">
+          <div id="candle-entry-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="How far back to the mother high">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryTarget" role="radio" title="Sell a quarter of the way from the average entry back to the mother high" aria-checked="true"><span>¼ back</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryTarget" role="radio" title="Sell halfway from the average entry back to the mother high" aria-checked="false"><span>½ back</span></button>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Exit</label>
+          <input type="hidden" id="candle-entry-exit-mode" value="fixed">
+          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Fixed target or trailing">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setCandleEntryExit" role="radio" title="The target is the sale" aria-checked="true"><span>▮ Fixed</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setCandleEntryExit" role="radio" title="Touching the target arms a trail: sell on a close giving back 30% of the gain from the average entry" aria-checked="false"><span>↝ Trailing</span></button>
           </div>
         </div>
       </div>
