@@ -142,7 +142,9 @@ def main() -> None:
     ap.add_argument("--bars", default="0", help="comma list: rolling window of bars whose high/low makes the box")
     ap.add_argument("--pos", default="0.5", help="comma list: only arm below this position in the box (0.5 = midpoint)")
     ap.add_argument("--depth", default=str(LADDER_DEPTH), help="how many charts the ladder climbs")
-    ap.add_argument("--hold", default="", help="sell at 15:15 this many days after the first buy (0 = same day)")
+    ap.add_argument(
+        "--hold", default="", help="comma list: sell at 15:15 this many days after the first buy (0 = same day)"
+    )
     ap.add_argument(
         "--mother",
         default="clock",
@@ -227,7 +229,7 @@ def main() -> None:
     # gigabyte, so running a dozen configs as a dozen parallel processes buries
     # the machine in swap (it hung Phil's Mac on 2026-08-19). The data is loaded
     # once here and every configuration walks it in turn.
-    def run_config(stop_pct: float, fall_pct: float, bars: int = 0, pos: float = 0.5) -> dict:
+    def run_config(stop_pct: float, fall_pct: float, bars: int = 0, pos: float = 0.5, hold: int | None = None) -> dict:
         rows_out: list[dict] = []
         free_from: datetime | None = None
         stale_fills[0] = 0
@@ -249,7 +251,7 @@ def main() -> None:
                 premium,
                 target_fraction=args.target,
                 trail_fraction=args.trail,
-                hold_days=int(args.hold) if args.hold != "" else None,
+                hold_days=hold,
                 min_buys_before_exit=args.min_buys,
                 stop_loss_pct=stop_pct,
                 min_fall_pct=fall_pct,
@@ -327,7 +329,7 @@ def main() -> None:
             "expiry": args.expiry,
             "target": args.target,
             "trail": args.trail,
-            "hold": args.hold if args.hold != "" else None,
+            "hold": hold,
             "min_buys": args.min_buys,
             "stop": stop_pct,
             "fall": fall_pct,
@@ -351,11 +353,13 @@ def main() -> None:
     falls = [float(x) for x in str(args.fall).split(",") if x != ""]
     windows = [int(x) for x in str(args.bars).split(",") if x != ""]
     positions = [float(x) for x in str(args.pos).split(",") if x != ""]
+    holds = [None if x in ("", "none") else int(x) for x in str(args.hold).split(",")] if args.hold != "" else [None]
     for bars in windows:
         for pos in positions:
-            for fall_pct in falls:
-                for stop_pct in stops:
-                    print(json.dumps(run_config(stop_pct, fall_pct, bars, pos)), flush=True)
+            for hold in holds:
+                for fall_pct in falls:
+                    for stop_pct in stops:
+                        print(json.dumps(run_config(stop_pct, fall_pct, bars, pos, hold)), flush=True)
 
 
 if __name__ == "__main__":

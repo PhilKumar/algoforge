@@ -317,6 +317,31 @@ class ExitTests(unittest.TestCase):
         self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=180))
 
 
+class TimeStopTests(unittest.TestCase):
+    """A time stop is a rule about a position, not about a setup."""
+
+    def test_the_clock_starts_at_the_first_buy_not_at_the_mother(self):
+        mother = bar("15m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("15m",), hold_days=1)
+        # Days pass with nothing bought -- the time stop must stay quiet.
+        for day in range(1, 4):
+            late = LadderCandle("15m", START + timedelta(days=day, hours=6), 104, 105, 103, 104)
+            ladder.on_candle(late)
+        self.assertIsNone(ladder.exit_reason, "an unbought setup was time-stopped")
+        self.assertFalse(ladder.fills)
+
+    def test_it_sells_a_day_after_the_buy(self):
+        mother = bar("15m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("15m",), hold_days=1)
+        ladder.on_candle(bar("15m", 5, 105, 105.5, 101, 102))  # red 1
+        ladder.on_candle(bar("15m", 6, 102, 102.5, 98, 99))  # red 2 -> arm at 102
+        ladder.on_candle(bar("15m", 7, 99, 102.6, 98.5, 100))  # fills
+        self.assertTrue(ladder.fills, "the rung should have filled")
+        next_day = LadderCandle("15m", START + timedelta(days=1, hours=6), 99, 99.5, 98, 98.5)
+        ladder.on_candle(next_day)
+        self.assertEqual(ladder.exit_reason, "time_stop")
+
+
 class PricingMomentTests(unittest.TestCase):
     """Every premium is read at the bar's CLOSE -- the moment the engine acts.
 

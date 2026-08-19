@@ -489,10 +489,22 @@ class TwoRedLadder:
             return True
         if self.hold_days is None:
             return False
-        # Counted from the first buy: the position is what is being held. Before
-        # anything is bought the mother's own day starts the clock, so a setup
-        # that never sets up cannot sit forever either.
-        started = self.fills[0].timestamp.date() if self.fills else self.mother.timestamp.date()
+        if self.intraday_close and not self.hold_days:
+            # "Close at 3:15" is a rule about the DAY, so it ends the campaign
+            # whether or not anything was bought -- nothing may be carried
+            # overnight, and a setup still waiting at 15:15 is over too.
+            return True
+        if not self.fills:
+            # A time stop is a rule about a POSITION, so it cannot fire before
+            # there is one. It used to run from the mother's own day when
+            # nothing had been bought, which read as a time stop but behaved as
+            # a deadline on the setup: on the box-mother runs the two reds
+            # typically arrive a week after the mother, so "hold 1 day" threw
+            # away 38 of 44 campaigns before they ever traded and the result
+            # measured the wrong rule. The mother's expiry still ends a setup
+            # that never sets up.
+            return False
+        started = self.fills[0].timestamp.date()
         return candle.timestamp.date() >= started + timedelta(days=int(self.hold_days))
 
     def _end_session(self, candle: LadderCandle) -> None:
