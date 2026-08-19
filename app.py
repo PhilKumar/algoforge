@@ -1645,6 +1645,10 @@ _fib_boundary_open_state_last_save: Dict[int, float] = defaultdict(float)
 # so a restart or a reload still knows. One task drives every enabled symbol.
 _fib_boundary_auto: Dict[int, Dict[str, dict]] = {}
 _fib_boundary_auto_loaded: set = set()
+# The Candle Entry auto mother: one setting per user (the page trades NIFTY
+# only), loaded once from app_state, saved on every change.
+_candle_entry_auto: Dict[int, dict] = {}
+_candle_entry_auto_loaded: set = set()
 _terminal_cascade_open_state_last_save: Dict[int, float] = defaultdict(float)
 _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
 _TERMINAL_CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC = 5.0
@@ -1681,6 +1685,10 @@ def _fib_boundary_open_state_key(user_id: int) -> str:
 
 def _fib_boundary_auto_key(user_id: int) -> str:
     return f"fib_boundary_auto:{int(user_id)}"
+
+
+def _candle_entry_auto_key(user_id: int) -> str:
+    return f"candle_entry_auto:{int(user_id)}"
 
 
 def _cascade_premium_lookup(broker: DhanClient):
@@ -4147,6 +4155,22 @@ class FibTouchStartPayload(BaseModel):
     # fibs' levels meet). The engine has taken it since fcdfb34; without this
     # field nothing outside a test could ever choose the second half.
     buy_mode: str = Field(default="levels")
+
+
+class CandleEntryAutoPayload(BaseModel):
+    """Switch the Candle Entry AUTO MOTHER on or off.
+
+    Phil, 2026-08-20: "Can this be automated like the Fib Boundary strategy?
+    ... match the backtest, new box high only, market hours only." With it on,
+    whenever no campaign is running and it is 09:20-15:10 on a weekday, the
+    FIRST 5m bar to make a new 278-bar high since the last campaign ended
+    becomes the mother, and the measured rule starts on it -- the same
+    Start the button does with a blank look-back. Never a second campaign
+    on top of a running one; never the same mother twice.
+    """
+
+    enabled: bool = Field(default=True)
+    mode: str = Field(default="paper")
 
 
 class FibTouchAutoPayload(BaseModel):
@@ -10596,7 +10620,7 @@ def _candle_entry_regular_sessions(rows: list) -> list:
 
 
 async def _candle_entry_find_box_mother(
-    adapter, timeframe: str, box_bars: int, look_back_from: datetime
+    adapter, timeframe: str, box_bars: int, look_back_from: datetime, *, not_before: datetime | None = None
 ) -> tuple[IndexCandle, list[IndexCandle]]:
     """Phil's mother, found: the most recent bar at or before `look_back_from`
     whose high is the highest of the `box_bars` bars ending at it.
@@ -10604,6 +10628,11 @@ async def _candle_entry_find_box_mother(
     Knowable the moment that bar closes -- nothing after it is read -- so a
     paper campaign and a backtest find the same mother. Returns the mother and
     the window of `box_bars` bars ending at it, which primes the box gate.
+
+    With `not_before`, it is the FIRST such bar at or after that moment
+    instead -- the backtest's rule for the next campaign: a box high that
+    fired while the last campaign was still open is not taken, and once free
+    the next one to print is. `not_before` is the last campaign's exit.
     """
     per_session = _CANDLE_ENTRY_BARS_PER_SESSION[timeframe]
     box_days = int(box_bars / per_session * 1.6) + 3
@@ -10618,7 +10647,12 @@ async def _candle_entry_find_box_mother(
             status_code=404,
             detail=f"Only {len(rows)} NIFTY {timeframe} candles are available before then; the box needs {box_bars}.",
         )
-    for index in range(len(rows) - 1, box_bars - 2, -1):
+    order = range(len(rows) - 1, box_bars - 2, -1)
+    if not_before is not None:
+        order = range(box_bars - 1, len(rows))
+    for index in order:
+        if not_before is not None and rows[index].timestamp < not_before:
+            continue
         window = rows[index - box_bars + 1 : index + 1]
         if rows[index].high >= max(row.high for row in window):
             return rows[index], window
@@ -10743,9 +10777,15 @@ async def candle_entry_paper_status(request: Request):
                 runtime = await _restore_candle_entry_open_state(user_id, broker_client, activate=True)
         except Exception as exc:
             _logger.debug("[CANDLE ENTRY] status restore skipped: %s", exc)
+    auto = _candle_auto_public(await _candle_entry_auto_settings(user_id))
     if runtime is None:
-        return {"status": "not_started", "mode": "paper"}
-    return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
+        return {"status": "not_started", "mode": "paper", "auto": auto}
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "auto": auto,
+        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
 
 
 @app.post("/api/candle-entry/paper/start")
@@ -10759,6 +10799,15 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     backtest gives, on the monitor. Nothing is signal-only any more: what this
     route cannot price it leaves blank and says so, it never invents a premium.
     """
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting the Candle Entry campaign.")
+    return await _start_candle_entry_campaign(user_id, payload, broker_client=broker_client)
+
+
+async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperStartPayload, *, broker_client) -> dict:
+    """The Start button's work, callable without a request -- the auto mother uses it too."""
     timeframe = str(payload.timeframe or "1h").strip().lower()
     if timeframe not in LADDER_TIMEFRAMES:
         raise HTTPException(
@@ -10768,10 +10817,6 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     mother_mode = _candle_entry_mother_mode(payload.mother_mode)
     _candle_entry_trade_mode(getattr(payload, "mode", "paper"))
     now = datetime.now(IST)
-    user_id = _request_user_id(request)
-    _user, broker_client, _source = await _request_broker_context(request)
-    if broker_client is None:
-        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting the Candle Entry campaign.")
     old = await _restore_candle_entry_open_state(user_id, broker_client, activate=True)
     if old is not None and old.running:
         raise HTTPException(
@@ -11561,6 +11606,231 @@ async def _fib_boundary_auto_step(user: dict, symbol: str, setting: dict, *, now
     setting.pop("last_error", None)
     await _save_fib_boundary_auto(uid)
     return "started"
+
+
+# ── Candle Entry · the auto mother ───────────────────────────────────
+# THE RULE IT RUNS, not the form: the measured configuration, whatever the
+# Advanced fold says. Mode (paper / live) is the one thing the desk chooses.
+_CANDLE_AUTO_RULE = {
+    "mother_mode": "box",
+    "timeframe": "5m",
+    "box_bars": 278,
+    "box_position": 0.25,
+    "ce_offset_steps": -2,
+    "strike_at": "each_buy",
+    "intraday_close": False,
+    "expiry_rule": "monthly",
+    "target_fraction": 0.25,
+    "trailing_target": True,
+}
+_CANDLE_AUTO_POLL_SEC = 15
+_CANDLE_AUTO_LOG_DAYS = 45
+_CANDLE_AUTO_OPEN = dt_time(9, 20)
+_CANDLE_AUTO_LAST_START = dt_time(15, 10)
+
+
+async def _candle_entry_auto_settings(user_id: int) -> dict:
+    uid = int(user_id)
+    if uid not in _candle_entry_auto_loaded:
+        _candle_entry_auto_loaded.add(uid)
+        try:
+            raw = await _db_mod.get_app_state(_candle_entry_auto_key(uid))
+            _candle_entry_auto[uid] = json.loads(raw) if raw else {}
+        except Exception as exc:
+            _logger.warning("[CANDLE AUTO] could not read settings for user %s: %s", uid, exc)
+            _candle_entry_auto[uid] = {}
+    return _candle_entry_auto.setdefault(uid, {})
+
+
+async def _save_candle_entry_auto(user_id: int) -> None:
+    await _db_mod.set_app_state(
+        _candle_entry_auto_key(user_id), json.dumps(_candle_entry_auto.get(int(user_id), {}), default=str)
+    )
+
+
+def _candle_auto_public(setting: dict) -> dict:
+    return {k: v for k, v in (setting or {}).items() if not str(k).startswith("_")}
+
+
+def _candle_auto_log_campaign(setting: dict, runtime: _CascadeRuntime) -> None:
+    """Append an ENDED campaign to the chain log, once, and mark when it freed."""
+    st = runtime.engine.get_status()
+    key = str((st.get("mother") or {}).get("timestamp"))
+    log = setting.setdefault("log", [])
+    if any(str(row.get("mother")) == key for row in log):
+        return
+    exit_row = st.get("exit") or {}
+    log.append(
+        {
+            "mother": key,
+            "contract": f"{(st.get('contract') or {}).get('strike', '')} {(st.get('contract') or {}).get('option_type', 'CE')}",
+            "status": st.get("status"),
+            "exit_reason": exit_row.get("reason") or ("no_buy" if not st.get("fills") else None),
+            "exit_timestamp": exit_row.get("timestamp"),
+            "buys": len(st.get("fills") or []),
+            "net": st.get("net_pnl"),
+        }
+    )
+    keep_from = (datetime.now(IST).date() - timedelta(days=_CANDLE_AUTO_LOG_DAYS)).isoformat()
+    setting["log"] = [row for row in log if str(row.get("mother"))[:10] >= keep_from][-200:]
+
+
+async def _candle_entry_auto_step(
+    user: dict,
+    setting: dict,
+    *,
+    now: datetime | None = None,
+    find_mother=None,
+    start=None,
+) -> str:
+    """One tick of the auto mother for one user. Returns what it did.
+
+    Market hours only (09:20-15:10, weekdays). A running campaign is left
+    alone. When the last one has ended, the next mother is the FIRST 5m bar
+    to make a 278-bar high AT OR AFTER that campaign's exit -- the backtest's
+    rule: highs that printed while a campaign was open are not taken, and the
+    same mother is never traded twice. `find_mother` and `start` are the real
+    helpers unless a test hands in its own.
+    """
+    now = now or datetime.now(IST)
+    today = now.date()
+    uid = int(user["id"])
+    if now.weekday() >= 5 or now.time() < _CANDLE_AUTO_OPEN:
+        return "outside-window"
+    runtime = _candle_entry_engines.get(uid)
+    if runtime is not None and runtime.running:
+        return "busy"
+    if runtime is not None:
+        # The last campaign has ended: remember when it freed, once.
+        st = runtime.engine.get_status()
+        mother_key = str((st.get("mother") or {}).get("timestamp"))
+        if setting.get("last_mother") == mother_key and not setting.get("_freed_logged") == mother_key:
+            _candle_auto_log_campaign(setting, runtime)
+            exit_row = st.get("exit") or {}
+            freed = (
+                exit_row.get("timestamp") or (st.get("latest_closed_candle") or {}).get("timestamp") or now.isoformat()
+            )
+            setting["free_from"] = str(freed)
+            setting["_freed_logged"] = mother_key
+            await _save_candle_entry_auto(uid)
+    if now.time() >= _CANDLE_AUTO_LAST_START:
+        return "too-late"
+    broker_client, _source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    if broker_client is None:
+        setting["alert"] = "no Dhan account for the auto mother"
+        return "no-broker"
+    not_before = None
+    if setting.get("free_from"):
+        not_before = datetime.fromisoformat(str(setting["free_from"]))
+        if not_before.tzinfo is None:
+            not_before = not_before.replace(tzinfo=IST)
+    elif setting.get("last_mother"):
+        # Enabled with a campaign already in the book but no recorded exit:
+        # anything after that mother is new.
+        not_before = datetime.fromisoformat(str(setting["last_mother"])) + timedelta(minutes=1)
+        if not_before.tzinfo is None:
+            not_before = not_before.replace(tzinfo=IST)
+    finder = find_mother or (
+        lambda: _candle_entry_find_box_mother(
+            CascadeOptionsAdapter(broker_client, paper_only=True),
+            _CANDLE_AUTO_RULE["timeframe"],
+            int(_CANDLE_AUTO_RULE["box_bars"]),
+            now,
+            not_before=not_before,
+        )
+    )
+    try:
+        mother, _window = await finder()
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            setting["waiting"] = (
+                f"no new {_CANDLE_AUTO_RULE['box_bars']}-bar high since {str(setting.get('free_from') or setting.get('last_mother') or 'the start')[:16]}"
+            )
+            return "waiting-for-new-high"
+        setting["last_error"] = f"{now.strftime('%H:%M')} {exc.detail}"
+        return "find-failed"
+    if setting.get("last_mother") == mother.timestamp.isoformat():
+        return "waiting-for-new-high"
+    mother_closes = min(
+        mother.timestamp + timedelta(minutes=TIMEFRAME_MINUTES[_CANDLE_AUTO_RULE["timeframe"]]),
+        mother.timestamp.replace(hour=15, minute=30, second=0, microsecond=0),
+    )
+    if mother_closes > now:
+        return "waiting-for-candle"
+    payload = CandleEntryPaperStartPayload(
+        mother_timestamp=mother.timestamp.replace(tzinfo=None).isoformat(),
+        mode=str(setting.get("mode") or "paper"),
+        **_CANDLE_AUTO_RULE,
+    )
+    starter = start or (lambda p: _start_candle_entry_campaign(uid, p, broker_client=broker_client))
+    try:
+        await starter(payload)
+    except HTTPException as exc:
+        setting["last_error"] = f"{now.strftime('%H:%M')} {exc.detail}"
+        await _save_candle_entry_auto(uid)
+        return "start-failed"
+    setting["last_mother"] = mother.timestamp.isoformat()
+    setting["last_start_at"] = now.isoformat()
+    setting["last_day"] = today.isoformat()
+    setting.pop("free_from", None)
+    setting.pop("_freed_logged", None)
+    setting.pop("waiting", None)
+    setting.pop("alert", None)
+    setting.pop("last_error", None)
+    await _save_candle_entry_auto(uid)
+    return "started"
+
+
+async def _run_candle_entry_auto_loop() -> None:
+    """Drive the Candle Entry auto mother for every user who has it on."""
+    while True:
+        try:
+            idle = _terminal_cascade_offsession_sleep_sec()
+            if idle:
+                await asyncio.sleep(idle)
+                continue
+            for user in await _db_mod.list_users():
+                uid = int(user["id"])
+                setting = await _candle_entry_auto_settings(uid)
+                if not setting.get("enabled"):
+                    continue
+                try:
+                    await _candle_entry_auto_step(user, setting)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    _logger.warning("[CANDLE AUTO] step failed for user %s: %s", uid, exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[CANDLE AUTO] loop error: %s", exc)
+        await asyncio.sleep(_CANDLE_AUTO_POLL_SEC)
+
+
+@app.post("/api/candle-entry/auto")
+async def candle_entry_auto(payload: CandleEntryAutoPayload, request: Request):
+    """Switch the Candle Entry auto mother on or off."""
+    mode = _candle_entry_trade_mode(payload.mode) if payload.enabled else str(payload.mode or "paper").lower()
+    user_id = _request_user_id(request)
+    setting = await _candle_entry_auto_settings(user_id)
+    setting["enabled"] = bool(payload.enabled)
+    setting["mode"] = mode
+    setting["changed_at"] = datetime.now(IST).isoformat()
+    if payload.enabled:
+        # A campaign already running or ended in the book is the chain's start:
+        # the next mother must come after it, never the same one again.
+        runtime = _candle_entry_engines.get(user_id)
+        if runtime is not None:
+            st = runtime.engine.get_status()
+            setting["last_mother"] = str((st.get("mother") or {}).get("timestamp"))
+            if not runtime.running:
+                exit_row = st.get("exit") or {}
+                setting["free_from"] = str(exit_row.get("timestamp") or setting["last_mother"])
+                setting["_freed_logged"] = setting["last_mother"]
+        setting.pop("alert", None)
+        setting.pop("last_error", None)
+    await _save_candle_entry_auto(user_id)
+    return {"status": "ok", "auto": _candle_auto_public(setting)}
 
 
 async def _run_fib_boundary_auto_loop() -> None:
@@ -19332,6 +19602,7 @@ async def _start_token_renewal():
         # The Fib Boundary auto mother: one task, active instance only, so a
         # standby worker never starts a second ladder on the same symbol.
         asyncio.create_task(_run_fib_boundary_auto_loop())
+        asyncio.create_task(_run_candle_entry_auto_loop())
     elif _STARTUP_ENGINE_RESTORE_ENABLED:
         print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:

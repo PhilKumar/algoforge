@@ -6139,10 +6139,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* A phone keeps the number and the switch on one line -- 86px and the rest. */
 /* THE ESSENTIALS ROW: mode, chart, when, and the buttons -- one line on a
    desk, stacking on a phone. Everything else is behind the Advanced fold. */
-.candle-entry-essentials { display:grid; grid-template-columns: 170px 200px minmax(220px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
+.candle-entry-essentials { display:grid; grid-template-columns: 170px 150px 190px minmax(200px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
 .candle-entry-essentials .candle-entry-field { min-width:0; }
 .candle-entry-essentials .candle-entry-field-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:0; }
-@media (max-width: 1100px) { .candle-entry-essentials { grid-template-columns: 160px 180px minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; } }
+@media (max-width: 1180px) { .candle-entry-essentials { grid-template-columns: 160px 140px 170px minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .candle-entry-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); } .candle-entry-essentials .candle-entry-field-when { grid-column: 1 / -1; } }
 @media (max-width: 640px) { .candle-entry-essentials { grid-template-columns: minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions .btn { flex: 1 1 100%; } }
 /* The Advanced fold: the measured rule, collapsed; its summary says whether
    anything on the form differs from it. */
@@ -6158,6 +6159,19 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .candle-entry-advanced-body { padding: 2px 12px 12px; }
 .candle-entry-advanced-body .candle-entry-switch-grid { margin-top:4px; }
 [data-theme="light"] .candle-entry-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
+/* The auto mother's card: on/off, what it is waiting for, the recent chain. */
+.candle-entry-auto-card { margin-top:10px; border:1px solid rgba(148,163,184,.18); border-radius:10px; padding:9px 12px; background: rgba(7,16,29,.45); font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
+.candle-entry-auto-card.is-on { border-color: rgba(52,211,153,.42); }
+.candle-entry-auto-card[hidden] { display:none; }
+.candle-entry-auto-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--text); }
+.candle-entry-auto-head > span { color:var(--muted); flex:1 1 auto; }
+.candle-entry-auto-alert { margin-top:5px; color:#f59e0b; }
+.candle-entry-auto-chain { width:100%; border-collapse:collapse; margin-top:6px; }
+.candle-entry-auto-chain th, .candle-entry-auto-chain td { padding:3px 6px; text-align:right; border-bottom:1px solid rgba(148,163,184,.12); white-space:nowrap; }
+.candle-entry-auto-chain th:nth-child(-n+3), .candle-entry-auto-chain td:nth-child(-n+3) { text-align:left; }
+.candle-entry-auto-chain td.pos { color:#6ee7b7; } .candle-entry-auto-chain td.neg { color:#fca5a5; }
+.candle-entry-auto-chain-wrap { overflow-x:auto; }
+[data-theme="light"] .candle-entry-auto-card { background: rgba(248,250,252,.9); border-color: rgba(15,23,42,.14); }
 /* The one-line summary of an older campaign, under the buttons. */
 .candle-entry-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
 .candle-entry-summary:empty { display:none; }

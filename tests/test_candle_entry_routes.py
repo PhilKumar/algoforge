@@ -234,6 +234,38 @@ class BoxMotherTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(mother.timestamp.date(), date(2026, 8, 4))
 
+    async def test_not_before_takes_the_first_box_high_after_it_not_the_latest(self):
+        # Day three makes a new high at bar 21 and another, higher, at bar 40.
+        # Looking back from the close, the LATEST is bar 40; the next campaign
+        # after an exit at 10:00 takes the FIRST one after that -- bar 21.
+        d1 = self._day(date(2026, 8, 3), [100 + i * 0.1 for i in range(75)])
+        d2 = self._day(date(2026, 8, 4), [108 + i * 0.1 for i in range(75)])
+        highs = (
+            [116 + i * 0.1 for i in range(22)] + [110 - i * 0.1 for i in range(18)] + [125 + i * 0.1 for i in range(35)]
+        )
+        d3 = self._day(date(2026, 8, 5), highs)
+        adapter = self._Adapter(d1 + d2 + d3)
+        latest, _ = await app_module._candle_entry_find_box_mother(
+            adapter, "5m", 150, datetime(2026, 8, 5, 15, 30, tzinfo=IST)
+        )
+        self.assertEqual(latest.timestamp, d3[-1].timestamp)
+        first, _ = await app_module._candle_entry_find_box_mother(
+            adapter,
+            "5m",
+            150,
+            datetime(2026, 8, 5, 15, 30, tzinfo=IST),
+            not_before=datetime(2026, 8, 5, 10, 0, tzinfo=IST),
+        )
+        self.assertEqual(first.timestamp, d3[9].timestamp)  # 10:00 is bar 9; it makes a new high
+        later, _ = await app_module._candle_entry_find_box_mother(
+            adapter,
+            "5m",
+            150,
+            datetime(2026, 8, 5, 15, 30, tzinfo=IST),
+            not_before=datetime(2026, 8, 5, 11, 30, tzinfo=IST),
+        )
+        self.assertEqual(later.timestamp, d3[40].timestamp)  # the first bar at/after 11:30 that makes one
+
     async def test_too_little_history_is_a_plain_404(self):
         adapter = self._Adapter(self._day(date(2026, 8, 5), [100 + i for i in range(30)]))
         with self.assertRaises(app_module.HTTPException) as caught:
@@ -263,3 +295,138 @@ class MotherValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Runtime:
+    def __init__(self, status: dict, running: bool):
+        self.running = running
+        self.engine = type("E", (), {"get_status": lambda _self, _s=status: _s})()
+
+
+class AutoMotherTests(unittest.IsolatedAsyncioTestCase):
+    """Phil, 2026-08-20: match the backtest, new box high only, market hours only."""
+
+    USER = {"id": 77}
+
+    def setUp(self):
+        app_module._candle_entry_auto[77] = {"enabled": True, "mode": "paper"}
+        app_module._candle_entry_auto_loaded.add(77)
+        app_module._candle_entry_engines.pop(77, None)
+        self._saved = []
+        self._orig_save = app_module._save_candle_entry_auto
+
+        async def fake_save(uid):
+            self._saved.append(uid)
+
+        app_module._save_candle_entry_auto = fake_save
+        self._orig_broker = app_module._resolve_user_broker_client
+        app_module._resolve_user_broker_client = lambda _u, allow_admin_fallback=True: (object(), "test")
+
+    def tearDown(self):
+        app_module._save_candle_entry_auto = self._orig_save
+        app_module._resolve_user_broker_client = self._orig_broker
+        app_module._candle_entry_engines.pop(77, None)
+        app_module._candle_entry_auto.pop(77, None)
+
+    def _bar(self, when: datetime, high=24600.0):
+        return app_module.IndexCandle(when.replace(tzinfo=IST), high - 10, high, high - 20, high - 5)
+
+    @property
+    def setting(self):
+        return app_module._candle_entry_auto[77]
+
+    async def test_it_does_nothing_outside_market_hours(self):
+        for when in (datetime(2026, 8, 22, 10, 0), datetime(2026, 8, 20, 9, 10)):  # a Saturday; before 09:20
+            out = await app_module._candle_entry_auto_step(self.USER, self.setting, now=when.replace(tzinfo=IST))
+            self.assertEqual(out, "outside-window")
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 15, 12, tzinfo=IST)
+        )
+        self.assertEqual(out, "too-late")
+
+    async def test_a_running_campaign_is_left_alone(self):
+        app_module._candle_entry_engines[77] = _Runtime(
+            {"mother": {"timestamp": "2026-08-18T10:00:00+05:30"}}, running=True
+        )
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 11, 0, tzinfo=IST)
+        )
+        self.assertEqual(out, "busy")
+
+    async def test_it_starts_the_measured_rule_on_the_first_new_box_high(self):
+        started = []
+        mother = self._bar(datetime(2026, 8, 20, 10, 30))
+
+        async def finder():
+            return mother, []
+
+        async def starter(payload):
+            started.append(payload)
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 40, tzinfo=IST), find_mother=finder, start=starter
+        )
+        self.assertEqual(out, "started")
+        p = started[0]
+        self.assertEqual(p.mother_mode, "box")
+        self.assertEqual(p.timeframe, "5m")
+        self.assertEqual((p.box_bars, p.box_position, p.ce_offset_steps, p.strike_at), (278, 0.25, -2, "each_buy"))
+        self.assertEqual(
+            (p.expiry_rule, p.target_fraction, p.trailing_target, p.intraday_close), ("monthly", 0.25, True, False)
+        )
+        self.assertEqual(p.mode, "paper")
+        self.assertEqual(self.setting["last_mother"], mother.timestamp.isoformat())
+        self.assertTrue(self._saved)
+
+    async def test_a_mother_whose_bar_has_not_closed_waits(self):
+        mother = self._bar(datetime(2026, 8, 20, 10, 30))
+
+        async def finder():
+            return mother, []
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 33, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(out, "waiting-for-candle")
+
+    async def test_the_same_mother_is_never_traded_twice(self):
+        mother = self._bar(datetime(2026, 8, 20, 10, 30))
+        self.setting["last_mother"] = mother.timestamp.isoformat()
+
+        async def finder():
+            return mother, []
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 11, 0, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(out, "waiting-for-new-high")
+
+    async def test_an_ended_campaign_is_logged_once_and_frees_the_chain_from_its_exit(self):
+        status = {
+            "mother": {"timestamp": "2026-08-18T10:00:00+05:30"},
+            "contract": {"strike": 24300, "option_type": "CE"},
+            "status": "CLOSED",
+            "fills": [{"rung": 1}],
+            "exit": {"timestamp": "2026-08-20T10:05:00+05:30", "reason": "trail"},
+            "net_pnl": 1234.5,
+        }
+        app_module._candle_entry_engines[77] = _Runtime(status, running=False)
+        self.setting["last_mother"] = "2026-08-18T10:00:00+05:30"
+        asked = []
+
+        async def finder():
+            asked.append(1)
+            raise app_module.HTTPException(status_code=404, detail="none yet")
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(out, "waiting-for-new-high")
+        self.assertEqual(self.setting["free_from"], "2026-08-20T10:05:00+05:30")
+        self.assertEqual(len(self.setting["log"]), 1)
+        self.assertEqual(self.setting["log"][0]["net"], 1234.5)
+        # A second tick does not log it again.
+        await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 21, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(len(self.setting["log"]), 1)

@@ -2878,6 +2878,19 @@
             <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setCandleEntryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
           </div>
         </div>
+        <div class="candle-entry-field candle-entry-field-auto">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Auto mother</label>
+          <!-- Phil, 2026-08-20: "Can this be automated like the Fib Boundary
+               strategy? ... match the backtest, new box high only, market
+               hours only." On: the first 5m bar to make a new 278-bar high
+               since the last campaign ended starts the measured rule, 09:20
+               to 15:10 on weekdays; never on top of a running campaign. -->
+          <input type="hidden" id="candle-entry-auto" value="off">
+          <div id="candle-entry-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto mother">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="off" data-pf-action="setCandleEntryAuto" role="radio" aria-checked="true"><span>○ Off</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="on" data-pf-action="setCandleEntryAuto" role="radio" title="Starts the measured rule on each new 278-bar high, market hours only" aria-checked="false"><span>◉ On</span></button>
+          </div>
+        </div>
         <div class="candle-entry-field candle-entry-field-chart"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
         <div class="candle-entry-field candle-entry-field-when"><label id="candle-entry-timestamp-label" for="candle-entry-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
         <div class="candle-entry-field candle-entry-field-actions candle-entry-actions"><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
@@ -2961,6 +2974,7 @@
         </div>
       </details>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      <div id="candle-entry-auto-card" class="candle-entry-auto-card" hidden></div>
       <div id="candle-entry-summary" class="candle-entry-summary">No active Candle Entry campaign.</div>
       <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">

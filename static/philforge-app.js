@@ -1886,6 +1886,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setCandleEntryMother',
   'setCandleEntryBox',
   'setCandleEntryMode',
+  'setCandleEntryAuto',
   'setCandleEntryStrikeAt',
   'setCandleEntryExpiry',
   'setCandleEntryTarget',
@@ -2510,6 +2511,7 @@ async function refreshCandleEntryStatus() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load Candle Entry campaign'));
     _renderCandleEntryStatus(data);
+    _renderCandleEntryAuto(data.auto);
   } catch (error) {
     const summary = _cascadeOptionsEl('candle-entry-summary');
     if (summary) summary.textContent = error.message || 'Unable to load Candle Entry campaign.';
@@ -2594,6 +2596,56 @@ function setCandleEntryBox(_event, button) { _candleEntrySetSwitch('candle-entry
 function setCandleEntryMode(_event, button) { _candleEntrySetSwitch('candle-entry-mode', 'candle-entry-mode-toggle', button?.dataset?.value || 'paper'); _syncCandleEntryMotherMode(); }
 
 function _candleEntryMotherMode() { return document.getElementById('candle-entry-mother-mode')?.value || 'box'; }
+
+// THE AUTO MOTHER. On: the server starts the measured rule on each new
+// 278-bar high, market hours only, never on top of a running campaign. The
+// switch posts at once; the card under the buttons reports what it is doing.
+let _candleEntryAutoPosting = false;
+async function setCandleEntryAuto(_event, button) {
+  const value = button?.dataset?.value || 'off';
+  const input = document.getElementById('candle-entry-auto');
+  if (!input || input.value === value || _candleEntryAutoPosting) return;
+  _candleEntryAutoPosting = true;
+  const previous = input.value;
+  _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', value);
+  try {
+    const response = await fetch('/api/candle-entry/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: value === 'on', mode: _candleEntryTradeMode() }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Auto mother did not change.'));
+    _renderCandleEntryAuto(data.auto);
+    _setCandleEntryFormStatus(value === 'on' ? 'Auto mother ON — the next new 278-bar high starts the measured rule (market hours only).' : 'Auto mother OFF. A running campaign keeps running.', value === 'on' ? 'success' : 'muted');
+  } catch (error) {
+    _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', previous);
+    _setCandleEntryFormStatus(error.message || 'Auto mother did not change.', 'error');
+  } finally {
+    _candleEntryAutoPosting = false;
+  }
+}
+
+function _renderCandleEntryAuto(auto) {
+  const card = document.getElementById('candle-entry-auto-card');
+  const input = document.getElementById('candle-entry-auto');
+  const on = !!(auto && auto.enabled);
+  if (input && !_candleEntryAutoPosting) _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', on ? 'on' : 'off');
+  if (!card) return;
+  if (!auto || (!on && !(auto.log || []).length)) { card.hidden = true; card.innerHTML = ''; return; }
+  card.hidden = false;
+  card.classList.toggle('is-on', on);
+  const log = (auto.log || []).slice(-8).reverse();
+  const net = (auto.log || []).reduce((n, r) => n + (Number(r.net) || 0), 0);
+  const state = on
+    ? (auto.waiting ? `waiting · ${auto.waiting}` : auto.last_mother ? `last mother ${_cascadeOptionsTimestamp(auto.last_mother).slice(0, 16)}` : 'waiting for the first new 278-bar high')
+    : 'off';
+  const rows = log.length
+    ? `<div class="candle-entry-auto-chain-wrap"><table class="candle-entry-auto-chain"><tr><th>Mother</th><th>Contract</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
+      + log.map(r => `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(r.mother).slice(0, 16))}</td><td>${escapeHtml(String(r.contract || ''))}</td><td>${escapeHtml(r.exit_timestamp ? _cascadeOptionsTimestamp(r.exit_timestamp).slice(0, 16) : '—')}</td><td>${escapeHtml(String(r.exit_reason || r.status || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? ''))}</td><td class="${r.net == null ? '' : r.net >= 0 ? 'pos' : 'neg'}">${r.net == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(r.net)))}</td></tr>`).join('')
+      + `</table></div>`
+    : '';
+  card.innerHTML = `<div class="candle-entry-auto-head"><strong>Auto mother ${on ? 'ON' : 'OFF'} · ${escapeHtml(String(auto.mode || 'paper'))}</strong><span>${escapeHtml(state)}</span>${(auto.log || []).length ? `<span style="flex:0 0 auto;">${(auto.log || []).length} campaign${(auto.log || []).length === 1 ? '' : 's'} · net ${escapeHtml(_cascadeOptionsMoney(net))}</span>` : ''}</div>`
+    + (auto.alert ? `<div class="candle-entry-auto-alert">⚠ ${escapeHtml(String(auto.alert))}</div>` : '')
+    + (auto.last_error ? `<div class="candle-entry-auto-alert">${escapeHtml(String(auto.last_error))}</div>` : '')
+    + rows;
+}
 function _candleEntryTradeMode() { return document.getElementById('candle-entry-mode')?.value || 'paper'; }
 
 // The timestamp field means two different things: the mother itself (Manual)
@@ -3218,6 +3270,7 @@ window.setCandleEntrySession = setCandleEntrySession;
 window.setCandleEntryMother = setCandleEntryMother;
 window.setCandleEntryBox = setCandleEntryBox;
 window.setCandleEntryMode = setCandleEntryMode;
+window.setCandleEntryAuto = setCandleEntryAuto;
 window.setCandleEntryStrikeAt = setCandleEntryStrikeAt;
 window.setCandleEntryExpiry = setCandleEntryExpiry;
 window.setCandleEntryTarget = setCandleEntryTarget;
