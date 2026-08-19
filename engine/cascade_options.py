@@ -2587,6 +2587,8 @@ class LadderCandleEntryPaper:
         min_buys_before_exit: int = 1,
         stop_loss_pct: float = 0.0,
         min_fall_pct: float = 0.0,
+        range_bars: int = 0,
+        range_position: float = 0.5,
     ) -> None:
         if not adapter.paper_only or contract.option_type != "CE":
             raise PaperOnlyViolation("The Candle Entry ladder campaign is CE-only and paper-only")
@@ -2634,6 +2636,8 @@ class LadderCandleEntryPaper:
             min_buys_before_exit=min_buys_before_exit,
             stop_loss_pct=stop_loss_pct,
             min_fall_pct=min_fall_pct,
+            range_bars=range_bars,
+            range_position=range_position,
             # 0 = the target is the sale. Above 0 the target only ARMS a trail
             # that sells on a close giving back this fraction of the run.
             trail_fraction=trail_fraction,

@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "fib_offline"))
 from fib_replay import _listed_source  # noqa: E402
 
 from engine.backtest import get_lot_size  # noqa: E402
-from engine.candle_ladder import LADDER_DEPTH, ladder_from  # noqa: E402
+from engine.candle_ladder import LADDER_DEPTH, LadderCandle, ladder_from  # noqa: E402
 from engine.cascade_options import (  # noqa: E402
     CascadeOptionsAdapter,
     FixedCampaignOption,
@@ -139,8 +139,15 @@ def main() -> None:
     ap.add_argument(
         "--min-buys", dest="min_buys", type=int, default=1, help="ignore the target until this many rungs are bought"
     )
+    ap.add_argument("--bars", default="0", help="comma list: rolling window of bars whose high/low makes the box")
+    ap.add_argument("--pos", default="0.5", help="comma list: only arm below this position in the box (0.5 = midpoint)")
     ap.add_argument("--depth", default=str(LADDER_DEPTH), help="how many charts the ladder climbs")
     ap.add_argument("--hold", default="", help="sell at 15:15 this many days after the first buy (0 = same day)")
+    ap.add_argument(
+        "--mother",
+        default="clock",
+        help="clock = the 7 fixed times a day; box = the bar that MAKES the --bars high (Phil's rule)",
+    )
     ap.add_argument("--csv", default="")
     args = ap.parse_args()
     tf = args.tf.lower()
@@ -195,14 +202,32 @@ def main() -> None:
                 return price
         return None
 
-    candidates = [c for c in series[tf] if start <= c.timestamp.date() <= end and c.timestamp.time() in CLOCK_TIMES]
+    if args.mother == "box":
+        # PHIL'S RULE, 2026-08-19: the mother is not a clock time -- it is the
+        # bar that MAKES the high of the box. A bar qualifies when its high is
+        # the highest of the last `--bars` bars (itself included), which is
+        # knowable the moment that bar closes, so there is no look-ahead. The
+        # box low rolls on from there and the position gate does the rest.
+        window = int(str(args.bars).split(",")[0])
+        if window <= 0:
+            raise SystemExit("--mother box needs --bars (e.g. --bars 278)")
+        rows = series[tf]
+        candidates = []
+        for i in range(window - 1, len(rows)):
+            bar = rows[i]
+            if not (start <= bar.timestamp.date() <= end):
+                continue
+            if bar.high >= max(r.high for r in rows[i - window + 1 : i + 1]):
+                candidates.append(bar)
+    else:
+        candidates = [c for c in series[tf] if start <= c.timestamp.date() <= end and c.timestamp.time() in CLOCK_TIMES]
     by_tf_index = {k: rows for k, rows in series.items()}
 
     # ONE PROCESS FOR THE WHOLE GRID. Loading these candle caches costs about a
     # gigabyte, so running a dozen configs as a dozen parallel processes buries
     # the machine in swap (it hung Phil's Mac on 2026-08-19). The data is loaded
     # once here and every configuration walks it in turn.
-    def run_config(stop_pct: float, fall_pct: float) -> dict:
+    def run_config(stop_pct: float, fall_pct: float, bars: int = 0, pos: float = 0.5) -> dict:
         rows_out: list[dict] = []
         free_from: datetime | None = None
         stale_fills[0] = 0
@@ -228,7 +253,14 @@ def main() -> None:
                 min_buys_before_exit=args.min_buys,
                 stop_loss_pct=stop_pct,
                 min_fall_pct=fall_pct,
+                range_bars=bars,
+                range_position=pos,
             )
+            if bars:
+                before = [c for c in series[tf] if c.timestamp <= mother.timestamp][-bars:]
+                engine.ladder.prime_range(
+                    [LadderCandle(tf, c.timestamp, c.open, c.high, c.low, c.close) for c in before]
+                )
             window_end = min(expiry, data_end)
             batches = {
                 k: [c for c in rows if mother.timestamp.date() <= c.timestamp.date() <= window_end]
@@ -290,6 +322,7 @@ def main() -> None:
         ranked = sorted(nets)
         return {
             "tf": tf,
+            "mother": args.mother,
             "depth": int(args.depth),
             "expiry": args.expiry,
             "target": args.target,
@@ -298,6 +331,8 @@ def main() -> None:
             "min_buys": args.min_buys,
             "stop": stop_pct,
             "fall": fall_pct,
+            "bars": bars,
+            "pos": pos,
             "window": f"{start}..{end}",
             "mothers": len(rows_out),
             "bought": len(bought),
@@ -314,9 +349,13 @@ def main() -> None:
 
     stops = [float(x) for x in str(args.stop).split(",") if x != ""]
     falls = [float(x) for x in str(args.fall).split(",") if x != ""]
-    for fall_pct in falls:
-        for stop_pct in stops:
-            print(json.dumps(run_config(stop_pct, fall_pct)), flush=True)
+    windows = [int(x) for x in str(args.bars).split(",") if x != ""]
+    positions = [float(x) for x in str(args.pos).split(",") if x != ""]
+    for bars in windows:
+        for pos in positions:
+            for fall_pct in falls:
+                for stop_pct in stops:
+                    print(json.dumps(run_config(stop_pct, fall_pct, bars, pos)), flush=True)
 
 
 if __name__ == "__main__":

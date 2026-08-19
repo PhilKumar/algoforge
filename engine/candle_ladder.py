@@ -208,6 +208,8 @@ class TwoRedLadder:
         min_buys_before_exit: int = 1,
         stop_loss_pct: float = 0.0,
         min_fall_pct: float = 0.0,
+        range_bars: int = 0,
+        range_position: float = 0.5,
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
@@ -255,6 +257,15 @@ class TwoRedLadder:
         # the equity version: nothing may arm until price is this far below the
         # mother's high, so a shallow dip is not traded at all.
         self.min_fall_pct = float(min_fall_pct)
+        # THE RANGE GATE. Phil, 2026-08-19: "count some 278 candle bars ... get
+        # the high and the low and mark 50% and then use this strategy below
+        # 50%." A rolling window of this many bars on the mother's own chart:
+        # its high and low make a box, and nothing may arm while price sits in
+        # the top half of it. Zero switches the gate off. `range_position` is
+        # the line inside the box (0.5 = the midpoint).
+        self.range_bars = int(range_bars)
+        self.range_position = float(range_position)
+        self._range: list[tuple[float, float]] = []
         # HOW BIG A RUNG IS. Left alone, it is the option law: lots x lot size,
         # so rung 3 is three times rung 1 whatever the price did. Phil's cash
         # rule sizes off the FALL instead -- "calculate the percent the market
@@ -329,10 +340,19 @@ class TwoRedLadder:
 
         # An open basket is watching for its target on every chart -- the first
         # bar to reach it closes everything, whatever timeframe spotted it.
-        if self.fills and self._target_reached(candle):
+        #
+        # ONLY A BAR THAT STARTED AFTER THE LAST BUY COUNTS. A slow chart's bar
+        # SPANS the buy: the 1d bar of the day you bought carries the morning's
+        # high, hours before the rung filled. Without this guard that stale high
+        # cleared the target and the basket was sold at the DAY'S CLOSE -- on
+        # 2025-02-11 that booked a "target" exit for -Rs 6,598, on a day whose
+        # high (23,390 at 09:15) came 90 minutes before the 23,277 entry and
+        # whose close was 23,070. A target must be reached by price the basket
+        # was actually alive for.
+        if self.fills and self._after_last_fill(candle) and self._target_reached(candle):
             return
         # ... and for its stop, if it has been given one.
-        if self.fills and self.exit_timestamp is None and self._stop_loss_hit(candle):
+        if self.fills and self.exit_timestamp is None and self._after_last_fill(candle) and self._stop_loss_hit(candle):
             self._close(candle, float(candle.close), "stop_loss")
             return
 
@@ -359,6 +379,33 @@ class TwoRedLadder:
 
     def _remember_close(self, candle: LadderCandle) -> None:
         self._last_close[candle.timeframe] = candle.close
+        if self.range_bars and candle.timeframe == self.mother.timeframe:
+            self._range.append((candle.high, candle.low))
+            if len(self._range) > self.range_bars:
+                del self._range[0]
+
+    def prime_range(self, bars: list[LadderCandle]) -> None:
+        """Seed the rolling window with the bars BEFORE the mother.
+
+        The engine is only ever fed bars after its mother, so without this the
+        window would need 278 fresh bars before it could say anything -- by
+        which time the campaign is long over on a 15m chart.
+        """
+        self._range = [(row.high, row.low) for row in bars][-self.range_bars :] if self.range_bars else []
+
+    def _range_gate_open(self, candle: LadderCandle) -> bool:
+        """Is price in the LOWER half of the last N bars' range?"""
+        if not self.range_bars:
+            return True
+        if len(self._range) < self.range_bars:
+            # Not enough history to know the box: say nothing rather than
+            # guess, and let the campaign wait.
+            return False
+        high = max(row[0] for row in self._range)
+        low = min(row[1] for row in self._range)
+        if high <= low:
+            return False
+        return candle.close <= low + self.range_position * (high - low)
 
     def _fall_gate_open(self, candle: LadderCandle) -> bool:
         """Has price fallen far enough below the mother's high to trade at all?"""
@@ -409,7 +456,7 @@ class TwoRedLadder:
         """
         if not candle.is_red:
             return
-        if not self._fall_gate_open(candle):
+        if not self._fall_gate_open(candle) or not self._range_gate_open(candle):
             return
         # The gate: a rung above the first only starts counting once the market
         # has actually gone lower than it was when the last rung filled.
@@ -517,6 +564,16 @@ class TwoRedLadder:
         stage.armed_at = None
         self.active += 1
         self.status = "OPEN" if self.active >= len(self.stages) else "OPEN_CLIMBING"
+
+    def _after_last_fill(self, candle: LadderCandle) -> bool:
+        """Did this bar begin after the last rung filled?
+
+        The fill happens at its own bar's close, so that bar's own high is
+        already spent, and any slower bar containing it is part history.
+        """
+        if not self.fills:
+            return True
+        return candle.timestamp > self.fills[-1].timestamp
 
     def _target_reached(self, candle: LadderCandle) -> bool:
         target = self.target_index

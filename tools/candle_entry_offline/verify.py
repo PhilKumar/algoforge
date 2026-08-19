@@ -51,10 +51,14 @@ os.environ.setdefault("PHILFORGE_DB", os.path.join(tempfile.gettempdir(), "philf
 os.environ.setdefault("PHILFORGE_PIN", "123456")
 os.makedirs(os.path.dirname(os.environ["PHILFORGE_DB"]), exist_ok=True)
 
+from zoneinfo import ZoneInfo  # noqa: E402
+
 import app  # noqa: E402
 from engine.backtest import get_lot_size  # noqa: E402
 from engine.candle_ladder import LADDER_DEPTH, closed_at, ladder_from  # noqa: E402
-from engine.cascade_options import LadderCandleEntryPaper  # noqa: E402
+from engine.cascade_options import IndexCandle, LadderCandleEntryPaper  # noqa: E402
+
+IST_TZ = ZoneInfo("Asia/Kolkata")
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 12
 random.seed(18)
@@ -325,10 +329,30 @@ async def main() -> None:
             continue
         stages = result["stages"]
         expiry = date.fromisoformat(result["contract"]["expiry"])
-        series = {
-            k: [r for r in all_tf[k] if mother_ts.date() <= r.timestamp.date() <= min(expiry, latest.date())]
-            for k in stages
-        }
+        # The intraday charts come from the cache; 1d and 1w only exist inside
+        # the route (the ladder climbs to them since it went to three rungs),
+        # so they are read back from the charts the run itself drew. Rebuilding
+        # them here would risk comparing the paper run against bars the
+        # backtest never saw.
+        series = {}
+        for k in stages:
+            if k in all_tf:
+                series[k] = [
+                    r for r in all_tf[k] if mother_ts.date() <= r.timestamp.date() <= min(expiry, latest.date())
+                ]
+                continue
+            drawn = (result.get("charts") or {}).get(k) or {}
+            series[k] = [
+                IndexCandle(
+                    datetime.fromtimestamp(row["t"], IST_TZ),
+                    float(row["o"]),
+                    float(row["h"]),
+                    float(row["l"]),
+                    float(row["c"]),
+                )
+                for row in (drawn.get("candles") or [])
+                if not row.get("is_mother")
+            ]
         verify_one(result, series, mother_ts, tf)
         history, _ = app._candle_entry_pricing(None, mother_ts.date(), min(expiry, latest.date()))
         paper = tick_fed(result, series, mother_ts, tf, history)

@@ -281,13 +281,15 @@ class ExitTests(unittest.TestCase):
         # The bar opens at 09:20 and closes at 09:21; the exit is the close.
         self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=6))
 
-    def test_an_exit_on_a_slower_bar_never_predates_the_buy(self):
-        """Phil, 2026-08-14: a saved run read "bought 12:45, closed 12:15".
+    def test_a_slow_bar_spanning_the_buy_cannot_reach_the_target(self):
+        """The bar that CONTAINS the buy carries price from before it.
 
-        The hourly bar that closed the trade OPENS before the 15m bar that
-        filled it, so stamping a bar's open put the exit an hour in the past.
-        Stamping the close -- the moment the exit could first be acted on --
-        is the rule, and this is the shape that used to break it.
+        Found 2026-08-19 on a real losing trade: NIFTY made 23,390 at 09:15,
+        the rung filled at 23,277 at 10:45, and the DAY bar -- whose high was
+        that 09:15 print -- cleared the target and sold the basket at the
+        day's close of 23,070, booking -Rs 6,598 and calling it "target".
+        A target has to be made by price the basket was alive for, so a bar
+        that started before the last fill is ignored; the NEXT one counts.
         """
         mother = bar("15m", 0, 100, 110, 99, 105)
         ladder = a_ladder(mother, ("15m", "1h"))
@@ -297,14 +299,22 @@ class ExitTests(unittest.TestCase):
         ladder.on_candle(bar("15m", 7, 99, 103, 98.5, 102.5))  # 11:00, fills
         self.assertTrue(ladder.fills, "the 15m rung should have filled")
         fill = ladder.fills[0]
-        # The hourly bar OPENS 10:15 -- before that 11:00 fill -- and closes 11:15.
-        hour = LadderCandle("1h", START + timedelta(minutes=60), 100, 105, 98, 104.5)
-        self.assertLess(hour.timestamp, fill.timestamp)
-        ladder.on_candle(hour)
+        # This hourly bar OPENS 10:15 -- before the 11:00 fill -- so its 105
+        # high is part history and must not close the trade.
+        stale_hour = LadderCandle("1h", START + timedelta(minutes=60), 100, 105, 98, 104.5)
+        self.assertLess(stale_hour.timestamp, fill.timestamp)
+        ladder.on_candle(stale_hour)
+        self.assertIsNone(ladder.exit_reason, "a bar older than the buy closed the trade")
+
+        # The next hourly bar is wholly after the fill, so it does close it --
+        # and the exit is stamped at that bar's CLOSE, never its open (Phil,
+        # 2026-08-14: a saved run read "bought 12:45, closed 12:15").
+        fresh_hour = LadderCandle("1h", START + timedelta(minutes=120), 102, 105, 101, 104.5)
+        ladder.on_candle(fresh_hour)
         self.assertEqual(ladder.exit_reason, "target")
         self.assertEqual(ladder.exit_timeframe, "1h")
         self.assertGreater(ladder.exit_timestamp, fill.timestamp)
-        self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=120))
+        self.assertEqual(ladder.exit_timestamp, START + timedelta(minutes=180))
 
 
 class PricingMomentTests(unittest.TestCase):
