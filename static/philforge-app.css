@@ -6127,9 +6127,20 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .candle-entry-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:12px; }
 .candle-entry-actions .btn { min-height:38px; margin:0 !important; }
 .candle-entry-backtest-window { margin-top:14px; }
-/* Three rule switches on one row (Expiry · Target · Exit); one per row on a phone. */
-#options-cascade-page .candle-entry-switch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 720px) { #options-cascade-page .candle-entry-switch-grid { grid-template-columns: minmax(0, 1fr); } }
+/* The rule switches sit two a row (Box · Exit / Target · Expiry / Session ·
+   Strike), one on a phone -- the .fibx-switch-grid rule below carries both
+   breakpoints, and this form deliberately shares it with Fib Boundary
+   (Phil, 2026-08-18: "Make 2 in a row"). Nothing to override here. */
+/* The box field is a number and a two-way switch side by side; the number
+   stays narrow so the switch keeps its room, and both stack on a phone. */
+.candle-entry-box-fields { display:flex; gap:8px; align-items:stretch; }
+.candle-entry-box-fields input[type="number"] { width:86px; flex:0 0 86px; padding:9px 10px; font:13px 'JetBrains Mono',monospace; text-align:right; min-width:0; }
+.candle-entry-box-fields .scalp-toggle { flex:1 1 auto; min-width:0; }
+/* A phone keeps the number and the switch on one line -- 86px and the rest. */
+/* One line that reads the form back in plain words: what will run, and how. */
+.candle-entry-recipe { margin-top:10px; padding:8px 11px; border:1px dashed rgba(96,165,250,.34); border-radius:8px; font:600 11px/1.5 'JetBrains Mono',monospace; color:#93c5fd; letter-spacing:.1px; }
+.candle-entry-recipe:empty { display:none; }
+[data-theme="light"] .candle-entry-recipe { border-color: rgba(2,132,199,.36); color:#075985; background: rgba(224,242,254,.45); }
 .candle-entry-monitor { margin-top:14px; overflow:hidden; border:1px solid rgba(96,165,250,.26); border-radius:12px; background:linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
 .candle-entry-monitor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.14); }
 .candle-entry-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }

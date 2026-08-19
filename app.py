@@ -4004,8 +4004,17 @@ class CandleEntryPaperStartPayload(BaseModel):
     or the option's expiry.
     """
 
-    mother_timestamp: str
+    # WHICH MOTHER. "manual" is the mother you name. "box" is Phil's rule of
+    # 2026-08-19 -- the mother is the bar that MAKES the high of the last
+    # `box_bars` bars on the starting chart, and the ladder may only buy while
+    # price sits in the bottom `box_position` of that rolling box. For "box"
+    # the timestamp is the bar to look back FROM (the most recent box high at
+    # or before it is the mother); blank means now.
+    mother_mode: str = "manual"
+    mother_timestamp: str = ""
     timeframe: str = "1h"
+    box_bars: int = Field(default=278, ge=20, le=2000)
+    box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
     intraday_close: bool = False
     # Which contract: "monthly" (15-45 DTE, else the closest -- the rule the
@@ -4017,6 +4026,10 @@ class CandleEntryPaperStartPayload(BaseModel):
     # Off: the target is the sale. On: the target arms a trail that sells on
     # a close giving back 30% of the gain from the average entry.
     trailing_target: bool = False
+    # Paper or live. Live is refused with 503 behind the same gate as Fib
+    # Boundary until a reconciled Dhan order path exists; the form carries it
+    # so that day changes nothing here.
+    mode: str = "paper"
 
 
 class CandleEntryBacktestPayload(BaseModel):
@@ -4026,8 +4039,11 @@ class CandleEntryBacktestPayload(BaseModel):
     different ladders on the same mother.
     """
 
-    mother_timestamp: str
+    mother_mode: str = "manual"
+    mother_timestamp: str = ""
     timeframe: str = "5m"
+    box_bars: int = Field(default=278, ge=20, le=2000)
+    box_position: float = Field(default=0.25, gt=0, le=1)
     ce_offset_steps: int = Field(default=-2, ge=-10, le=0)
     intraday_close: bool = False
     expiry_rule: str = "monthly"
@@ -4040,6 +4056,7 @@ class CandleEntryBacktestPayload(BaseModel):
 # figure the NSE two-red study used; 0 would be the fixed target again).
 _CANDLE_ENTRY_TRAIL_FRACTION = 0.3
 _CANDLE_ENTRY_EXPIRY_RULES = ("monthly", "weekly4")
+_CANDLE_ENTRY_MOTHER_MODES = ("manual", "box")
 
 
 class FibBoundaryPaperStartPayload(BaseModel):
@@ -4609,6 +4626,10 @@ _TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "backtest-tearsheet-5yr.
 # configuration that finished green over 23 months, both books. Built by
 # tools/tearsheet/build_fib_report.py from the fib_offline sweeps.
 _FIB_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "fib-boundary-tearsheet.html")
+# The third: Candle Entry with Phil's box mother. Built by
+# tools/tearsheet/build_candle_report.py from the candle_entry_offline sweep.
+_CANDLE_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "candle-entry-tearsheet.html")
+_TEARSHEET_DOCS = {"options": _TEARSHEET_PATH, "fib": _FIB_TEARSHEET_PATH, "candle": _CANDLE_TEARSHEET_PATH}
 
 
 @app.get("/assets/tearsheet", response_class=HTMLResponse)
@@ -4616,12 +4637,13 @@ async def serve_assets_tearsheet(request: Request, doc: str = "options"):
     """Serve a tearsheet as a standalone private document.
 
     ``doc=options`` (default) is the five-year options tearsheet; ``doc=fib``
-    is the Fib Boundary tearsheet. One route, one shell, one theme contract.
+    is the Fib Boundary tearsheet; ``doc=candle`` is the Candle Entry
+    tearsheet. One route, one shell, one theme contract.
     """
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
-    path = _FIB_TEARSHEET_PATH if str(doc).lower() == "fib" else _TEARSHEET_PATH
+    path = _TEARSHEET_DOCS.get(str(doc).lower(), _TEARSHEET_PATH)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Tearsheet document not found")
     with open(path, encoding="utf-8") as handle:
@@ -10497,6 +10519,109 @@ async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -
         await asyncio.sleep(20)
 
 
+_CANDLE_ENTRY_BARS_PER_SESSION = {"1m": 375, "5m": 75, "15m": 25, "1h": 7}
+# How far back a box mother may be looked for: the most recent bar making the
+# box high at or before the look-back moment, within this many calendar days.
+_CANDLE_ENTRY_BOX_SEARCH_DAYS = 60
+
+
+def _candle_entry_regular_sessions(rows: list) -> list:
+    """Drop every session that did not open at 09:15.
+
+    Diwali's muhurat hour trades in the afternoon -- twelve 5m bars on
+    2025-10-21 -- and its candles are as real as any other, which is the
+    problem: they shift a 278-bar box by half a day, and two reds inside a
+    token session are not the pattern this rule reads. The backtest sweep has
+    dropped them since 2026-08-19; the page must read the same bars.
+    """
+    opens: dict = {}
+    for row in rows:
+        day = row.timestamp.date()
+        if day not in opens or row.timestamp.time() < opens[day]:
+            opens[day] = row.timestamp.time()
+    return [row for row in rows if opens.get(row.timestamp.date()) == dt_time(9, 15)]
+
+
+async def _candle_entry_find_box_mother(
+    adapter, timeframe: str, box_bars: int, look_back_from: datetime
+) -> tuple[IndexCandle, list[IndexCandle]]:
+    """Phil's mother, found: the most recent bar at or before `look_back_from`
+    whose high is the highest of the `box_bars` bars ending at it.
+
+    Knowable the moment that bar closes -- nothing after it is read -- so a
+    paper campaign and a backtest find the same mother. Returns the mother and
+    the window of `box_bars` bars ending at it, which primes the box gate.
+    """
+    per_session = _CANDLE_ENTRY_BARS_PER_SESSION[timeframe]
+    box_days = int(box_bars / per_session * 1.6) + 3
+    since = look_back_from.date() - timedelta(days=_CANDLE_ENTRY_BOX_SEARCH_DAYS + box_days)
+    try:
+        rows = await adapter.async_get_candles("NIFTY", timeframe, from_date=since, to_date=look_back_from.date())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+    rows = [row for row in _candle_entry_regular_sessions(rows) if row.timestamp <= look_back_from]
+    if len(rows) < box_bars:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Only {len(rows)} NIFTY {timeframe} candles are available before then; the box needs {box_bars}.",
+        )
+    for index in range(len(rows) - 1, box_bars - 2, -1):
+        window = rows[index - box_bars + 1 : index + 1]
+        if rows[index].high >= max(row.high for row in window):
+            return rows[index], window
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No NIFTY {timeframe} candle in the last {_CANDLE_ENTRY_BOX_SEARCH_DAYS} days made a "
+            f"{box_bars}-bar high. Pick another chart or name a mother by hand."
+        ),
+    )
+
+
+def _candle_entry_mother_mode(value: str) -> str:
+    mode = str(value or "manual").strip().lower()
+    if mode not in _CANDLE_ENTRY_MOTHER_MODES:
+        raise HTTPException(
+            status_code=400, detail=f"mother_mode must be one of {', '.join(_CANDLE_ENTRY_MOTHER_MODES)}."
+        )
+    return mode
+
+
+def _candle_entry_trade_mode(value: str) -> str:
+    mode = str(value or "paper").strip().lower()
+    if mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        # The same gate the Fib Boundary page stands behind: no real order
+        # path opens until Dhan fill verification, partial fills and restart
+        # reconciliation are built and tested. The toggle is on the form so
+        # the day it opens nothing else has to change.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Candle Entry live execution is disabled until Dhan fill verification, "
+                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+            ),
+        )
+    return mode
+
+
+def _candle_entry_box_payload(engine: LadderCandleEntryPaper, mother_mode: str, window: list) -> Optional[dict]:
+    if mother_mode != "box":
+        return None
+    ladder = engine.ladder
+    high = max(row.high for row in window)
+    low = min(row.low for row in window)
+    return {
+        "bars": ladder.range_bars,
+        "position": ladder.range_position,
+        "high_at_mother": round(high, 2),
+        "low_at_mother": round(low, 2),
+        "line_at_mother": round(low + ladder.range_position * (high - low), 2),
+        "window_from": window[0].timestamp.isoformat(),
+    }
+
+
 def _candle_entry_validate_mother(mother_timestamp: datetime, timeframe: str, now: datetime) -> None:
     bar_minutes = TIMEFRAME_MINUTES[timeframe]
     if mother_timestamp.date() > now.date():
@@ -10537,6 +10662,7 @@ async def _candle_entry_load_ladder(
             raise HTTPException(
                 status_code=503, detail=f"Unable to load NIFTY {stage_timeframe} candles: {exc}"
             ) from exc
+    batches = {key: _candle_entry_regular_sessions(rows) for key, rows in batches.items()}
     mother = next((row for row in batches[timeframe] if row.timestamp == mother_timestamp), None)
     if mother is None:
         raise HTTPException(
@@ -10574,17 +10700,9 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
             status_code=400,
             detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.",
         )
-    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    mother_mode = _candle_entry_mother_mode(payload.mother_mode)
+    _candle_entry_trade_mode(getattr(payload, "mode", "paper"))
     now = datetime.now(IST)
-    if (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Choose a completed mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days "
-                "for a paper campaign. Older mothers are for the Backtest button."
-            ),
-        )
-    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
     user_id = _request_user_id(request)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
@@ -10596,6 +10714,33 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
             detail="A Candle Entry campaign is already running. Kill it before replacing its mother.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    box_window: list = []
+    if mother_mode == "box":
+        # The mother is FOUND, not named: the latest bar making the box high
+        # at or before the look-back moment (blank = now).
+        look_back_from = _parse_cascade_mother_timestamp(payload.mother_timestamp) if payload.mother_timestamp else now
+        if look_back_from > now:
+            raise HTTPException(status_code=400, detail="The look-back moment cannot be in the future (IST).")
+        found, box_window = await _candle_entry_find_box_mother(
+            adapter, timeframe, int(payload.box_bars), look_back_from
+        )
+        mother_timestamp = found.timestamp
+    else:
+        mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    # A named mother may be at most 15 days back -- older is the backtest's
+    # job. A FOUND mother is wherever the last box high was: the market may
+    # not have made one for weeks, and that campaign is still the live one
+    # while its contract lives. The search itself is capped at 60 days, and a
+    # mother whose option has already expired simply ends at once below.
+    if mother_mode == "manual" and (now.date() - mother_timestamp.date()).days > _CANDLE_ENTRY_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Choose a completed mother candle from the last {_CANDLE_ENTRY_HISTORY_DAYS} calendar days "
+                "for a paper campaign. Older mothers are for the Backtest button."
+            ),
+        )
+    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
     mother, batches = await _candle_entry_load_ladder(adapter, mother_timestamp, timeframe, now.date())
     # History is built only when something older than a live quote will be
     # priced: a same-day mother started minutes after it closed never pays
@@ -10619,7 +10764,11 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
         target_fraction=float(payload.target_fraction),
         intraday_close=bool(payload.intraday_close),
         trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
+        range_bars=int(payload.box_bars) if mother_mode == "box" else 0,
+        range_position=float(payload.box_position),
     )
+    if box_window:
+        engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
     # Catch up on every bar since the mother, in close-time order, capped at
     # the option's own life. The poll takes over from here.
     engine.ingest(
@@ -10644,6 +10793,8 @@ async def candle_entry_paper_start(payload: CandleEntryPaperStartPayload, reques
     return {
         "status": "started",
         "mode": "paper",
+        "mother_mode": mother_mode,
+        "box": _candle_entry_box_payload(engine, mother_mode, box_window),
         "caught_up_to": engine._latest.timestamp.isoformat() if engine._latest is not None else None,
         "priced_from_history": history is not None,
         "campaign": {**engine.get_status(), "running": runtime.running},
@@ -10689,13 +10840,26 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
     timeframe = str(payload.timeframe or "5m").strip().lower()
     if timeframe not in LADDER_TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Timeframe must be one of {', '.join(LADDER_TIMEFRAMES)}.")
-    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    mother_mode = _candle_entry_mother_mode(payload.mother_mode)
     now = datetime.now(IST)
-    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load NIFTY candles.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    box_window: list = []
+    if mother_mode == "box":
+        if not payload.mother_timestamp:
+            raise HTTPException(status_code=400, detail="Give the moment to look back from for a box-mother backtest.")
+        look_back_from = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+        if look_back_from > now:
+            raise HTTPException(status_code=400, detail="The look-back moment cannot be in the future (IST).")
+        found, box_window = await _candle_entry_find_box_mother(
+            adapter, timeframe, int(payload.box_bars), look_back_from
+        )
+        mother_timestamp = found.timestamp
+    else:
+        mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    _candle_entry_validate_mother(mother_timestamp, timeframe, now)
     # A monthly contract sits at most 45 days out, so that is the most a
     # replay can need; the exact end is the expiry, known once the mother is.
     horizon_guess = min(now.date(), mother_timestamp.date() + timedelta(days=46))
@@ -10720,7 +10884,11 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             target_fraction=float(payload.target_fraction),
             intraday_close=bool(payload.intraday_close),
             trail_fraction=_CANDLE_ENTRY_TRAIL_FRACTION if payload.trailing_target else 0.0,
+            range_bars=int(payload.box_bars) if mother_mode == "box" else 0,
+            range_position=float(payload.box_position),
         )
+        if box_window:
+            engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
         engine.ingest(replay)
         engine.settle_past_expiry(now)
         return engine
@@ -10754,6 +10922,8 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         "timeframe": timeframe,
         "stages": list(engine.stages),
         "lot_size": contract.lot_size,
+        "mother_mode": mother_mode,
+        "box": _candle_entry_box_payload(engine, mother_mode, box_window),
         "intraday_close": bool(payload.intraday_close),
         "expiry_rule": str(payload.expiry_rule),
         "target_fraction": float(payload.target_fraction),
@@ -10776,7 +10946,9 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
         "premium_stale_fills": list(getattr(history, "stale_fills", []) or []),
         "charts": _candle_entry_charts(engine, replay),
         "note": (
-            f"NIFTY CE two-red ladder from a {timeframe} mother, climbing {' → '.join(engine.stages)}. "
+            f"NIFTY CE two-red ladder from a {timeframe} mother"
+            + (f" (the {payload.box_bars}-bar high, found)" if mother_mode == "box" else "")
+            + f", climbing {' → '.join(engine.stages)}. "
             f"Same engine the Start button trades; every price is a recorded option trade at the bar's close, "
             f"and a minute nothing printed is a listed gap, never a fabricated zero."
             if history is not None

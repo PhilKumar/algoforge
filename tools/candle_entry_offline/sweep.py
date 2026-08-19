@@ -155,6 +155,19 @@ def main() -> None:
     ap.add_argument(
         "--hold", default="", help="comma list: sell at 15:15 this many days after the first buy (0 = same day)"
     )
+    ap.add_argument(
+        "--strike-offset",
+        dest="strike_offset",
+        type=int,
+        default=-100,
+        help="strike relative to ATM: -100 is two in the money for a CE",
+    )
+    ap.add_argument(
+        "--slip", type=float, default=0.0, help="rupees per unit of slippage, charged AGAINST the campaign on both legs"
+    )
+    ap.add_argument(
+        "--shift", type=int, default=0, help="placebo: start the campaign this many bars AFTER the qualifying mother"
+    )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
@@ -182,7 +195,7 @@ def main() -> None:
 
     stale_fills = [0]
 
-    def premium(when: datetime, contract) -> float | None:
+    def premium(when: datetime, contract) -> float | None:  # noqa: C901
         """The contract's price at that minute, or the nearest REAL trade to it.
 
         The archive holds a bar only for a minute the contract actually
@@ -216,17 +229,17 @@ def main() -> None:
                 return price
         return None
 
-    if args.mother == "box":
-        # PHIL'S RULE, 2026-08-19: the mother is not a clock time -- it is the
-        # bar that MAKES the high of the box. A bar qualifies when its high is
-        # the highest of the last `--bars` bars (itself included), which is
-        # knowable the moment that bar closes, so there is no look-ahead. The
-        # box low rolls on from there and the position gate does the rest.
-        window = int(str(args.bars).split(",")[0])
+    def box_mothers(window: int) -> list:
+        """Phil's rule: the mother is the bar that MAKES the box high (CE) or
+        low (PE) -- its high tops the last `window` bars, itself included,
+        which is knowable the moment it closes. Picked PER WINDOW, because a
+        grid over several --bars values must not borrow the first one's
+        mothers (it did, on 2026-08-19, and two rows of a nine-row grid were
+        measured on the wrong mothers)."""
         if window <= 0:
             raise SystemExit("--mother box needs --bars (e.g. --bars 278)")
         rows = series[tf]
-        candidates = []
+        found = []
         for i in range(window - 1, len(rows)):
             bar = rows[i]
             if not (start <= bar.timestamp.date() <= end):
@@ -234,9 +247,14 @@ def main() -> None:
             span = rows[i - window + 1 : i + 1]
             made_it = bar.high >= max(r.high for r in span) if side == "CE" else bar.low <= min(r.low for r in span)
             if made_it:
-                candidates.append(bar)
-    else:
-        candidates = [c for c in series[tf] if start <= c.timestamp.date() <= end and c.timestamp.time() in CLOCK_TIMES]
+                # A placebo run moves the mother off the bar that earned it. If
+                # the result survives that, the rule is not what is making it.
+                j = i + args.shift
+                if 0 <= j < len(rows):
+                    found.append(rows[j])
+        return found
+
+    clock_mothers = [c for c in series[tf] if start <= c.timestamp.date() <= end and c.timestamp.time() in CLOCK_TIMES]
     by_tf_index = {k: rows for k, rows in series.items()}
 
     # ONE PROCESS FOR THE WHOLE GRID. Loading these candle caches costs about a
@@ -255,6 +273,7 @@ def main() -> None:
         rows_out: list[dict] = []
         free_from: datetime | None = None
         stale_fills[0] = 0
+        candidates = box_mothers(bars) if args.mother == "box" else clock_mothers
         for mother in candidates:
             if free_from is not None and mother.timestamp < free_from:
                 continue
@@ -264,16 +283,32 @@ def main() -> None:
             atm = int(mother.close / 50.0 + 0.5) * 50
             # Two strikes in the money on either side: ATM-100 for a call,
             # ATM+100 for a put, so the two sides are the same distance in.
-            strike = atm - 100 if side == "CE" else atm + 100
+            strike = atm + args.strike_offset if side == "CE" else atm - args.strike_offset
             contract = FixedCampaignOption(
                 "NIFTY", strike, expiry, side, int(get_lot_size("NIFTY", mother.timestamp.date())), ""
             )
+            slip = float(args.slip)
+            holder: list = [None]
+
+            def slipped(when, contract_, _holder=holder):
+                """The archive price, worsened by --slip rupees per unit AGAINST
+                the campaign: a buy pays more, the sale gets less. The lookup
+                does not know which it is pricing, so it reads the engine --
+                `_close` stamps `exit_timestamp` BEFORE it asks for the sell
+                price, and a basket with fills and an exit stamp is selling."""
+                raw = premium(when, contract_)
+                if raw is None or not slip:
+                    return raw
+                box = _holder[0]
+                selling = box is not None and box.ladder.fills and box.ladder.exit_timestamp is not None
+                return max(0.05, raw - slip) if selling else raw + slip
+
             engine = LadderCandleEntryPaper(
                 mother,
                 tf,
                 contract,
                 _Sink(),
-                premium,
+                slipped,
                 target_fraction=target,
                 trail_fraction=trail,
                 hold_days=hold,
@@ -283,6 +318,7 @@ def main() -> None:
                 range_bars=bars,
                 range_position=pos,
             )
+            holder[0] = engine
             if bars:
                 before = [c for c in series[tf] if c.timestamp <= mother.timestamp][-bars:]
                 engine.ladder.prime_range(
@@ -369,6 +405,7 @@ def main() -> None:
             "tf": tf,
             "side": side,
             "mother": args.mother,
+            "slip": slip,
             "depth": int(args.depth),
             "expiry": args.expiry,
             "target": target,

@@ -670,7 +670,7 @@ test('Test Bench switches cleanly between the two strategies', async ({ page }) 
   await page.selectOption('#tb-strategy', 'two_red');
   await expect(page.locator('#tb-timeframe option[value="1m"]')).toHaveText(/1m → 5m → 15m/);
   // A 1H start has nothing above it, so it is a single trade and says so.
-  await expect(page.locator('#tb-timeframe option[value="1h"]')).toHaveText(/^1H · 1H$/);
+  await expect(page.locator('#tb-timeframe option[value="1h"]')).toHaveText(/^1H · 1H → 1D → 1W$/);
   // The rupee-per-level box is a fib control; the ladder sizes itself in lots.
   await expect(page.locator('#tb-rung-field')).toBeHidden();
   await expect(page.locator('#tb-explainer')).toContainText('two red candles');
@@ -719,7 +719,7 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
   // on the weekly).
   await expect(page.locator('#candle-entry-timeframe option[value="1m"]')).toHaveText(/^1m · 1m → 5m → 15m$/);
   await expect(page.locator('#candle-entry-timeframe option[value="15m"]')).toHaveText(/^15m · 15m → 1H → 1D$/);
-  await expect(page.locator('#candle-entry-timeframe option[value="1h"]')).toHaveText(/^1H · 1H$/);
+  await expect(page.locator('#candle-entry-timeframe option[value="1h"]')).toHaveText(/^1H · 1H → 1D → 1W$/);
 
   // Switching the chart retunes the mother calendar's minutes.
   await page.selectOption('#candle-entry-timeframe', '1h');

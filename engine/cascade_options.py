@@ -2837,6 +2837,30 @@ class LadderCandleEntryPaper:
             )
         return rows
 
+    def _box_status(self) -> Optional[dict[str, Any]]:
+        ladder = self.ladder
+        if not ladder.range_bars:
+            return None
+        full = len(ladder._range) >= ladder.range_bars
+        high = max(row[0] for row in ladder._range) if ladder._range else None
+        low = min(row[1] for row in ladder._range) if ladder._range else None
+        line = (
+            round(low + ladder.range_position * (high - low), 2)
+            if full and high is not None and low is not None and ladder.direction == "CE"
+            else round(high - ladder.range_position * (high - low), 2)
+            if full and high is not None and low is not None
+            else None
+        )
+        return {
+            "bars": ladder.range_bars,
+            "position": ladder.range_position,
+            "filled": len(ladder._range),
+            "high": round(high, 2) if high is not None else None,
+            "low": round(low, 2) if low is not None else None,
+            "line": line,
+            "direction": ladder.direction,
+        }
+
     def get_status(self) -> dict[str, Any]:
         ladder = self.ladder
         active = ladder.stages[ladder.active] if ladder.active < len(ladder.stages) else None
@@ -2869,6 +2893,10 @@ class LadderCandleEntryPaper:
             "intraday_close": self.intraday_close,
             "hold_days": self.hold_days,
             "trail_fraction": ladder.trail_fraction,
+            # THE BOX, as the gate sees it right now: the rolling high and low
+            # and the line the basket may buy below. None when the gate is off
+            # or the window is not yet full.
+            "box": self._box_status(),
             "pricing_mode": "signal_only_dhan" if self.signal_only else "recorded_history_and_live_quote",
             "pricing_warning": (
                 "Historical replay verifies NIFTY entry and target geometry only. "
@@ -3010,6 +3038,16 @@ class LadderCandleEntryPaper:
                 "intraday_close": self.intraday_close,
                 "hold_days": self.hold_days,
                 "trail_fraction": ladder.trail_fraction,
+                # THE BOX. A campaign restored without it would read "no gate"
+                # and buy in the top of the range the page promised it would
+                # not; the rolling window itself is carried so the gate is
+                # whole from the first bar after a restart.
+                "range_bars": ladder.range_bars,
+                "range_position": ladder.range_position,
+                "range_window": [list(pair) for pair in ladder._range],
+                "min_fall_pct": ladder.min_fall_pct,
+                "min_buys_before_exit": ladder.min_buys_before_exit,
+                "stop_loss_pct": ladder.stop_loss_pct,
             },
             "mother": NiftyOptionsPaperCascade._candle_to_dict(self.mother),
             "contract": {
@@ -3126,9 +3164,15 @@ class LadderCandleEntryPaper:
             intraday_close=bool(config.get("intraday_close")),
             hold_days=config.get("hold_days"),
             trail_fraction=float(config.get("trail_fraction") or 0.0),
+            min_buys_before_exit=int(config.get("min_buys_before_exit") or 1),
+            stop_loss_pct=float(config.get("stop_loss_pct") or 0.0),
+            min_fall_pct=float(config.get("min_fall_pct") or 0.0),
+            range_bars=int(config.get("range_bars") or 0),
+            range_position=float(config.get("range_position") or 0.5),
         )
         ladder = engine.ladder
         ladder.require_new_low = bool(config.get("require_new_low", True))
+        ladder._range = [(float(pair[0]), float(pair[1])) for pair in config.get("range_window") or []]
         raw_ladder = payload.get("ladder") or {}
         stage_rows = {int(row["rung"]): row for row in raw_ladder.get("stages") or []}
         for stage in ladder.stages:

@@ -65,6 +65,10 @@ def _borrow():
     # The parent's stylesheet sits inside an f-string, so every brace is
     # doubled in the source; undo that or the CSS is invalid.
     css = style.group(1).replace("{{", "{").replace("}}", "}")
+    # The parent writes its CSS inside a Python string, so a backslash escape
+    # like the section mark is doubled in the SOURCE; read raw, it has to be
+    # halved or the page shows "\00A71" where it means "§1".
+    css = css.replace("\\\\", "\\")
     reader = re.search(r'^READER_JS = """\n(.*?)^"""', src, re.S | re.M)
     if not reader:
         raise SystemExit("build_report.py has no READER_JS to borrow")

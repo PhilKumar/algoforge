@@ -1535,6 +1535,8 @@ function _assetsEffectiveTheme() {
 // Which tearsheet the tab is showing: the five-year options sheet or the Fib
 // Boundary sheet. One frame, one route (?doc=), one theme contract.
 let _assetsTearsheetDoc = 'options';
+const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet' };
+function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'Five-Year Tearsheet'; }
 function _assetsTearsheetUrl() {
   return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;
 }
@@ -1548,7 +1550,7 @@ function pickAssetsTearsheet(_event, button) {
     btn.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   const title = document.getElementById('architecture-view-title');
-  if (title) title.textContent = doc === 'fib' ? 'Fib Boundary Tearsheet' : 'Five-Year Tearsheet';
+  if (title) title.textContent = _assetsTearsheetTitle(doc);
   const frame = document.getElementById('assets-tearsheet-frame');
   if (frame) { frame.addEventListener('load', _syncAssetsTearsheetTheme, { once: true }); frame.src = _assetsTearsheetUrl(); }
   _syncAssetsTearsheetTheme();
@@ -1602,7 +1604,7 @@ function initArchitecturePage(requestedView = _architectureView) {
   if (tearsheet) tearsheet.hidden = !isTearsheet;
   if (title) {
     if (isOverview) title.textContent = "The Eagle's View";
-    else if (isTearsheet) title.textContent = _assetsTearsheetDoc === 'fib' ? 'Fib Boundary Tearsheet' : 'Five-Year Tearsheet';
+    else if (isTearsheet) title.textContent = _assetsTearsheetTitle(_assetsTearsheetDoc);
     else title.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} Blueprint`;
   }
 
@@ -1881,6 +1883,9 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadCandleEntryChart',
   'hideCandleEntryChart',
   'setCandleEntrySession',
+  'setCandleEntryMother',
+  'setCandleEntryBox',
+  'setCandleEntryMode',
   'setCandleEntryExpiry',
   'setCandleEntryTarget',
   'setCandleEntryExit',
@@ -2381,7 +2386,12 @@ function _renderCandleEntryStatus(payload) {
     const money = campaign.net_pnl == null
       ? (campaign.exit ? ' · net P&L unavailable (a leg had no price)' : '')
       : ` · net ${_cascadeOptionsMoney(campaign.net_pnl)}`;
-    summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · expiry ${escapeHtml(c.expiry || '—')} · lot size ${escapeHtml(String(c.lot_size || '—'))}${ladderLine}<br>Entry stop: ${campaign.entry_stop == null ? '—' : escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${campaign.target_index == null ? '—' : escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${escapeHtml(money)}${pricingLine}`;
+    // The box the gate is reading right now: where the ladder may buy.
+    const box = campaign.box;
+    const boxLine = box && box.bars
+      ? `<br>Box: ${box.filled < box.bars ? `${escapeHtml(String(box.filled))}/${escapeHtml(String(box.bars))} bars, filling` : `${escapeHtml(_cascadeNumber(box.low))}–${escapeHtml(_cascadeNumber(box.high))} over ${escapeHtml(String(box.bars))} bars · buys only below ${escapeHtml(_cascadeNumber(box.line))}`}`
+      : '';
+    summary.innerHTML = `${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || '—'))} ${escapeHtml(c.option_type || 'CE')} · expiry ${escapeHtml(c.expiry || '—')} · lot size ${escapeHtml(String(c.lot_size || '—'))}${ladderLine}${boxLine}<br>Entry stop: ${campaign.entry_stop == null ? '—' : escapeHtml(_cascadeNumber(campaign.entry_stop))} · Target: ${campaign.target_index == null ? '—' : escapeHtml(_cascadeNumber(campaign.target_index))} · Qualifying red closes: ${escapeHtml(String((campaign.qualifying_reds || []).length))}${escapeHtml(money)}${pricingLine}`;
   }
   _renderCandleEntryMonitor(campaign);
 }
@@ -2524,6 +2534,12 @@ function _setCandleEntryFormStatus(message, tone = 'muted') {
 function _ceRenderTimeframes() {
   const select = _cascadeOptionsEl('candle-entry-timeframe');
   if (!select) return;
+  if (!select._ceRecipeBound) {
+    select._ceRecipeBound = true;
+    select.addEventListener('change', _syncCandleEntryRecipe);
+    ['candle-entry-itm', 'candle-entry-box-bars'].forEach(id => document.getElementById(id)?.addEventListener('change', _syncCandleEntryRecipe));
+    document.getElementById('candle-entry-box-bars')?.addEventListener('input', _syncCandleEntryRecipe);
+  }
   const chosen = select.value || '5m';
   select.innerHTML = _TB_LADDER.map((tf) => {
     const climb = _tbLadderFrom(tf).map((step) => _TB_TF_LABEL[step]).join(' → ');
@@ -2532,6 +2548,7 @@ function _ceRenderTimeframes() {
   select.value = chosen;
   const mother = _cascadeOptionsEl('candle-entry-mother-timestamp');
   if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[select.value] || '';
+  _syncCandleEntryMotherMode();
 }
 
 // The Session switch: Hold (target or expiry) or Close 3:15. Same shape as the
@@ -2549,6 +2566,7 @@ function setCandleEntrySession(_event, button) {
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
+  _syncCandleEntryRecipe();
 }
 
 function _candleEntryIntradayClose() {
@@ -2570,16 +2588,71 @@ function _candleEntrySetSwitch(inputId, groupId, value) {
     });
   }
 }
-function setCandleEntryExpiry(_event, button) { _candleEntrySetSwitch('candle-entry-expiry-rule', 'candle-entry-expiry-toggle', button?.dataset?.value || 'monthly'); }
-function setCandleEntryTarget(_event, button) { _candleEntrySetSwitch('candle-entry-target', 'candle-entry-target-toggle', button?.dataset?.value || '0.25'); }
-function setCandleEntryExit(_event, button) { _candleEntrySetSwitch('candle-entry-exit-mode', 'candle-entry-exit-toggle', button?.dataset?.value || 'fixed'); }
+function setCandleEntryExpiry(_event, button) { _candleEntrySetSwitch('candle-entry-expiry-rule', 'candle-entry-expiry-toggle', button?.dataset?.value || 'monthly'); _syncCandleEntryRecipe(); }
+function setCandleEntryTarget(_event, button) { _candleEntrySetSwitch('candle-entry-target', 'candle-entry-target-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
+function setCandleEntryExit(_event, button) { _candleEntrySetSwitch('candle-entry-exit-mode', 'candle-entry-exit-toggle', button?.dataset?.value || 'fixed'); _syncCandleEntryRecipe(); }
+// Phil's rule, 2026-08-19: the mother is the bar that MAKES the 278-bar high,
+// and the ladder buys only in the bottom quarter of that box. "Manual" is the
+// older way -- you name the candle.
+function setCandleEntryMother(_event, button) { _candleEntrySetSwitch('candle-entry-mother-mode', 'candle-entry-mother-toggle', button?.dataset?.value || 'box'); _syncCandleEntryMotherMode(); }
+function setCandleEntryBox(_event, button) { _candleEntrySetSwitch('candle-entry-box-position', 'candle-entry-box-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
+// Paper or Live. The same switch the Fib Boundary form has; the server refuses
+// Live behind the same gate until a reconciled Dhan order path exists.
+function setCandleEntryMode(_event, button) { _candleEntrySetSwitch('candle-entry-mode', 'candle-entry-mode-toggle', button?.dataset?.value || 'paper'); _syncCandleEntryMotherMode(); }
+
+function _candleEntryMotherMode() { return document.getElementById('candle-entry-mother-mode')?.value || 'box'; }
+function _candleEntryTradeMode() { return document.getElementById('candle-entry-mode')?.value || 'paper'; }
+
+// The timestamp field means two different things: the mother itself (Manual)
+// or the moment to look back FROM for the latest box high (Box, optional --
+// blank is now). The box row only shows when it applies.
+function _syncCandleEntryMotherMode() {
+  const box = _candleEntryMotherMode() === 'box';
+  const label = document.getElementById('candle-entry-timestamp-label');
+  if (label) label.textContent = box ? 'Look back from · IST (blank = now)' : 'Mother timestamp · IST';
+  const input = _cascadeOptionsEl('candle-entry-mother-timestamp');
+  if (input) input.placeholder = box ? 'now' : 'YYYY-MM-DDTHH:MM · IST';
+  const row = document.getElementById('candle-entry-box-row');
+  if (row) row.style.display = box ? '' : 'none';
+  const start = document.getElementById('candle-entry-start');
+  if (start) start.textContent = _candleEntryTradeMode() === 'live' ? '▶ Start LIVE campaign' : '▶ Start paper campaign';
+  _syncCandleEntryRecipe();
+}
+
+// One line under the title that says what the form will run, in plain words.
+// It replaces a paragraph of explanation: read it and you know the rule.
+function _syncCandleEntryRecipe() {
+  const el = document.getElementById('candle-entry-recipe');
+  if (!el) return;
+  const tf = _TB_TF_LABEL[_cascadeOptionsEl('candle-entry-timeframe')?.value || '5m'] || '5m';
+  const box = _candleEntryMotherMode() === 'box';
+  const bars = Number(document.getElementById('candle-entry-box-bars')?.value || 278);
+  const pos = document.getElementById('candle-entry-box-position')?.value || '0.25';
+  const itm = Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2);
+  const expiry = (document.getElementById('candle-entry-expiry-rule')?.value || 'monthly') === 'weekly4' ? 'weekly ≥4d' : 'monthly';
+  const target = (document.getElementById('candle-entry-target')?.value || '0.25') === '0.5' ? '½' : '¼';
+  const trailing = (document.getElementById('candle-entry-exit-mode')?.value || 'fixed') === 'trailing';
+  const session = _candleEntryIntradayClose() ? 'out by 3:15' : 'held to target or expiry';
+  const mode = _candleEntryTradeMode() === 'live' ? 'LIVE' : 'paper';
+  el.textContent = [
+    `${tf} start`,
+    box ? `mother = the ${bars}-bar high · buys only in the bottom ${pos === '0.5' ? 'half' : 'quarter'} of that box` : 'mother = the candle you name',
+    `CE ATM${itm === 0 ? '' : itm} ${expiry}`,
+    `${target} target${trailing ? ' → 30% trail' : ', sold'}`,
+    session,
+    mode,
+  ].join(' · ');
+}
 
 // Field for field what Backtest sends. The two routes trade ONE ladder, so
 // their payloads have to be one too.
 function _candleEntryPayload() {
   return {
-    mother_timestamp: _cascadeOptionsEl('candle-entry-mother-timestamp')?.value,
+    mother_mode: _candleEntryMotherMode(),
+    mother_timestamp: _cascadeOptionsEl('candle-entry-mother-timestamp')?.value || '',
     timeframe: _cascadeOptionsEl('candle-entry-timeframe')?.value || '5m',
+    box_bars: Number(document.getElementById('candle-entry-box-bars')?.value || 278),
+    box_position: Number(document.getElementById('candle-entry-box-position')?.value || 0.25),
     ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
     intraday_close: _candleEntryIntradayClose(),
     expiry_rule: document.getElementById('candle-entry-expiry-rule')?.value || 'monthly',
@@ -2589,9 +2662,14 @@ function _candleEntryPayload() {
 }
 
 async function startCandleEntryPaper() {
-  const payload = _candleEntryPayload();
-  if (!payload.mother_timestamp) { _setCandleEntryFormStatus('Choose a completed mother timestamp.', 'error'); return; }
-  _setCandleEntryFormStatus(`Checking the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} mother candle and catching up…`, 'busy');
+  const payload = { ..._candleEntryPayload(), mode: _candleEntryTradeMode() };
+  if (payload.mother_mode === 'manual' && !payload.mother_timestamp) { _setCandleEntryFormStatus('Choose a completed mother timestamp.', 'error'); return; }
+  _setCandleEntryFormStatus(
+    payload.mother_mode === 'box'
+      ? `Finding the latest ${payload.box_bars}-bar high on the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} chart and catching up…`
+      : `Checking the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} mother candle and catching up…`,
+    'busy',
+  );
   let response;
   try {
     response = await fetch('/api/candle-entry/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -2602,8 +2680,9 @@ async function startCandleEntryPaper() {
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.status !== 'started') { _setCandleEntryFormStatus(_apiErrorMessage(data, 'Candle Entry campaign did not start.'), 'error'); return; }
   const c = data.campaign || {};
+  const found = data.mother_mode === 'box' && c.mother && c.mother.timestamp ? ` · mother ${_cascadeOptionsTimestamp(c.mother.timestamp)} (the ${data.box?.bars || payload.box_bars}-bar high)` : '';
   if (c.running) {
-    _setCandleEntryFormStatus(`Paper campaign started${data.caught_up_to ? ` · caught up to ${_cascadeOptionsTimestamp(data.caught_up_to)}` : ''}. No live order will be sent.`, 'success');
+    _setCandleEntryFormStatus(`Paper campaign started${found}${data.caught_up_to ? ` · caught up to ${_cascadeOptionsTimestamp(data.caught_up_to)}` : ''}. No live order will be sent.`, 'success');
   } else {
     _setCandleEntryFormStatus(
       c.net_pnl == null ? `Campaign caught up and already ended (${String(c.status || '').replaceAll('_', ' ').toLowerCase()}).` : `Campaign caught up and already ended · net ${_cascadeOptionsMoney(c.net_pnl)}`,
@@ -2630,7 +2709,7 @@ let _candleEntryBacktestChartTf = '';
 
 async function runCandleEntryBacktest() {
   const payload = _candleEntryPayload();
-  if (!payload.mother_timestamp) { _setCandleEntryFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
+  if (!payload.mother_timestamp) { _setCandleEntryFormStatus(payload.mother_mode === 'box' ? 'Pick the moment to look back from — the latest box high at or before it is the mother.' : 'Pick a mother timestamp to backtest.', 'error'); return; }
   const button = document.getElementById('candle-entry-backtest-btn');
   if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
   _setCandleEntryFormStatus(`Replaying the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} ladder on recorded prices…`, 'busy');
@@ -2692,7 +2771,8 @@ function _renderCandleEntryBacktest(data) {
   const contract = document.getElementById('candle-entry-backtest-contract');
   const k = data.contract || {};
   if (contract) {
-    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
+    const boxBit = data.mother_mode === 'box' && data.box ? ` · mother = the ${data.box.bars}-bar high, buys below ${_cascadeNumber(data.box.line_at_mother)} (bottom ${data.box.position === 0.5 ? 'half' : 'quarter'} of ${_cascadeNumber(data.box.low_at_mother)}–${_cascadeNumber(data.box.high_at_mother)})` : '';
+    contract.textContent = `NIFTY ${k.strike || '—'} CE · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')}${boxBit} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
   }
   const gist = document.getElementById('candle-entry-backtest-gist');
   if (gist) gist.textContent = data.note || '';
@@ -3116,6 +3196,9 @@ window.toggleCandleEntryBacktestChart = toggleCandleEntryBacktestChart;
 window.loadCandleEntryChart = loadCandleEntryChart;
 window.hideCandleEntryChart = hideCandleEntryChart;
 window.setCandleEntrySession = setCandleEntrySession;
+window.setCandleEntryMother = setCandleEntryMother;
+window.setCandleEntryBox = setCandleEntryBox;
+window.setCandleEntryMode = setCandleEntryMode;
 window.setCandleEntryExpiry = setCandleEntryExpiry;
 window.setCandleEntryTarget = setCandleEntryTarget;
 window.setCandleEntryExit = setCandleEntryExit;

@@ -2445,7 +2445,7 @@
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · auto trendlines + stacked fibs · <em>Lone</em> (every level) or <em>Partner</em> (where two meet)</span></button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, one step up the charts — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · one step up the charts, 1 then 2 lots</span></button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Mother = the 278-bar high · buy the two-red recovery in the bottom quarter · 5m → 15m → 1H</span></button>
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
      tab used to be. Two tabs for one strategy is how they drift apart. -->
@@ -2772,117 +2772,139 @@
   <!-- ── TAB · Candle-entry ── -->
   <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">TWO-RED LADDER · BOX MOTHER · 5m → 15m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
             </div>
             <div class="pf-doc-lang is-active" data-pf-lang="en">
-            <p class="pf-info-lede">One mother candle is one trade: a ladder of up to four buys, each read on a slower chart than the last. <strong>Paper only</strong> &mdash; no order reaches a broker from this tab.</p>
+            <p class="pf-info-lede">One box, one mother, one ladder of up to three buys, one exit. <strong>Paper only</strong> &mdash; nothing reaches a broker from this tab.</p>
             <section>
-              <h5>1 &middot; Arming a rung</h5>
-              <p>After the mother, <strong>two red closes</strong> on the current chart arm a buy-stop at the <strong>FIRST red's close</strong> &mdash; the higher of the two, so a recovery is bought, never the fall itself. <strong>Green candles do not matter:</strong> any number of them may sit between the two reds. What counts is that each red <strong>closes below the previous RED's close</strong>. A further lower red trails the stop down to the one before it: the rule stays one red back from the newest, so the stop is always above the market when it is placed.</p>
+              <h5>1 &middot; The box and the mother</h5>
+              <p>On the starting chart (5m), take the last <strong>278 bars</strong>: their highest high and lowest low make the box. The <strong>mother</strong> is the bar that <em>made</em> the box high. The ladder may buy only while price is in the <strong>bottom quarter</strong> of that box. (Manual lets you name the mother yourself; the box then does not apply.)</p>
             </section>
             <section>
-              <h5>2 &middot; The climb</h5>
-              <p>The fill marks the low so far and moves the watch <strong>one chart up, and no further</strong>: 1m&nbsp;&rarr;&nbsp;5m, 5m&nbsp;&rarr;&nbsp;15m, 15m&nbsp;&rarr;&nbsp;1H (a 1H mother has 1H alone). <strong>Two rungs, 1 lot then 2.</strong> A red that closes above the last red is not a step down and is simply ignored; a stop already resting stays on the book until a bar reaches it.</p>
+              <h5>2 &middot; Two reds, buy the recovery</h5>
+              <p>After the mother, wait for <strong>two red closes, each below the last red's close</strong> &mdash; greens in between do not matter. On the second one, a buy-stop goes at the <strong>first red's close</strong>. It fills when a later bar trades up through it. 1 lot.</p>
             </section>
             <section>
-              <h5>3 &middot; The new-low gate</h5>
-              <p>The next rung may only arm after the market makes a genuinely <strong>new low</strong> below the last fill's marked low. Without it, one downswing could fill two rungs &mdash; the same trade bought twice, not a ladder.</p>
+              <h5>3 &middot; The climb</h5>
+              <p>Each buy moves the watch one chart up: <strong>5m &rarr; 15m &rarr; 1H</strong> (1m &rarr; 5m &rarr; 15m; 15m &rarr; 1H &rarr; 1D; 1H &rarr; 1D &rarr; 1W). Same two-red rule, <strong>2 lots, then 3</strong>. The next rung arms only after the market makes a new low below the last fill's low.</p>
             </section>
             <section>
               <h5>4 &middot; The contract</h5>
-              <p>One NIFTY CE for the whole ladder, fixed at the mother: the <strong>monthly</strong> expiry (15&ndash;45 days out when one exists, else the closest) or, with <strong>Expiry = Weekly &ge;4d</strong>, the first weekly at least four days after the mother; strike <strong>ATM&minus;2</strong> (adjustable), lot size as it stood on the mother's date. A past mother resolves the contract that existed THEN &mdash; the same rule a campaign started today uses.</p>
+              <p>One NIFTY CE for the whole ladder, fixed at the mother: <strong>monthly</strong> expiry (15&ndash;45 days out, else the closest), strike <strong>ATM&minus;2</strong>, lot size as on the mother's date.</p>
             </section>
             <section>
-              <h5>5 &middot; One exit</h5>
-              <p>The whole basket leaves together at <strong>&frac14;</strong> (or <strong>&frac12;</strong>, by the Target switch) of the way from the average entry back toward the mother's high, recomputed at every fill. <strong>Exit = Trailing</strong> makes that touch arm a trail instead: the basket rides and sells on a close giving back 30% of its gain from the average entry. <strong>No stop loss.</strong> On the option's expiry day the first bar closing at or after 15:15 sells whatever the target did not. With <strong>Session = Close 3:15</strong> that same rule applies every day: out at 3:15 and the campaign ends that day, bought or not.</p>
+              <h5>5 &middot; The exit</h5>
+              <p>Target = <strong>&frac14;</strong> of the way from the average entry back to the mother's high. <strong>Trailing</strong> (the default) arms a trail at that touch and sells on a close giving back 30% of the gain; <strong>Fixed</strong> sells at the touch. <strong>No stop loss, no time stop</strong> &mdash; both were measured and both lost. On expiry day whatever is open is sold at 15:15. The exit is read on the starting chart only.</p>
             </section>
             <section>
-              <h5>6 &middot; Prices, and when they are read</h5>
-              <p>Every premium is read at the <strong>close of the bar</strong> the engine acts on &mdash; the moment a paper campaign sees the bar and buys, and the only minute a 15m or 1H rung still has a live quote for. A minute recent enough gets the live quote; anything older is priced from <strong>recorded option history</strong> (Upstox for an expired contract, Dhan's own candles for a listed one). A minute nothing printed is a listed gap, never a fabricated price, and one unpriced leg leaves the whole net blank rather than costing it as free.</p>
+              <h5>6 &middot; Prices</h5>
+              <p>Every premium is read at the <strong>close of the bar</strong> the engine acts on: a live quote when fresh, recorded option history otherwise. A minute nothing traded is shown as a gap, never invented. Backtest and Start are <strong>one engine</strong>; the same mother gives the same fills in both.</p>
             </section>
-            <section>
-              <h5>7 &middot; Backtest and paper are one engine</h5>
-              <p><strong>Backtest &middot; real P&amp;L</strong> replays the mother you name through this same ladder on recorded prices, to the option's expiry: fills, exit, costs, net, and the chart on every rung's timeframe. <strong>Start paper campaign</strong> takes a mother from the last 15 days, catches up on every bar since it (priced from history at each fill's own minute) and carries on live. The same mother gives the same fills in both &mdash; that identity is checked, not assumed.</p>
-            </section>
+            <p class="pf-info-warn"><strong>Measured</strong>, 1 Oct 2024 &ndash; 17 Aug 2026, every box high on the 5m chart, one campaign at a time, real recorded premiums: <strong>&frac14; target + 30% trail +&#8377;2,02,301</strong> on 42 campaigns, worst drawdown &minus;&#8377;6,237, green every year; fixed &frac14; +&#8377;1,34,135. Still +&#8377;30,769 after deleting the best five trades. Checked eleven ways, 0 failures. <strong>PE lost</strong> in every setting and is not traded; 1m lost; a bigger target lost. The full sheet is Assets &rarr; Candle Entry tearsheet.</p>
             </div><!-- /en -->
             <div class="pf-doc-lang" data-pf-lang="ta">
-            <p class="pf-info-lede">ஒரு mother candle என்பது ஒரே trade: அதிகபட்சம் நான்கு வாங்கல்களின் ladder, ஒவ்வொன்றும் முந்தையதை விட மெதுவான chart-இல். <strong>Paper மட்டும்</strong> &mdash; இந்த tab-இலிருந்து எந்த ஆர்டரும் broker-ஐ அடையாது.</p>
+            <p class="pf-info-lede">ஒரு box, ஒரு mother, அதிகபட்சம் மூன்று வாங்கல்களின் ஒரு ladder, ஒரே வெளியேற்றம். <strong>Paper மட்டும்</strong> &mdash; இந்த tab-இலிருந்து broker-க்கு எதுவும் போகாது.</p>
             <section>
-              <h5>1 &middot; ஒரு rung ஆயுதமாதல்</h5>
-              <p>Mother-க்குப் பிறகு, நடப்பு chart-இல் <strong>இரண்டு சிவப்பு close</strong> வந்தால் <strong>முதல் சிவப்பின் close</strong>-இல் ஒரு buy-stop &mdash; இரண்டில் உயர்ந்தது; அதனால் வாங்கப்படுவது மீட்சி, வீழ்ச்சி அல்ல. <strong>பச்சை candle-கள் ஒரு பொருட்டல்ல:</strong> இரண்டு சிவப்புகளுக்கு இடையில் எத்தனை பச்சை வேண்டுமானாலும் இருக்கலாம். ஒவ்வொரு சிவப்பும் <strong>முந்தைய சிவப்பின் close-க்குக் கீழே</strong> மூட வேண்டும் &mdash; அதுவே விதி. இன்னும் தாழ்வான சிவப்பு வந்தால் stop அதற்கு முந்தையதற்கு இறங்கும்: எப்போதும் புதியதிலிருந்து ஒரு சிவப்பு பின்னால், அதனால் stop வைக்கும் தருணத்தில் எப்போதும் சந்தைக்கு மேலேயே இருக்கும்.</p>
+              <h5>1 &middot; Box-உம் mother-உம்</h5>
+              <p>தொடக்க chart-இல் (5m) கடைசி <strong>278 bars</strong>: அவற்றின் உயர்ந்த high-உம் தாழ்ந்த low-உம் box. Box-இன் high-ஐ <em>உருவாக்கிய</em> bar-தான் <strong>mother</strong>. விலை அந்த box-இன் <strong>கீழ் கால் பகுதியில்</strong> இருக்கும்போது மட்டுமே ladder வாங்கும். (Manual-இல் நீங்களே mother-ஐக் குறிப்பிடலாம்; அப்போது box இல்லை.)</p>
             </section>
             <section>
-              <h5>2 &middot; ஏற்றம்</h5>
-              <p>Fill ஆனதும் அதுவரையிலான low குறிக்கப்பட்டு, கண்காணிப்பு <strong>ஒரே ஒரு chart மேலே</strong> நகரும், அதற்கு மேல் இல்லை: 1m&nbsp;&rarr;&nbsp;5m, 5m&nbsp;&rarr;&nbsp;15m, 15m&nbsp;&rarr;&nbsp;1H (1H mother-க்கு 1H மட்டும்). <strong>இரண்டு rungs, 1 பின் 2 lots.</strong> கடைசி சிவப்பை விட உயர்ந்து மூடும் சிவப்பு ஒரு படி இறக்கம் அல்ல &mdash; அது புறக்கணிக்கப்படும்; ஏற்கனவே வைக்கப்பட்ட stop order ஒரு bar அதை அடையும் வரை அப்படியே இருக்கும்.</p>
+              <h5>2 &middot; இரண்டு சிவப்பு, மீட்சியை வாங்கு</h5>
+              <p>Mother-க்குப் பிறகு <strong>இரண்டு சிவப்பு close, ஒவ்வொன்றும் முந்தைய சிவப்பின் close-க்குக் கீழே</strong> &mdash; இடையில் பச்சை ஒரு பொருட்டல்ல. இரண்டாவதில், <strong>முதல் சிவப்பின் close</strong>-இல் buy-stop. பிந்தைய bar அதன் வழியே மேலே சென்றால் fill. 1 lot.</p>
             </section>
             <section>
-              <h5>3 &middot; புதிய-low வாயில்</h5>
-              <p>கடைசி fill-இன் குறித்த low-க்குக் கீழே சந்தை உண்மையாக <strong>புதிய low</strong> செய்த பிறகுதான் அடுத்த rung ஆயுதமாகும். இல்லாவிட்டால் ஒரே இறக்கத்தில் இரண்டு rungs நிரம்பும் &mdash; அது ladder அல்ல, ஒரே trade இருமுறை.</p>
+              <h5>3 &middot; ஏற்றம்</h5>
+              <p>ஒவ்வொரு வாங்கலும் கண்காணிப்பை ஒரு chart மேலே நகர்த்தும்: <strong>5m &rarr; 15m &rarr; 1H</strong> (1m &rarr; 5m &rarr; 15m; 15m &rarr; 1H &rarr; 1D; 1H &rarr; 1D &rarr; 1W). அதே இரு-சிவப்பு விதி, <strong>2 lots, பின் 3</strong>. கடைசி fill-இன் low-க்குக் கீழே புதிய low வந்த பின்தான் அடுத்த rung.</p>
             </section>
             <section>
               <h5>4 &middot; ஒப்பந்தம்</h5>
-              <p>முழு ladder-க்கும் ஒரே NIFTY CE, mother-இல் நிலைப்படுத்தப்பட்டது: <strong>monthly</strong> expiry (15&ndash;45 நாட்களுக்குள் இருந்தால் அது, இல்லையெனில் அருகில் உள்ளது), strike <strong>ATM&minus;2</strong> (மாற்றலாம்), mother தேதியில் இருந்த lot size. பழைய mother அன்று இருந்த ஒப்பந்தத்தையே தேர்வு செய்யும் &mdash; இன்று தொடங்கும் campaign-இன் அதே விதி.</p>
+              <p>முழு ladder-க்கும் ஒரே NIFTY CE, mother-இல் நிலைப்பட்டது: <strong>monthly</strong> expiry (15&ndash;45 நாள், இல்லையெனில் அருகிலுள்ளது), strike <strong>ATM&minus;2</strong>, mother தேதியின் lot size.</p>
             </section>
             <section>
-              <h5>5 &middot; ஒரே வெளியேற்றம்</h5>
-              <p>முழு கூடையும் சேர்ந்து வெளியேறும்: சராசரி நுழைவிலிருந்து mother-இன் உயர்வு நோக்கி <strong>0.25</strong>, ஒவ்வொரு fill-இலும் மறுகணக்கு. <strong>Stop loss இல்லை.</strong> Option-இன் expiry நாளில் 15:15-க்கு அல்லது அதற்குப் பின் மூடும் முதல் bar இலக்கு முடிக்காததை விற்கும். <strong>Session = Close 3:15</strong> என்றால் அதே விதி ஒவ்வொரு நாளும்: 3:15-க்கு வெளியே, campaign அன்றே முடியும் &mdash; வாங்கியிருந்தாலும் இல்லாவிட்டாலும்.</p>
+              <h5>5 &middot; வெளியேற்றம்</h5>
+              <p>இலக்கு = சராசரி நுழைவிலிருந்து mother-இன் high நோக்கி <strong>&frac14;</strong>. <strong>Trailing</strong> (இயல்பு) அந்தத் தொடுதலில் trail ஆயுதமாகி, லாபத்தில் 30% திரும்பக் கொடுக்கும் close-இல் விற்கும்; <strong>Fixed</strong> தொடுதலிலேயே விற்கும். <strong>Stop loss இல்லை, time stop இல்லை</strong> &mdash; இரண்டும் அளக்கப்பட்டு நஷ்டம். Expiry நாளில் திறந்திருப்பது 15:15-இல் விற்கப்படும். வெளியேற்றம் தொடக்க chart-இல் மட்டும்.</p>
             </section>
             <section>
-              <h5>6 &middot; விலைகள், எப்போது படிக்கப்படுகின்றன</h5>
-              <p>ஒவ்வொரு premium-உம் engine செயல்படும் <strong>bar-இன் close</strong>-இல் படிக்கப்படுகிறது &mdash; paper campaign அந்த bar-ஐப் பார்த்து வாங்கும் தருணம்; 15m அல்லது 1H rung-க்கு live quote இருக்கும் ஒரே நிமிடமும் அதுவே. சமீபத்திய நிமிடத்திற்கு live quote; பழையதற்கு <strong>பதிவு செய்யப்பட்ட option வரலாறு</strong> (expiry ஆன ஒப்பந்தத்திற்கு Upstox, பட்டியலில் உள்ளதற்கு Dhan-இன் candles). எந்த விலையும் அச்சிடப்படாத நிமிடம் ஒரு இடைவெளி என்றே காட்டப்படும், கற்பனை விலை அல்ல; ஒரு leg விலையில்லாவிட்டால் மொத்த net வெறுமையாக இருக்கும்.</p>
+              <h5>6 &middot; விலைகள்</h5>
+              <p>ஒவ்வொரு premium-உம் engine செயல்படும் <strong>bar-இன் close</strong>-இல்: புதியதெனில் live quote, இல்லையெனில் பதிவு செய்யப்பட்ட option வரலாறு. வர்த்தகமே இல்லாத நிமிடம் இடைவெளி, கற்பனை அல்ல. Backtest-உம் Start-உம் <strong>ஒரே engine</strong>; ஒரே mother இரண்டிலும் ஒரே fills.</p>
             </section>
-            <section>
-              <h5>7 &middot; Backtest-உம் paper-உம் ஒரே engine</h5>
-              <p><strong>Backtest &middot; real P&amp;L</strong> நீங்கள் கொடுக்கும் mother-ஐ இதே ladder வழியாக, பதிவு செய்யப்பட்ட விலைகளில், option expiry வரை replay செய்யும்: fills, exit, costs, net, ஒவ்வொரு rung-இன் timeframe-இலும் chart. <strong>Start paper campaign</strong> கடந்த 15 நாட்களின் ஒரு mother-ஐ எடுத்து, அதற்குப் பிந்தைய ஒவ்வொரு bar-ஐயும் (ஒவ்வொரு fill-இன் சொந்த நிமிட விலையில்) பிடித்து, live-ஆகத் தொடரும். ஒரே mother இரண்டிலும் ஒரே fills தரும் &mdash; அது சரிபார்க்கப்படுகிறது, ஊகிக்கப்படுவதில்லை.</p>
-            </section>
+            <p class="pf-info-warn"><strong>அளவீடு</strong>, 1 அக் 2024 &ndash; 17 ஆக 2026, 5m chart-இல் ஒவ்வொரு box high-உம், ஒரு நேரத்தில் ஒரு campaign, உண்மையான premium-கள்: <strong>&frac14; இலக்கு + 30% trail +&#8377;2,02,301</strong>, 42 campaign-கள், அதிகபட்ச drawdown &minus;&#8377;6,237, ஒவ்வொரு ஆண்டும் பச்சை; fixed &frac14; +&#8377;1,34,135. சிறந்த ஐந்தை நீக்கியும் +&#8377;30,769. பதினொரு வழி சரிபார்ப்பு, 0 தோல்வி. <strong>PE எல்லா அமைப்பிலும் நஷ்டம்</strong>, வர்த்தகம் இல்லை; 1m நஷ்டம்; பெரிய இலக்கு நஷ்டம். முழு அறிக்கை Assets &rarr; Candle Entry tearsheet.</p>
             </div><!-- /ta -->
           </div></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
-      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;">
-        <div style="min-width:190px;flex:1;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
-        <div style="min-width:245px;flex:2;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div style="min-width:130px;"><label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="candle-entry-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="How far in the money the one CE sits, measured from the mother's close: ATM − 2 is two strikes (100 points) below."><option value="-2" selected>ATM − 2 (ITM)</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select></div>
-        <div style="min-width:200px;">
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
-          <!-- Same switch as Fib Boundary. Hold (default) is the rule the
-               ladder was measured on: target or expiry. Close 3:15 sells at
-               15:15 and ends the campaign that day. -->
-          <input type="hidden" id="candle-entry-session" value="hold">
-          <div id="candle-entry-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setCandleEntrySession" role="radio" title="Runs to its target or the option's expiry" aria-checked="true"><span>↗ Hold</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="intraday" data-pf-action="setCandleEntrySession" role="radio" title="Out at 15:15 and the campaign ends that day" aria-checked="false"><span>⏱ Close 3:15</span></button>
+      <div id="candle-entry-recipe" class="candle-entry-recipe" aria-live="polite"></div>
+      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:12px;">
+        <div style="min-width:170px;flex:1;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
+        <div style="min-width:170px;flex:1;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother</label>
+          <!-- Phil, 2026-08-19: "The mother has to be the high from the
+               measurement we made" -- the bar that makes the 278-bar high.
+               Manual is the old way: name the candle. -->
+          <input type="hidden" id="candle-entry-mother-mode" value="box">
+          <div id="candle-entry-mother-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which mother">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="box" data-pf-action="setCandleEntryMother" role="radio" title="The bar that made the box high — found for you" aria-checked="true"><span>⊓ Box high</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="manual" data-pf-action="setCandleEntryMother" role="radio" title="Name the mother candle yourself" aria-checked="false"><span>✎ Manual</span></button>
+          </div>
+        </div>
+        <div style="min-width:235px;flex:2;"><label id="candle-entry-timestamp-label" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
+        <div style="min-width:150px;flex:1;">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+          <input type="hidden" id="candle-entry-mode" value="paper">
+          <div id="candle-entry-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+            <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setCandleEntryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setCandleEntryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
           </div>
         </div>
       </div>
       <div class="fibx-switch-grid candle-entry-switch-grid" style="margin-top:12px;">
+        <div id="candle-entry-box-row">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Box · bars &amp; buy zone</label>
+          <div class="candle-entry-box-fields">
+            <input id="candle-entry-box-bars" type="number" min="20" max="2000" step="1" value="278" inputmode="numeric" aria-label="Bars in the box" title="How many bars of the starting chart make the box (278 is the measured setting)">
+            <input type="hidden" id="candle-entry-box-position" value="0.25">
+            <div id="candle-entry-box-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Where in the box the ladder may buy">
+              <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryBox" role="radio" title="Buy only in the bottom quarter of the box" aria-checked="true"><span>▁ Bottom ¼</span></button>
+              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryBox" role="radio" title="Buy anywhere in the bottom half" aria-checked="false"><span>▃ Bottom ½</span></button>
+            </div>
+          </div>
+        </div>
         <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Expiry</label>
-          <!-- Phil, 2026-08-19: "weekly expiry >= 4 days". Monthly is the rule
-               the ladder ran on; the weekly is the first expiry at least four
-               days after the mother. -->
-          <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
-          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which contract">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest) — more road for a basket with no stop-loss" aria-checked="true"><span>▦ Monthly</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Exit</label>
+          <input type="hidden" id="candle-entry-exit-mode" value="trailing">
+          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Fixed target or trailing">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="trailing" data-pf-action="setCandleEntryExit" role="radio" title="Touching the target arms a trail: sell on a close giving back 30% of the gain" aria-checked="true"><span>↝ Trailing</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="fixed" data-pf-action="setCandleEntryExit" role="radio" title="The target is the sale" aria-checked="false"><span>▮ Fixed</span></button>
           </div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Target</label>
           <input type="hidden" id="candle-entry-target" value="0.25">
           <div id="candle-entry-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="How far back to the mother high">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryTarget" role="radio" title="Sell a quarter of the way from the average entry back to the mother high" aria-checked="true"><span>¼ back</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryTarget" role="radio" title="Sell halfway from the average entry back to the mother high" aria-checked="false"><span>½ back</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryTarget" role="radio" title="A quarter of the way from the average entry back to the mother high" aria-checked="true"><span>¼ back</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryTarget" role="radio" title="Halfway from the average entry back to the mother high" aria-checked="false"><span>½ back</span></button>
           </div>
         </div>
         <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Exit</label>
-          <input type="hidden" id="candle-entry-exit-mode" value="fixed">
-          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Fixed target or trailing">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setCandleEntryExit" role="radio" title="The target is the sale" aria-checked="true"><span>▮ Fixed</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setCandleEntryExit" role="radio" title="Touching the target arms a trail: sell on a close giving back 30% of the gain from the average entry" aria-checked="false"><span>↝ Trailing</span></button>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Expiry</label>
+          <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
+          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which contract">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest)" aria-checked="true"><span>▦ Monthly</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
           </div>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
+          <input type="hidden" id="candle-entry-session" value="hold">
+          <div id="candle-entry-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setCandleEntrySession" role="radio" title="Runs to its target or the option's expiry" aria-checked="true"><span>↗ Hold</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="intraday" data-pf-action="setCandleEntrySession" role="radio" title="Out at 15:15 and the campaign ends that day" aria-checked="false"><span>⏱ Close 3:15</span></button>
+          </div>
+        </div>
+        <div>
+          <label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike</label>
+          <select id="candle-entry-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="How far in the money the one CE sits, from the mother's close: ATM − 2 is two strikes (100 points) below."><option value="-2" selected>ATM − 2 (ITM)</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
         </div>
       </div>
       <div class="candle-entry-actions"><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest · real P&amp;L</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
@@ -3768,6 +3790,7 @@
         <div class="pf-tearsheet-docs" role="tablist" aria-label="Which tearsheet">
           <button type="button" class="pf-tearsheet-doc is-active" role="tab" aria-selected="true" data-pf-action="pickAssetsTearsheet" data-doc="options">Options · 5-year</button>
           <button type="button" class="pf-tearsheet-doc" role="tab" aria-selected="false" data-pf-action="pickAssetsTearsheet" data-doc="fib">Fib Boundary · 23-month</button>
+          <button type="button" class="pf-tearsheet-doc" role="tab" aria-selected="false" data-pf-action="pickAssetsTearsheet" data-doc="candle">Candle Entry · 22-month</button>
         </div>
         <a class="pf-tearsheet-open" id="assets-tearsheet-open" href="/assets/tearsheet" target="_blank" rel="noopener">Open full document ↗</a>
       </div>
