@@ -12343,6 +12343,7 @@ def _hybrid_premium_lookup(
     """
 
     from data.option_archive import OptionDataArchive
+    from engine.cascade_instruments import option_segment as _option_segment
 
     archive = OptionDataArchive()
     dhan_minutes: dict[tuple, dict] = {}
@@ -12379,7 +12380,7 @@ def _hybrid_premium_lookup(
                     if security_id:
                         frame = broker.get_historical_data(
                             security_id,
-                            "NSE_FNO",
+                            _option_segment(instrument),
                             "OPTIDX",
                             0,
                             from_day.isoformat(),

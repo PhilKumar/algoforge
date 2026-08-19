@@ -6,6 +6,7 @@ from engine.cascade_instruments import (
     expiry_rhythm,
     index_spec,
     instrument_facts,
+    option_segment,
 )
 
 
@@ -59,6 +60,16 @@ class IndexSpecTests(unittest.TestCase):
         spec = index_spec("SENSEX")
         self.assertEqual(spec.security_id, "51")
         self.assertEqual(spec.exchange_segment, "IDX_I")
+
+    def test_sensex_options_are_bse_contracts_everything_else_nse(self):
+        # The index candles come from IDX_I for all of them; the OPTIONS do
+        # not. Dhan answers a BSE security id asked under NSE_FNO with empty
+        # arrays rather than an error, so a wrong segment reads as "no quote"
+        # and silently refuses every fill (2026-08-19).
+        self.assertEqual(option_segment("SENSEX"), "BSE_FNO")
+        for symbol in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"):
+            self.assertEqual(option_segment(symbol), "NSE_FNO", symbol)
+        self.assertEqual(option_segment("NOT-AN-INDEX"), "NSE_FNO", "an unknown symbol never guesses BSE")
 
     def test_an_unverified_index_refuses_rather_than_guessing(self):
         # The guard that kept SENSEX honest until its id was confirmed. A

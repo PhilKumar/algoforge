@@ -38,6 +38,13 @@ class IndexSpec:
     symbol: str
     security_id: str
     exchange_segment: str
+    # Which Dhan F&O segment carries this index's OPTION contracts. The index
+    # candles come from IDX_I for every one of them; the options do not --
+    # SENSEX is a BSE contract. Asking Dhan for a BSE security id under
+    # NSE_FNO does not error: it answers with EMPTY arrays, which read as "no
+    # quote" and refused every SENSEX fill in a backtest of a still-listed
+    # contract (Phil, 2026-08-19).
+    option_segment: str = "NSE_FNO"
     verified: bool = True
     note: str = ""
     # Upstox's own name for the same index, used to pull expired-option premium
@@ -86,8 +93,20 @@ INDEX_SPECS: dict[str, IndexSpec] = {
     # come from Upstox under BSE_INDEX|SENSEX: 97 weekly expiries Oct-2024 ..
     # Aug-2026 in the expired archive, checked 2026-08-18 (a 77,500 CE on the
     # 13-Aug expiry priced 357.90 at 10:15 that day).
-    "SENSEX": IndexSpec("SENSEX", "51", "IDX_I", premium_key="BSE_INDEX|SENSEX"),
+    "SENSEX": IndexSpec("SENSEX", "51", "IDX_I", option_segment="BSE_FNO", premium_key="BSE_INDEX|SENSEX"),
 }
+
+
+def option_segment(symbol: str) -> str:
+    """The Dhan F&O segment an index's option contracts trade in.
+
+    Unknown symbols get NSE_FNO, which is what every index except SENSEX uses;
+    a wrong guess here shows up as "no candles", never as a wrong price.
+    """
+    try:
+        return index_spec(symbol).option_segment
+    except InstrumentError:
+        return "NSE_FNO"
 
 
 def index_spec(symbol: str) -> IndexSpec:

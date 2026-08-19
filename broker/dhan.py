@@ -1258,6 +1258,15 @@ class DhanClient:
         # Handle timestamp format — could be epoch seconds or milliseconds
         timestamps = ohlcv.get("start_Time", ohlcv.get("timestamp", ohlcv.get("start_time", [])))
         if not timestamps:
+            # An EMPTY series is not a missing field, and saying so sent a
+            # SENSEX backtest hunting for a parser bug when the real answer was
+            # that a BSE security id had been asked for under NSE_FNO
+            # (Phil, 2026-08-19). Name the request that came back empty.
+            if any(key in ohlcv for key in ("start_Time", "timestamp", "start_time")):
+                raise Exception(
+                    f"Dhan returned no candles for security {security_id} in {exchange_segment} "
+                    f"({instrument_type}) {from_date} → {to_date}. Check the exchange segment for this contract."
+                )
             raise Exception(f"No timestamp field found in response. Keys: {list(ohlcv.keys())}")
 
         # Auto-detect epoch format (seconds vs milliseconds)

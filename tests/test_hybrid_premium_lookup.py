@@ -69,6 +69,52 @@ def _build(broker, forward_minutes: int = 5):
     )
 
 
+class ExchangeSegmentTests(unittest.TestCase):
+    """SENSEX options are BSE contracts. Asking Dhan for a BSE security id
+    under NSE_FNO does not error -- it answers with EMPTY arrays, which the
+    ladder reads as "no quote" and refuses the fill. On 2026-08-19 that was
+    every buy of every SENSEX backtest whose contract had not expired yet."""
+
+    def setUp(self):
+        self._original_scrip = app_module.ScripMaster
+        self._original_archive_root = app_module.config.OPTION_ARCHIVE_ROOT
+        self._archive_tmp = tempfile.TemporaryDirectory()
+        app_module.config.OPTION_ARCHIVE_ROOT = self._archive_tmp.name
+        app_module.ScripMaster = _ScripMaster
+
+    def tearDown(self):
+        app_module.ScripMaster = self._original_scrip
+        app_module.config.OPTION_ARCHIVE_ROOT = self._original_archive_root
+        self._archive_tmp.cleanup()
+
+    def _segment_asked_for(self, instrument: str) -> str:
+        seen = {}
+
+        class _SegmentBroker(_Broker):
+            def get_historical_data(self, security_id, exchange_segment, *args, **kwargs):
+                seen["segment"] = exchange_segment
+                return super().get_historical_data(security_id, exchange_segment, *args, **kwargs)
+
+        lookup = _hybrid_premium_lookup(
+            _SegmentBroker({datetime(2026, 8, 19, 11, 43): 807.0}),
+            instrument,
+            None,
+            set(),
+            date(2026, 8, 19),
+            date(2026, 8, 19),
+        )
+        price = lookup(datetime(2026, 8, 19, 11, 43, tzinfo=IST), _Contract(strike=76600.0, expiry=date(2026, 8, 27)))
+        self.assertEqual(price, 807.0, "the contract prices once the right segment is asked")
+        return seen.get("segment", "")
+
+    def test_sensex_options_are_fetched_from_bse(self):
+        self.assertEqual(self._segment_asked_for("SENSEX"), "BSE_FNO")
+
+    def test_every_other_index_stays_on_nse(self):
+        for instrument in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"):
+            self.assertEqual(self._segment_asked_for(instrument), "NSE_FNO", instrument)
+
+
 class MinuteKeyTests(unittest.TestCase):
     def test_aware_and_naive_collapse_to_the_same_minute(self):
         aware = datetime(2026, 7, 22, 10, 0, 30, tzinfo=IST)
