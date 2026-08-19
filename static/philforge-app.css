@@ -6137,6 +6137,41 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .candle-entry-box-fields input[type="number"] { width:86px; flex:0 0 86px; padding:9px 10px; font:13px 'JetBrains Mono',monospace; text-align:right; min-width:0; }
 .candle-entry-box-fields .scalp-toggle { flex:1 1 auto; min-width:0; }
 /* A phone keeps the number and the switch on one line -- 86px and the rest. */
+/* THE ESSENTIALS ROW: mode, chart, when, and the buttons -- one line on a
+   desk, stacking on a phone. Everything else is behind the Advanced fold. */
+.candle-entry-essentials { display:grid; grid-template-columns: 170px 200px minmax(220px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
+.candle-entry-essentials .candle-entry-field { min-width:0; }
+.candle-entry-essentials .candle-entry-field-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:0; }
+@media (max-width: 1100px) { .candle-entry-essentials { grid-template-columns: 160px 180px minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .candle-entry-essentials { grid-template-columns: minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions .btn { flex: 1 1 100%; } }
+/* The Advanced fold: the measured rule, collapsed; its summary says whether
+   anything on the form differs from it. */
+.candle-entry-advanced { margin-top:10px; border:1px solid rgba(148,163,184,.16); border-radius:10px; background: rgba(7,16,29,.28); }
+.candle-entry-advanced > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:9px 12px; font:700 11px 'JetBrains Mono',monospace; color:var(--muted); letter-spacing:.3px; user-select:none; }
+.candle-entry-advanced > summary::-webkit-details-marker { display:none; }
+.candle-entry-advanced > summary::before { content:"▸"; color:var(--muted); font-size:10px; transition: transform .15s ease; }
+.candle-entry-advanced[open] > summary::before { transform: rotate(90deg); }
+.candle-entry-advanced-title { color:var(--text); text-transform:uppercase; letter-spacing:.7px; font-size:10px; }
+.candle-entry-advanced-state { font-weight:600; }
+.candle-entry-advanced-state.is-changed { color:#fde68a; }
+.candle-entry-advanced.is-changed { border-color: rgba(253,230,138,.38); }
+.candle-entry-advanced-body { padding: 2px 12px 12px; }
+.candle-entry-advanced-body .candle-entry-switch-grid { margin-top:4px; }
+[data-theme="light"] .candle-entry-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
+/* The one-line summary of an older campaign, under the buttons. */
+.candle-entry-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
+.candle-entry-summary:empty { display:none; }
+/* The strike cell holds a select and a three-way switch: give it the whole
+   row so the three never wrap into a tall pill. */
+#options-cascade-page .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) { grid-column: 1 / -1; }
+/* .scalp-toggle is a two-column grid; this one has three choices. */
+#candle-entry-strike-at-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* The monitor's six tiles. */
+.candle-entry-tiles { display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:8px; padding:12px 16px 4px; }
+@media (max-width: 1100px) { .candle-entry-tiles { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 560px) { .candle-entry-tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+.candle-entry-activity > summary { list-style:none; cursor:pointer; }
+.candle-entry-activity > summary::-webkit-details-marker { display:none; }
 /* One line that reads the form back in plain words: what will run, and how. */
 .candle-entry-recipe { margin-top:10px; padding:8px 11px; border:1px dashed rgba(96,165,250,.34); border-radius:8px; font:600 11px/1.5 'JetBrains Mono',monospace; color:#93c5fd; letter-spacing:.1px; }
 .candle-entry-recipe:empty { display:none; }
@@ -6146,7 +6181,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .candle-entry-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
 .candle-entry-monitor h4 { margin:3px 0 0; font-size:14px; }
 .candle-entry-monitor-updated { color:var(--muted); font-size:11px; text-align:right; }
-.candle-entry-monitor-body { display:grid; grid-template-columns:minmax(300px,.88fr) minmax(440px,1.12fr); gap:0; }
+.candle-entry-monitor-body { display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
 .candle-entry-monitor-section { min-width:0; padding:14px 16px; }
 .candle-entry-monitor-section + .candle-entry-monitor-section { border-left:1px solid rgba(148,163,184,.14); }
 .candle-entry-section-title { color:var(--muted); font:800 10px var(--font-mono); letter-spacing:.07em; text-transform:uppercase; }

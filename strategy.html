@@ -2850,9 +2850,30 @@
             </div><!-- /ta -->
           </div></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       <div id="candle-entry-recipe" class="candle-entry-recipe" aria-live="polite"></div>
-      <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:12px;">
-        <div style="min-width:170px;flex:1;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
-        <div style="min-width:170px;flex:1;">
+      <!-- THE FORM IS THREE DECISIONS. Paper or live, which chart, and (for a
+           backtest, or to start from a past box high) the moment to look back
+           from. Everything else is the measured rule and lives behind
+           Advanced, collapsed, with a count of what deviates from it -- Phil,
+           2026-08-20: "I need the only important items and in a completely
+           viewable way like institutional grade". -->
+      <div class="candle-entry-essentials">
+        <div class="candle-entry-field candle-entry-field-mode">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+          <input type="hidden" id="candle-entry-mode" value="paper">
+          <div id="candle-entry-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+            <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setCandleEntryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setCandleEntryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
+          </div>
+        </div>
+        <div class="candle-entry-field candle-entry-field-chart"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
+        <div class="candle-entry-field candle-entry-field-when"><label id="candle-entry-timestamp-label" for="candle-entry-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
+        <div class="candle-entry-field candle-entry-field-actions candle-entry-actions"><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+      </div>
+      <details id="candle-entry-advanced" class="candle-entry-advanced">
+        <summary><span class="candle-entry-advanced-title">Advanced</span><span id="candle-entry-advanced-state" class="candle-entry-advanced-state">rule as measured</span></summary>
+        <div class="candle-entry-advanced-body">
+        <div class="fibx-switch-grid candle-entry-switch-grid">
+        <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother</label>
           <!-- Phil, 2026-08-19: "The mother has to be the high from the
                measurement we made" -- the bar that makes the 278-bar high.
@@ -2863,17 +2884,6 @@
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="manual" data-pf-action="setCandleEntryMother" role="radio" title="Name the mother candle yourself" aria-checked="false"><span>✎ Manual</span></button>
           </div>
         </div>
-        <div style="min-width:235px;flex:2;"><label id="candle-entry-timestamp-label" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div style="min-width:150px;flex:1;">
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-          <input type="hidden" id="candle-entry-mode" value="paper">
-          <div id="candle-entry-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
-            <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setCandleEntryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
-            <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setCandleEntryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
-          </div>
-        </div>
-      </div>
-      <div class="fibx-switch-grid candle-entry-switch-grid" style="margin-top:12px;">
         <div id="candle-entry-box-row">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Box · bars &amp; buy zone</label>
           <div class="candle-entry-box-fields">
@@ -2906,7 +2916,7 @@
           <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
           <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which contract">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest)" aria-checked="true"><span>▦ Monthly</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother — measured red: the campaign outlives the contract" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
           </div>
         </div>
         <div>
@@ -2921,21 +2931,24 @@
           <label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike · how deep &amp; chosen when</label>
           <!-- Measured 2026-08-19: the mother's ATM-2 sat ABOVE the ladder's
                target on half the box-mother campaigns (the call was out of
-               the money at the price it was sold at). Chosen at the first
-               buy -- what a trader does -- it is worth Rs 67k on the book. -->
+               the money at the price it was sold at). Phil: "for the second
+               buy and 3rd buy also we need to select the current strike" --
+               each rung its own ATM-2 is +Rs 2.83L against +Rs 2.02L. -->
           <div class="candle-entry-box-fields">
             <select id="candle-entry-itm" style="padding:9px 10px;font:13px 'JetBrains Mono',monospace;flex:0 0 auto;width:auto;" title="How far in the money the one CE sits: ATM − 2 is two strikes (100 points) below the index at the moment it is chosen."><option value="-2" selected>ATM − 2</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
-            <input type="hidden" id="candle-entry-strike-at" value="first_buy">
+            <input type="hidden" id="candle-entry-strike-at" value="each_buy">
             <div id="candle-entry-strike-at-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="When the strike is chosen">
-              <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="first_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="ATM − 2 of the index where the first rung fills — the measured rule" aria-checked="true"><span>⊙ At first buy</span></button>
-              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="mother" data-pf-action="setCandleEntryStrikeAt" role="radio" title="ATM − 2 of the mother's close — the older rule" aria-checked="false"><span>⊓ At mother</span></button>
+              <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="each_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="Every rung takes ATM − 2 of the index where it fills; up to three contracts, each sold at its own price — the measured rule" aria-checked="true"><span>⊙ Each buy</span></button>
+              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="first_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="One contract for the ladder: ATM − 2 of the index where the first rung fills" aria-checked="false"><span>① First buy</span></button>
+              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="mother" data-pf-action="setCandleEntryStrikeAt" role="radio" title="ATM − 2 of the mother's close — the oldest rule" aria-checked="false"><span>⊓ Mother</span></button>
             </div>
           </div>
         </div>
-      </div>
-      <div class="candle-entry-actions"><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest · real P&amp;L</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+        </div>
+        </div>
+      </details>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
-      <div id="candle-entry-summary" style="margin-top:12px;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No active Candle Entry campaign.</div>
+      <div id="candle-entry-summary" class="candle-entry-summary">No active Candle Entry campaign.</div>
       <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="candle-entry-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="candle-entry-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
@@ -2951,17 +2964,22 @@
           <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Rung</th><th style="padding:7px 8px;text-align:left;">Chart</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="candle-entry-backtest-legs"></tbody></table></div>
         </div>
       </details>
+      <!-- THE MONITOR: the running campaign, and nothing older. A campaign
+           that ended on a previous day is one line under the form, not a
+           panel (Phil, 2026-08-20, on a stale 10 Aug replay filling the
+           screen: "Is this really needed?"). Six tiles, the ladder, and the
+           activity folded away. -->
       <section id="candle-entry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
-        <div class="candle-entry-monitor-head"><div><div class="candle-entry-monitor-kicker">Live paper monitor</div><h4>Campaign overview</h4></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="candle-entry-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadCandleEntryChart" aria-label="Open campaign chart">↗ Full chart</button><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated">Waiting for campaign data</div></div></div>
-        <div class="candle-entry-monitor-body">
-          <div class="candle-entry-monitor-section"><div class="candle-entry-section-title">At a glance</div><div id="candle-entry-monitor-overview" class="candle-entry-overview"></div></div>
-          <div class="candle-entry-monitor-section"><div class="candle-entry-section-title">The ladder</div><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Premium</th></tr></thead><tbody id="candle-entry-monitor-rungs"></tbody></table></div></div>
-          <div class="candle-entry-monitor-section"><div class="candle-entry-section-title">NIFTY candles</div><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Candle</th><th>Time (IST)</th><th>Open</th><th>High</th><th>Low</th><th>Close</th></tr></thead><tbody id="candle-entry-monitor-candles"></tbody></table></div></div>
+        <div class="candle-entry-monitor-head">
+          <div><div class="candle-entry-monitor-kicker" id="candle-entry-monitor-kicker">Paper campaign</div><h4 id="candle-entry-monitor-title">Running</h4></div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="candle-entry-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadCandleEntryChart" aria-label="Open campaign chart">↗ Chart</button><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated"></div></div>
         </div>
-        <div class="candle-entry-activity">
-          <div class="candle-entry-activity-head"><h4>Campaign Activity</h4><span id="candle-entry-event-count">0 updates</span></div>
+        <div id="candle-entry-monitor-tiles" class="candle-entry-tiles"></div>
+        <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th></tr></thead><tbody id="candle-entry-monitor-rungs"></tbody></table></div></div>
+        <details class="candle-entry-activity">
+          <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="candle-entry-event-count">0 updates</span></summary>
           <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
-        </div>
+        </details>
       </section>
     </div>
 

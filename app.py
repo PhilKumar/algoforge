@@ -10729,7 +10729,19 @@ async def _candle_entry_load_ladder(
 
 @app.get("/api/candle-entry/paper/status")
 async def candle_entry_paper_status(request: Request):
-    runtime = _candle_entry_engines.get(_request_user_id(request))
+    user_id = _request_user_id(request)
+    runtime = _candle_entry_engines.get(user_id)
+    if runtime is None:
+        # A saved campaign that nothing has woken yet (a restart with the
+        # startup restore skipped, or a first request after one): bring it
+        # back here, so the page never shows IDLE over a campaign that the
+        # Start button would then refuse to replace.
+        try:
+            _user, broker_client, _source = await _request_broker_context(request)
+            if broker_client is not None:
+                runtime = await _restore_candle_entry_open_state(user_id, broker_client, activate=True)
+        except Exception as exc:
+            _logger.debug("[CANDLE ENTRY] status restore skipped: %s", exc)
     if runtime is None:
         return {"status": "not_started", "mode": "paper"}
     return {"status": "ok", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}

@@ -2902,6 +2902,8 @@ class LadderCandleEntryPaper:
                             "priced_at": fill.priced_at.isoformat() if fill.priced_at is not None else None,
                             "index_price": fill.index_price,
                             "option_premium": fill.option_premium,
+                            "strike": fill.strike,
+                            "option_type": fill.option_type,
                             "lots": fill.lots,
                             "quantity": fill.quantity,
                             "marked_low": fill.marked_low,
