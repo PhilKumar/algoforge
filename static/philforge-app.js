@@ -3504,6 +3504,7 @@ async function initOptionsCascadePage() {
     if (sel && !sel._fibHintBound) {
       sel.addEventListener('change', () => {
         _syncFibLevelsHint();
+        _syncFibMotherModeRow();  // the form's shape follows the switch, per instrument
         _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
       });
       sel._fibHintBound = true;
@@ -4486,22 +4487,26 @@ function _fibMotherMode() {
 }
 
 function _syncFibMotherModeRow() {
+  const auto = _fibMotherMode() === 'auto';
   const row = document.getElementById('fibx-mother-manual-row');
-  if (row) row.style.display = _fibMotherMode() === 'auto' ? 'none' : '';
+  if (row) row.style.display = auto ? 'none' : '';
+  // Under Auto the rule is the measured one and the server ignores these, so
+  // the form stops offering them: instrument, paper/live and the cap remain.
+  document.querySelectorAll('#options-cascade-page .fibx-rule-only').forEach(el => { el.style.display = auto ? 'none' : ''; });
+  const locked = document.getElementById('fibx-auto-locked');
+  if (locked) locked.style.display = auto ? '' : 'none';
 }
 
 async function enableFibBoundaryAuto() {
   const el = id => document.getElementById(id);
+  // Only what auto actually takes: the instrument, paper or live, and size.
+  // The rule itself is the server's (_FIB_AUTO_RULE) -- the configuration on
+  // the tearsheet, not whatever this form happens to show.
   const payload = {
     symbol: el('fibx-symbol')?.value || 'NIFTY',
     enabled: true,
-    side: el('fibx-side')?.value || 'CE',
-    timeframe: _fibTimeframe(),
     mode: el('fibx-mode')?.value || 'paper',
-    buy_mode: _fibBuyMode(),
-    trailing_target: _fibTrailingTarget(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
-    itm_steps: Number(el('fibx-itm')?.value),
   };
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
@@ -4511,7 +4516,7 @@ async function enableFibBoundaryAuto() {
     const response = await fetch('/api/fib-boundary/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Auto did not switch on (${response.status})`));
-    _fibSetFormStatus(`${payload.symbol} auto mother ON · 09:15 every session · breakout candle on a break · out by 15:15`, 'success');
+    _fibSetFormStatus(`${payload.symbol} auto mother ON · Lone · 5m · CE · trailing · 09:15 every session · breakout candle on a break · out by 15:15`, 'success');
   } catch (error) {
     _fibSetFormStatus(error.message || 'Auto did not switch on.', 'error');
   } finally {

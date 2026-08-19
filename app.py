@@ -141,6 +141,7 @@ from engine.fib_touch_ladder import (
     FibTouchLadder,
     symbol_terms,
 )
+from engine.fib_touch_ladder import MAX_BUYS as _FIB_MAX_BUYS
 from engine.fib_touch_ladder import SYMBOL_TERMS as _FIB_TOUCH_SYMBOLS
 from engine.fib_touch_ladder import TERMINAL_STATUSES as _FIB_TOUCH_TERMINAL_STATUSES
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
@@ -11373,6 +11374,21 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
 
 
 # ── the auto mother ─────────────────────────────────────────────────────────
+# WHAT AUTO RUNS. Phil, 2026-08-20: "Auto doesn't need this form -- it can
+# start as per the strategy and the backtest." So the rule is not read off the
+# console at all: it is the configuration that was measured over 23 months and
+# published on the tearsheet (Lone, 5m mother, Buy CE, intraday out by 15:15,
+# trailing exit, at most four buys a round, ATM-2, expiry >= 4 days). The form
+# still chooses the two things that are not the rule -- WHICH index, and paper
+# or live -- plus the rupee cap, which is size rather than strategy.
+_FIB_AUTO_RULE = {
+    "side": "CE",
+    "timeframe": "5m",
+    "buy_mode": "levels",
+    "trailing_target": True,
+    "itm_steps": 2,
+    "min_dte": 4,
+}
 _FIB_AUTO_FIRST_MOTHER = dt_time(9, 15)
 _FIB_AUTO_LAST_MOTHER_OPEN = dt_time(15, 10)  # a mother opening here closes at 15:15: it could not buy
 _FIB_AUTO_GIVE_UP_AT = dt_time(10, 0)  # no 09:15 bar by now = holiday / half session, skip the day
@@ -11509,17 +11525,20 @@ async def _fib_boundary_auto_step(user: dict, symbol: str, setting: dict, *, now
         return "no-broker"
     payload = FibTouchStartPayload(
         symbol=symbol,
-        side=str(setting.get("side") or "CE"),
         mother_timestamp=mother.replace(tzinfo=None).isoformat(),
-        timeframe=str(setting.get("timeframe") or "5m"),
-        capital_cap_inr=float(setting.get("capital_cap_inr") or 75_000),
-        itm_steps=int(setting.get("itm_steps") or 2),
-        min_dte=int(setting.get("min_dte") or 4),
-        mode=str(setting.get("mode") or "paper"),
+        # THE RULE, not the form. A setting written before this was locked
+        # still starts the measured configuration.
+        side=_FIB_AUTO_RULE["side"],
+        timeframe=_FIB_AUTO_RULE["timeframe"],
+        itm_steps=_FIB_AUTO_RULE["itm_steps"],
+        min_dte=_FIB_AUTO_RULE["min_dte"],
+        trailing_target=_FIB_AUTO_RULE["trailing_target"],
+        buy_mode=_FIB_AUTO_RULE["buy_mode"],
         intraday_close=True,
         deep_carry=False,
-        trailing_target=bool(setting.get("trailing_target", True)),
-        buy_mode=str(setting.get("buy_mode") or "levels"),
+        # The two the desk still chooses, plus size.
+        mode=str(setting.get("mode") or "paper"),
+        capital_cap_inr=float(setting.get("capital_cap_inr") or 75_000),
     )
     try:
         await _start_fib_boundary_ladder(uid, payload, broker_client=broker_client)
@@ -11578,12 +11597,6 @@ async def fib_boundary_auto(payload: FibTouchAutoPayload, request: Request):
         terms = symbol_terms(payload.symbol)
     except FibTouchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    side = str(payload.side).upper()
-    if side not in {"CE", "PE"}:
-        raise HTTPException(status_code=400, detail="side must be CE or PE.")
-    timeframe = str(payload.timeframe).lower()
-    if timeframe not in _FIB_TOUCH_GEOMETRY_TF:
-        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_FIB_TOUCH_GEOMETRY_TF)}.")
     mode = str(payload.mode).lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
@@ -11592,17 +11605,17 @@ async def fib_boundary_auto(payload: FibTouchAutoPayload, request: Request):
     user_id = _request_user_id(request)
     settings = await _fib_boundary_auto_settings(user_id)
     previous = settings.get(terms.symbol, {})
+    # The rule is recorded from _FIB_AUTO_RULE, never from the payload: the
+    # console cannot put auto on a configuration that was not measured.
     settings[terms.symbol] = {
         **{k: v for k, v in previous.items() if k in {"log", "last_day", "last_mother", "skipped_day"}},
+        **_FIB_AUTO_RULE,
         "enabled": bool(payload.enabled),
-        "side": side,
-        "timeframe": timeframe,
         "capital_cap_inr": float(payload.capital_cap_inr),
-        "itm_steps": int(payload.itm_steps),
-        "min_dte": int(payload.min_dte),
         "mode": mode,
-        "trailing_target": bool(payload.trailing_target),
-        "buy_mode": _fib_boundary_buy_mode(payload.buy_mode),
+        "intraday_close": True,
+        "deep_carry": False,
+        "max_buys": _FIB_MAX_BUYS,
         "next_mother": "breakout candle",
         "first_mother": _FIB_AUTO_FIRST_MOTHER.strftime("%H:%M"),
         "changed_at": datetime.now(IST).isoformat(),

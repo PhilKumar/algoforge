@@ -2459,6 +2459,14 @@
       <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#7dd3fc;">PAPER CAMPAIGNS ON LIVE PRICES · ONE MOTHER, ONE LADDER</div>
       <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
       <div style="margin-top:3px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">your mother &rarr; trendlines &rarr; stacked fibs &rarr; Lone (every level) or Partner (where two meet)</div>
+      <!-- WHAT WAS CONFIRMED, and where to read it. Phil, 2026-08-20: "put
+           that as a link under the strategy so that I will identify and see
+           what was confirmed as the latest." -->
+      <a class="fibx-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" target="_blank" rel="noopener">
+        <strong>Latest confirmed backtest &middot; 20 Aug 2026</strong>
+        <span>Auto mother &middot; <strong>Lone</strong> &middot; 5m &middot; CE &middot; intraday &middot; trailing &middot; &le;4 buys &middot; &#8377;75,000 &mdash; NIFTY +&#8377;1,13,568 (DD &minus;&#8377;41,200) &middot; SENSEX +&#8377;1,12,244 (&minus;&#8377;44,662), 23 months</span>
+        <span class="fibx-confirmed-go">Open the tearsheet &rarr;</span>
+      </a>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
            the code's own numbers, and the losing measurement stated as
@@ -2606,11 +2614,11 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
           <div><label for="fibx-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
+          <div class="fibx-rule-only"><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
         <!-- Phil, 2026-08-18: mother timestamp, ladder cap and ITM steps first -- they are what he types; the switches below are settings. -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-          <div>
+          <div class="fibx-rule-only">
             <label for="fibx-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
             <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="CE" selected>Buy CE</option>
@@ -2630,7 +2638,7 @@
         </div>
         <div id="fibx-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div>
+          <div class="fibx-rule-only">
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother chart</label>
             <div id="fibx-timeframe" class="fibx-tf-row" role="group" aria-label="Mother chart" data-value="1m" title="The chart the mother candle is read on. Touches are always watched on 1m.">
               <button type="button" class="fibx-tf is-active" data-pf-action="pickFibTimeframe" data-tf="1m">1m</button>
@@ -2652,7 +2660,7 @@
           </div>
         </div>
         <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
-        <div class="fibx-switch-grid">
+        <div class="fibx-switch-grid fibx-rule-only">
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
           <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
@@ -2702,6 +2710,11 @@
         <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-blocked"></div>
+        <div id="fibx-auto-locked" class="fibx-auto-locked" style="display:none;">
+          The rule is the one on the tearsheet and is not read off this form:
+          <strong>Lone &middot; 5m mother &middot; Buy CE &middot; intraday, out by 15:15 &middot; trailing exit &middot; at most 4 buys a round &middot; ATM&minus;2 &middot; expiry &ge; 4 days</strong>.
+          Here you choose only the <strong>instrument</strong>, <strong>Paper or Live</strong> and the <strong>&#8377; ladder cap</strong>.
+        </div>
         <div id="fibx-auto-panel" class="fibx-auto-panel"></div>
         <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>

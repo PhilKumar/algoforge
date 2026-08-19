@@ -1357,6 +1357,50 @@ class FibBoundaryAutoMotherTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(off["auto"]["NIFTY"]["enabled"])
 
+    async def test_auto_runs_the_measured_rule_whatever_the_form_says(self):
+        """Phil, 2026-08-20: "Auto doesn't need this form -- it can start as
+        per the strategy and the backtest." So the console cannot put auto on
+        a configuration nobody measured: only the index, paper/live and the
+        rupee cap come from the form."""
+        out = await app_module.fib_boundary_auto(
+            app_module.FibTouchAutoPayload(
+                symbol="SENSEX",
+                enabled=True,
+                side="PE",  # loses on both indices
+                timeframe="15m",  # never measured green
+                buy_mode="convergence",  # Partner, not Lone
+                trailing_target=False,  # fixed target loses
+                itm_steps=0,
+                min_dte=0,
+                capital_cap_inr=50_000,
+                mode="paper",
+            ),
+            _DummyRequest(),
+        )
+        saved = out["auto"]["SENSEX"]
+        self.assertEqual(saved["side"], "CE")
+        self.assertEqual(saved["timeframe"], "5m")
+        self.assertEqual(saved["buy_mode"], "levels", "Lone, the configuration on the tearsheet")
+        self.assertTrue(saved["trailing_target"])
+        self.assertEqual(saved["itm_steps"], 2)
+        self.assertEqual(saved["min_dte"], 4)
+        self.assertTrue(saved["intraday_close"])
+        self.assertFalse(saved["deep_carry"])
+        self.assertEqual(saved["max_buys"], 4)
+        self.assertEqual(saved["capital_cap_inr"], 50_000, "size is still the desk's")
+        self.assertEqual(saved["mode"], "paper")
+
+    async def test_a_setting_written_before_the_rule_was_locked_still_starts_the_rule(self):
+        IST = app_module.IST
+        started = []
+        stale = self._setting(side="PE", timeframe="15m", buy_mode="convergence", trailing_target=False, itm_steps=0)
+        self.assertEqual(await self._step(stale, datetime(2026, 8, 19, 9, 20, tzinfo=IST), started), "started")
+        p = started[0]
+        self.assertEqual(
+            (p.side, p.timeframe, p.buy_mode, p.trailing_target, p.itm_steps, p.min_dte),
+            ("CE", "5m", "levels", True, 2, 4),
+        )
+
     async def test_live_mode_is_refused_while_live_execution_is_disabled(self):
         with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", False):
             with self.assertRaises(app_module.HTTPException) as raised:

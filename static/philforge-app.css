@@ -6485,6 +6485,16 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .cascade-options-primary-btn { min-height: 42px; padding: 9px 16px; }
 #options-cascade-page .cascade-options-control::before,
 #options-cascade-page .cascade-options-primary-btn::before { border-radius: 999px 999px 12px 12px; }
+/* "Latest confirmed backtest" -- the link under the strategy line. */
+#options-cascade-page .fibx-confirmed-link { display: block; margin-top: 8px; padding: 8px 11px; border: 1px solid rgba(52,211,153,.32); border-left-width: 3px; border-radius: 9px; background: rgba(6,26,22,.4); font: 10.5px 'JetBrains Mono', monospace; color: var(--muted); text-decoration: none; line-height: 1.55; }
+#options-cascade-page .fibx-confirmed-link:hover { border-color: rgba(52,211,153,.6); background: rgba(6,32,26,.6); }
+#options-cascade-page .fibx-confirmed-link > strong { display: block; color: #6ee7b7; letter-spacing: .4px; }
+#options-cascade-page .fibx-confirmed-link .fibx-confirmed-go { display: block; margin-top: 3px; color: #38bdf8; }
+[data-theme="light"] #options-cascade-page .fibx-confirmed-link { background: rgba(236,253,245,.9); border-color: rgba(5,150,105,.4); color: #334155; }
+[data-theme="light"] #options-cascade-page .fibx-confirmed-link > strong { color: #047857; }
+/* What Auto runs, shown where the switches used to be. */
+#options-cascade-page .fibx-auto-locked { margin-top: 10px; padding: 9px 11px; border: 1px dashed rgba(56,189,248,.35); border-radius: 9px; font: 10.5px 'JetBrains Mono', monospace; color: var(--muted); line-height: 1.6; }
+#options-cascade-page .fibx-auto-locked strong { color: var(--text); }
 /* The auto-mother card under the form: the setting, today's chain, alerts. */
 #options-cascade-page .fibx-auto-panel { display: grid; gap: 8px; margin-top: 8px; }
 #options-cascade-page .fibx-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 10px; padding: 9px 11px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
