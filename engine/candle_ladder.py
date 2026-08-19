@@ -66,6 +66,12 @@ TIMEFRAME_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "1d"
 # The lot on each successive rung, deepest last.
 DEFAULT_LOTS: tuple[int, ...] = (1, 2, 3, 4)
 
+# HOW FAR A CAMPAIGN CLIMBS. Phil, 2026-08-19: "Don't climb to the next slower
+# chart after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
+# till 1H." One step up and no further: 1m -> 5m, 5m -> 15m, 15m -> 1H; a 1H
+# start has 1H alone (the chart runs out). Two rungs, 1 lot then 2.
+LADDER_DEPTH = 2
+
 
 class LadderError(ValueError):
     """The ladder cannot be built from the timeframes given."""
@@ -316,26 +322,40 @@ class TwoRedLadder:
         self._last_close[candle.timeframe] = candle.close
 
     def _watch_for_reds(self, stage: _Stage, candle: LadderCandle) -> None:
-        prior_close = self._last_close.get(candle.timeframe)
-        if prior_close is None:
-            return
-        if not candle.is_red or candle.close >= prior_close:
-            # THE RUN IS BROKEN. Phil's "1st/previous red candle" is the bar
-            # immediately before the second red, so the two reds are
-            # back-to-back: a green, or a red that closes higher, starts the
-            # count over. Left to accumulate across greens (as this did until
-            # 2026-08-18) the "first red" could be an hour stale and its close
-            # BELOW the market -- on the 10-Aug-2026 12:30 mother that armed a
-            # buy-stop at 24,573.55 with NIFTY at 24,591 and "filled" it at a
-            # price the market never traded. A stop already resting is an
-            # order on the book and stays until a bar reaches it.
-            stage.reds = []
+        """Phil's rule, stated by him on 2026-08-19:
+
+            "Green is not the matter here. Any number of green candles can be
+            between the 2 red candles. The thing is the price of the current
+            candle has to be below the previous red candle close."
+
+        So the watch is a sequence of RED closes, each below the one before it,
+        however many greens sit in between. A red that closes ABOVE the last
+        red in the sequence is not a step down and is simply ignored -- it
+        neither joins nor resets. Greens are ignored entirely.
+
+        Two earlier readings were both wrong and are worth naming, because each
+        one produced trades:
+        - comparing against the PREVIOUS CANDLE's close (any colour) let a red
+          that closed above the previous red qualify. On his 10-Aug-2026 12:30
+          mother that armed a buy-stop at 24,573.55 while NIFTY was at 24,591
+          -- a "recovery" buy below the market, at a price it never traded;
+        - requiring the two reds to be BACK-TO-BACK threw away every setup
+          with a green in the middle, which is most of them.
+
+        The sequence gives the stop for free: it is always ``reds[-2].close``,
+        one red back from the newest, and by construction that is ABOVE the
+        close of the red that armed it. A stop can never again sit below the
+        market at the moment it is placed.
+        """
+        if not candle.is_red:
             return
         # The gate: a rung above the first only starts counting once the market
-        # has actually gone lower than it was when the last rung filled. A red
-        # that has not yet made that low is not counted, but it does not break
-        # a run either -- the fall is still going.
+        # has actually gone lower than it was when the last rung filled.
         if self.require_new_low and self.gate_low is not None and candle.low >= self.gate_low:
+            return
+        if stage.reds and candle.close >= stage.reds[-1].close:
+            # A red, but not a lower one: the fall has not continued, so this
+            # is not the next step down. The sequence waits where it is.
             return
         stage.reds.append(candle)
         if len(stage.reds) < 2:
@@ -389,6 +409,11 @@ class TwoRedLadder:
                 self._log(candle, "rung_too_small", rung=stage.rung, index_price=stage.stop)
                 stage.stop = None
                 stage.armed_at = None
+                # Nothing is resting any more, so the campaign is back to
+                # watching -- reading ARMED with no order on the book is a
+                # state no screen can explain.
+                if not self.fills:
+                    self.status = "WAITING_TWO_RED"
                 return
         else:
             quantity = stage.lots * self.lot_size

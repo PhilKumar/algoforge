@@ -9,8 +9,9 @@ bar closed by that tick, dedup'd by the engine -- to prove backtest == paper.
     python3 tools/candle_entry_offline/verify.py [mothers-per-timeframe]
 
 Checks, each computed WITHOUT the engine's own bookkeeping:
-  1. the two reds before an arming are back-to-back, each closing below the
-     bar before it, and the stop is the FIRST red's close (above the market);
+  1. the arming bar is a RED whose close is below the previous RED's close
+     (greens ignored, however many), and the stop is one red back from the
+     newest -- which is always ABOVE the market at the moment it is placed;
   2. the fill bar reached the stop (high >= stop) and came AFTER the arming bar;
   3. rung k > 1 armed only after a low below the previous fill's marked low;
   4. the target is average entry + 0.25 x (mother high - average entry);
@@ -22,6 +23,7 @@ Checks, each computed WITHOUT the engine's own bookkeeping:
   8. net = gross - costs, gross = sum((sell - buy) x qty), or blank when a leg
      is unpriced;
   9. tick-fed paper == bulk backtest: same fills, same exit, same net;
+ 11. the ladder is TWO rungs: the mother's chart and the next one up;
  10. the mother bar itself never trades and no fill precedes the mother.
 """
 
@@ -51,7 +53,7 @@ os.makedirs(os.path.dirname(os.environ["PHILFORGE_DB"]), exist_ok=True)
 
 import app  # noqa: E402
 from engine.backtest import get_lot_size  # noqa: E402
-from engine.candle_ladder import closed_at  # noqa: E402
+from engine.candle_ladder import LADDER_DEPTH, closed_at, ladder_from  # noqa: E402
 from engine.cascade_options import LadderCandleEntryPaper  # noqa: E402
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 12
@@ -90,6 +92,9 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
     exit_row = c["exit"]
     stages = result["stages"]
     tag = f"{mother_ts.isoformat()} {tf}"
+    # 11. two rungs, the mother's chart first
+    expected_stages = list(ladder_from(tf, LADDER_DEPTH))
+    check(stages == expected_stages, f"{tag}: stages {stages} != {expected_stages}")
     by_tf = {k: {row.timestamp: row for row in rows} for k, rows in series.items()}
     ordered = {k: sorted(rows, key=lambda r: r.timestamp) for k, rows in series.items()}
     mother_row = by_tf[tf].get(mother_ts)
@@ -110,6 +115,8 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
     # 1-3, 6: each fill
     events = c["events"]
     prev_marked_low = None
+    prev_fill_ts = None
+    prev_fill_tf = None
     for f in fills:
         rtf = f["timeframe"]
         rows = ordered[rtf]
@@ -135,23 +142,49 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
             arm_ts = datetime.fromisoformat(arm["timestamp"])
             check(abs(float(arm["stop"]) - stop) < 1e-6, f"{tag}: rung {f['rung']} stop {arm['stop']} != fill {stop}")
             aidx = next((i for i, r in enumerate(rows) if r.timestamp == arm_ts), None)
-            check(aidx is not None and aidx >= 2, f"{tag}: arming bar {arm_ts} not found or too early")
-            if aidx is not None and aidx >= 2:
-                red2, red1, before = rows[aidx], rows[aidx - 1], rows[aidx - 2]
-                check(red2.close < red2.open and red2.close < red1.close, f"{tag}: red 2 at {arm_ts} does not qualify")
-                check(
-                    red1.close < red1.open and red1.close < before.close,
-                    f"{tag}: red 1 at {red1.timestamp} does not qualify",
-                )
-                check(abs(red1.close - stop) < 1e-6, f"{tag}: stop {stop} != first red close {red1.close}")
-                check(stop > red2.close, f"{tag}: stop {stop} not above the market at arming ({red2.close})")
+            check(aidx is not None, f"{tag}: arming bar {arm_ts} not found")
+            if aidx is not None:
+                arming = rows[aidx]
+                # PHIL'S RULE, re-derived here rather than read off the engine:
+                # a sequence of RED closes each below the one before it, greens
+                # ignored, and the stop is one red back from the newest. The
+                # gate low (the previous fill's marked low) bars a red that has
+                # not made a new low from joining.
+                gate = prev_marked_low if f["rung"] > 1 else None
+                # The engine only shows a stage the bars it was active for:
+                # rung 1 from the mother, a later rung from the moment the one
+                # below it filled (bars are ordered by when they CLOSED).
+                # Bars are fed in CLOSE order, finer chart first on a tie, so a
+                # slower bar closing at the same instant as the fill is seen by
+                # the rung above it.
+                since = bar_close(prev_fill_ts, prev_fill_tf) if f["rung"] > 1 and prev_fill_ts else None
+                reds: list = []
+                for row in rows[: aidx + 1]:
+                    if row.timestamp <= mother_ts:
+                        continue
+                    if since is not None and bar_close(row.timestamp, rtf) < since:
+                        continue
+                    if row.close >= row.open:
+                        continue
+                    if gate is not None and row.low >= gate:
+                        continue
+                    if reds and row.close >= reds[-1].close:
+                        continue
+                    reds.append(row)
+                check(len(reds) >= 2, f"{tag}: fewer than two reds by the arming bar {arm_ts}")
+                check(reds and reds[-1].timestamp == arming.timestamp, f"{tag}: the arming bar is not the newest red")
+                if len(reds) >= 2:
+                    check(abs(reds[-2].close - stop) < 1e-6, f"{tag}: stop {stop} != one red back ({reds[-2].close})")
+                check(arming.close < arming.open, f"{tag}: the arming bar {arm_ts} is not red")
+                check(stop > arming.close, f"{tag}: stop {stop} not above the market at arming ({arming.close})")
                 check(fill_bar.timestamp > arm_ts, f"{tag}: fill bar {ts} not after arming {arm_ts}")
                 if f["rung"] > 1 and prev_marked_low is not None:
-                    check(red2.low < prev_marked_low, f"{tag}: rung {f['rung']} armed without a new low")
+                    check(arming.low < prev_marked_low, f"{tag}: rung {f['rung']} armed without a new low")
         # 6. priced at the bar close
         priced_at = datetime.fromisoformat(f["priced_at"]) if f.get("priced_at") else None
         check(priced_at == bar_close(ts, rtf), f"{tag}: fill priced at {priced_at}, bar closes {bar_close(ts, rtf)}")
         prev_marked_low = float(f["marked_low"])
+        prev_fill_ts, prev_fill_tf = ts, rtf
     # 4. target
     if fills:
         qty = sum(f["quantity"] for f in fills)

@@ -23,6 +23,7 @@ from cascade_costs import (
     calculate_nifty_option_basket_round_costs,
 )
 from engine.candle_ladder import (
+    LADDER_DEPTH,
     LADDER_TIMEFRAMES,
     LadderCandle,
     LadderError,
@@ -2595,7 +2596,12 @@ class LadderCandleEntryPaper:
         self.signal_only = bool(signal_only)
         self.intraday_close = bool(intraday_close)
         self.replay_complete = False
-        self.stages = ladder_from(key)
+        # TWO RUNGS. Phil, 2026-08-19: "Don't climb to the next slower chart
+        # after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
+        # till 1H." A campaign reads its own chart and the next one up, and
+        # stops there: 1m -> 5m, 5m -> 15m, 15m -> 1H, and a 1H start has 1H
+        # alone. Lots 1 then 2.
+        self.stages = ladder_from(key, LADDER_DEPTH)
 
         def _premium(timestamp: datetime, _strike: int, _option_type: str) -> Optional[float]:
             if self.signal_only:

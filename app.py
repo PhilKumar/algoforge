@@ -85,7 +85,14 @@ import db as _db_mod
 import webauthn_auth as _webauthn_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
-from engine.candle_ladder import LADDER_TIMEFRAMES, TIMEFRAME_MINUTES, LadderCandle, order_events
+from engine.candle_ladder import (
+    LADDER_DEPTH,
+    LADDER_TIMEFRAMES,
+    TIMEFRAME_MINUTES,
+    LadderCandle,
+    ladder_from,
+    order_events,
+)
 from engine.candle_recovery import RecoveryConfig
 from engine.candle_recovery_host import MODES as RECOVERY_MODES
 from engine.candle_recovery_host import CandleRecoveryHost
@@ -10512,8 +10519,14 @@ def _candle_entry_validate_mother(mother_timestamp: datetime, timeframe: str, no
 async def _candle_entry_load_ladder(
     adapter, mother_timestamp: datetime, timeframe: str, until: date
 ) -> tuple[IndexCandle, dict[str, list[IndexCandle]]]:
-    """Every chart in the ladder from the mother's day to `until`, and the mother bar itself."""
-    stages = tuple(LADDER_TIMEFRAMES[LADDER_TIMEFRAMES.index(timeframe) :])
+    """The ladder's OWN charts from the mother's day to `until`, and the mother bar.
+
+    Its own two -- not every chart above the mother. A campaign that reads
+    only 5m and 15m must not be handed 1H bars: the target watch fires on
+    whatever bar reaches it, so an exit the 15m chart had already made would
+    be re-stamped an hour later on a bar the ladder never trades.
+    """
+    stages = ladder_from(timeframe, LADDER_DEPTH)
     batches: dict[str, list[IndexCandle]] = {}
     for stage_timeframe in stages:
         try:
@@ -12633,7 +12646,8 @@ async def _test_bench_two_red(
     from engine.candle_ladder import LadderCandle, TwoRedLadder, ladder_from
     from engine.test_bench import ladder_chart, ladder_result
 
-    stages = ladder_from(timeframe, 4)
+    # The strategy's own depth: one chart up and no further (Phil, 2026-08-19).
+    stages = ladder_from(timeframe, LADDER_DEPTH)
     stream: list = []
     for stage_tf in stages:
         try:

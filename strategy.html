@@ -2445,7 +2445,7 @@
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
     <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · auto trendlines + stacked fibs · <em>Lone</em> (every level) or <em>Partner</em> (where two meet)</span></button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, one step up the charts — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · one step up the charts, 1 then 2 lots</span></button>
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
      tab used to be. Two tabs for one strategy is how they drift apart. -->
@@ -2781,11 +2781,11 @@
             <p class="pf-info-lede">One mother candle is one trade: a ladder of up to four buys, each read on a slower chart than the last. <strong>Paper only</strong> &mdash; no order reaches a broker from this tab.</p>
             <section>
               <h5>1 &middot; Arming a rung</h5>
-              <p>After the mother, <strong>two red closes</strong> on the current chart arm a buy-stop at the <strong>FIRST red's close</strong> &mdash; the higher of the two, so a recovery is bought, never the fall itself. A third qualifying red trails the stop down to the second red's close: the rule stays one red back from the newest.</p>
+              <p>After the mother, <strong>two red closes</strong> on the current chart arm a buy-stop at the <strong>FIRST red's close</strong> &mdash; the higher of the two, so a recovery is bought, never the fall itself. <strong>Green candles do not matter:</strong> any number of them may sit between the two reds. What counts is that each red <strong>closes below the previous RED's close</strong>. A further lower red trails the stop down to the one before it: the rule stays one red back from the newest, so the stop is always above the market when it is placed.</p>
             </section>
             <section>
               <h5>2 &middot; The climb</h5>
-              <p>Each fill marks the low so far and moves the watch to the next slower chart: <strong>1m &rarr; 5m &rarr; 15m &rarr; 1H</strong>, one lot more on each rung &mdash; <strong>1, 2, 3 then 4 lots</strong> from a 1m start; a 15m start has two rungs, <strong>1 then 2 lots</strong>. The two reds are <strong>back-to-back</strong>: a green, or a red that closes higher, starts the count over (a stop already resting stays on the book).</p>
+              <p>The fill marks the low so far and moves the watch <strong>one chart up, and no further</strong>: 1m&nbsp;&rarr;&nbsp;5m, 5m&nbsp;&rarr;&nbsp;15m, 15m&nbsp;&rarr;&nbsp;1H (a 1H mother has 1H alone). <strong>Two rungs, 1 lot then 2.</strong> A red that closes above the last red is not a step down and is simply ignored; a stop already resting stays on the book until a bar reaches it.</p>
             </section>
             <section>
               <h5>3 &middot; The new-low gate</h5>
@@ -2812,11 +2812,11 @@
             <p class="pf-info-lede">ஒரு mother candle என்பது ஒரே trade: அதிகபட்சம் நான்கு வாங்கல்களின் ladder, ஒவ்வொன்றும் முந்தையதை விட மெதுவான chart-இல். <strong>Paper மட்டும்</strong> &mdash; இந்த tab-இலிருந்து எந்த ஆர்டரும் broker-ஐ அடையாது.</p>
             <section>
               <h5>1 &middot; ஒரு rung ஆயுதமாதல்</h5>
-              <p>Mother-க்குப் பிறகு, நடப்பு chart-இல் <strong>இரண்டு சிவப்பு close</strong> வந்தால் <strong>முதல் சிவப்பின் close</strong>-இல் ஒரு buy-stop &mdash; இரண்டில் உயர்ந்தது; அதனால் வாங்கப்படுவது மீட்சி, வீழ்ச்சி அல்ல. மூன்றாவது தகுதியான சிவப்பு stop-ஐ இரண்டாவதின் close-க்கு இறக்கும்: விதி எப்போதும் புதியதிலிருந்து ஒரு சிவப்பு பின்னால்.</p>
+              <p>Mother-க்குப் பிறகு, நடப்பு chart-இல் <strong>இரண்டு சிவப்பு close</strong> வந்தால் <strong>முதல் சிவப்பின் close</strong>-இல் ஒரு buy-stop &mdash; இரண்டில் உயர்ந்தது; அதனால் வாங்கப்படுவது மீட்சி, வீழ்ச்சி அல்ல. <strong>பச்சை candle-கள் ஒரு பொருட்டல்ல:</strong> இரண்டு சிவப்புகளுக்கு இடையில் எத்தனை பச்சை வேண்டுமானாலும் இருக்கலாம். ஒவ்வொரு சிவப்பும் <strong>முந்தைய சிவப்பின் close-க்குக் கீழே</strong> மூட வேண்டும் &mdash; அதுவே விதி. இன்னும் தாழ்வான சிவப்பு வந்தால் stop அதற்கு முந்தையதற்கு இறங்கும்: எப்போதும் புதியதிலிருந்து ஒரு சிவப்பு பின்னால், அதனால் stop வைக்கும் தருணத்தில் எப்போதும் சந்தைக்கு மேலேயே இருக்கும்.</p>
             </section>
             <section>
               <h5>2 &middot; ஏற்றம்</h5>
-              <p>ஒவ்வொரு fill-உம் அதுவரையிலான low-ஐ குறித்து அடுத்த மெதுவான chart-க்கு நகரும்: <strong>1m &rarr; 5m &rarr; 15m &rarr; 1H</strong>, ஒவ்வொரு rung-க்கும் ஒரு lot கூடுதல் &mdash; 1m தொடக்கம் <strong>1, 2, 3 பின் 4 lots</strong>; 15m தொடக்கம் இரண்டு rungs, <strong>1 பின் 2 lots</strong>. இரண்டு சிவப்புகளும் <strong>அடுத்தடுத்து</strong> வர வேண்டும்: இடையில் ஒரு பச்சை, அல்லது உயர்ந்து மூடும் சிவப்பு வந்தால் எண்ணிக்கை மீண்டும் தொடங்கும் (ஏற்கனவே வைக்கப்பட்ட stop order அப்படியே இருக்கும்).</p>
+              <p>Fill ஆனதும் அதுவரையிலான low குறிக்கப்பட்டு, கண்காணிப்பு <strong>ஒரே ஒரு chart மேலே</strong> நகரும், அதற்கு மேல் இல்லை: 1m&nbsp;&rarr;&nbsp;5m, 5m&nbsp;&rarr;&nbsp;15m, 15m&nbsp;&rarr;&nbsp;1H (1H mother-க்கு 1H மட்டும்). <strong>இரண்டு rungs, 1 பின் 2 lots.</strong> கடைசி சிவப்பை விட உயர்ந்து மூடும் சிவப்பு ஒரு படி இறக்கம் அல்ல &mdash; அது புறக்கணிக்கப்படும்; ஏற்கனவே வைக்கப்பட்ட stop order ஒரு bar அதை அடையும் வரை அப்படியே இருக்கும்.</p>
             </section>
             <section>
               <h5>3 &middot; புதிய-low வாயில்</h5>

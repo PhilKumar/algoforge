@@ -2447,8 +2447,8 @@ function _renderCandleEntryMonitor(campaign) {
   const stateTone = campaign.running ? 'is-info' : (status === 'CLOSED' || status === 'EXPIRED' ? 'is-positive' : 'is-warning');
   const fullyBought = rungs.length > 0 && !activeRung;
   const ended = !campaign.running;
-  const recoveryValue = fullyBought ? 'Every rung bought' : ended ? '—' : `${qualifying.length} of 2 back-to-back red candle${qualifying.length === 1 ? '' : 's'}`;
-  const recoveryDetail = fullyBought || ended ? '' : qualifying.length ? `Latest qualifying candle: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : `A red ${watchLabel} candle must close below the candle before it; a green starts the count over.`;
+  const recoveryValue = fullyBought ? 'Every rung bought' : ended ? '—' : `${qualifying.length} of 2 red candles`;
+  const recoveryDetail = fullyBought || ended ? '' : qualifying.length ? `Latest qualifying candle: ${_cascadeOptionsTimestamp(qualifying[qualifying.length - 1])}` : `A red ${watchLabel} candle must close below the previous RED candle's close. Greens in between do not matter.`;
   const stopValue = fullyBought || ended ? '—' : campaign.entry_stop == null ? 'Not armed yet' : _cascadeNumber(campaign.entry_stop);
   const stopDetail = fullyBought || ended ? '' : campaign.entry_stop_armed_at ? `Armed after the ${_cascadeOptionsTimestamp(campaign.entry_stop_armed_at)} candle — the FIRST red's close.` : 'It will be set after the second qualifying red candle.';
   let positionValue = 'No open paper position';
@@ -18260,14 +18260,17 @@ const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 
 const _TB_LADDER = ['1m', '5m', '15m', '1h'];
 const _TB_TF_LABEL = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H' };
 
+// The two-red ladder climbs ONE chart and stops (Phil, 2026-08-19), so a
+// starting chart names at most two: 1m → 5m, 5m → 15m, 15m → 1H, 1H alone.
+// Keep in step with LADDER_DEPTH in engine/candle_ladder.py.
 function _tbLadderFrom(timeframe) {
   const start = _TB_LADDER.indexOf(timeframe);
-  return start < 0 ? [] : _TB_LADDER.slice(start, start + 4);
+  return start < 0 ? [] : _TB_LADDER.slice(start, start + 2);
 }
 
 const _TB_STRATEGY_COPY = {
   fib: 'Draws the trendline and fib levels from the mother candle, then buys each deep level the market falls through. The whole basket leaves on the first target, or at expiry.',
-  two_red: 'Waits for two red candles to close, then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs to the next timeframe and waits for two reds again — 1, 2, 3 then 4 lots. One mother, one trade.',
+  two_red: 'Waits for two red candles to close — each below the previous red’s close, greens in between do not matter — then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs ONE chart up and waits for two reds again: two rungs, 1 lot then 2. One mother, one trade.',
 };
 
 function _tbRenderTimeframes() {

@@ -95,29 +95,49 @@ class StopPlacementTests(unittest.TestCase):
         ladder.on_candle(bar("1m", 4, 99, 99.5, 95, 96))  # red 3, closes 96
         self.assertEqual(ladder.stages[0].stop, 99.0)
 
-    def test_the_two_reds_must_be_back_to_back(self):
-        # Phil's "1st/previous red candle": a green between two reds starts
-        # the count over. On the 10-Aug-2026 mother the stale first red armed
-        # a stop BELOW the market and "filled" at a price never traded.
+    def test_greens_between_the_two_reds_change_nothing(self):
+        """Phil, 2026-08-19: "Green is not the matter here. Any number of green
+        candles can be between the 2 red candles. The thing is the price of the
+        current candle has to be below the previous red candle close."
+        """
         mother = bar("1m", 0, 100, 110, 99, 105)
         ladder = a_ladder(mother, ("1m",))
         ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
         ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))  # red 1, closes 102
-        ladder.on_candle(bar("1m", 3, 102, 103.5, 101.5, 103))  # green: the run is broken
-        ladder.on_candle(bar("1m", 4, 103, 103.2, 100, 101))  # red again -- but the FIRST of a new pair
-        self.assertIsNone(ladder.stages[0].stop)
+        ladder.on_candle(bar("1m", 3, 102, 103.5, 101.5, 103))  # green
+        ladder.on_candle(bar("1m", 4, 103, 104, 102.5, 103.5))  # green
         self.assertEqual(len(ladder.stages[0].reds), 1)
-        ladder.on_candle(bar("1m", 5, 101, 101.2, 98, 99))  # second red of the new pair -> arm at 101
-        self.assertEqual(ladder.stages[0].stop, 101.0)
+        self.assertIsNone(ladder.stages[0].stop)
+        ladder.on_candle(bar("1m", 5, 103.5, 103.5, 100, 101))  # red, below 102 -> arms at 102
+        self.assertEqual(ladder.stages[0].stop, 102.0)
 
-    def test_a_red_that_closes_higher_breaks_the_run_too(self):
+    def test_a_red_that_does_not_close_below_the_previous_red_is_ignored(self):
+        # Not a step down, so it neither arms nor resets: the sequence waits.
         mother = bar("1m", 0, 100, 110, 99, 105)
         ladder = a_ladder(mother, ("1m",))
         ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
         ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))  # red 1, closes 102
         ladder.on_candle(bar("1m", 3, 104, 104.5, 102.5, 103))  # red, but closes ABOVE 102
-        self.assertEqual(ladder.stages[0].reds, [])
+        self.assertEqual([row.close for row in ladder.stages[0].reds], [102.0])
         self.assertIsNone(ladder.stages[0].stop)
+        ladder.on_candle(bar("1m", 4, 103, 103.2, 100, 101))  # red, below 102 -> arms at 102
+        self.assertEqual(ladder.stages[0].stop, 102.0)
+
+    def test_the_stop_is_always_above_the_market_when_it_arms(self):
+        """The invariant the sequence buys us: reds[-2].close > reds[-1].close,
+        so a buy-stop can never be placed BELOW the bar that armed it -- the
+        10-Aug-2026 phantom fill (a stop at 24,573.55 with NIFTY at 24,591).
+        """
+        mother = bar("1m", 0, 100, 110, 99, 105)
+        ladder = a_ladder(mother, ("1m",))
+        ladder.on_candle(bar("1m", 1, 105, 106, 104, 105))
+        ladder.on_candle(bar("1m", 2, 105, 105.5, 101, 102))
+        ladder.on_candle(bar("1m", 3, 106, 106.5, 103, 104))  # a HIGHER red: ignored
+        arming = bar("1m", 4, 104, 104.2, 100, 101)
+        ladder.on_candle(arming)
+        self.assertEqual(ladder.stages[0].stop, 102.0)
+        self.assertGreater(ladder.stages[0].stop, arming.close)
+        self.assertEqual(ladder.fills, [])  # the arming bar cannot take its own stop
 
     def test_a_resting_stop_survives_a_green_that_does_not_reach_it(self):
         mother = bar("1m", 0, 100, 110, 99, 105)
@@ -129,15 +149,14 @@ class StopPlacementTests(unittest.TestCase):
         self.assertEqual(len(ladder.fills), 1)
         self.assertEqual(ladder.fills[0].index_price, 102.0)
 
-    def test_a_fresh_pair_after_a_green_moves_the_resting_stop_lower(self):
+    def test_a_lower_red_after_a_green_trails_the_resting_stop_down(self):
         mother = bar("1m", 0, 100, 110, 99, 105)
         ladder = a_ladder(mother, ("1m",))
-        self._two_reds(ladder)  # armed at 102
-        ladder.on_candle(bar("1m", 4, 99, 100.5, 98.5, 100))  # green, no fill
-        ladder.on_candle(bar("1m", 5, 100, 100.2, 97, 98))  # red 1 of a new pair
-        self.assertEqual(ladder.stages[0].stop, 102.0)  # one red is not a pair
-        ladder.on_candle(bar("1m", 6, 98, 98.5, 95, 96))  # red 2 -> the stop trails to 98
-        self.assertEqual(ladder.stages[0].stop, 98.0)
+        self._two_reds(ladder)  # armed at 102 (reds 102, 99)
+        ladder.on_candle(bar("1m", 4, 99, 100.5, 98.5, 100))  # green, high below the stop
+        self.assertEqual(ladder.stages[0].stop, 102.0)  # the order is on the book
+        ladder.on_candle(bar("1m", 5, 100, 100.2, 96, 97))  # red, below 99 -> one red back is 99
+        self.assertEqual(ladder.stages[0].stop, 99.0)
 
 
 class EscalationTests(unittest.TestCase):
@@ -197,10 +216,9 @@ class EscalationTests(unittest.TestCase):
         ladder.on_candle(bar("5m", 2, 105, 105.5, 101, 102))
         ladder.on_candle(bar("5m", 3, 102, 102.5, 96, 99))
         ladder.on_candle(bar("5m", 4, 99, 103, 98.5, 102.5))
-        ladder.on_candle(bar("15m", 1, 102, 103, 99, 100))
-        ladder.on_candle(bar("15m", 2, 100, 101, 98, 99))  # red 1, no new low needed
-        ladder.on_candle(bar("15m", 3, 99, 100, 97, 98))  # red 2 -> arms at red 1's close
-        self.assertEqual(ladder.stages[1].stop, 99.0)
+        ladder.on_candle(bar("15m", 1, 102, 103, 99, 100))  # red 1, no new low needed
+        ladder.on_candle(bar("15m", 2, 100, 101, 98, 99))  # red 2, lower -> arms at red 1's close
+        self.assertEqual(ladder.stages[1].stop, 100.0)
 
     def test_each_rung_is_bigger_than_the_last(self):
         mother = bar("1m", 0, 100, 110, 99, 105)

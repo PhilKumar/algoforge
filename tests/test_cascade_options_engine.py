@@ -643,7 +643,9 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         engine.ingest(self._two_rung_batches())
 
         status = engine.get_status()
-        self.assertEqual([row["state"] for row in status["rungs"]], ["filled", "filled", "watching", "waiting"])
+        # TWO rungs, both bought: a 1m campaign reads 1m then 5m and stops.
+        self.assertEqual([row["timeframe"] for row in status["rungs"]], ["1m", "5m"])
+        self.assertEqual([row["state"] for row in status["rungs"]], ["filled", "filled"])
         self.assertEqual([o.side for o in adapter.orders], ["BUY", "BUY"])
         self.assertEqual([o.quantity for o in adapter.orders], [65, 130])
         self.assertEqual(status["open_fill"]["quantity"], 195)

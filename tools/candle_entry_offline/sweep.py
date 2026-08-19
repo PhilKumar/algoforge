@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "fib_offline"))
 from fib_replay import _listed_source  # noqa: E402
 
 from engine.backtest import get_lot_size  # noqa: E402
-from engine.candle_ladder import LADDER_TIMEFRAMES  # noqa: E402
+from engine.candle_ladder import LADDER_DEPTH, ladder_from  # noqa: E402
 from engine.cascade_options import (  # noqa: E402
     CascadeOptionsAdapter,
     FixedCampaignOption,
@@ -104,7 +104,8 @@ def main() -> None:
     ap.add_argument("--csv", default="")
     args = ap.parse_args()
     tf = args.tf.lower()
-    stages = LADDER_TIMEFRAMES[LADDER_TIMEFRAMES.index(tf) :]
+    # The ladder's own charts only -- the engine climbs one step and stops.
+    stages = ladder_from(tf, LADDER_DEPTH)
     series = {k: load(k) for k in stages}
     data_end = min(rows[-1].timestamp.date() for rows in series.values())
     end = date.fromisoformat(args.end) if args.end else data_end
