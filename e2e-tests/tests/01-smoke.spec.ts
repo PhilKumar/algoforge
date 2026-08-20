@@ -736,6 +736,40 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
 // The monitor showed deployed capital and NOTHING about what the basket was
 // worth. It now carries the open P&L, marked and stamped, and each rung's own
 // contract priced where it stands.
+// Phil, 2026-08-20: "Need a link to the tearsheet P&L same like that we have
+// it on Fib boundary". The chip walks to Assets -> Tearsheet -> Candle Entry
+// at the trail book's equity curve, in the same window; the href stays real so
+// a middle-click still opens the document on its own.
+test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) => {
+  await login(page);
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-candle');
+
+  const chip = page.locator('#oc-tab-candle .fibx-confirmed-link');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute('href', '/assets/tearsheet?doc=candle#curve-trail');
+
+  await chip.click();
+  // The Assets tearsheet view, on the Candle Entry document, at the curve.
+  await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
+  await expect(page.locator('.pf-tearsheet-doc[data-doc="candle"]')).toHaveClass(/is-active/);
+  await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
+    .toContain('doc=candle');
+  await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
+    .toContain('#curve-trail');
+
+  // Both chips share one walk now, so the Fib Boundary one is proved here too:
+  // its own document, at its own section.
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-fib');
+  await page.locator('#oc-tab-fib .fibx-confirmed-link').click();
+  await expect(page.locator('.pf-tearsheet-doc[data-doc="fib"]')).toHaveClass(/is-active/);
+  await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
+    .toContain('doc=fib');
+  await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
+    .toContain('#auto-mother');
+});
+
 test('A held Candle Entry basket shows what it is worth right now', async ({ page }) => {
   await login(page);
   const marked = {

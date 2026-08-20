@@ -1560,26 +1560,37 @@ function pickAssetsTearsheet(_event, button) {
 // tearsheet is opening in a new window.. I want to open in the same" — so it
 // walks to Assets → Tearsheet → Fib Boundary inside the app, at the auto-mother
 // section, instead of spawning a tab. The href stays real for middle-click.
-function openFibTearsheet(event) {
+function _openStrategyTearsheet(event, doc, hash) {
   if (event && event.preventDefault) event.preventDefault();
   document.querySelectorAll('.pf-info-pop.is-open').forEach((pop) => {
     pop.classList.remove('is-open');
     document.querySelectorAll(`.pf-info-btn[data-pf-info="${pop.id}"]`).forEach(b => b.setAttribute('aria-expanded', 'false'));
   });
-  _assetsTearsheetDoc = 'fib';
+  _assetsTearsheetDoc = doc;
   document.querySelectorAll('.pf-tearsheet-doc').forEach((btn) => {
-    const on = btn.dataset.doc === 'fib';
+    const on = btn.dataset.doc === doc;
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   openArchitectureView('tearsheet');
   // After the view opens, because initArchitecturePage sets a src of its own
-  // the first time the tab is used — and that one carries no #auto-mother.
+  // the first time the tab is used — and that one carries no section hash.
   const frame = document.getElementById('assets-tearsheet-frame');
   if (frame) {
     frame.addEventListener('load', _syncAssetsTearsheetTheme, { once: true });
-    frame.src = `${_assetsTearsheetUrl()}#auto-mother`;
+    frame.src = `${_assetsTearsheetUrl()}${hash || ''}`;
   }
+}
+
+function openFibTearsheet(event) {
+  _openStrategyTearsheet(event, 'fib', '#auto-mother');
+}
+
+// The same walk for the Candle Entry card's "Confirmed backtest" chip, landing
+// on the trail book's equity curve — the P&L (Phil, 2026-08-20: "Need a link to
+// the tearsheet P&L same like that we have it on Fib boundary").
+function openCandleTearsheet(event) {
+  _openStrategyTearsheet(event, 'candle', '#curve-trail');
 }
 
 function _syncAssetsTearsheetTheme() {
@@ -1946,6 +1957,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryLotRamp',
   'pickAssetsTearsheet',
   'openFibTearsheet',
+  'openCandleTearsheet',
   'openFibAutoChart',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
@@ -5237,6 +5249,7 @@ window.setFibBoundaryTarget = setFibBoundaryTarget;
 window.setFibBoundaryLotRamp = setFibBoundaryLotRamp;
 window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.openFibTearsheet = openFibTearsheet;
+window.openCandleTearsheet = openCandleTearsheet;
 window.openFibAutoChart = openFibAutoChart;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
