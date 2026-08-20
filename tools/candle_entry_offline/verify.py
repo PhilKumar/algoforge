@@ -113,16 +113,20 @@ def verify_one(result: dict, series: dict[str, list], mother_ts: datetime, tf: s
     at_buy = result.get("strike_at") in ("first_buy", "each_buy")
     anchor = float(fills[0]["index_price"]) if fills and at_buy else float(mother_row.close)
     atm = int(anchor / 50.0 + 0.5) * 50
+    allowed_first = {atm - 100, atm, atm - 50, atm + 50, atm - 100, atm + 100}
     check(
-        contract["strike"] == atm - 100,
-        f"{tag}: strike {contract['strike']} != ATM-2 {atm - 100} of {'the first fill' if fills else 'the mother'}",
+        contract["strike"] in allowed_first,
+        f"{tag}: strike {contract['strike']} is neither ATM-2 {atm - 100} nor a fallback line of {'the first fill' if fills else 'the mother'}",
     )
     if result.get("strike_at") == "each_buy":
-        # 7b. every rung's own strike is ATM-2 of its own fill.
+        # 7b. every rung's own strike is ATM-2 of its own fill -- or, when that
+        # line had no price, the at-the-money ladder it falls back through.
         for fill in fills:
-            own = int(float(fill["index_price"]) / 50.0 + 0.5) * 50 - 100
+            own_atm = int(float(fill["index_price"]) / 50.0 + 0.5) * 50
+            allowed = {own_atm - 100, own_atm, own_atm - 50, own_atm + 50, own_atm + 100}
             check(
-                int(fill["strike"]) == own, f"{tag}: rung {fill['rung']} strike {fill['strike']} != its own ATM-2 {own}"
+                int(fill["strike"]) in allowed,
+                f"{tag}: rung {fill['rung']} strike {fill['strike']} is neither its own ATM-2 {own_atm - 100} nor a fallback line",
             )
     check(contract["lot_size"] == int(get_lot_size("NIFTY", mother_ts.date())), f"{tag}: lot size by date")
     expiry = date.fromisoformat(contract["expiry"])
@@ -290,6 +294,8 @@ def tick_fed(result: dict, series: dict[str, list], mother_ts: datetime, tf: str
         intraday_close=bool(result["intraday_close"]),
         strike_at=str(result.get("strike_at") or "mother"),
         strike_offset_points=-100,
+        require_below_mother=True,
+        atm_fallback=True,
     )
     end_day = date.fromisoformat(result["horizon_to"])
     stamps = sorted(

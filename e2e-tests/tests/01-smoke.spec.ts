@@ -752,7 +752,8 @@ test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) =>
   await chip.click();
   // The Assets tearsheet view, on the Candle Entry document, at the curve.
   await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
-  await expect(page.locator('.pf-tearsheet-doc[data-doc="candle"]')).toHaveClass(/is-active/);
+  await expect.poll(async () => page.locator('.pf-tearsheet-doc[data-doc="candle"]').getAttribute('class'))
+    .toContain('is-active');
   await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
     .toContain('doc=candle');
   await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
@@ -763,7 +764,8 @@ test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) =>
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
   await page.locator('#oc-tab-fib .fibx-confirmed-link').click();
-  await expect(page.locator('.pf-tearsheet-doc[data-doc="fib"]')).toHaveClass(/is-active/);
+  await expect.poll(async () => page.locator('.pf-tearsheet-doc[data-doc="fib"]').getAttribute('class'))
+    .toContain('is-active');
   await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
     .toContain('doc=fib');
   await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))

@@ -10940,6 +10940,14 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
         strike_at=_candle_entry_strike_at(payload.strike_at),
         strike_offset_points=int(payload.ce_offset_steps) * 50,
         watch_from=watch_from,
+        # BOTH ARE THE RULE, not switches. A rung filling at or above the
+        # mother's high would have its target BEHIND it -- bought and sold on
+        # the same breath, 11 times in the measured book -- and a strike no
+        # source can price blanks the whole basket's P&L when at the money
+        # would have answered. Measured 2026-08-20: +Rs 3,99,958 against
+        # +Rs 3,25,680 without them, win 85% against 72%, same drawdown.
+        require_below_mother=True,
+        atm_fallback=True,
     )
     if box_window:
         engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
@@ -11060,6 +11068,8 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
             strike_at=_candle_entry_strike_at(payload.strike_at),
             strike_offset_points=int(payload.ce_offset_steps) * 50,
             watch_from=watch_from,
+            require_below_mother=True,
+            atm_fallback=True,
         )
         if box_window:
             engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))

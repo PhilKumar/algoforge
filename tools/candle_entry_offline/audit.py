@@ -109,6 +109,15 @@ def replay_entries(bars_by_tf, stages, mother, side, box_bars, box_pos, depth, w
             continue
         if stop is not None and armed_at is not None and row.timestamp > armed_at:
             hit = row.high >= stop if ce else row.low <= stop
+            if hit and (stop >= mother.high if ce else stop <= mother.low):
+                # NO BUY ABOVE THE MOTHER (adopted 2026-08-20): the target is
+                # measured back toward the mother's high, so a fill at or above
+                # it would be past its target on arrival. Only the ARM is torn
+                # up -- the red sequence stands, so the next red that steps
+                # further arms again lower down, which is what the engine does
+                # for a rung it cannot buy.
+                stop, armed_at = None, None
+                hit = False
             if hit:
                 fills.append({"t": row.timestamp, "tf": tf, "price": stop, "rung": rung + 1, "closed": _closed})
                 gate = extreme
