@@ -197,6 +197,20 @@ def main() -> None:
         action="store_true",
         help="a rung whose own strike has no recorded price is re-struck AT THE MONEY and priced there",
     )
+    ap.add_argument(
+        "--atm-step",
+        dest="atm_step",
+        type=int,
+        default=0,
+        help="round every strike choice to this step (100 = round numbers only); 0 = the exchange's own 50",
+    )
+    ap.add_argument(
+        "--fallback-step",
+        dest="fallback_step",
+        type=int,
+        default=0,
+        help="the same, for the unpriced-rung search only; 0 = follow --atm-step",
+    )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
@@ -364,6 +378,8 @@ def main() -> None:
                 range_position=pos,
                 require_below_mother=bool(args.below_mother),
                 atm_fallback=bool(args.atm_fallback),
+                strike_step=int(args.atm_step or 0),
+                fallback_step=int(args.fallback_step or 0),
                 strike_at=args.strike_at,
                 strike_offset_points=offset_points,
             )
@@ -486,6 +502,8 @@ def main() -> None:
             "rechain": args.rechain,
             "below_mother": bool(args.below_mother),
             "atm_fallback": bool(args.atm_fallback),
+            "atm_step": int(args.atm_step or 0),
+            "fallback_step": int(args.fallback_step or 0),
             "slip": float(args.slip),
             "depth": int(args.depth),
             "expiry": args.expiry,
