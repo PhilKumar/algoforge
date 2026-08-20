@@ -1945,6 +1945,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryTarget',
   'pickAssetsTearsheet',
   'openFibTearsheet',
+  'openFibAutoChart',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -4736,7 +4737,8 @@ function _renderFibBoundaryAuto(auto) {
       : '';
     return `<div class="fibx-auto-card ${s.enabled ? 'is-on' : ''}">`
       + `<div class="fibx-auto-head"><strong>${escapeHtml(symbol)} · Auto mother</strong>`
-      + `<span class="fibx-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span></div>`
+      + `<span class="fibx-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span>`
+      + `<button type="button" class="cascade-options-control" data-pf-action="openFibAutoChart" data-symbol="${escapeHtml(symbol)}" title="Today's mother, its fib levels and where price is against them">↗ Chart</button></div>`
       + `<div class="fibx-auto-state is-${state.tone}">${escapeHtml(state.text)}${at ? `<span>${escapeHtml(at)}</span>` : ''}</div>`
       + (s.alert ? `<div class="fibx-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
       + (s.last_error ? `<div class="fibx-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
@@ -4847,6 +4849,16 @@ async function armFibBoundaryLive(_event, button) {
 let _fibxChartCtx = null;
 let _fibxChartTf = '';
 let _fibxChartDrawnKey = '';
+
+function openFibAutoChart(_event, button) {
+  const symbol = button?.dataset?.symbol || document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const setting = (_lastFibBoundaryAuto || {})[symbol] || {};
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  // The mother it is on, the one it is waiting for, else today's 09:15.
+  const stamp = String(setting.last_mother || setting.waiting_for || `${today}T09:15:00`).slice(0, 19);
+  _fibxChartCtx = { symbol, side: 'CE', timestamp: stamp, baseTf: '5m', isCampaign: false };
+  loadFibBoundaryChart();
+}
 
 async function loadFibBoundaryChart(_event, button) {
   const el = id => document.getElementById(id);
@@ -5199,6 +5211,7 @@ window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
 window.setFibBoundaryTarget = setFibBoundaryTarget;
 window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.openFibTearsheet = openFibTearsheet;
+window.openFibAutoChart = openFibAutoChart;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;

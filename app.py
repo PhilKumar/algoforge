@@ -4120,7 +4120,7 @@ class FibBoundaryPaperStartPayload(BaseModel):
     side: str = Field(default="CE")
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
 
 
 class FibTouchStartPayload(BaseModel):
@@ -4138,7 +4138,7 @@ class FibTouchStartPayload(BaseModel):
     # The chart the mother is read on. Touches are always watched on 1m.
     timeframe: str = Field(default="1m")
     capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
     min_dte: int = Field(default=4, ge=0, le=45)
     # "paper" or "live". Live is built but refuses to send; see LiveExecutor.
     mode: str = Field(default="paper")
@@ -4199,7 +4199,7 @@ class FibTouchAutoPayload(BaseModel):
     side: str = Field(default="CE")
     timeframe: str = Field(default="5m")
     capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
     min_dte: int = Field(default=4, ge=0, le=45)
     mode: str = Field(default="paper")
     trailing_target: bool = Field(default=True)
@@ -4220,7 +4220,7 @@ class TestBenchPayload(BaseModel):
     mother_timestamp: str
     side: str = Field(default="CE")
     rung_inr: float = Field(default=25000, gt=0, le=1_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
     # Replay even when this exact question already has a stored answer.
     force: bool = Field(default=False)
 
@@ -4237,7 +4237,7 @@ class FibTouchBacktestPayload(BaseModel):
     mother_timestamp: str
     timeframe: str = Field(default="1m")
     capital_cap_inr: float = Field(default=75_000, gt=0, le=10_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
     min_dte: int = Field(default=4, ge=0, le=45)
     # The ladder ends at its target, a broken mother or expiry. Ten days covers
     # the overwhelming majority; the ceiling allows a contract held to expiry.
@@ -4275,7 +4275,7 @@ class FibBoundaryBacktestPayload(BaseModel):
     side: str = Field(default="CE")
     timeframe: str = Field(default="5m")
     rung_inr: float = Field(default=75000, gt=0, le=1_000_000)
-    itm_steps: int = Field(default=2, ge=0, le=10)
+    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
     # A monthly bought at 15-45 DTE with no stop loss can only end at its target
     # or at expiry, so the replay has to be able to reach 45 days out; the old
     # 20-day default guaranteed an unfinished answer on half the contracts.

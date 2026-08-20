@@ -1591,3 +1591,38 @@ class FibBoundaryAutoMotherTests(unittest.IsolatedAsyncioTestCase):
             await app_module._start_token_renewal()
         names = [str(call.args[0]) for call in created.call_args_list]
         self.assertFalse(any("_run_fib_boundary_auto_loop" in n for n in names), names)
+
+
+class FibBoundaryOtmStrikeTests(unittest.TestCase):
+    """ATM+1 and ATM+2 (Phil, 2026-08-20). Negative itm_steps is OUT of the money."""
+
+    def test_engine_accepts_and_places_an_otm_strike(self):
+        from engine.fib_touch_ladder import atm_strike
+
+        atm = atm_strike(24_337.0, 50.0)
+        self.assertEqual(atm, 24_350.0)
+        # CE, itm_steps -2 -> two steps ABOVE the money.
+        self.assertEqual(atm - (-2 * 50.0), 24_450.0)
+
+    def test_engine_refuses_a_strike_beyond_ten_steps(self):
+        from engine.fib_touch_ladder import FibTouchConfig, FibTouchError
+
+        def build(steps):
+            return FibTouchConfig(
+                symbol="NIFTY",
+                mother_timestamp=datetime(2026, 8, 20, 9, 15),
+                side="CE",
+                lot_size=65,
+                strike_step=50.0,
+                itm_steps=steps,
+            )
+
+        build(-2)  # allowed
+        with self.assertRaises(FibTouchError):
+            build(-11)
+
+    def test_start_payload_takes_atm_plus_two(self):
+        payload = app_module.FibTouchStartPayload(symbol="NIFTY", mother_timestamp="2026-08-20T09:15:00", itm_steps=-2)
+        self.assertEqual(payload.itm_steps, -2)
+        with self.assertRaises(Exception):
+            app_module.FibTouchStartPayload(symbol="NIFTY", mother_timestamp="2026-08-20T09:15:00", itm_steps=-3)

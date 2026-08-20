@@ -6331,15 +6331,15 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* Options Cascade: Fib-boundary workspace ---------------------------------- */
 #options-cascade-page .oc-hero,
 #results-page .oc-hero {
-  padding: 22px;
-  margin-bottom: 14px;
+  padding: 12px 18px;
+  margin-bottom: 12px;
   border-color: rgba(56,189,248,.30);
   background: linear-gradient(112deg, rgba(8,47,73,.44), rgba(15,23,42,.42) 58%, rgba(6,78,59,.26));
 }
 #options-cascade-page .oc-hero-content,
 #results-page .oc-hero-content {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
 }
@@ -6354,7 +6354,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   text-transform: uppercase;
 }
 #options-cascade-page .oc-hero h2,
-#results-page .oc-hero h2 { margin: 0; font-size: 23px; }
+#results-page .oc-hero h2 { margin: 0; font-size: 20px; }
 #options-cascade-page .oc-hero p,
 #results-page .oc-hero p {
   max-width: 850px;
@@ -6568,6 +6568,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .fibx-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
 #options-cascade-page .fibx-auto-card.is-on { border-color: rgba(52,211,153,.42); }
 #options-cascade-page .fibx-auto-head { display: flex; align-items: center; gap: 10px; }
+#options-cascade-page .fibx-auto-head .cascade-options-control { margin-left: auto; min-height: 26px; padding: 3px 11px; font-size: 10.5px; }
 #options-cascade-page .fibx-auto-head > strong { font-size: 13px; color: var(--text); letter-spacing: .3px; }
 #options-cascade-page .fibx-auto-badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 9.5px; letter-spacing: .7px; color: var(--muted); }
 #options-cascade-page .fibx-auto-badge.is-live { color: #6ee7b7; border-color: rgba(52,211,153,.5); }

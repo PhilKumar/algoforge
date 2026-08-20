@@ -720,8 +720,9 @@ class FibTouchConfig:
             raise FibTouchError("capital_cap_inr must be positive")
         if not 0 < float(self.target_fraction) <= 1:
             raise FibTouchError("target_fraction must be between 0 and 1")
-        if self.itm_steps < 0:
-            raise FibTouchError("itm_steps cannot be negative")
+        # Negative steps are OUT of the money -- ATM+1, ATM+2 (Phil, 2026-08-20).
+        if not -10 <= self.itm_steps <= 10:
+            raise FibTouchError("itm_steps must be between -10 and 10")
         if self.trail_span_multiple <= 0:
             raise FibTouchError("trail_span_multiple must be positive")
         if self.min_dte < 0:
