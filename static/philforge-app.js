@@ -1556,6 +1556,32 @@ function pickAssetsTearsheet(_event, button) {
   _syncAssetsTearsheetTheme();
 }
 
+// The ⓘ's "latest confirmed backtest" link. Phil, 2026-08-20: "That open
+// tearsheet is opening in a new window.. I want to open in the same" — so it
+// walks to Assets → Tearsheet → Fib Boundary inside the app, at the auto-mother
+// section, instead of spawning a tab. The href stays real for middle-click.
+function openFibTearsheet(event) {
+  if (event && event.preventDefault) event.preventDefault();
+  document.querySelectorAll('.pf-info-pop.is-open').forEach((pop) => {
+    pop.classList.remove('is-open');
+    document.querySelectorAll(`.pf-info-btn[data-pf-info="${pop.id}"]`).forEach(b => b.setAttribute('aria-expanded', 'false'));
+  });
+  _assetsTearsheetDoc = 'fib';
+  document.querySelectorAll('.pf-tearsheet-doc').forEach((btn) => {
+    const on = btn.dataset.doc === 'fib';
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  openArchitectureView('tearsheet');
+  // After the view opens, because initArchitecturePage sets a src of its own
+  // the first time the tab is used — and that one carries no #auto-mother.
+  const frame = document.getElementById('assets-tearsheet-frame');
+  if (frame) {
+    frame.addEventListener('load', _syncAssetsTearsheetTheme, { once: true });
+    frame.src = `${_assetsTearsheetUrl()}#auto-mother`;
+  }
+}
+
 function _syncAssetsTearsheetTheme() {
   const theme = _assetsEffectiveTheme();
   const link = document.getElementById('assets-tearsheet-open');
@@ -1918,6 +1944,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setFibBoundaryDeepCarry',
   'setFibBoundaryTarget',
   'pickAssetsTearsheet',
+  'openFibTearsheet',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
@@ -5081,6 +5108,7 @@ window.setFibBoundarySession = setFibBoundarySession;
 window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
 window.setFibBoundaryTarget = setFibBoundaryTarget;
 window.pickAssetsTearsheet = pickAssetsTearsheet;
+window.openFibTearsheet = openFibTearsheet;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
 window.loadFibBoundaryChart = loadFibBoundaryChart;
