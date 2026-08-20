@@ -6507,23 +6507,30 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* "Latest confirmed backtest" -- a quiet line inside the ⓘ doc, not a card on
    the page. Phil, 2026-08-20: the page carried too much text; the numbers are
    already in section 1, so this is only the way through to the sheet. */
-#options-cascade-page .fibx-confirmed-note { margin: 6px 0 0; }
 #options-cascade-page .fibx-confirmed-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid rgba(52,211,153,.34); border-radius: 999px; font: 10.5px 'JetBrains Mono', monospace; color: #6ee7b7; text-decoration: none; }
 #options-cascade-page .fibx-confirmed-link:hover { border-color: rgba(52,211,153,.65); background: rgba(6,32,26,.55); }
 [data-theme="light"] #options-cascade-page .fibx-confirmed-link { color: #047857; border-color: rgba(5,150,105,.42); }
 [data-theme="light"] #options-cascade-page .fibx-confirmed-link:hover { background: rgba(236,253,245,.9); }
 
-#options-cascade-page .fibx-auto-locked { margin-top: 10px; padding: 9px 11px; border: 1px dashed rgba(56,189,248,.35); border-radius: 9px; font: 10.5px 'JetBrains Mono', monospace; color: var(--muted); line-height: 1.6; }
-#options-cascade-page .fibx-auto-locked strong { color: var(--text); }
-/* The auto-mother card under the form: the setting, today's chain, alerts. */
-#options-cascade-page .fibx-auto-panel { display: grid; gap: 8px; margin-top: 8px; }
-#options-cascade-page .fibx-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 10px; padding: 9px 11px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
+/* The auto-mother watch card. It sits at the TOP OF THE MONITOR COLUMN, not
+   under the form: between campaigns it is what there is to watch. */
+#options-cascade-page .fibx-auto-panel { display: grid; gap: 8px; }
+#options-cascade-page .fibx-auto-panel:empty { display: none; }
+#options-cascade-page .fibx-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
 #options-cascade-page .fibx-auto-card.is-on { border-color: rgba(52,211,153,.42); }
-#options-cascade-page .fibx-auto-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--text); }
-#options-cascade-page .fibx-auto-head > span { color: var(--muted); flex: 1 1 auto; }
-#options-cascade-page .fibx-auto-head .cascade-options-control { min-height: 26px; padding: 3px 10px; font-size: 10.5px; }
+#options-cascade-page .fibx-auto-head { display: flex; align-items: center; gap: 10px; }
+#options-cascade-page .fibx-auto-head > strong { font-size: 13px; color: var(--text); letter-spacing: .3px; }
+#options-cascade-page .fibx-auto-badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 9.5px; letter-spacing: .7px; color: var(--muted); }
+#options-cascade-page .fibx-auto-badge.is-live { color: #6ee7b7; border-color: rgba(52,211,153,.5); }
+#options-cascade-page .fibx-auto-badge.is-wait { color: #7dd3fc; border-color: rgba(56,189,248,.45); }
+#options-cascade-page .fibx-auto-badge.is-warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+/* The live line: what auto is waiting for, and the minute it last looked. */
+#options-cascade-page .fibx-auto-state { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(148,163,184,.08); color: var(--text); }
+#options-cascade-page .fibx-auto-state > span { color: var(--muted); font-size: 10px; flex: none; }
+#options-cascade-page .fibx-auto-state.is-live { background: rgba(52,211,153,.10); color: #6ee7b7; }
+#options-cascade-page .fibx-auto-state.is-warn { background: rgba(245,158,11,.12); color: #fbbf24; }
 #options-cascade-page .fibx-auto-alert { margin-top: 6px; color: #f59e0b; }
-#options-cascade-page .fibx-auto-today { margin-top: 6px; color: var(--text); }
+#options-cascade-page .fibx-auto-today { margin-top: 8px; color: var(--text); }
 #options-cascade-page .fibx-auto-note { margin-top: 4px; }
 #options-cascade-page .fibx-auto-chain { width: 100%; border-collapse: collapse; margin-top: 6px; }
 #options-cascade-page .fibx-auto-chain th, #options-cascade-page .fibx-auto-chain td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(148,163,184,.12); }
@@ -8984,3 +8991,10 @@ body :is(
 [data-theme="light"] #live-page .live-chip { background: rgba(15,23,42,.04); }
 [data-theme="light"] #live-page .live-conditions { background: rgba(15,23,42,.03); }
 [data-theme="light"] #live-page .live-card-count { background: rgba(15,23,42,.04); }
+
+/* The Fib Boundary head: the name, the ⓘ, and the way to the confirmed sheet.
+   Phil, 2026-08-20: only the link outside, nothing else. */
+#options-cascade-page .fibx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+/* One button carries auto: green to switch it on, amber to switch it off, so
+   the colour never says "start" while the label says "stop". */
+#options-cascade-page #fibx-start.is-danger { --btn-bg: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.50)); --btn-color: #fde68a; border-color: rgba(245,158,11,.55); background: var(--btn-bg); color: var(--btn-color); }

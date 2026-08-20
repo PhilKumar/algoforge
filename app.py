@@ -11610,6 +11610,7 @@ async def _fib_boundary_auto_step(user: dict, symbol: str, setting: dict, *, now
         if candidate is None:
             return "day-done"
         if candidate + timedelta(minutes=_FIB_TOUCH_TF_MINUTES.get(str(setting.get("timeframe") or "5m"), 5)) > now:
+            setting["waiting_for"] = candidate.isoformat()
             return "waiting-for-candle"  # the breakout candle has not closed yet
         mother = candidate
     else:
@@ -11657,6 +11658,7 @@ async def _fib_boundary_auto_step(user: dict, symbol: str, setting: dict, *, now
     setting["last_day"] = today.isoformat()
     setting["last_mother"] = mother.isoformat()
     setting["last_start_at"] = now.isoformat()
+    setting.pop("waiting_for", None)
     setting.pop("alert", None)
     setting.pop("last_error", None)
     await _save_fib_boundary_auto(uid)
@@ -11919,7 +11921,9 @@ async def _run_fib_boundary_auto_loop() -> None:
                     if not setting.get("enabled"):
                         continue
                     try:
-                        await _fib_boundary_auto_step(user, symbol, setting)
+                        state = await _fib_boundary_auto_step(user, symbol, setting)
+                        setting["state"] = state
+                        setting["state_at"] = datetime.now(IST).isoformat()
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:

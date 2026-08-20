@@ -2431,7 +2431,6 @@
   <div class="card-glass oc-hero">
     <div class="oc-hero-content">
       <div class="oc-hero-copy">
-        <div class="oc-kicker">Paper campaigns on live prices · no real order is ever sent</div>
         <div class="oc-hero-title-row">
           <h2>Cascade</h2>
           <p class="oc-hero-steps"><strong>1</strong>&nbsp;Pick a strategy &nbsp;·&nbsp; <strong>2</strong>&nbsp;Give it a mother candle &nbsp;·&nbsp; <strong>3</strong>&nbsp;Press <strong>Start paper campaign</strong>&nbsp;<button type="button" class="pf-info-btn" data-pf-info="oc-hero-info" aria-expanded="false" aria-label="About this page" title="About this page">i</button></p>
@@ -2456,9 +2455,10 @@
   <!-- ── TAB · Fib-boundary ── -->
   <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
-      <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#7dd3fc;">PAPER CAMPAIGNS ON LIVE PRICES · ONE MOTHER, ONE LADDER</div>
-      <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
-      <div style="margin-top:3px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">your mother &rarr; trendlines &rarr; stacked fibs &rarr; Lone (every level) or Partner (where two meet)</div>
+      <div class="fibx-head">
+        <h3 style="margin:0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
+        <a class="fibx-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a>
+      </div>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
            the code's own numbers, and the losing measurement stated as
@@ -2474,7 +2474,6 @@
           <h5>1 &middot; You give the mother. It never moves.</h5>
           <p>The mother only says <strong>where to start looking</strong>. Nothing is measured from its own range except the target. Pick the chart you read it on — 1m, 5m, 15m or 1H — and the lines are drawn on <em>that</em> chart. If price closes past the mother <strong>before anything is bought</strong> — whether a swing has formed yet or not — the campaign closes with no buys and waits for the next mother you give it. The mother is never moved for you. Nothing before the mother counts — not a bar, not a low.</p>
           <p><strong>Or let it run itself.</strong> The form's <em>Mother</em> switch on <strong>Auto</strong>: every session the <strong>09:15 5m candle</strong> is the mother; when a mother breaks, the 5m candle that held the breaking close (the <strong>breakout candle</strong>) becomes the next mother the moment it closes; the last campaign ends at 15:15 and the next morning starts itself. Intraday is forced on and deep carry off. Measured 3 Oct 2024 &ndash; 17 Aug 2026 before it was built: NIFTY CE <strong>+&#8377;1,13,568</strong>, max drawdown &minus;&#8377;41,200; SENSEX CE <strong>+&#8377;1,12,244</strong>, &minus;&#8377;44,662 &mdash; against the clock-mother book's +&#8377;92,658 / &minus;&#8377;64,127 and +&#8377;1,19,063 / &minus;&#8377;43,170. The candle <em>after</em> the breakout was measured too and lost half of NIFTY's profit; the chain uses the breakout candle.</p>
-          <p class="fibx-confirmed-note"><a class="fibx-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Latest confirmed backtest &middot; 20 Aug 2026 &mdash; open the tearsheet &rarr;</a></p>
         </section>
         <section>
           <h5>2 &middot; How the lines get drawn</h5>
@@ -2531,7 +2530,6 @@
           <h5>1 &middot; Mother நீங்கள் கொடுப்பது. அது நகராது.</h5>
           <p>Mother சொல்வது <strong>எங்கிருந்து பார்க்க வேண்டும்</strong> என்பது மட்டுமே. இலக்கைத் தவிர வேறு எதுவும் அதன் சொந்த அளவிலிருந்து அளக்கப்படுவதில்லை. நீங்கள் படிக்கும் chart-ஐத் தேர்வு செய்யுங்கள் &mdash; 1m, 5m, 15m அல்லது 1H &mdash; கோடுகள் <em>அதே</em> chart-இல் வரையப்படும். <strong>எதுவும் வாங்கும் முன்</strong> விலை mother-ஐத் தாண்டி close ஆனால் &mdash; swing உருவாகியிருந்தாலும் இல்லாவிட்டாலும் &mdash; campaign எந்த வாங்கலும் இல்லாமல் மூடப்படும்; நீங்கள் கொடுக்கும் அடுத்த mother-க்குக் காத்திருக்கும். Mother உங்களுக்காக நகர்த்தப்படாது. Mother-க்கு முன் நடந்தது எதுவும் கணக்கில் வராது &mdash; ஒரு bar-உம் இல்லை, ஒரு low-உம் இல்லை.</p>
           <p><strong>அல்லது தானாக ஓடவிடுங்கள்.</strong> Form-இன் <em>Mother</em> switch <strong>Auto</strong>: ஒவ்வொரு அமர்விலும் <strong>09:15 5m candle</strong> mother; mother உடைந்தால், உடைத்த close-ஐக் கொண்ட 5m candle (<strong>breakout candle</strong>) மூடியவுடன் அடுத்த mother; கடைசி campaign 15:15-இல் முடியும்; மறுநாள் காலை தானாகத் தொடங்கும். Intraday கட்டாயம், deep carry அணைப்பு. கட்டும் முன் 3 அக் 2024 &ndash; 17 ஆக 2026 அளவீடு: NIFTY CE <strong>+&#8377;1,13,568</strong>, drawdown &minus;&#8377;41,200; SENSEX CE <strong>+&#8377;1,12,244</strong>, &minus;&#8377;44,662.</p>
-          <p class="fibx-confirmed-note"><a class="fibx-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">கடைசியாக உறுதி செய்யப்பட்ட backtest &middot; 20 ஆக 2026 &mdash; tearsheet-ஐத் திற &rarr;</a></p>
         </section>
         <section>
           <h5>2 &middot; கோடுகள் எப்படி வரையப்படுகின்றன</h5>
@@ -2704,10 +2702,6 @@
         <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="fibx-blocked"></div>
-        <div id="fibx-auto-locked" class="fibx-auto-locked" style="display:none;">
-          <strong>Auto runs the confirmed rule</strong> &mdash; see &#9432;. You set the instrument, Paper or Live, and the cap.
-        </div>
-        <div id="fibx-auto-panel" class="fibx-auto-panel"></div>
         <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
@@ -2730,7 +2724,7 @@
       <!-- One monitor PER LADDER. The panel below is a template cloned per
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
-      <div id="fibx-monitors" class="fibx-monitors"></div>
+      <div id="fibx-monitors" class="fibx-monitors"><div id="fibx-auto-panel" class="fibx-auto-panel"></div></div>
     </div>
 
     <!-- And one results+events pair per ladder, for the same reason: a single
@@ -3017,7 +3011,6 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
-          <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">PAPER CAMPAIGNS ON LIVE PRICES · NO REAL ORDER IS EVER SENT</div>
           <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Recovery <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
           <div id="recovery-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">

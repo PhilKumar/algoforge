@@ -3707,6 +3707,8 @@ function _fibxPanelRoots(symbols) {
   // A killed-and-cleared instrument leaves; the survivors keep their DOM.
   [monitors, lower].forEach(host => {
     Array.from(host.children).forEach(node => {
+      // The auto watch card lives in this column too and belongs to no symbol.
+      if (node.id === 'fibx-auto-panel') return;
       if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
     });
   });
@@ -3714,7 +3716,8 @@ function _fibxPanelRoots(symbols) {
   // user is scrolling costs them their place.
   [[monitors, 'monitor'], [lower, 'pair']].forEach(([host, which]) => {
     const desired = wanted.map(symbol => roots.get(String(symbol))[which]);
-    if (desired.some((node, i) => host.children[i] !== node)) desired.forEach(node => host.appendChild(node));
+    const offset = host.querySelector(':scope > #fibx-auto-panel') ? 1 : 0;
+    if (desired.some((node, i) => host.children[i + offset] !== node)) desired.forEach(node => host.appendChild(node));
   });
   return roots;
 }
@@ -3727,12 +3730,18 @@ function _renderFibBoundaryStatus(payload) {
   _lastFibBoundaryStatus = {};
   campaigns.forEach(row => { _lastFibBoundaryStatus[String(row.symbol || 'NIFTY')] = row; });
 
+  // Before the monitors, because an empty monitor asks whether auto is watching:
+  // under auto the watch card IS the monitor, and a second dead card saying
+  // "IDLE · No active campaign" is the thing Phil called dead (2026-08-20).
+  _renderFibBoundaryAuto(payload?.auto);
+  const autoWatching = Object.values(_lastFibBoundaryAuto || {}).some(row => row && row.enabled);
+
   const roots = _fibxPanelRoots(campaigns.map(row => String(row.symbol || 'NIFTY')));
   if (campaigns.length) campaigns.forEach(row => {
     const root = roots.get(String(row.symbol || 'NIFTY'));
     if (root) _renderFibBoundaryCampaign(root, row);
   });
-  else { const root = roots.get(''); if (root) _renderFibBoundaryCampaign(root, null); }
+  else { const root = roots.get(''); if (root) _renderFibBoundaryCampaign(root, null, { autoWatching }); }
 
   // The page's live gate is shared by every tab, so with N ladders it reports
   // the LOUDEST state on the board -- armed beats live, live beats paper.
@@ -3752,7 +3761,6 @@ function _renderFibBoundaryStatus(payload) {
     if (state) liveGate.classList.add(state);
     liveGate.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span>`;
   }
-  _renderFibBoundaryAuto(payload?.auto);
   _renderFibBoundaryRunningTable(campaigns);  // after the auto state, so the Start label knows it
 }
 
@@ -3769,8 +3777,10 @@ function _renderFibBoundaryRunningTable(campaigns) {
     if (_fibMotherMode() === 'auto') {
       const on = !!(_lastFibBoundaryAuto && _lastFibBoundaryAuto[picked] && _lastFibBoundaryAuto[picked].enabled);
       startBtn.disabled = selectedMode === 'live' && !_fibBoundaryLiveAvailable;
-      startBtn.textContent = on ? `⟳ Auto is ON for ${picked} · save settings` : `⟳ Enable auto mother · ${picked}`;
+      startBtn.textContent = on ? `■ Switch auto off · ${picked}` : `⟳ Switch auto on · ${picked}`;
+      startBtn.classList.toggle('is-danger', on);
     } else {
+      startBtn.classList.remove('is-danger');
       startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
       startBtn.textContent = clash
         ? `▶ Kill the ${picked} ladder first`
@@ -3798,7 +3808,7 @@ function _renderFibBoundaryRunningTable(campaigns) {
     : '';
 }
 
-function _renderFibBoundaryCampaign(root, campaign) {
+function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const { monitor, pair } = root;
   const fx = key => monitor.querySelector(`[data-fx="${key}"]`);
   const px = key => pair.querySelector(`[data-fx="${key}"]`);
@@ -3814,6 +3824,10 @@ function _renderFibBoundaryCampaign(root, campaign) {
   const armBtn = fx('arm');
   const eventsTf = px('events-tf');
   if (!campaign) {
+    // Nothing to monitor and auto is watching: the card above says what it is
+    // waiting for, so this one steps aside instead of printing IDLE at Phil.
+    monitor.style.display = options.autoWatching ? 'none' : '';
+    pair.style.display = options.autoWatching ? 'none' : '';
     if (badge) {
       badge.textContent = 'IDLE';
       badge.classList.remove('is-positive', 'is-warning');
@@ -3834,6 +3848,8 @@ function _renderFibBoundaryCampaign(root, campaign) {
     _renderFibBoundaryEvents(pair, []);
     return;
   }
+  monitor.style.display = '';
+  pair.style.display = '';
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
@@ -4105,7 +4121,11 @@ async function refreshFibBoundaryStatus() {
 
 async function startFibBoundaryPaper() {
   const el = id => document.getElementById(id);
-  if (_fibMotherMode() === 'auto') return enableFibBoundaryAuto();
+  if (_fibMotherMode() === 'auto') {
+    const picked = el('fibx-symbol')?.value || 'NIFTY';
+    const on = !!(_lastFibBoundaryAuto && _lastFibBoundaryAuto[picked] && _lastFibBoundaryAuto[picked].enabled);
+    return on ? stopFibBoundaryAuto(null, null) : enableFibBoundaryAuto();
+  }
   // Nothing about the geometry is typed: the mother names where to look and the
   // server finds the swing around it.
   const payload = {
@@ -4619,8 +4639,6 @@ function _syncFibMotherModeRow() {
   // Under Auto the rule is the measured one and the server ignores these, so
   // the form stops offering them: instrument, paper/live and the cap remain.
   document.querySelectorAll('#options-cascade-page .fibx-rule-only').forEach(el => { el.style.display = auto ? 'none' : ''; });
-  const locked = document.getElementById('fibx-auto-locked');
-  if (locked) locked.style.display = auto ? '' : 'none';
 }
 
 async function enableFibBoundaryAuto() {
@@ -4642,7 +4660,7 @@ async function enableFibBoundaryAuto() {
     const response = await fetch('/api/fib-boundary/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Auto did not switch on (${response.status})`));
-    _fibSetFormStatus(`${payload.symbol} auto mother ON · Lone · 5m · CE · trailing · 09:15 every session · breakout candle on a break · out by 15:15`, 'success');
+    _fibSetFormStatus(`Auto is on for ${payload.symbol}.`, 'success');
   } catch (error) {
     _fibSetFormStatus(error.message || 'Auto did not switch on.', 'error');
   } finally {
@@ -4671,6 +4689,34 @@ async function stopFibBoundaryAuto(_event, button) {
 }
 
 let _lastFibBoundaryAuto = {};
+
+// What auto is doing RIGHT NOW, in words. Phil, 2026-08-20: "When auto is
+// started, the campaign monitor is completely dead... What am I watching
+// here?" -- the loop knew all of this and told the page none of it, so the
+// server now stamps its last tick on the setting and this turns it into a
+// sentence. Between campaigns this card IS the monitor.
+function _fibAutoState(s, today) {
+  const at = String(s.state_at || '').slice(11, 16);
+  const nextMother = String(s.waiting_for || '').slice(11, 16);
+  // The loop sleeps out of session, so yesterday's last word is stale by
+  // morning: only today's tick is allowed to speak for today.
+  const fresh = String(s.state_at || '').slice(0, 10) === today;
+  switch (fresh ? String(s.state || '') : '') {
+    case 'outside-window': return { tone: 'wait', text: 'Market closed — the first mother is tomorrow 09:15' };
+    case 'busy': return { tone: 'live', text: 'A ladder is running — see the monitor below' };
+    case 'waiting-for-candle': return { tone: 'live', text: `Mother broken — waiting for the ${nextMother || 'breakout'} candle to close` };
+    case 'no-bar-yet': return { tone: 'wait', text: 'Waiting for the 09:15 bar from Dhan' };
+    case 'day-skipped': return { tone: 'off', text: 'No 09:15 candle today — day skipped' };
+    case 'day-done': return { tone: 'off', text: 'Done for today — next mother tomorrow 09:15' };
+    case 'too-late': return { tone: 'off', text: 'Past 15:10 — next mother tomorrow 09:15' };
+    case 'stuck': return { tone: 'warn', text: 'A ladder needs a hand — auto will not chain' };
+    case 'no-broker': return { tone: 'warn', text: 'No Dhan account attached — nothing can start' };
+    case 'start-failed': return { tone: 'warn', text: 'The last start was refused' };
+    case 'started': return { tone: 'live', text: 'Campaign started' };
+    default: return { tone: 'wait', text: 'Watching — the next mother is 09:15' };
+  }
+}
+
 function _renderFibBoundaryAuto(auto) {
   _lastFibBoundaryAuto = auto && typeof auto === 'object' ? auto : {};
   const panel = document.getElementById('fibx-auto-panel');
@@ -4681,19 +4727,20 @@ function _renderFibBoundaryAuto(auto) {
   panel.innerHTML = rows.map(([symbol, s]) => {
     const log = (s.log || []).filter(r => String(r.day) === today);
     const net = log.reduce((a, r) => a + Number(r.net || 0), 0);
+    const state = s.enabled ? _fibAutoState(s, today) : { tone: 'off', text: 'Switched off' };
+    const at = String(s.state_at || '').slice(0, 10) === today ? String(s.state_at || '').slice(11, 16) : '';
     const chain = log.length
       ? `<table class="fibx-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
         + log.map(r => `<tr><td>${escapeHtml(String(r.seq || ''))}</td><td>${escapeHtml(String(r.mother || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_timestamp || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_reason || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? 0))}</td><td class="${Number(r.net) > 0 ? 'pos' : (Number(r.net) < 0 ? 'neg' : '')}">${escapeHtml(_cascadeOptionsMoney(Number(r.net || 0)))}</td></tr>`).join('')
         + `</table>`
-      : `<div class="fibx-auto-note">No campaign has ended today yet.</div>`;
+      : '';
     return `<div class="fibx-auto-card ${s.enabled ? 'is-on' : ''}">`
-      + `<div class="fibx-auto-head"><strong>${escapeHtml(symbol)} · Auto mother ${s.enabled ? 'ON' : 'OFF'}</strong>`
-      + `<span>${escapeHtml(String(s.side || 'CE'))} · ${escapeHtml(String(s.timeframe || '5m').toUpperCase())} · ${escapeHtml(String(s.mode || 'paper'))} · 09:15 every session · breakout candle on a break · out by 15:15</span>`
-      + (s.enabled ? `<button type="button" class="btn cascade-options-control" data-pf-action="stopFibBoundaryAuto" data-symbol="${escapeHtml(symbol)}">Switch off</button>` : '')
-      + `</div>`
+      + `<div class="fibx-auto-head"><strong>${escapeHtml(symbol)} · Auto mother</strong>`
+      + `<span class="fibx-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span></div>`
+      + `<div class="fibx-auto-state is-${state.tone}">${escapeHtml(state.text)}${at ? `<span>${escapeHtml(at)}</span>` : ''}</div>`
       + (s.alert ? `<div class="fibx-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
       + (s.last_error ? `<div class="fibx-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
-      + `<div class="fibx-auto-today">Today: ${log.length} campaign${log.length === 1 ? '' : 's'} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}${s.skipped_day === today ? ' · no 09:15 bar — day skipped' : ''}</div>`
+      + `<div class="fibx-auto-today">Today · ${log.length} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}</div>`
       + chain
       + `</div>`;
   }).join('');
