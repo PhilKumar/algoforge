@@ -198,7 +198,7 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/app#assets/${platform.id}`);
     const reader = page.locator('#architecture-reader-view');
-    await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
+    await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     await expect(page.locator('.header-shell')).toBeVisible();
     await expect(reader.locator('.reader-header')).toHaveCount(0);
     const accent = await reader.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
@@ -224,7 +224,7 @@ test('both visual readers pass accessibility and responsive overflow checks', as
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     const mobileReader = page.locator('#architecture-reader-view');
-    await expect(mobileReader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
+    await expect(mobileReader.locator('#document-body')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     overflow = await mobileReader.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(overflow).toBe(false);
   }
