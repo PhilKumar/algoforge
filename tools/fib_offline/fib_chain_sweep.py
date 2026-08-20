@@ -24,8 +24,9 @@ row. NEXT_MOTHER=none gives the 09:15-only reference (no chain).
         2024-10-03 2026-08-17 /tmp/fib_offline/chain/NIFTY_following.csv
 
 Env: TRAIL (span multiple, default 1; unset = fixed target), TARGET (0.25),
-MAX_BUYS (engine default), CAP (75000), LEVELS, BARREN_CAP (10), VERIFY=1 runs
-the chain checks and a tick-simulated re-walk on a sample of days.
+MAX_BUYS (engine default), CAP (75000), LEVELS, BARREN_CAP (10), LOT_RAMP=1
+(the n-th buy of a round takes n lots), VERIFY=1 runs the chain checks and a
+tick-simulated re-walk on a sample of days.
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ def make(mother: datetime) -> FibTouchLadder:
         trailing_stop=bool(TRAIL),
         trail_span_multiple=float(TRAIL or 1.0),
         target_fraction=float(os.environ.get("TARGET") or 0.25),
+        lot_ramp=os.environ.get("LOT_RAMP", "0") == "1",
         **({"max_buys": int(os.environ["MAX_BUYS"])} if os.environ.get("MAX_BUYS") else {}),
     )
     return FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
@@ -322,7 +324,11 @@ while d <= end:
     d += timedelta(days=1)
 
 b = book(all_rows)
-print(f"{SYMBOL} NEXT_MOTHER={NEXT_MOTHER} TRAIL={TRAIL} TARGET={os.environ.get('TARGET', '0.25')}")
+print(
+    f"{SYMBOL} NEXT_MOTHER={NEXT_MOTHER} TRAIL={TRAIL} TARGET={os.environ.get('TARGET', '0.25')}"
+    f" MAX_BUYS={os.environ.get('MAX_BUYS', 'default')} LOT_RAMP={os.environ.get('LOT_RAMP', '0')}"
+    f" CAP={os.environ.get('CAP', '75000')}"
+)
 for k, v in b.items():
     print(f"  {k:18} {v}")
 if out_csv:
