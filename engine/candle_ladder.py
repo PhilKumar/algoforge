@@ -77,7 +77,17 @@ DEFAULT_LOTS: tuple[int, ...] = (1, 2, 3, 4)
 # chart after 5m for 1m first buy and after 15m for 5m 1st buy and so on ...
 # till 1H." One step up and no further: 1m -> 5m, 5m -> 15m, 15m -> 1H; a 1H
 # start has 1H alone (the chart runs out). Two rungs, 1 lot then 2.
-LADDER_DEPTH = 3
+#
+# TWO, not three (Phil, 2026-08-20: "2 rungs is fine"). The third rung fired
+# four times in 22 months and cost Rs 2.1L of standing capital to catch them:
+# peak deployment falls from Rs 3,79,948 to Rs 1,69,991 while the book keeps
+# Rs 2,87,019 of Rs 3,99,958 -- 169% of the capital at risk against 105%, the
+# same -Rs 7,453 drawdown, and a minus-best-five that is slightly BETTER
+# (Rs 1,36,997). Every campaign still reached its target on the trail; the
+# third rung was upside on the biggest winners, not the thing that got them
+# out. Only this strategy reads this constant -- the equity two-red ladder
+# keeps its own LADDERS table.
+LADDER_DEPTH = 2
 
 
 def _sum_costs(parts: list[OptionRoundCosts]) -> OptionRoundCosts:
