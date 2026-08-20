@@ -1448,8 +1448,11 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
   await expect(page.locator('#recovery-start')).toBeVisible();
   await expect(page.locator('#recovery-stop')).toBeHidden();
 
-  // The rules are stated where the trader can read them.
-  await expect(page.locator('#options-cascade-page')).toContainText('NO REAL ORDER IS EVER SENT');
+  // The paper-only promise is still stated where the trader can read it. The
+  // slogan banner came off the tab on 2026-08-20 ("Still more texts"); the
+  // hero's gate chip is what carries it now.
+  await expect(page.locator('#options-cascade-page')).toContainText('LIVE LOCKED');
+  await expect(page.locator('#options-cascade-page')).toContainText('Paper validation required');
 
   expect(jsErrors, `page errors: ${jsErrors.join(' | ')}`).toHaveLength(0);
 });
