@@ -2868,6 +2868,14 @@
            Advanced, collapsed, with a count of what deviates from it -- Phil,
            2026-08-20: "I need the only important items and in a completely
            viewable way like institutional grade". -->
+      <!-- TWO PANELS (Phil, 2026-08-20: "Move it one side and let monitor
+           placed on the right ... Like 2 panels"). Left: everything you SET
+           -- mode, auto, chart, the look-back moment, the Advanced rule.
+           Right: everything that is LIVE -- the auto chain, the campaign
+           monitor with its Chart button, and a backtest when you run one.
+           One column again below 1280px, exactly as it was. -->
+      <div class="candle-entry-panes">
+      <div class="candle-entry-pane candle-entry-pane-form">
       <div class="candle-entry-essentials">
         <div class="candle-entry-field candle-entry-field-mode">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
@@ -2953,7 +2961,7 @@
           </div>
         </div>
         <div>
-          <label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike · how deep &amp; chosen when</label>
+          <label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike</label>
           <!-- Measured 2026-08-19: the mother's ATM-2 sat ABOVE the ladder's
                target on half the box-mother campaigns (the call was out of
                the money at the price it was sold at). Phil: "for the second
@@ -2973,6 +2981,8 @@
         </div>
       </details>
       <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      </div>
+      <div class="candle-entry-pane candle-entry-pane-live">
       <div id="candle-entry-auto-card" class="candle-entry-auto-card" hidden></div>
       <div id="candle-entry-summary" class="candle-entry-summary">No active Candle Entry campaign.</div>
       <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
@@ -3007,6 +3017,8 @@
           <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </details>
       </section>
+      </div>
+      </div>
     </div>
 
     <div id="candle-entry-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Candle Entry ladder chart">

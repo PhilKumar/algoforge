@@ -6175,6 +6175,47 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* The one-line summary of an older campaign, under the buttons. */
 .candle-entry-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
 .candle-entry-summary:empty { display:none; }
+/* TWO PANELS ON A DESK (Phil, 2026-08-20: "Move it one side and let monitor
+   placed on the right with chart button and live updates.. Like 2 panels").
+   The form is a fixed, readable column on the left and stays in place while
+   the live column scrolls; the monitor, its Chart button and the backtest
+   own the right. Below 1280px nothing changes: one column, form first. */
+.candle-entry-panes { display:block; }
+.candle-entry-pane { min-width:0; }
+@media (min-width: 1280px) {
+  /* The live column decides the split: the ladder needs ~745px for its nine
+     columns, so between 1280 and 1440 the form gives up width rather than
+     pushing the money behind a sideways scroll. */
+  .candle-entry-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
+  /* The strike row carries a select and three choices: in a narrow form
+     column the three take their own line instead of overflowing. */
+  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
+  .candle-entry-pane-form #candle-entry-strike-at-toggle { flex:1 1 100%; }
+  /* The form is short: it rides along rather than scrolling away. */
+  .candle-entry-pane-form { position:sticky; top:8px; }
+  .candle-entry-pane-live { min-height:1px; }
+  /* The essentials row was cut for the full page width; in a 540px column it
+     is two fields to a line, the look-back and the buttons taking their own. */
+  .candle-entry-pane-form .candle-entry-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-when { grid-column: auto; }
+  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; }
+  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-actions .btn { flex:1 1 auto; }
+  /* One setting per line in the fold -- two columns of hairline rows need
+     more room than this pane has. */
+  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
+  .candle-entry-pane-live > .candle-entry-monitor:first-child,
+  .candle-entry-pane-live > .candle-entry-auto-card:first-child { margin-top:0; }
+}
+
+@media (min-width: 1440px) {
+  .candle-entry-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
+}
+
+/* The ladder's Now cell carries two numbers -- the mark and the move. Side
+   by side they made the column 166px and pushed the money off the right
+   pane; stacked, they fit without touching the standard table's padding. */
+.candle-entry-now-move { display:block; font-size:10px; margin-top:2px; }
+
 /* THE ADVANCED FOLD READS AS A SETTINGS LIST, NOT A WALL OF PILLS. Phil,
    2026-08-20: "Please make this little but clean and tidy... It seems
    messy". Seven full-width ember switches stacked two to a row gave the

@@ -2551,7 +2551,7 @@ function _renderCandleEntryMonitor(campaign) {
     const fill = rung.fill;
     const stateTxt = rungStateLabel[rung.state] || String(rung.state || '').toUpperCase();
     const stopTxt = fill ? _cascadeNumber(fill.index_price) : (rung.entry_stop == null ? '—' : _cascadeNumber(rung.entry_stop));
-    const filledTxt = fill ? _cascadeOptionsTimestamp(fill.timestamp) : '—';
+    const filledTxt = fill ? _cascadeOptionsTimestamp(fill.timestamp).slice(5, 16) : '—';
     const strikeTxt = fill && fill.strike ? Number(fill.strike).toLocaleString('en-IN') : '—';
     const premiumTxt = fill && fill.option_premium != null ? `₹${_cascadeNumber(fill.option_premium)}` : (fill ? 'no price' : '—');
     const tone = rung.state === 'filled' ? 'candle-entry-strong' : (rung.state === 'armed' ? '' : 'candle-entry-muted');
@@ -2565,7 +2565,7 @@ function _renderCandleEntryMonitor(campaign) {
     const nowTxt = leg && leg.mark != null ? `₹${_cascadeNumber(leg.mark)}` : (fill && !exit ? 'no quote' : '—');
     const nowCell = move == null
       ? `<td class="${tone}">${escapeHtml(nowTxt)}</td>`
-      : `<td class="${tone}">${escapeHtml(nowTxt)} <span style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
+      : `<td class="${tone}">${escapeHtml(nowTxt)}<span class="candle-entry-now-move" style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
     return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(strikeTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td>${nowCell}</tr>`;
   }).join('') : '<tr><td colspan="9" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
   if (updated) updated.textContent = `Last bar ${_cascadeOptionsTimestamp(latest.timestamp).slice(0, 16)} · close ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''} · refreshed ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })} IST`;
