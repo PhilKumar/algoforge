@@ -1201,6 +1201,17 @@ class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
             seen = await self._config_seen_by(route, cls, trailing_target=True)
             self.assertTrue(seen["trailing_stop"])
 
+    async def test_lots_per_buy_reaches_both_routes_and_defaults_to_flat(self):
+        """Phil, 2026-08-20: "put it on the form". Same is still the default."""
+        for route, cls in (
+            (app_module.fib_boundary_paper_start, app_module.FibTouchStartPayload),
+            (app_module.fib_boundary_backtest, app_module.FibTouchBacktestPayload),
+        ):
+            seen = await self._config_seen_by(route, cls)
+            self.assertFalse(seen["lot_ramp"])
+            seen = await self._config_seen_by(route, cls, lot_ramp=True)
+            self.assertTrue(seen["lot_ramp"])
+
     async def test_a_past_mothers_paper_start_is_sized_like_the_backtest(self):
         """The Start route read the lot off the EARLIEST listed expiry, which is
         right for today's mother and wrong for a replay of one from another
@@ -1626,3 +1637,45 @@ class FibBoundaryOtmStrikeTests(unittest.TestCase):
         self.assertEqual(payload.itm_steps, -2)
         with self.assertRaises(Exception):
             app_module.FibTouchStartPayload(symbol="NIFTY", mother_timestamp="2026-08-20T09:15:00", itm_steps=-3)
+
+
+class FibBoundaryLotRampTests(unittest.TestCase):
+    """1, 2, 3 lots down the ladder — on the form 2026-08-20, off by default."""
+
+    def test_payloads_default_to_flat_lots(self):
+        start = app_module.FibTouchStartPayload(symbol="NIFTY", mother_timestamp="2026-08-20T09:15:00")
+        self.assertFalse(start.lot_ramp)
+        self.assertTrue(
+            app_module.FibTouchStartPayload(
+                symbol="NIFTY", mother_timestamp="2026-08-20T09:15:00", lot_ramp=True
+            ).lot_ramp
+        )
+
+    def test_engine_ramps_the_lot_count_per_buy(self):
+        from engine.fib_touch_ladder import FibTouchConfig
+
+        flat = FibTouchConfig(
+            symbol="NIFTY",
+            mother_timestamp=datetime(2026, 8, 20, 9, 15),
+            side="CE",
+            lot_size=65,
+            strike_step=50.0,
+        )
+        self.assertFalse(flat.lot_ramp)
+        ramped = FibTouchConfig(
+            symbol="NIFTY",
+            mother_timestamp=datetime(2026, 8, 20, 9, 15),
+            side="CE",
+            lot_size=65,
+            strike_step=50.0,
+            lot_ramp=True,
+        )
+        # The n-th buy of a round takes n x lots_per_rung: 1, 2, 3 ...
+        self.assertEqual(
+            [ramped.lots_per_rung * (n + 1) for n in range(3)],
+            [ramped.lots_per_rung, ramped.lots_per_rung * 2, ramped.lots_per_rung * 3],
+        )
+
+    def test_the_auto_rule_never_ramps(self):
+        self.assertNotIn("lot_ramp", app_module._FIB_AUTO_RULE)
+        self.assertFalse(app_module.FibTouchAutoPayload(symbol="NIFTY").model_dump().get("lot_ramp", False))

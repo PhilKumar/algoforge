@@ -1943,6 +1943,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'stopFibBoundaryAuto',
   'setFibBoundaryDeepCarry',
   'setFibBoundaryTarget',
+  'setFibBoundaryLotRamp',
   'pickAssetsTearsheet',
   'openFibTearsheet',
   'openFibAutoChart',
@@ -4139,6 +4140,7 @@ async function startFibBoundaryPaper() {
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
     trailing_target: _fibTrailingTarget(),
+    lot_ramp: _fibLotRamp(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -4793,6 +4795,28 @@ function _fibDeepCarry() {
   return (document.getElementById('fibx-deep-carry')?.value || 'close') === 'hold';
 }
 
+// One lot a buy, or 1-2-3 down the ladder (Phil, 2026-08-18, on the form
+// 2026-08-20). Same is the measured rule; the ramp made NIFTY more and cost a
+// deeper drawdown, and did nothing for SENSEX.
+function setFibBoundaryLotRamp(_event, button) {
+  const value = button && button.dataset ? button.dataset.value : 'same';
+  const input = document.getElementById('fibx-lot-ramp');
+  if (!input || input.value === value) return;
+  input.value = value;
+  const group = document.getElementById('fibx-lot-ramp-toggle');
+  if (group) {
+    group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
+      const on = btn.dataset.value === value;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+}
+
+function _fibLotRamp() {
+  return (document.getElementById('fibx-lot-ramp')?.value || 'same') === 'ramp';
+}
+
 // Fixed target or trailing exit (Phil, 2026-08-18).
 function setFibBoundaryTarget(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'fixed';
@@ -4998,6 +5022,7 @@ async function runFibBoundaryBacktest() {
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
     trailing_target: _fibTrailingTarget(),
+    lot_ramp: _fibLotRamp(),
     capital_cap_inr: Number(el('fibx-capital-cap')?.value),
     itm_steps: Number(el('fibx-itm')?.value),
   };
@@ -5209,6 +5234,7 @@ window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
 window.setFibBoundarySession = setFibBoundarySession;
 window.setFibBoundaryDeepCarry = setFibBoundaryDeepCarry;
 window.setFibBoundaryTarget = setFibBoundaryTarget;
+window.setFibBoundaryLotRamp = setFibBoundaryLotRamp;
 window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.openFibTearsheet = openFibTearsheet;
 window.openFibAutoChart = openFibAutoChart;

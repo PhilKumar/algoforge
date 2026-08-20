@@ -2500,6 +2500,7 @@
         <section>
           <h5>7 &middot; Money</h5>
           <p>One rupee cap funds the <strong>whole ladder</strong>, not each rung: at roughly &#8377;13,000 a NIFTY lot, the default &#8377;75,000 funds about five rungs. A round also stops adding lots after its <strong>fourth buy</strong> — that is the rule this page runs, backtest, paper and live alike (measured over 23 months: 1&ndash;3 buys make the money, deeper baskets on a trend day lose it). Rungs beyond either limit stay priced and drawn but marked <strong>UNFUNDED</strong> — never silently skipped.</p>
+          <p><strong>Lots per buy</strong> is a switch on the form. <em>Same</em> — one lot every buy — is the measured rule. <em>1·2·3</em> ramps it, so the deeper and cheaper turns carry more of the basket: measured 18 Aug 2026 at &#8377;75,000 with at most three buys, NIFTY made <strong>+&#8377;1,24,315</strong> but fell <strong>&minus;&#8377;77,748</strong> on the way, against +&#8377;92,658 / &minus;&#8377;64,127 flat; SENSEX gained nothing at all. More money, a deeper hole — the auto mother does not use it.</p>
         </section>
         <section>
           <h5>8 &middot; The contract</h5>
@@ -2556,6 +2557,7 @@
         <section>
           <h5>7 &middot; பணம்</h5>
           <p>ஒரே ரூபாய் வரம்பு <strong>முழு ladder</strong>-க்கும், ஒவ்வொரு rung-க்கும் அல்ல: NIFTY lot ஒன்று சுமார் &#8377;13,000; இயல்பு &#8377;75,000 சுமார் ஐந்து rungs-க்கு போதும். ஒரு round <strong>நான்காவது வாங்கலுக்குப்</strong> பின் lot சேர்க்காது &mdash; இதுவே இந்தப் பக்கம் இயக்கும் விதி, backtest, paper, live எல்லாவற்றுக்கும் (23 மாத அளவீடு: 1&ndash;3 வாங்கல்கள் லாபம்; trend நாளில் ஆழமான basket நஷ்டம்). அதற்கு அப்பால் உள்ள rungs வரையப்பட்டு <strong>UNFUNDED</strong> என்று காட்டப்படும் &mdash; அமைதியாக தவிர்க்கப்படாது.</p>
+          <p><strong>ஒரு வாங்கலுக்கு எத்தனை lot</strong> என்பது form-இல் ஒரு switch. <em>Same</em> &mdash; ஒவ்வொரு வாங்கலும் ஒரு lot &mdash; அளவிடப்பட்ட விதி. <em>1&middot;2&middot;3</em> ஏற்றமாக்கும்: 18 ஆக 2026 அளவீடு, &#8377;75,000, அதிகபட்சம் மூன்று வாங்கல்கள் &mdash; NIFTY <strong>+&#8377;1,24,315</strong>, ஆனால் drawdown <strong>&minus;&#8377;77,748</strong> (சமமான lot-இல் +&#8377;92,658 / &minus;&#8377;64,127); SENSEX-க்கு எந்த ஆதாயமும் இல்லை. அதிக பணம், ஆழமான குழி &mdash; auto mother இதைப் பயன்படுத்தாது.</p>
         </section>
         <section>
           <h5>8 &middot; ஒப்பந்தம்</h5>
@@ -2695,6 +2697,17 @@
           <div id="fibx-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" title="Sell the basket when the index reaches the target" aria-checked="true"><span>◎ Fixed</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" title="Reaching the target arms a trail; sold when a 1m close gives back one fib span from the best" aria-checked="false"><span>↗ Trailing</span></button>
+          </div>
+        </div>
+        <div class="fibx-rule-only">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Same: every buy is one lot. Ramp: the first buy takes 1 lot, the second 2, the third 3 — the deeper, cheaper turns carry more of the basket. Measured 18 Aug 2026 at ₹75,000 with at most 3 buys: NIFTY +₹1,24,315 against a deeper drawdown of −₹77,748; SENSEX gained nothing. The running rule is Same.">Lots per buy</label>
+          <!-- Phil, 2026-08-18: "incrementing 1 lot on each level with max 3"; put
+               on the form 2026-08-20. The engine has carried `lot_ramp` since the
+               measurement; nothing but this control is new. -->
+          <input type="hidden" id="fibx-lot-ramp" value="same">
+          <div id="fibx-lot-ramp-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots per buy">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="same" data-pf-action="setFibBoundaryLotRamp" role="radio" title="Every buy is one lot — the measured rule" aria-checked="true"><span>≡ Same</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="ramp" data-pf-action="setFibBoundaryLotRamp" role="radio" title="1 lot, then 2, then 3 — deeper buys carry more" aria-checked="false"><span>▲ 1·2·3</span></button>
           </div>
         </div>
         </div>

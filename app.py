@@ -4157,6 +4157,9 @@ class FibTouchStartPayload(BaseModel):
     # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22
     # months, +Rs 1.80L fixed -> +Rs 3.66L trailing).
     trailing_target: bool = Field(default=False)
+    # Phil, 2026-08-20: 1, 2, 3 lots down the ladder. Measured 18 Aug: NIFTY
+    # +Rs 1,24,315 against a deeper -Rs 77,748 drawdown, SENSEX no gain.
+    lot_ramp: bool = Field(default=False)
     # THE MERGE'S SWITCH. Phil folded Fib Boundary and Fib Space into one
     # strategy on 2026-08-15: same geometry, and this decides what it buys --
     # "levels" (every level of every fib) or "convergence" (only where two
@@ -4256,6 +4259,9 @@ class FibTouchBacktestPayload(BaseModel):
     # one fib span from the best price since (Phil, 2026-08-18: 5m CE over 22
     # months, +Rs 1.80L fixed -> +Rs 3.66L trailing).
     trailing_target: bool = Field(default=False)
+    # Phil, 2026-08-20: 1, 2, 3 lots down the ladder. Measured 18 Aug: NIFTY
+    # +Rs 1,24,315 against a deeper -Rs 77,748 drawdown, SENSEX no gain.
+    lot_ramp: bool = Field(default=False)
 
 
 class FibBoundaryBacktestPayload(BaseModel):
@@ -12170,6 +12176,7 @@ async def _start_fib_boundary_ladder(
         intraday_close=bool(payload.intraday_close),
         deep_carry=bool(payload.deep_carry),
         trailing_stop=bool(payload.trailing_target),
+        lot_ramp=bool(payload.lot_ramp),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +
@@ -12913,6 +12920,7 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
         intraday_close=bool(payload.intraday_close),
         deep_carry=bool(payload.deep_carry),
         trailing_stop=bool(payload.trailing_target),
+        lot_ramp=bool(payload.lot_ramp),
     )
 
     def _run() -> dict:
