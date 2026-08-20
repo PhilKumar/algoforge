@@ -234,6 +234,8 @@ class TwoRedLadder:
         min_fall_pct: float = 0.0,
         range_bars: int = 0,
         range_position: float = 0.5,
+        require_below_mother: bool = False,
+        fallback_strike_for: Optional[Callable[[datetime, float], list[tuple[int, str]]]] = None,
         direction: str = "CE",
     ) -> None:
         if not stages:
@@ -243,6 +245,13 @@ class TwoRedLadder:
         self.lot_size = int(lot_size)
         self.mother = mother
         self.strike_for = strike_for
+        # WHEN THE CHOSEN STRIKE HAS NO PRICE. Phil, 2026-08-20: "As we are
+        # using monthly strikes.. better try ATM if price is not available or
+        # liquidity is not available". A monthly ATM-2 can go unquoted for a
+        # minute; rather than record an unpriced leg (which withholds the
+        # whole basket's P&L) the rung is re-struck at the money and priced
+        # there. Only used when the first ask comes back empty.
+        self.fallback_strike_for = fallback_strike_for
         self.premium_lookup = premium_lookup
         self.target_fraction = float(target_fraction)
         # WHICH WAY THE CAMPAIGN LEANS. "CE" is the rule as Phil wrote it: the
@@ -298,6 +307,15 @@ class TwoRedLadder:
         # the line inside the box (0.5 = the midpoint).
         self.range_bars = int(range_bars)
         self.range_position = float(range_position)
+        # THE TARGET MUST BE AHEAD OF THE BUY. The target is measured from the
+        # average entry back toward the MOTHER's high, so a rung filling above
+        # that high has a target BEHIND it: it is satisfied the instant it
+        # fills, arms the trail and sells on the next bar. Phil found one on
+        # the tearsheet (02-Jul-2026: mother high 24,176, bought 24,227, target
+        # 24,214, out 15 minutes later). It happens because nothing cancels a
+        # broken mother while the rolling box climbs away from it. With this
+        # on, such a rung is simply not bought and the ladder keeps waiting.
+        self.require_below_mother = bool(require_below_mother)
         self._range: list[tuple[float, float]] = []
         # HOW BIG A RUNG IS. Left alone, it is the option law: lots x lot size,
         # so rung 3 is three times rung 1 whatever the price did. Phil's cash
@@ -582,6 +600,22 @@ class TwoRedLadder:
             self.status = "EXPIRED"
 
     def _fill(self, stage: _Stage, candle: LadderCandle) -> None:
+        if self.require_below_mother:
+            past = (
+                float(stage.stop) >= self.mother.high
+                if self.direction == "CE"
+                else float(stage.stop) <= self.mother.low
+            )
+            if past:
+                # A buy here would have its target behind it. The arm is torn
+                # up and the rung waits for the next two reds, exactly as it
+                # does for a fall too shallow to be worth a share.
+                self._log(candle, "above_mother", rung=stage.rung, index_price=stage.stop)
+                stage.stop = None
+                stage.armed_at = None
+                if not self.fills:
+                    self.status = "WAITING_TWO_RED"
+                return
         strike, option_type = self.strike_for(candle.timestamp, stage.stop)
         # PRICED AT THE BAR'S CLOSE. That is the moment the engine sees the
         # bar and buys, in a backtest and in the paper loop alike -- so the two
@@ -590,6 +624,20 @@ class TwoRedLadder:
         # also the conservative side for a bar that rose through the stop.
         priced_at = closed_at(candle)
         premium = self.premium_lookup(priced_at, strike, option_type)
+        if premium is None and self.fallback_strike_for is not None:
+            # The candidates come back in preference order -- at the money
+            # first, then the lines either side of it -- and the first one
+            # that answers is bought. A strike nobody quotes is not a strike
+            # this campaign can hold.
+            for alt_strike, alt_type in self.fallback_strike_for(candle.timestamp, stage.stop):
+                if (alt_strike, alt_type) == (strike, option_type):
+                    continue
+                alt = self.premium_lookup(priced_at, alt_strike, alt_type)
+                if alt is None:
+                    continue
+                self._log(candle, "strike_fallback", rung=stage.rung, strike=alt_strike, premium=alt)
+                strike, option_type, premium = alt_strike, alt_type, alt
+                break
         if self.quantity_for is not None:
             quantity = int(self.quantity_for(float(stage.stop), stage.lots))
             if quantity <= 0:

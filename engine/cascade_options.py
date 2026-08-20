@@ -2589,6 +2589,8 @@ class LadderCandleEntryPaper:
         min_fall_pct: float = 0.0,
         range_bars: int = 0,
         range_position: float = 0.5,
+        require_below_mother: bool = False,
+        atm_fallback: bool = False,
         strike_at: str = "mother",
         strike_offset_points: int = -100,
         watch_from: Optional[datetime] = None,
@@ -2666,6 +2668,8 @@ class LadderCandleEntryPaper:
             min_fall_pct=min_fall_pct,
             range_bars=range_bars,
             range_position=range_position,
+            require_below_mother=require_below_mother,
+            fallback_strike_for=self._atm_strike_for if atm_fallback else None,
             # The contract decides which way the geometry reads: a CE watches
             # the mother's high and two reds, a PE its low and two greens.
             direction=contract.option_type,
@@ -2721,6 +2725,21 @@ class LadderCandleEntryPaper:
             )
             self._contracts[(int(strike), str(option_type))] = cached
         return cached
+
+    def _atm_strike_for(self, _timestamp: datetime, index_price: float) -> list[tuple[int, str]]:
+        """Where to look when a rung's own strike comes back unpriced.
+
+        Phil, 2026-08-20: "As we are using monthly strikes.. better try ATM if
+        price is not available or liquidity is not available." At the money
+        first -- the most traded line on a monthly board -- and then the two
+        strikes either side of it, nearest first, because a sparse minute can
+        miss the ATM as well. Live, the first ask almost always answers; this
+        is what keeps a leg from being recorded unpriced when it does not.
+        """
+        step = 50 if self.contract.underlying.upper() == "NIFTY" else 100
+        atm = int(float(index_price) / step + 0.5) * step
+        ladder = [atm, atm - step, atm + step, atm - 2 * step, atm + 2 * step]
+        return [(int(strike), self.contract.option_type) for strike in ladder]
 
     def _strike_for(self, _timestamp: datetime, index_price: float) -> tuple[int, str]:
         """The contract's strike for a rung about to fill.
@@ -3168,6 +3187,8 @@ class LadderCandleEntryPaper:
                 # whole from the first bar after a restart.
                 "range_bars": ladder.range_bars,
                 "range_position": ladder.range_position,
+                "require_below_mother": ladder.require_below_mother,
+                "atm_fallback": ladder.fallback_strike_for is not None,
                 "range_window": [list(pair) for pair in ladder._range],
                 "min_fall_pct": ladder.min_fall_pct,
                 "min_buys_before_exit": ladder.min_buys_before_exit,
@@ -3298,6 +3319,8 @@ class LadderCandleEntryPaper:
             min_fall_pct=float(config.get("min_fall_pct") or 0.0),
             range_bars=int(config.get("range_bars") or 0),
             range_position=float(config.get("range_position") or 0.5),
+            require_below_mother=bool(config.get("require_below_mother")),
+            atm_fallback=bool(config.get("atm_fallback")),
             strike_at=str(config.get("strike_at") or "mother"),
             strike_offset_points=int(
                 config.get("strike_offset_points") if config.get("strike_offset_points") is not None else -100

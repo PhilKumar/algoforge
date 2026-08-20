@@ -185,6 +185,18 @@ def main() -> None:
             "never by the lower high the sliding 278-bar box leaves behind"
         ),
     )
+    ap.add_argument(
+        "--below-mother",
+        dest="below_mother",
+        action="store_true",
+        help="refuse a rung whose buy-stop is at or above the mother's high -- its target would sit BEHIND the buy",
+    )
+    ap.add_argument(
+        "--atm-fallback",
+        dest="atm_fallback",
+        action="store_true",
+        help="a rung whose own strike has no recorded price is re-struck AT THE MONEY and priced there",
+    )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
     ap.add_argument(
         "--mother",
@@ -350,6 +362,8 @@ def main() -> None:
                 min_fall_pct=fall_pct,
                 range_bars=bars,
                 range_position=pos,
+                require_below_mother=bool(args.below_mother),
+                atm_fallback=bool(args.atm_fallback),
                 strike_at=args.strike_at,
                 strike_offset_points=offset_points,
             )
@@ -470,6 +484,8 @@ def main() -> None:
             "mother": args.mother,
             "strike_at": args.strike_at,
             "rechain": args.rechain,
+            "below_mother": bool(args.below_mother),
+            "atm_fallback": bool(args.atm_fallback),
             "slip": float(args.slip),
             "depth": int(args.depth),
             "expiry": args.expiry,

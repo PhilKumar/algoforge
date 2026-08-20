@@ -357,10 +357,13 @@ def ten(rows: list[dict]) -> str:
 def every_campaign(rows: list[dict]) -> str:
     out = ""
     for x in rows:
-        legs = " &middot; ".join(
-            f"{lg['tf']} @ {r(lg['index'])} (&#8377;{lg['premium']:.2f} &times; {lg['qty']})"
-            if lg.get("premium") is not None
-            else f"{lg['tf']} @ {r(lg['index'])} (unpriced)"
+        legs = "<br>".join(
+            f"<span class='leg-when'>{lg['t'][:16].replace('T', ' ')}</span> &middot; {lg['tf']} @ {r(lg['index'])} "
+            + (
+                f"(&#8377;{lg['premium']:.2f} &times; {lg['qty']}) &middot; {lg['strike']}"
+                if lg.get("premium") is not None
+                else f"(unpriced) &middot; {lg['strike']}"
+            )
             for lg in x["legs"]
         )
         ex = x["exit_detail"] or {}
@@ -413,6 +416,8 @@ page = f"""<title>PhilForge Candle Entry Tearsheet</title>
 {STYLE}
 .two-up {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; }}
 table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
+/* Every buy says WHEN it went on, one line each (Phil, 2026-08-20). */
+.leg-when {{ font-variant-numeric:tabular-nums; opacity:.72; }}
 {LANG_CSS}
 </style>
 
