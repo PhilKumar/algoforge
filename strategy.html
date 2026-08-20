@@ -2891,7 +2891,7 @@
                measurement we made" -- the bar that makes the 278-bar high.
                Manual is the old way: name the candle. -->
           <input type="hidden" id="candle-entry-mother-mode" value="box">
-          <div id="candle-entry-mother-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which mother">
+          <div id="candle-entry-mother-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which mother">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="box" data-pf-action="setCandleEntryMother" role="radio" title="The bar that made the box high — found for you" aria-checked="true"><span>⊓ Box high</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="manual" data-pf-action="setCandleEntryMother" role="radio" title="Name the mother candle yourself" aria-checked="false"><span>✎ Manual</span></button>
           </div>
@@ -2910,7 +2910,7 @@
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Exit</label>
           <input type="hidden" id="candle-entry-exit-mode" value="trailing">
-          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Fixed target or trailing">
+          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Fixed target or trailing">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="trailing" data-pf-action="setCandleEntryExit" role="radio" title="Touching the target arms a trail: sell on a close giving back 30% of the gain" aria-checked="true"><span>↝ Trailing</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="fixed" data-pf-action="setCandleEntryExit" role="radio" title="The target is the sale" aria-checked="false"><span>▮ Fixed</span></button>
           </div>
@@ -2918,7 +2918,7 @@
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Target</label>
           <input type="hidden" id="candle-entry-target" value="0.25">
-          <div id="candle-entry-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="How far back to the mother high">
+          <div id="candle-entry-target-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How far back to the mother high">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryTarget" role="radio" title="A quarter of the way from the average entry back to the mother high" aria-checked="true"><span>¼ back</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryTarget" role="radio" title="Halfway from the average entry back to the mother high" aria-checked="false"><span>½ back</span></button>
           </div>
@@ -2926,7 +2926,7 @@
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Expiry</label>
           <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
-          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which contract">
+          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which contract">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest)" aria-checked="true"><span>▦ Monthly</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother — measured red: the campaign outlives the contract" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
           </div>
@@ -2934,7 +2934,7 @@
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
           <input type="hidden" id="candle-entry-session" value="hold">
-          <div id="candle-entry-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
+          <div id="candle-entry-session-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Session rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setCandleEntrySession" role="radio" title="Runs to its target or the option's expiry" aria-checked="true"><span>↗ Hold</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="intraday" data-pf-action="setCandleEntrySession" role="radio" title="Out at 15:15 and the campaign ends that day" aria-checked="false"><span>⏱ Close 3:15</span></button>
           </div>
@@ -2947,7 +2947,7 @@
                buy and 3rd buy also we need to select the current strike" --
                each rung its own ATM-2 is +Rs 2.83L against +Rs 2.02L. -->
           <div class="candle-entry-box-fields">
-            <select id="candle-entry-itm" style="padding:9px 10px;font:13px 'JetBrains Mono',monospace;flex:0 0 auto;width:auto;" title="How far in the money the one CE sits: ATM − 2 is two strikes (100 points) below the index at the moment it is chosen."><option value="-2" selected>ATM − 2</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
+            <select id="candle-entry-itm" style="flex:0 0 auto;width:auto;" title="How far in the money the one CE sits: ATM − 2 is two strikes (100 points) below the index at the moment it is chosen."><option value="-2" selected>ATM − 2</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
             <input type="hidden" id="candle-entry-strike-at" value="each_buy">
             <div id="candle-entry-strike-at-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="When the strike is chosen">
               <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="each_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="Every rung takes ATM − 2 of the index where it fills; up to three contracts, each sold at its own price — the measured rule" aria-checked="true"><span>⊙ Each buy</span></button>

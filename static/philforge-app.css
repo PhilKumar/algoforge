@@ -6175,6 +6175,55 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* The one-line summary of an older campaign, under the buttons. */
 .candle-entry-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
 .candle-entry-summary:empty { display:none; }
+/* THE ADVANCED FOLD READS AS A SETTINGS LIST, NOT A WALL OF PILLS. Phil,
+   2026-08-20: "Please make this little but clean and tidy... It seems
+   messy". Seven full-width ember switches stacked two to a row gave the
+   panel fourteen loud bars and no hierarchy. Here each setting is one
+   hairline row -- its name on the left, the switch sized to its own words on
+   the right -- and the chosen option is a flat tint rather than a lit
+   gradient. Scoped to this fold: the Fib Boundary form keeps the ember
+   switches Phil asked for. */
+#candle-entry-advanced .candle-entry-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
+#candle-entry-advanced .candle-entry-switch-grid > div {
+  display:grid; grid-template-columns: minmax(0,1fr) auto; align-items:center; gap:10px;
+  min-height:38px; padding:5px 0; border-bottom:1px solid rgba(148,163,184,.10);
+}
+#candle-entry-advanced .candle-entry-switch-grid > div > label {
+  margin:0 !important; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px;
+}
+#candle-entry-advanced .scalp-toggle { width:auto; grid-template-columns:repeat(2,auto); justify-self:end; gap:2px; padding:2px; }
+#candle-entry-advanced .scalp-toggle-btn { padding:5px 11px; min-height:26px; border-radius:6px; }
+#candle-entry-advanced .scalp-toggle.compact .scalp-toggle-btn span { font-size:10.5px; }
+/* A chosen option is stated, not spotlit. */
+#candle-entry-advanced .scalp-toggle-btn.active[data-tone="ember"] {
+  background: rgba(251,146,60,.13); border-color: rgba(251,146,60,.34); color:#fdba74; box-shadow:none;
+}
+[data-theme="light"] #candle-entry-advanced .scalp-toggle-btn.active[data-tone="ember"] {
+  background: rgba(251,146,60,.16); border-color: rgba(194,65,12,.38); color:#9a3412;
+}
+#candle-entry-advanced .candle-entry-box-fields { justify-self:end; gap:6px; }
+#candle-entry-advanced .candle-entry-box-fields input[type="number"] { width:64px; flex:0 0 64px; padding:5px 8px; font-size:11.5px; }
+#candle-entry-advanced .candle-entry-box-fields .scalp-toggle { flex:0 0 auto; }
+#candle-entry-advanced #candle-entry-itm { min-height:28px; padding:4px 8px; font-size:11.5px; }
+/* The strike row is the widest: it keeps the full width and its three-way. */
+#candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) { border-bottom:0; }
+#candle-entry-advanced #candle-entry-strike-at-toggle { grid-template-columns:repeat(3,auto); }
+#candle-entry-advanced .candle-entry-strike-fields { display:flex; gap:6px; align-items:center; justify-self:end; }
+@media (max-width: 900px) {
+  #candle-entry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 560px) {
+  #candle-entry-advanced .candle-entry-switch-grid > div { grid-template-columns: minmax(0,1fr); align-items:start; gap:4px; }
+  #candle-entry-advanced .scalp-toggle, #candle-entry-advanced .candle-entry-box-fields,
+  #candle-entry-advanced .candle-entry-strike-fields { justify-self:stretch; }
+  #candle-entry-advanced .scalp-toggle { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #candle-entry-advanced #candle-entry-strike-at-toggle { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  /* The strike row carries a select AND three choices: on a phone the three
+     take their own line rather than running off the edge. */
+  #candle-entry-advanced > .candle-entry-advanced-body .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
+  #candle-entry-advanced #candle-entry-strike-at-toggle { flex:1 1 100%; }
+}
+
 /* The strike cell holds a select and a three-way switch: give it the whole
    row so the three never wrap into a tall pill. */
 #options-cascade-page .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) { grid-column: 1 / -1; }
