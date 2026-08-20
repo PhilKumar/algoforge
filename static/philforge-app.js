@@ -2466,6 +2466,28 @@ function _candleEntryEventDescription(event) {
   return { name, detail: bits.join(' · ') };
 }
 
+// P&L reads with its sign in front of the rupee, the way a blotter shows it:
+// +₹4,875.00, −₹1,204.00. Zero is neither, so it carries no sign.
+function _candleEntrySigned(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  const body = `₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return n > 0 ? `+${body}` : n < 0 ? `−${body}` : body;
+}
+
+function _candleEntryPnlTone(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'var(--muted)';
+  return n > 0 ? 'var(--pf-pnl-up)' : n < 0 ? 'var(--pf-pnl-down)' : 'var(--text)';
+}
+
+// The mark's leg for one rung: the basket may hold three contracts, and a
+// rung is priced on the one its own strike bought.
+function _candleEntryMarkLeg(mark, fill) {
+  if (!mark || !fill || !Array.isArray(mark.legs)) return null;
+  return mark.legs.find(leg => Number(leg.strike) === Number(fill.strike) && String(leg.option_type) === String(fill.option_type)) || null;
+}
+
 // A monitor tile: like the backtest metric, but the value may take two lines
 // -- a mother's time and high do not fit one.
 function _candleEntryTile(label, value, accent = 'var(--text)') {
@@ -2493,23 +2515,33 @@ function _renderCandleEntryMonitor(campaign) {
   const c = campaign.contract || {};
   const box = campaign.box;
   const running = !!campaign.running;
-  if (kicker) kicker.textContent = `${running ? 'Paper campaign' : 'Paper campaign · ended'} · ${c.underlying || 'NIFTY'} ${c.strike || ''} ${c.option_type || 'CE'} · ${c.expiry || ''}${campaign.strike_at === 'each_buy' ? ' · strike at each buy' : ''}`;
+  const firstFill = filled.length ? filled[0].fill : null;
+  const since = firstFill && firstFill.timestamp ? `bought from ${_cascadeOptionsTimestamp(firstFill.timestamp).slice(0, 16)}` : (running ? 'nothing bought yet' : '');
+  if (kicker) kicker.textContent = `${running ? 'Paper campaign · RUNNING' : 'Paper campaign · ended'}${since ? ` · ${since}` : ''} · ${c.underlying || 'NIFTY'} ${c.strike || ''} ${c.option_type || 'CE'} · ${c.expiry || ''}${campaign.strike_at === 'each_buy' ? ' · strike at each buy' : ''}`;
   if (title) title.textContent = _candleEntryReadableState(String(campaign.status || 'WAITING_TWO_RED'));
   const qty = filled.reduce((n, r) => n + (Number(r.quantity) || 0), 0);
   const position = exit
     ? `Closed · ${String(exit.reason || '').replaceAll('_', ' ')}`
     : filled.length ? `${filled.length} of ${rungs.length} rungs · ${qty} qty` : 'Nothing bought yet';
-  const positionTone = exit ? (campaign.net_pnl == null ? 'var(--muted)' : campaign.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5') : filled.length ? '#93c5fd' : 'var(--muted)';
+  const positionTone = exit ? (campaign.net_pnl == null ? 'var(--muted)' : campaign.net_pnl >= 0 ? 'var(--pf-pnl-up)' : 'var(--pf-pnl-down)') : filled.length ? '#93c5fd' : 'var(--muted)';
   const next = exit ? 'Done'
     : active && active.state === 'armed' ? `Buy-stop ${_cascadeNumber(active.entry_stop)} on ${tfLabel(active.timeframe)}`
     : active ? `Two reds on ${tfLabel(active.timeframe)}${filled.length ? ' after a new low' : ''}`
     : 'Target';
+  // OPEN P&L: what the basket would book if it were sold at the last mark,
+  // charges included. It only exists while something is held and priced.
+  const mark = campaign.mark || null;
+  const markTime = mark && mark.at ? _cascadeOptionsTimestamp(mark.at).slice(11, 16) : '';
+  const openPnl = !exit && mark && mark.net_pnl != null
+    ? `${_candleEntrySigned(mark.net_pnl)}${mark.return_pct == null ? '' : ` · ${mark.return_pct > 0 ? '+' : ''}${mark.return_pct}%`}`
+    : !exit && mark && mark.unpriced ? 'no quote' : null;
   tiles.innerHTML = [
     _candleEntryTile('Mother · high', `${_cascadeOptionsTimestamp(mother.timestamp).slice(0, 16)} · ${_cascadeNumber(mother.high)}`),
     _candleEntryTile('Box · buys below', box && box.bars ? (box.filled < box.bars ? `${box.filled}/${box.bars} bars` : `${_cascadeNumber(box.line)} · box ${_cascadeNumber(box.low)}–${_cascadeNumber(box.high)}`) : 'off'),
     _candleEntryTile('Target', campaign.target_index == null ? 'after the first buy' : _cascadeNumber(campaign.target_index), '#fde68a'),
     _candleEntryTile('Position', position, positionTone),
     _candleEntryTile(exit ? 'Net P&L' : 'Deployed', exit ? (campaign.net_pnl == null ? 'unpriced' : _cascadeOptionsMoney(campaign.net_pnl)) : (campaign.deployed_inr ? _cascadeOptionsMoney(Number(campaign.deployed_inr)) : '—'), exit ? positionTone : '#fde68a'),
+    openPnl == null ? '' : _candleEntryTile('Open P&L · if sold', openPnl, mark.net_pnl == null ? 'var(--muted)' : _candleEntryPnlTone(mark.net_pnl)),
     _candleEntryTile('Watching for', next, running ? '#93c5fd' : 'var(--muted)'),
   ].join('');
   const rungStateLabel = { filled: 'BOUGHT', armed: 'STOP ARMED', watching: 'WATCHING', waiting: 'WAITING' };
@@ -2521,9 +2553,20 @@ function _renderCandleEntryMonitor(campaign) {
     const strikeTxt = fill && fill.strike ? Number(fill.strike).toLocaleString('en-IN') : '—';
     const premiumTxt = fill && fill.option_premium != null ? `₹${_cascadeNumber(fill.option_premium)}` : (fill ? 'no price' : '—');
     const tone = rung.state === 'filled' ? 'candle-entry-strong' : (rung.state === 'armed' ? '' : 'candle-entry-muted');
-    return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(strikeTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td></tr>`;
-  }).join('') : '<tr><td colspan="8" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
-  if (updated) updated.textContent = `Last bar ${_cascadeOptionsTimestamp(latest.timestamp).slice(0, 16)} · close ${_cascadeNumber(latest.close)} · refreshed ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })} IST`;
+    // WHAT THIS RUNG IS WORTH NOW: its own contract's mark, and the move on
+    // its own quantity. Blank once the campaign has closed -- the exit row
+    // and the Net P&L tile carry the settled money then.
+    const leg = exit ? null : _candleEntryMarkLeg(mark, fill);
+    const move = leg && leg.mark != null && fill && fill.option_premium != null
+      ? (leg.mark - Number(fill.option_premium)) * (Number(fill.quantity) || 0)
+      : null;
+    const nowTxt = leg && leg.mark != null ? `₹${_cascadeNumber(leg.mark)}` : (fill && !exit ? 'no quote' : '—');
+    const nowCell = move == null
+      ? `<td class="${tone}">${escapeHtml(nowTxt)}</td>`
+      : `<td class="${tone}">${escapeHtml(nowTxt)} <span style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
+    return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(strikeTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td>${nowCell}</tr>`;
+  }).join('') : '<tr><td colspan="9" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
+  if (updated) updated.textContent = `Last bar ${_cascadeOptionsTimestamp(latest.timestamp).slice(0, 16)} · close ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''} · refreshed ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })} IST`;
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {

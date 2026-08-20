@@ -789,6 +789,73 @@ class TwoRedLadder:
         self.status = "CLOSED"
         self._log(candle, "closed", reason=reason, net_pnl=self.net_pnl)
 
+    def mark_open(self, at: datetime) -> Optional[dict]:
+        """The open basket, priced as if it were sold at `at`.
+
+        The monitor had deployed capital and nothing else: a basket could be
+        thousands up or down and the page said the same either way (Phil,
+        2026-08-20: "Now I don't know whether I started paper or not"). This
+        is the CLOSE's own arithmetic -- each contract read on its own quote,
+        the whole NSE charge schedule on the round trip -- so what the tile
+        shows is what the campaign would book, not a gross figure that
+        flatters it. `net_pnl` is None when any leg has no quote, because one
+        unpriced leg makes the basket a guess; the legs are still returned so
+        the ladder table can show what did price.
+        """
+        if not self.fills or self.exit_timestamp is not None:
+            return None
+        groups: dict[tuple[int, str], list[LadderFill]] = {}
+        for fill in self.fills:
+            groups.setdefault((fill.strike, fill.option_type), []).append(fill)
+        quotes = {key: self.premium_lookup(at, key[0], key[1]) for key in groups}
+        priced = all(value is not None for value in quotes.values()) and all(
+            fill.option_premium is not None for fill in self.fills
+        )
+        legs = []
+        parts: list[OptionRoundCosts] = []
+        gross = 0.0
+        deployed = 0.0
+        for key, fills in groups.items():
+            quote = quotes[key]
+            quantity = sum(fill.quantity for fill in fills)
+            paid = sum(float(fill.option_premium) * fill.quantity for fill in fills if fill.option_premium is not None)
+            deployed += paid
+            leg_gross = (
+                sum((float(quote) - float(fill.option_premium)) * fill.quantity for fill in fills) if priced else None
+            )
+            legs.append(
+                {
+                    "strike": key[0],
+                    "option_type": key[1],
+                    "quantity": quantity,
+                    "paid": round(paid / quantity, 2) if quantity else None,
+                    "mark": round(float(quote), 2) if quote is not None else None,
+                    "gross_pnl": round(leg_gross, 2) if leg_gross is not None else None,
+                }
+            )
+            if priced:
+                gross += float(leg_gross)
+                parts.append(
+                    calculate_nifty_option_basket_round_costs(
+                        buys=[OptionCostFill(fill.option_premium, fill.quantity, fill.lots) for fill in fills],
+                        sell_price=float(quote),
+                        sell_quantity=quantity,
+                        sell_lots=sum(fill.lots for fill in fills),
+                    )
+                )
+        costs = _sum_costs(parts) if parts else None
+        net = round(gross - costs.total, 2) if costs is not None else None
+        return {
+            "at": at.isoformat(),
+            "legs": legs,
+            "deployed_inr": round(deployed, 2),
+            "gross_pnl": round(gross, 2) if priced else None,
+            "costs_total": round(costs.total, 2) if costs is not None else None,
+            "net_pnl": net,
+            "return_pct": round(100 * net / deployed, 2) if net is not None and deployed else None,
+            "unpriced": not priced,
+        }
+
     def run(self, candles: list[LadderCandle]) -> "TwoRedLadder":
         for candle in order_events(candles):
             self.on_candle(candle)

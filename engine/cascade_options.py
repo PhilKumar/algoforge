@@ -2678,6 +2678,31 @@ class LadderCandleEntryPaper:
         self._seen: dict[str, datetime] = {}
         self._candles_reviewed = 0
         self._latest: Optional[LadderCandle] = None
+        # THE LAST MARK: the open basket priced as if sold, refreshed by the
+        # paper loop while the market is open and carried across a restart so
+        # the monitor never falls back to showing deployed capital alone.
+        self._mark: Optional[dict[str, Any]] = None
+
+    def mark(self, at: Optional[datetime] = None) -> Optional[dict[str, Any]]:
+        """Price the open basket now and remember it for the monitor.
+
+        A quote that fails (a broker hiccup, a rate limit) leaves the previous
+        mark standing with its own timestamp rather than blanking the tile --
+        the page says WHEN it was marked, so a stale number cannot be read as
+        a live one. Signal-only replays never mark: their premiums are
+        withheld by design.
+        """
+        if self.signal_only:
+            return None
+        when = at or datetime.now(IST)
+        try:
+            mark = self.ladder.mark_open(when)
+        except Exception as exc:  # a quote is not worth losing the poll over
+            _logger.warning("[CANDLE ENTRY] mark-to-market failed: %s", exc)
+            return self._mark
+        if mark is not None or not self.ladder.fills or self.ladder.exit_timestamp is not None:
+            self._mark = mark
+        return self._mark
 
     def contract_for(self, strike: int, option_type: str) -> FixedCampaignOption:
         """The campaign's contract at this strike: the one it holds if it
@@ -3005,6 +3030,10 @@ class LadderCandleEntryPaper:
             "gross_pnl": ladder.gross_pnl,
             "costs_total": round(ladder.costs.total, 2) if ladder.costs is not None else None,
             "deployed_inr": deployed,
+            # OPEN MONEY: what the basket is worth right now, if it were sold
+            # right now, charges included. None before the first buy, after
+            # the exit, and on a signal-only replay.
+            "mark": self._mark,
             "unpriced_fills": len(ladder.fills) - len(priced_fills),
             "fills": [
                 {
@@ -3160,6 +3189,7 @@ class LadderCandleEntryPaper:
             "candles_reviewed": self._candles_reviewed,
             "latest": candle(self._latest) if self._latest is not None else None,
             "replay_complete": self.replay_complete,
+            "mark": self._mark,
             "ladder": {
                 "active": ladder.active,
                 "lowest": ladder.lowest,
@@ -3327,6 +3357,8 @@ class LadderCandleEntryPaper:
         engine._candles_reviewed = int(payload.get("candles_reviewed") or 0)
         engine._latest = ladder_candle(payload["latest"]) if payload.get("latest") else None
         engine.replay_complete = bool(payload.get("replay_complete"))
+        mark = payload.get("mark")
+        engine._mark = dict(mark) if isinstance(mark, dict) else None
         return engine
 
 

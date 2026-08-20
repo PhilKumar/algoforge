@@ -652,6 +652,63 @@ class LadderCandleEntryPaperTests(unittest.TestCase):
         # avg entry (103*65 + 99*130)/195 = 100.33; target a quarter back to 110.
         self.assertAlmostEqual(status["target_index"], 102.75, places=2)
 
+    def test_the_open_basket_is_marked_at_what_it_would_book_if_sold(self):
+        """The monitor showed deployed capital and no P&L at all. A held basket
+        now prices every contract it owns at the current quote and reports the
+        NET -- charges on the round trip included, the close's own arithmetic --
+        plus the return on what was deployed. It survives a restart."""
+        adapter = _PaperAdapter()
+        quotes = {"buy": 100.0, "mark": 130.0}
+        phase = ["buy"]
+
+        engine = self._engine(adapter, premium=0.0)
+        engine.option_premium_lookup = lambda _t, _c: quotes[phase[0]]
+        engine.ladder.premium_lookup = lambda t, strike, option_type: quotes[phase[0]]
+        engine.ingest(self._two_rung_batches())
+        self.assertIsNone(engine.get_status()["mark"], "nothing is marked until it is asked for")
+
+        phase[0] = "mark"
+        mark = engine.mark(self._minute(9, 40))
+        self.assertEqual(mark["legs"][0]["quantity"], 195)
+        self.assertEqual(mark["legs"][0]["paid"], 100.0)
+        self.assertEqual(mark["legs"][0]["mark"], 130.0)
+        # 30 rupees on 195 = 5,850 gross, charges taken off it, never added.
+        self.assertEqual(mark["gross_pnl"], 5850.0)
+        self.assertGreater(mark["costs_total"], 0)
+        self.assertAlmostEqual(mark["net_pnl"], 5850.0 - mark["costs_total"], places=2)
+        self.assertAlmostEqual(mark["return_pct"], 100 * mark["net_pnl"] / (100.0 * 195), places=2)
+        self.assertFalse(mark["unpriced"])
+        self.assertEqual(engine.get_status()["mark"]["net_pnl"], mark["net_pnl"])
+
+        restored = LadderCandleEntryPaper.from_dict(
+            engine.to_dict(), adapter=adapter, option_premium_lookup=lambda _t, _c: 130.0
+        )
+        self.assertEqual(restored.get_status()["mark"]["net_pnl"], mark["net_pnl"])
+
+    def test_a_leg_with_no_quote_leaves_the_mark_unpriced_rather_than_guessed(self):
+        """One contract no source can price makes the whole basket a guess, so
+        the money is withheld exactly as it is at a close -- but the legs that
+        did price are still reported, so the ladder table can show them."""
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter, premium=100.0)
+        engine.ingest(self._two_rung_batches())
+        engine.ladder.premium_lookup = lambda _t, _s, _o: None
+
+        mark = engine.mark(self._minute(9, 40))
+        self.assertTrue(mark["unpriced"])
+        self.assertIsNone(mark["net_pnl"])
+        self.assertIsNone(mark["gross_pnl"])
+        self.assertEqual(mark["legs"][0]["paid"], 100.0)
+        self.assertIsNone(mark["legs"][0]["mark"])
+
+    def test_a_signal_only_replay_is_never_marked(self):
+        """Signal-only withholds premiums by design; a mark would invent one."""
+        adapter = _PaperAdapter()
+        engine = self._engine(adapter, signal_only=True)
+        engine.ingest(self._two_rung_batches())
+        self.assertIsNone(engine.mark(self._minute(9, 40)))
+        self.assertIsNone(engine.get_status()["mark"])
+
     def test_the_strike_is_chosen_where_the_first_rung_fills(self):
         """strike_at="first_buy": ATM of the FIRST fill's index plus the offset,
         same expiry and lot; the premium is read on the new contract from that

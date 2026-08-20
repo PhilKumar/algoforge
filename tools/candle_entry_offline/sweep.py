@@ -180,7 +180,9 @@ def main() -> None:
         help=(
             "what happens when a campaign ends: none = wait for the next NEW box high (the original rule); "
             "always = start again at once on the current box's high bar, watching from the exit; "
-            "until_profit = the same, but only while the last campaign on it did not end in profit"
+            "until_profit = the same, but only while the last campaign on it did not end in profit; "
+            "always_same = always, but the mother's high RATCHETS -- it is replaced only by a higher bar, "
+            "never by the lower high the sliding 278-bar box leaves behind"
         ),
     )
     ap.add_argument("--side", default="ce", help="ce = the rule as written; pe = its mirror (mother's LOW, two greens)")
@@ -419,6 +421,7 @@ def main() -> None:
             if result is None:
                 continue
             free_from, st = result
+            held = mother
             # RE-CHAIN: while the rule says so, the next campaign starts at once
             # on the current box's high bar, watching from where the last ended.
             while args.rechain != "none" and args.mother == "box" and free_from <= candidates[-1].timestamp:
@@ -429,9 +432,16 @@ def main() -> None:
                 again = current_box_high(free_from)
                 if again is None:
                     break
+                if args.rechain == "always_same" and again.high <= held.high:
+                    # RATCHET: the mother's high never steps DOWN. The box high
+                    # slides lower as the old mother scrolls out of the 278-bar
+                    # window; this variant holds the old high until a bar beats
+                    # it (Phil, 2026-08-20).
+                    again = held
                 result = run_campaign(again, free_from)
                 if result is None:
                     break
+                held = again
                 free_from, st = result
         if args.csv:
             name = (

@@ -114,6 +114,7 @@ from engine.cascade_options import (
     NiftyOptionsPaperCascade,
     OneHourCascade,
     PaperCascadeConfig,
+    is_nse_cash_session,
 )
 from engine.cascade_scanner import HIGH_LOOKBACK as CASCADE_SCAN_HIGH_LOOKBACK
 from engine.cascade_scanner import ScanInput
@@ -10593,6 +10594,13 @@ async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             runtime.engine.settle_past_expiry(datetime.now(IST))
             if runtime.engine.status in {"CLOSED", "EXPIRED", "KILLED"}:
                 runtime.running = False
+            # WHAT THE BASKET IS WORTH NOW. One quote per contract it holds
+            # (three at most), inside the session only -- off-hours the last
+            # mark stands with its own timestamp rather than spending the
+            # rate budget to re-read a price that cannot move. The quotes are
+            # blocking HTTP, so they go to a thread.
+            if runtime.engine.ladder.fills and is_nse_cash_session(now):
+                await asyncio.to_thread(runtime.engine.mark, datetime.now(IST))
             await _save_candle_entry_open_state(user_id, force=not runtime.running)
         except asyncio.CancelledError:
             raise

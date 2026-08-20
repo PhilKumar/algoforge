@@ -731,6 +731,70 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
   await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
 });
 
+// Phil, 2026-08-20, looking at a fully-bought paper basket: "Now I don't know
+// whether I started paper or not... The trading console is completely shit".
+// The monitor showed deployed capital and NOTHING about what the basket was
+// worth. It now carries the open P&L, marked and stamped, and each rung's own
+// contract priced where it stands.
+test('A held Candle Entry basket shows what it is worth right now', async ({ page }) => {
+  await login(page);
+  const marked = {
+    status: 'ok', mode: 'paper',
+    campaign: {
+      running: true, status: 'OPEN', strike_at: 'each_buy',
+      contract: { underlying: 'NIFTY', strike: 24400, option_type: 'CE', expiry: '2026-08-25', lot_size: 65 },
+      mother: { timestamp: '2026-08-03T15:25:00+05:30', high: 24774.3 },
+      latest_closed_candle: { timestamp: '2026-08-20T09:45:00+05:30', close: 24203.35 },
+      box: { bars: 278, filled: 278, line: 24120.54, low: 24025.65, high: 24405.2 },
+      target_index: 24464.89, deployed_inr: 117042.25, net_pnl: null, exit: null, events: [],
+      rungs: [
+        { rung: 1, timeframe: '5m', lots: 1, quantity: 65, state: 'filled',
+          fill: { timestamp: '2026-08-11T09:25:00+05:30', index_price: 24504.75, option_premium: 309, strike: 24400, option_type: 'CE', quantity: 65 } },
+        { rung: 2, timeframe: '15m', lots: 2, quantity: 130, state: 'filled',
+          fill: { timestamp: '2026-08-12T10:15:00+05:30', index_price: 24378.55, option_premium: 283.6, strike: 24300, option_type: 'CE', quantity: 130 } },
+        { rung: 3, timeframe: '1h', lots: 3, quantity: 195, state: 'watching', entry_stop: null, fill: null },
+      ],
+      mark: {
+        at: '2026-08-20T09:51:00+05:30', unpriced: false,
+        deployed_inr: 56953.0, gross_pnl: 4875.0, costs_total: 375.0, net_pnl: 4500.0, return_pct: 7.9,
+        legs: [
+          { strike: 24400, option_type: 'CE', quantity: 65, paid: 309, mark: 329, gross_pnl: 1300 },
+          { strike: 24300, option_type: 'CE', quantity: 130, paid: 283.6, mark: 311.1, gross_pnl: 3575 },
+        ],
+      },
+    },
+  };
+  await page.route('**/api/candle-entry/paper/status', route => route.fulfill({ json: marked }));
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-candle');
+
+  // It says, in words, that a paper campaign is RUNNING and since when.
+  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('RUNNING');
+  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('bought from 2026-08-11');
+
+  // The money tile: net if sold now, its return, and the minute it was marked.
+  const tiles = page.locator('#candle-entry-monitor-tiles');
+  await expect(tiles).toContainText('Open P&L · if sold');
+  await expect(tiles).toContainText('+₹4,500.00');
+  await expect(tiles).toContainText('7.9%');
+  await expect(page.locator('#candle-entry-monitor-updated')).toContainText('marked 09:51');
+
+  // Each rung priced on ITS OWN contract, with the move on its own quantity.
+  const rows = page.locator('#candle-entry-monitor-rungs tr');
+  await expect(rows.nth(0)).toContainText('₹329.00');
+  await expect(rows.nth(0)).toContainText('+₹1,300.00');
+  await expect(rows.nth(1)).toContainText('₹311.10');
+  await expect(rows.nth(1)).toContainText('+₹3,575.00');
+  await expect(rows.nth(2)).toContainText('—');
+
+  // A phone reads it without the page itself scrolling sideways.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await expect(tiles).toContainText('+₹4,500.00');
+});
+
 // Phil, 2026-08-16, pointing at the Cash Cascade page: "Why don't you put the
 // panels in this format?.. The (i) for cascades". They already shared its
 // classes; what they did not share was ROOM. A .pf-info-doc flows its sections
