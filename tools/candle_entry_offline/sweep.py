@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
 import json
 import os
 import sys
@@ -168,6 +169,15 @@ def main() -> None:
     ap.add_argument(
         "--shift", type=int, default=0, help="placebo: start the campaign this many bars AFTER the qualifying mother"
     )
+    ap.add_argument(
+        "--slip-jitter",
+        dest="slip_jitter",
+        type=float,
+        default=0.0,
+        help="every leg is filled a RANDOM 0..this many rupees worse, fixed per (seed, minute, strike). "
+        "The retry chain reads the sign of a campaign's P&L, so this walks the book down a different path",
+    )
+    ap.add_argument("--slip-seed", dest="slip_seed", type=int, default=0, help="which path --slip-jitter draws")
     ap.add_argument(
         "--strike-at",
         dest="strike_at",
@@ -346,15 +356,31 @@ def main() -> None:
             strike = atm + args.strike_offset if side == "CE" else atm - args.strike_offset
             contract = FixedCampaignOption("NIFTY", strike, expiry, side, int(get_lot_size("NIFTY", starts.date())), "")
             slip = float(args.slip)
+            jitter = float(args.slip_jitter)
+            seed = int(args.slip_seed)
             holder: list = [None]
+
+            def _jitter_for(when, contract_) -> float:
+                """A repeatable random slippage for ONE leg.
+
+                Hashed rather than drawn, so pricing the same leg twice in a
+                run gives the same number -- a leg that costs one thing when
+                it is bought and another when it is looked at again is not a
+                perturbation, it is a bug.
+                """
+                if not jitter:
+                    return 0.0
+                key = f"{seed}|{when.isoformat()}|{contract_.strike}|{contract_.option_type}".encode()
+                return jitter * (int.from_bytes(hashlib.blake2b(key, digest_size=8).digest(), "big") / 2.0**64)
 
             def slipped(when, contract_, _holder=holder):
                 raw = premium(when, contract_)
-                if raw is None or not slip:
+                if raw is None or (not slip and not jitter):
                     return raw
+                cost = slip + _jitter_for(when, contract_)
                 box = _holder[0]
                 selling = box is not None and box.ladder.fills and box.ladder.exit_timestamp is not None
-                return max(0.05, raw - slip) if selling else raw + slip
+                return max(0.05, raw - cost) if selling else raw + cost
 
             window_end = min(expiry, data_end)
             batches = {
@@ -505,6 +531,8 @@ def main() -> None:
             "atm_step": int(args.atm_step or 0),
             "fallback_step": int(args.fallback_step or 0),
             "slip": float(args.slip),
+            "slip_jitter": float(args.slip_jitter),
+            "slip_seed": int(args.slip_seed),
             "depth": int(args.depth),
             "expiry": args.expiry,
             "target": target,
