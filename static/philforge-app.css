@@ -6127,6 +6127,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .candle-entry-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:12px; }
 .candle-entry-actions .btn { min-height:38px; margin:0 !important; }
 .candle-entry-backtest-window { margin-top:14px; }
+/* A restored replay is a STORED result: it keeps the rule it ran under, and
+   one saved before the ladder changed shape reads exactly like today's. */
+.candle-entry-stale-note { margin:0 0 12px; padding:9px 11px; border:1px solid rgba(251,191,36,.32); border-radius:8px;
+  background:rgba(251,191,36,.07); color:#fde68a; font:10.5px/1.6 var(--font-mono); }
+[data-theme="light"] .candle-entry-stale-note { border-color:rgba(180,83,9,.28); background:rgba(251,191,36,.12); color:#92400e; }
 /* The rule switches sit two a row (Box · Exit / Target · Expiry / Session ·
    Strike), one on a phone -- the .fibx-switch-grid rule below carries both
    breakpoints, and this form deliberately shares it with Fib Boundary

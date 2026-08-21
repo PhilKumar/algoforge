@@ -771,6 +771,72 @@ test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) =>
     .toContain('#auto-mother');
 });
 
+// A replay is filed server-side so a page reload brings it back without paying
+// for it again -- but the file outlives the RULE. A run saved on 19 Aug under
+// three rungs struck at the mother was still the panel's whole content after
+// the ladder became two rungs struck at each buy, and nothing on the page could
+// remove it (Phil, 2026-08-20: "I am not able to remove the old one"). So a
+// restored replay says it is a stored one, and carries its own delete.
+test('A restored Candle Entry replay says it is saved, and can be thrown away', async ({ page }) => {
+  await login(page);
+  const saved = {
+    status: 'ok',
+    run: {
+      created_at: '2026-08-19T22:31:57+05:30',
+      payload: {
+        status: 'ok', mode: 'backtest', pricing: 'recorded_history', timeframe: '5m',
+        stages: ['5m', '15m', '1h'], lot_size: 65, strike_at: 'mother', expiry_rule: 'monthly',
+        target_fraction: 0.25, trailing_target: true, intraday_close: false, mother_mode: 'clock',
+        candles_replayed: 1498, horizon_to: '2026-05-26T15:30:00+05:30', still_open: false,
+        contract: { strike: 24350, expiry: '2026-05-28' },
+        mother: { timestamp: '2026-05-07T12:40:00+05:30', high: 24482.1 },
+        campaign: {
+          net_pnl: -48181.12, gross_pnl: -48054.5, costs_total: 126.62, deployed_inr: 48405.5,
+          average_entry: 23715.6, target_index: 23907.22,
+          exit: { timestamp: '2026-05-26T13:05:00+05:30', reason: 'trail', index_price: 23977.54, option_premium: 0.9 },
+          fills: [
+            { rung: 1, timeframe: '5m', timestamp: '2026-05-11T09:45:00+05:30', index_price: 23881.8, strike: 24350, option_premium: 176, lots: 1, quantity: 65 },
+          ],
+        },
+        charts: {}, premium_failures: [], premium_stale_fills: [],
+        note: 'NIFTY CE two-red ladder from a 5m mother.',
+      },
+    },
+  };
+  await page.route('**/api/candle-entry/backtests/latest', route => {
+    if (route.request().method() === 'DELETE') return route.fulfill({ json: { status: 'ok', removed: true } });
+    return route.fulfill({ json: saved });
+  });
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-candle');
+
+  const panel = page.locator('#candle-entry-backtest');
+  await expect(panel).toBeVisible();
+  // It is labelled a stored result, with the minute it was stored.
+  await expect(page.locator('#candle-entry-backtest-badge')).toContainText('SAVED');
+  await expect(page.locator('#candle-entry-backtest-stale')).toContainText('Saved replay');
+  await expect(page.locator('#candle-entry-backtest-stale')).toContainText('a ladder the page no longer trades');
+  await expect(page.locator('#candle-entry-backtest-note')).toContainText('saved run from');
+
+  // It reads BELOW the live monitor, not above it.
+  const order = await page.evaluate(() => {
+    const live = document.getElementById('candle-entry-monitor');
+    const back = document.getElementById('candle-entry-backtest');
+    return live.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING ? 'after' : 'before';
+  });
+  expect(order).toBe('after');
+
+  // CSV survives; the JSON download is gone.
+  await expect(page.locator('#candle-entry-backtest-csv')).toBeVisible();
+  await expect(page.locator('#candle-entry-backtest-json')).toHaveCount(0);
+
+  // And it can be removed.
+  await page.click('#candle-entry-backtest-delete');
+  await page.click('#confirm-ok-btn');
+  await expect(panel).toBeHidden();
+  await expect(page.locator('#candle-entry-form-status')).toContainText('Saved replay deleted');
+});
+
 test('A held Candle Entry basket shows what it is worth right now', async ({ page }) => {
   await login(page);
   const marked = {

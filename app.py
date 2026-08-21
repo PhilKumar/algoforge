@@ -11185,6 +11185,21 @@ async def candle_entry_latest_backtest(request: Request):
     return {"status": "ok", "run": {"created_at": saved.get("created_at"), "payload": saved["payload"]}}
 
 
+@app.delete("/api/candle-entry/backtests/latest")
+async def delete_candle_entry_latest_backtest(request: Request):
+    """Throw the saved replay away.
+
+    A replay is filed so a page reload brings it back, but the file outlives
+    the rule: a run saved under three rungs and a strike fixed at the mother
+    kept rendering after the ladder became two rungs at each buy, and there
+    was no way to be rid of it (Phil, 2026-08-20: "I am not able to remove
+    the old one"). Removing the row is enough -- the panel has nothing to
+    restore on the next load.
+    """
+    removed = await _db_mod.delete_app_state(_candle_entry_backtest_key(_request_user_id(request)))
+    return {"status": "ok", "removed": bool(removed)}
+
+
 @app.get("/api/candle-entry/backtests/latest/export.json")
 async def export_candle_entry_backtest_json(request: Request):
     saved = await _candle_entry_latest_backtest(request)

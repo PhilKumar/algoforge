@@ -1916,6 +1916,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startCandleEntryPaper',
   'killCandleEntryPaper',
   'runCandleEntryBacktest',
+  'deleteCandleEntryBacktest',
   'toggleCandleEntryBacktestChart',
   'loadCandleEntryChart',
   'hideCandleEntryChart',
@@ -2891,16 +2892,61 @@ async function _restoreLastCandleEntryBacktest() {
     const payload = data && data.run && data.run.payload;
     if (!payload || payload.status !== 'ok' || _lastCandleEntryBacktest) return;
     _renderCandleEntryBacktest(payload);
+    const when = data.run.created_at ? _cascadeOptionsTimestamp(data.run.created_at) : '';
     const note = document.getElementById('candle-entry-backtest-note');
-    if (note && data.run.created_at) note.textContent = `${note.textContent} · saved run from ${_cascadeOptionsTimestamp(data.run.created_at)}`;
+    if (note && when) note.textContent = `${note.textContent} · saved run from ${when}`;
+    // A restored replay reads exactly like one just run, and a stale one is
+    // worse than none: the 19 Aug run kept showing three rungs struck at the
+    // mother after the ladder became two rungs at each buy. Say what it is.
+    const badge = document.getElementById('candle-entry-backtest-badge');
+    if (badge && !badge.textContent.startsWith('SAVED')) badge.textContent = `SAVED · ${badge.textContent}`;
+    const stale = document.getElementById('candle-entry-backtest-stale');
+    if (stale) {
+      stale.textContent = `Saved replay${when ? ` from ${when}` : ''} — a stored result, not today's. It keeps the rule it ran `
+        + 'under, so an old one can show a ladder the page no longer trades. Backtest replaces it; ✕ Delete throws it away.';
+      stale.style.display = '';
+    }
   } catch (_error) {
     /* No saved run, or it cannot be read — the panel simply stays closed. */
   }
 }
 
+// A saved replay outlives the rule it ran under: one filed on 19 Aug under
+// three rungs and a strike fixed at the mother was still on screen after the
+// ladder became two rungs at each buy, and nothing on the page could remove
+// it (Phil, 2026-08-20: "I am not able to remove the old one").
+async function deleteCandleEntryBacktest() {
+  const confirmed = await customConfirm(
+    'Throw this saved replay away? Nothing traded is touched \u2014 it is a recorded backtest, and the same mother can always be replayed again.',
+    { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
+  );
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/candle-entry/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay could not be deleted.'));
+  } catch (error) {
+    _setCandleEntryFormStatus(error.message || 'The replay could not be deleted.', 'error');
+    return;
+  }
+  _lastCandleEntryBacktest = null;
+  _candleEntryCollapseBacktestChart();
+  const panel = document.getElementById('candle-entry-backtest');
+  if (panel) panel.style.display = 'none';
+  const legs = document.getElementById('candle-entry-backtest-legs');
+  if (legs) legs.innerHTML = '';
+  ['candle-entry-backtest-csv', 'candle-entry-backtest-delete', 'candle-entry-backtest-chart-btn'].forEach(id => {
+    const node = document.getElementById(id);
+    if (node) node.style.display = 'none';
+  });
+  _setCandleEntryFormStatus('Saved replay deleted. Press Backtest to replay a mother fresh.', 'success');
+}
+
 function _renderCandleEntryBacktest(data) {
   const panel = document.getElementById('candle-entry-backtest');
   if (panel) panel.style.display = '';
+  const stale = document.getElementById('candle-entry-backtest-stale');
+  if (stale) { stale.textContent = ''; stale.style.display = 'none'; }
   const c = data.campaign || {};
   _lastCandleEntryBacktest = data;
   _candleEntryCollapseBacktestChart();
@@ -2908,7 +2954,7 @@ function _renderCandleEntryBacktest(data) {
   const hasChart = Object.keys(charts).some(tf => Array.isArray(charts[tf]?.candles) && charts[tf].candles.length);
   const chartBtn = document.getElementById('candle-entry-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
-  ['candle-entry-backtest-csv', 'candle-entry-backtest-json'].forEach(id => { const a = document.getElementById(id); if (a) a.style.display = ''; });
+  ['candle-entry-backtest-csv', 'candle-entry-backtest-delete'].forEach(id => { const a = document.getElementById(id); if (a) a.style.display = ''; });
 
   const badge = document.getElementById('candle-entry-backtest-badge');
   if (badge) {
@@ -3350,6 +3396,7 @@ window.hideCascadeOptionsChart = hideCascadeOptionsChart;
 window.startCandleEntryPaper = startCandleEntryPaper;
 window.killCandleEntryPaper = killCandleEntryPaper;
 window.runCandleEntryBacktest = runCandleEntryBacktest;
+window.deleteCandleEntryBacktest = deleteCandleEntryBacktest;
 window.toggleCandleEntryBacktestChart = toggleCandleEntryBacktestChart;
 window.loadCandleEntryChart = loadCandleEntryChart;
 window.hideCandleEntryChart = hideCandleEntryChart;

@@ -726,6 +726,14 @@ async def get_app_state(key: str) -> str | None:
         return str(row["value"])
 
 
+async def delete_app_state(key: str) -> bool:
+    """Forget one app-state value. True when a row was actually removed."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM app_state WHERE key = ?", (str(key),))
+        await db.commit()
+        return bool(cursor.rowcount)
+
+
 async def set_app_state(key: str, value: str) -> None:
     """Insert or update one app-state value."""
     state_key = str(key)

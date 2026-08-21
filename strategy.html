@@ -2985,21 +2985,6 @@
       <div class="candle-entry-pane candle-entry-pane-live">
       <div id="candle-entry-auto-card" class="candle-entry-auto-card" hidden></div>
       <div id="candle-entry-summary" class="candle-entry-summary">No active Candle Entry campaign.</div>
-      <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
-        <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="candle-entry-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="candle-entry-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
-          <div id="candle-entry-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
-          <div class="cascade-options-strip-actions"><a id="candle-entry-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><a id="candle-entry-backtest-json" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.json" style="display:none;text-decoration:none;" download>↓ JSON</a><button id="candle-entry-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button></div>
-        </summary>
-        <div class="cascade-options-window-body">
-          <div id="candle-entry-backtest-summary" class="cascade-options-summary"></div>
-          <div id="candle-entry-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
-          <div id="candle-entry-backtest-gaps" style="margin-top:10px;"></div>
-          <div id="candle-entry-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="candle-entry-backtest-chart-strip" style="display:flex;justify-content:flex-end;margin-bottom:6px;"></div><div id="candle-entry-backtest-chart" style="overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div></div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Every buy, in order</div>
-          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Rung</th><th style="padding:7px 8px;text-align:left;">Chart</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="candle-entry-backtest-legs"></tbody></table></div>
-        </div>
-      </details>
       <!-- THE MONITOR: the running campaign, and nothing older. A campaign
            that ended on a previous day is one line under the form, not a
            panel (Phil, 2026-08-20, on a stale 10 Aug replay filling the
@@ -3017,6 +3002,22 @@
           <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </details>
       </section>
+      <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
+        <summary class="cascade-options-window-head">
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="candle-entry-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="candle-entry-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
+          <div id="candle-entry-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
+          <div class="cascade-options-strip-actions"><a id="candle-entry-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="candle-entry-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="candle-entry-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteCandleEntryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+        </summary>
+        <div class="cascade-options-window-body">
+          <div id="candle-entry-backtest-stale" class="candle-entry-stale-note" style="display:none;"></div>
+          <div id="candle-entry-backtest-summary" class="cascade-options-summary"></div>
+          <div id="candle-entry-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
+          <div id="candle-entry-backtest-gaps" style="margin-top:10px;"></div>
+          <div id="candle-entry-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="candle-entry-backtest-chart-strip" style="display:flex;justify-content:flex-end;margin-bottom:6px;"></div><div id="candle-entry-backtest-chart" style="overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div></div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Every buy, in order</div>
+          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Rung</th><th style="padding:7px 8px;text-align:left;">Chart</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="candle-entry-backtest-legs"></tbody></table></div>
+        </div>
+      </details>
       </div>
       </div>
     </div>
