@@ -866,7 +866,7 @@ test('The auto row does not call a running campaign "waiting"', async ({ page })
 
   const card = page.locator('#candle-entry-auto-card');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('campaign running on the mother of 2026-08-03');
+  await expect(card).toContainText('mother 3 Aug 15:25 · running');
   await expect(card).not.toContainText('waiting for the next new');
 });
 
@@ -902,8 +902,10 @@ test('A held Candle Entry basket shows what it is worth right now', async ({ pag
   await page.click('#oc-tabbtn-candle');
 
   // It says, in words, that a paper campaign is RUNNING and since when.
-  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('RUNNING');
-  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('bought from 2026-08-11');
+  // One line, and only what the heading and the recipe strip do not already
+  // say (Phil, 2026-08-21: "Decrease the texts here... simple and crisp").
+  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('Paper · NIFTY 24400 CE · 25 Aug');
+  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('from 11 Aug 09:25');
 
   // The money tile: net if sold now, its return, and the minute it was marked.
   const tiles = page.locator('#candle-entry-monitor-tiles');

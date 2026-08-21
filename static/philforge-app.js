@@ -2448,6 +2448,14 @@ function _candleEntryOverviewRow(label, value, detail = '', tone = '') {
   return `<div class="candle-entry-overview-row"><div class="candle-entry-overview-label">${escapeHtml(label)}</div><div class="candle-entry-overview-value${tone ? ` ${tone}` : ''}">${escapeHtml(value)}</div>${detail ? `<div class="candle-entry-overview-detail">${escapeHtml(detail)}</div>` : ''}</div>`;
 }
 
+// "25 Aug" -- an expiry is a DAY, so _fibShortStamp's 00:00 is noise on it.
+function _candleEntryShortDay(value) {
+  if (!value) return '—';
+  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  return `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]}`;
+}
+
 function _candleEntryReadableState(status) {
   return ({
     WAITING_TWO_RED: 'Waiting for two red candles',
@@ -2531,8 +2539,12 @@ function _renderCandleEntryMonitor(campaign) {
   const box = campaign.box;
   const running = !!campaign.running;
   const firstFill = filled.length ? filled[0].fill : null;
-  const since = firstFill && firstFill.timestamp ? `bought from ${_cascadeOptionsTimestamp(firstFill.timestamp).slice(0, 16)}` : (running ? 'nothing bought yet' : '');
-  if (kicker) kicker.textContent = `${running ? 'Paper campaign · RUNNING' : 'Paper campaign · ended'}${since ? ` · ${since}` : ''} · ${c.underlying || 'NIFTY'} ${c.strike || ''} ${c.option_type || 'CE'} · ${c.expiry || ''}${campaign.strike_at === 'each_buy' ? ' · strike at each buy' : ''}`;
+  // KEEP IT TO ONE LINE. The state is already the heading below, and the rule
+  // (strike at each buy, monthly, the target) is in the recipe strip above --
+  // repeating them here cost two wrapped lines (Phil, 2026-08-21: "Decrease
+  // the texts here... simple and crisp needed").
+  const since = firstFill && firstFill.timestamp ? `from ${_fibShortStamp(firstFill.timestamp)}` : (running ? 'nothing bought yet' : '');
+  if (kicker) kicker.textContent = `${running ? 'Paper' : 'Paper · ended'} · ${c.underlying || 'NIFTY'} ${c.strike || ''} ${c.option_type || 'CE'} · ${_candleEntryShortDay(c.expiry)}${since ? ` · ${since}` : ''}`;
   if (title) title.textContent = _candleEntryReadableState(String(campaign.status || 'WAITING_TWO_RED'));
   const qty = filled.reduce((n, r) => n + (Number(r.quantity) || 0), 0);
   const position = exit
@@ -2581,7 +2593,10 @@ function _renderCandleEntryMonitor(campaign) {
       : `<td class="${tone}">${escapeHtml(nowTxt)}<span class="candle-entry-now-move" style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
     return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(strikeTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td>${nowCell}</tr>`;
   }).join('') : '<tr><td colspan="9" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
-  if (updated) updated.textContent = `Last bar ${_cascadeOptionsTimestamp(latest.timestamp).slice(0, 16)} · close ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''} · refreshed ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })} IST`;
+  // The bar's own time, its close, and when the basket was last priced. The
+  // "refreshed" clock said the same minute as "marked" nearly always, and the
+  // date repeats the kicker -- both dropped.
+  if (updated) updated.textContent = `${_cascadeOptionsTimestamp(latest.timestamp).slice(11, 16)} · ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''}`;
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
@@ -2725,7 +2740,7 @@ function _renderCandleEntryAuto(auto) {
   // The campaign the status call just rendered is the authority.
   const live = !!(_lastCandleEntryStatus && _lastCandleEntryStatus.running);
   const state = on
-    ? (live ? `campaign running on the mother of ${_cascadeOptionsTimestamp((_lastCandleEntryStatus.mother || {}).timestamp).slice(0, 16)} · no new mother until it ends`
+    ? (live ? `mother ${_fibShortStamp((_lastCandleEntryStatus.mother || {}).timestamp)} · running`
       : auto.waiting ? `waiting · ${auto.waiting}`
       : auto.free_from ? `last campaign freed ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} · waiting for the next new 278-bar high`
       : auto.last_mother ? `last mother ${_cascadeOptionsTimestamp(auto.last_mother).slice(0, 16)}${auto.last_watch_from ? ` · watched from ${_cascadeOptionsTimestamp(auto.last_watch_from).slice(0, 16)}` : ''}`
