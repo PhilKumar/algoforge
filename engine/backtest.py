@@ -10,7 +10,7 @@ engine/backtest.py — PhilForge Backtest Engine v3
 import math
 import os
 import sys
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import numpy as np
 import pandas as pd
@@ -38,7 +38,18 @@ LOT_SIZES = {
     # 26-Dec-2024 expiry, 75 from 02-Jan-2025, 65 from 06-Jan-2026. The table
     # previously ran 50 straight through to Nov-2024, which sized every
     # Apr-Dec 2024 backtest at twice the real contract.
-    "NIFTY": [(date(2026, 1, 1), 65), (date(2025, 1, 1), 75), (date(2024, 4, 26), 25), (date(2000, 1, 1), 50)],
+    #
+    # The 75 -> 50 cut runs the other way and is older: NSE revised NIFTY from
+    # 75 to 50 for weekly contracts from August 2021 (monthlies from the July
+    # 2021 expiry). The table used to open at 50 in the year 2000, which sized
+    # every trade before August 2021 at two thirds of the real contract.
+    "NIFTY": [
+        (date(2026, 1, 1), 65),
+        (date(2025, 1, 1), 75),
+        (date(2024, 4, 26), 25),
+        (date(2021, 8, 1), 50),
+        (date(2000, 1, 1), 75),
+    ],
     "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2024, 11, 20), 30), (date(2000, 1, 1), 25)],
     "FINNIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 65), (date(2000, 1, 1), 40)],
     "MIDCPNIFTY": [(date(2026, 1, 1), 50), (date(2024, 11, 20), 75), (date(2000, 1, 1), 75)],
@@ -110,6 +121,16 @@ def get_lot_size(instrument, trade_date):
     return 1
 
 
+def _is_monthly_expiry(expiry: date) -> bool:
+    """True when this expiry is the last one of its calendar month.
+
+    Monthly and weekly contracts carried different lots through July 2021, and
+    the monthly is simply the final weekly of the month -- so "is there another
+    expiry weekday left in this month?" settles it without a calendar.
+    """
+    return (expiry + timedelta(days=7)).month != expiry.month
+
+
 def get_option_contract_lot_size(instrument, contract_expiry):
     """Return the exchange lot attached to an option contract's expiry.
 
@@ -127,6 +148,14 @@ def get_option_contract_lot_size(instrument, contract_expiry):
     if not isinstance(expiry, date):
         expiry = date.fromisoformat(str(expiry))
 
+    # 75 until the 2021 cut. NSE moved weeklies to 50 from August 2021 and
+    # monthlies from the July 2021 expiry, so through July 2021 the two cycles
+    # disagree: the 29-Jul-2021 monthly was already 50 while that month's
+    # weeklies were still 75. A monthly expiry is the last weekly of its month.
+    if expiry < date(2021, 7, 1):
+        return 75
+    if expiry < date(2021, 8, 1):
+        return 50 if _is_monthly_expiry(expiry) else 75
     if expiry <= date(2024, 4, 25):
         return 50
     if expiry <= date(2024, 12, 26):
