@@ -837,6 +837,39 @@ test('A restored Candle Entry replay says it is saved, and can be thrown away', 
   await expect(page.locator('#candle-entry-form-status')).toContainText('Saved replay deleted');
 });
 
+// The auto row is drawn from the auto SETTING, which can still carry the
+// free_from stamp of an earlier campaign -- so it read "waiting for the next
+// new 278-bar high" over a live basket holding two rungs (Phil's screen,
+// 2026-08-21 11:23, mid-deploy). A running campaign is not waiting.
+test('The auto row does not call a running campaign "waiting"', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/candle-entry/paper/status', route => route.fulfill({
+    json: {
+      status: 'ok', mode: 'paper',
+      auto: { enabled: true, mode: 'paper', free_from: '2026-08-21T00:03:00+05:30', last_mother: '2026-08-03T15:25:00+05:30', log: [] },
+      campaign: {
+        running: true, status: 'OPEN', strike_at: 'each_buy',
+        contract: { underlying: 'NIFTY', strike: 24400, option_type: 'CE', expiry: '2026-08-25', lot_size: 65 },
+        mother: { timestamp: '2026-08-03T15:25:00+05:30', high: 24774.3 },
+        latest_closed_candle: { timestamp: '2026-08-21T11:15:00+05:30', close: 24255.35 },
+        box: { bars: 278, filled: 278, line: 24109.26, low: 24025.65, high: 24360.1 },
+        target_index: 24509.04, deployed_inr: 56953, net_pnl: null, exit: null, events: [],
+        rungs: [
+          { rung: 1, timeframe: '5m', lots: 1, quantity: 65, state: 'filled',
+            fill: { timestamp: '2026-08-11T09:25:00+05:30', index_price: 24504.75, option_premium: 309, strike: 24400, option_type: 'CE', quantity: 65 } },
+        ],
+      },
+    },
+  }));
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-candle');
+
+  const card = page.locator('#candle-entry-auto-card');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('campaign running on the mother of 2026-08-03');
+  await expect(card).not.toContainText('waiting for the next new');
+});
+
 test('A held Candle Entry basket shows what it is worth right now', async ({ page }) => {
   await login(page);
   const marked = {

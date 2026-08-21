@@ -298,10 +298,100 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class _NoOrders:
+    """Stands in for the adapter and the broker: paper only, sends nothing."""
+
+    paper_only = True
+
+    def place_order(self, *_a, **_k):
+        return None
+
+
 class _Runtime:
-    def __init__(self, status: dict, running: bool):
+    """The engine carries its OWN status string, which is what the auto step
+    reads -- `running` is only the poll loop's flag."""
+
+    def __init__(self, status: dict, running: bool, engine_status: str | None = None):
         self.running = running
-        self.engine = type("E", (), {"get_status": lambda _self, _s=status: _s})()
+        state = engine_status or str(status.get("status") or "CLOSED")
+        self.engine = type("E", (), {"get_status": lambda _self, _s=status: _s, "status": state})()
+
+
+class RestoreOpenBasketTests(unittest.IsolatedAsyncioTestCase):
+    """A restart must not leave an open basket unmonitored.
+
+    The saved row carries whatever `running` the poll loop held when it was
+    written, and a deploy that stops the instance can persist False over a
+    campaign that is still holding rungs. Phil, 2026-08-21, mid-deploy with
+    two rungs open: "Make sure no runs are lost after refresh".
+    """
+
+    USER = 91
+
+    def _open_engine(self):
+        from datetime import date as _date
+
+        mother = app_module.IndexCandle(datetime(2026, 8, 3, 15, 25, tzinfo=IST), 24700, 24774.3, 24680, 24760)
+        contract = app_module.FixedCampaignOption("NIFTY", 24400, _date(2026, 8, 25), "CE", 65, "")
+        engine = app_module.LadderCandleEntryPaper(
+            mother, "5m", contract, _NoOrders(), lambda _t, _c: 309.0, require_below_mother=True, atm_fallback=True
+        )
+        engine.ingest(
+            {
+                "5m": [
+                    app_module.IndexCandle(datetime(2026, 8, 11, 9, 5, tzinfo=IST), 24540, 24545, 24520, 24530),
+                    app_module.IndexCandle(datetime(2026, 8, 11, 9, 10, tzinfo=IST), 24530, 24532, 24500, 24505),
+                    app_module.IndexCandle(datetime(2026, 8, 11, 9, 15, tzinfo=IST), 24505, 24506, 24480, 24485),
+                    app_module.IndexCandle(datetime(2026, 8, 11, 9, 25, tzinfo=IST), 24485, 24520, 24484, 24515),
+                ]
+            }
+        )
+        return engine
+
+    def _store(self, engine, running):
+        """The persisted row, served without touching sqlite."""
+        row = app_module.json.dumps(
+            {
+                "running": running,
+                "last_candle_timestamp": datetime(2026, 8, 11, 9, 25, tzinfo=IST).isoformat(),
+                "engine": engine.to_dict(),
+            },
+            default=str,
+        )
+
+        async def fake_get(_key, _row=row):
+            return _row
+
+        app_module._db_mod.get_app_state = fake_get
+
+    async def asyncSetUp(self):
+        app_module._candle_entry_engines.pop(self.USER, None)
+        self._orig_get = app_module._db_mod.get_app_state
+        self.engine = self._open_engine()
+        self.assertTrue(self.engine.ladder.fills, "the fixture must actually hold a rung")
+        self.assertNotIn(self.engine.status, app_module._CANDLE_ENTRY_TERMINAL)
+        self._store(self.engine, False)  # what a stopped instance wrote
+
+    async def asyncTearDown(self):
+        app_module._db_mod.get_app_state = self._orig_get
+        app_module._candle_entry_engines.pop(self.USER, None)
+
+    async def test_an_open_basket_comes_back_monitored_even_if_the_row_says_stopped(self):
+        runtime = await app_module._restore_candle_entry_open_state(self.USER, _NoOrders(), activate=False)
+        self.assertIsNotNone(runtime)
+        self.assertTrue(runtime.running, "an unfinished basket must come back running")
+        self.assertTrue(runtime.engine.ladder.fills)
+
+    async def test_a_finished_campaign_is_not_revived(self):
+        self.engine.kill_and_close(
+            app_module.IndexCandle(datetime(2026, 8, 11, 10, 0, tzinfo=IST), 24500, 24500, 24500, 24500)
+        )
+        self.assertIn(self.engine.status, app_module._CANDLE_ENTRY_TERMINAL)
+        self._store(self.engine, True)  # a stale flag over a finished campaign
+        app_module._candle_entry_engines.pop(self.USER, None)
+        runtime = await app_module._restore_candle_entry_open_state(self.USER, _NoOrders(), activate=False)
+        self.assertIsNotNone(runtime)
+        self.assertFalse(runtime.running)
 
 
 class AutoMotherTests(unittest.IsolatedAsyncioTestCase):
@@ -534,6 +624,32 @@ class AutoOneMotherOneTradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(started[0].mother_timestamp, "2026-08-20T10:30:00")
         self.assertEqual(started[0].watch_from, "")  # a new bar has no history to skip
         self.assertIsNone(self.setting["last_watch_from"])
+
+    async def test_an_open_basket_is_never_freed_just_because_the_loop_stopped(self):
+        """A restart clears the poll flag; it does not end a campaign.
+
+        Phil's screen, 2026-08-21: the card read "waiting for the next new
+        278-bar high" while two rungs were still held and marked minutes
+        earlier. Freeing there would let a second campaign start on top of a
+        live basket."""
+        self._ended(net=None)
+        runtime = app_module._candle_entry_engines[78]
+        runtime.engine.__class__.status = "OPEN"  # the basket is still held
+        started = []
+
+        async def finder():
+            raise AssertionError("a mother must not even be looked for")
+
+        async def starter(payload):
+            started.append(payload)
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 21, 11, 23, tzinfo=IST), find_mother=finder, start=starter
+        )
+        self.assertEqual(out, "busy")
+        self.assertEqual(started, [])
+        self.assertNotIn("free_from", self.setting)
+        self.assertNotIn("log", self.setting)
 
     async def test_a_stored_retry_flag_from_the_old_rule_is_ignored(self):
         self._ended(net=-1200.0)

@@ -2718,8 +2718,15 @@ function _renderCandleEntryAuto(auto) {
   card.classList.toggle('is-on', on);
   const log = (auto.log || []).slice(-8).reverse();
   const net = (auto.log || []).reduce((n, r) => n + (Number(r.net) || 0), 0);
+  // A RUNNING CAMPAIGN IS NOT "WAITING". The auto row is drawn from the auto
+  // setting alone, which can still carry the free_from stamp of an earlier
+  // campaign -- so over a live basket it read "waiting for the next new
+  // 278-bar high" while two rungs were held (Phil's screen, 2026-08-21).
+  // The campaign the status call just rendered is the authority.
+  const live = !!(_lastCandleEntryStatus && _lastCandleEntryStatus.running);
   const state = on
-    ? (auto.waiting ? `waiting · ${auto.waiting}`
+    ? (live ? `campaign running on the mother of ${_cascadeOptionsTimestamp((_lastCandleEntryStatus.mother || {}).timestamp).slice(0, 16)} · no new mother until it ends`
+      : auto.waiting ? `waiting · ${auto.waiting}`
       : auto.free_from ? `last campaign freed ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} · waiting for the next new 278-bar high`
       : auto.last_mother ? `last mother ${_cascadeOptionsTimestamp(auto.last_mother).slice(0, 16)}${auto.last_watch_from ? ` · watched from ${_cascadeOptionsTimestamp(auto.last_watch_from).slice(0, 16)}` : ''}`
       : 'waiting for the first new 278-bar high')

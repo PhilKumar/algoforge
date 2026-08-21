@@ -1676,6 +1676,13 @@ def _terminal_cascade_open_state_key(user_id: int) -> str:
     return f"terminal_cash_cascade_open:{int(user_id)}"
 
 
+# A campaign is FINISHED only when its own engine says so. `runtime.running`
+# is a poll-loop flag, not a verdict: a restart, a cancelled task or a stopped
+# instance can clear it while the basket is still open, and anything that
+# reads it as "the campaign ended" writes a live position off.
+_CANDLE_ENTRY_TERMINAL = {"CLOSED", "EXPIRED", "KILLED"}
+
+
 def _candle_entry_open_state_key(user_id: int) -> str:
     return f"candle_entry_open:{int(user_id)}"
 
@@ -1870,7 +1877,22 @@ async def _restore_candle_entry_open_state(
         last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
         if last.tzinfo is None:
             last = last.replace(tzinfo=IST)
-        running = bool(payload.get("running")) and engine.status not in {"CLOSED", "EXPIRED", "KILLED"}
+        # NO RUN IS LOST TO A RESTART. The saved `running` flag is whatever the
+        # poll loop happened to hold when the row was written -- a deploy that
+        # stops the instance can persist False over a basket that is still
+        # open. The ENGINE decides: anything it has not finished comes back
+        # monitored, and its poll loop is started again below.
+        # (Phil, 2026-08-21, mid-deploy with an open paper basket: "Make sure
+        # no runs are lost after refresh".)
+        unfinished = engine.status not in _CANDLE_ENTRY_TERMINAL
+        running = unfinished and (bool(payload.get("running")) or bool(engine.ladder.fills))
+        if unfinished and not payload.get("running"):
+            _logger.info(
+                "[CANDLE ENTRY] user %s: reviving a basket the saved state called stopped (status %s, %d fills)",
+                user_id,
+                engine.status,
+                len(engine.ladder.fills),
+            )
         runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
         _candle_entry_engines[int(user_id)] = runtime
         if running and activate and _engine_restore_owner_is_active_instance():
@@ -11804,6 +11826,13 @@ async def _candle_entry_auto_step(
         # 2026-08-21: "Change it to never retry (new high only)".
         st = runtime.engine.get_status()
         mother_key = str((st.get("mother") or {}).get("timestamp"))
+        # ...and it has to be finished. Reading `runtime.running` alone once
+        # stamped a live basket as freed and left the card saying "waiting for
+        # the next new 278-bar high" over a campaign that was still holding
+        # two rungs (Phil's screen, 2026-08-21 11:23).
+        finished = str(runtime.engine.status) in _CANDLE_ENTRY_TERMINAL
+        if not finished:
+            return "busy"
         if setting.get("last_mother") == mother_key and not setting.get("_freed_logged") == mother_key:
             _candle_auto_log_campaign(setting, runtime)
             exit_row = st.get("exit") or {}
