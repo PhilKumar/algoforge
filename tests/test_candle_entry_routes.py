@@ -433,11 +433,17 @@ class AutoMotherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.setting["log"]), 1)
 
 
-class AutoRetryTests(unittest.IsolatedAsyncioTestCase):
-    """After a campaign that did NOT end in profit, the box's high bar is the
-    mother again and the next campaign starts at once, watching from the
-    exit. After a PROFIT the next mother must be a new high. Measured
-    2026-08-20: +Rs 3.26L against +Rs 2.83L; retrying after profit lost."""
+class AutoOneMotherOneTradeTests(unittest.IsolatedAsyncioTestCase):
+    """ONE MOTHER, ONE TRADE, however the campaign ended.
+
+    A campaign that did not end in profit used to put the same mother back
+    and start again at once. Stress-tested 2026-08-21, that rule reads the
+    SIGN of a campaign's P&L: the 02-Jan-2025 campaign nets +Rs 279.55, and
+    Rs 1.86/unit of slippage flips it, fires the retry, and the retry expires
+    worthless for -Rs 1,05,850. Over 40 perturbed replays the retry rule's
+    median was Rs 92k with 31 holding one to expiry; never retrying was
+    Rs 2.06L, none of them, and a 3% spread. Phil: "Change it to never retry
+    (new high only)"."""
 
     USER = {"id": 78}
 
@@ -475,13 +481,13 @@ class AutoRetryTests(unittest.IsolatedAsyncioTestCase):
         app_module._candle_entry_engines[78] = _Runtime(status, running=False)
         self.setting["last_mother"] = mother
 
-    async def test_a_losing_campaign_retries_the_same_mother_from_the_exit(self):
+    async def test_a_losing_campaign_does_not_retry_its_mother(self):
         self._ended(net=-1200.0)
         mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
         started = []
 
         async def finder():
-            return mother, []
+            return mother, []  # the mother just traded comes back: refused
 
         async def starter(payload):
             started.append(payload)
@@ -489,12 +495,11 @@ class AutoRetryTests(unittest.IsolatedAsyncioTestCase):
         out = await app_module._candle_entry_auto_step(
             self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=starter
         )
-        self.assertEqual(out, "started")
-        self.assertEqual(started[0].mother_timestamp, "2026-08-18T10:00:00")
-        self.assertEqual(started[0].watch_from, "2026-08-20T10:05:00")  # from the exit, not the mother
-        self.assertEqual(self.setting["last_watch_from"], "2026-08-20T10:05:00")
+        self.assertEqual(out, "waiting-for-new-high")
+        self.assertEqual(started, [])
+        self.assertNotIn("retry_same", self.setting)
 
-    async def test_a_no_buy_campaign_retries_too(self):
+    async def test_a_no_buy_campaign_does_not_retry_either(self):
         self._ended(net=None)
         mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
         started = []
@@ -508,8 +513,41 @@ class AutoRetryTests(unittest.IsolatedAsyncioTestCase):
         out = await app_module._candle_entry_auto_step(
             self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=starter
         )
+        self.assertEqual(out, "waiting-for-new-high")
+        self.assertEqual(started, [])
+
+    async def test_a_new_high_after_a_loss_starts_and_is_watched_from_itself(self):
+        self._ended(net=-1200.0)
+        fresh = app_module.IndexCandle(datetime(2026, 8, 20, 10, 30, tzinfo=IST), 24610, 24640, 24600, 24630)
+        started = []
+
+        async def finder():
+            return fresh, []
+
+        async def starter(payload):
+            started.append(payload)
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 11, 0, tzinfo=IST), find_mother=finder, start=starter
+        )
         self.assertEqual(out, "started")
-        self.assertTrue(started[0].watch_from)
+        self.assertEqual(started[0].mother_timestamp, "2026-08-20T10:30:00")
+        self.assertEqual(started[0].watch_from, "")  # a new bar has no history to skip
+        self.assertIsNone(self.setting["last_watch_from"])
+
+    async def test_a_stored_retry_flag_from_the_old_rule_is_ignored(self):
+        self._ended(net=-1200.0)
+        self.setting["retry_same"] = True
+        mother = app_module.IndexCandle(datetime(2026, 8, 18, 10, 0, tzinfo=IST), 24590, 24600, 24580, 24595)
+
+        async def finder():
+            return mother, []
+
+        out = await app_module._candle_entry_auto_step(
+            self.USER, self.setting, now=datetime(2026, 8, 20, 10, 20, tzinfo=IST), find_mother=finder, start=None
+        )
+        self.assertEqual(out, "waiting-for-new-high")
+        self.assertNotIn("retry_same", self.setting)
 
     async def test_a_profitable_campaign_waits_for_a_new_high(self):
         self._ended(net=4500.0)

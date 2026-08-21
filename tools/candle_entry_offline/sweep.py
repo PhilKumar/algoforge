@@ -186,9 +186,11 @@ def main() -> None:
     )
     ap.add_argument(
         "--rechain",
-        default="until_profit",
+        default="none",
         help=(
-            "what happens when a campaign ends: none = wait for the next NEW box high (the original rule); "
+            "what happens when a campaign ends: none = wait for the next NEW box high (THE RULE, one mother "
+            "one trade -- retrying reads the sign of a campaign's P&L and reroutes the whole book, measured "
+            "2026-08-21); "
             "always = start again at once on the current box's high bar, watching from the exit; "
             "until_profit = the same, but only while the last campaign on it did not end in profit; "
             "always_same = always, but the mother's high RATCHETS -- it is replaced only by a higher bar, "
@@ -394,6 +396,12 @@ def main() -> None:
                 contract,
                 _Sink(),
                 slipped,
+                # --depth used to pick which bar series were LOADED and stop
+                # there: the engine fell back to LADDER_DEPTH, so every run
+                # since the ladder became two rungs climbed two whatever the
+                # flag said (found 2026-08-21, comparing depth 3 with depth 2
+                # and getting the same rupee).
+                stages=stages,
                 target_fraction=target,
                 trail_fraction=trail,
                 hold_days=hold,

@@ -2720,7 +2720,7 @@ function _renderCandleEntryAuto(auto) {
   const net = (auto.log || []).reduce((n, r) => n + (Number(r.net) || 0), 0);
   const state = on
     ? (auto.waiting ? `waiting · ${auto.waiting}`
-      : auto.retry_same && auto.free_from ? `last campaign ended without profit · retrying the box high from ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} in market hours`
+      : auto.free_from ? `last campaign freed ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} · waiting for the next new 278-bar high`
       : auto.last_mother ? `last mother ${_cascadeOptionsTimestamp(auto.last_mother).slice(0, 16)}${auto.last_watch_from ? ` · watched from ${_cascadeOptionsTimestamp(auto.last_watch_from).slice(0, 16)}` : ''}`
       : 'waiting for the first new 278-bar high')
     : 'off';

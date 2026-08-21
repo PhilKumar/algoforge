@@ -11789,12 +11789,19 @@ async def _candle_entry_auto_step(
     if runtime is not None and runtime.running:
         return "busy"
     if runtime is not None:
-        # The last campaign has ended: remember when it freed, once -- and
-        # whether it ended in PROFIT, which decides what comes next. It did
-        # not: the box's high bar is the mother again and the next campaign
-        # starts at once, rung 1 from now (measured 2026-08-20: +Rs 3.26L
-        # against +Rs 2.83L waiting for a new high; retrying after a PROFIT
-        # as well lost Rs 4.1L). It did: the next mother must be a NEW high.
+        # The last campaign has ended: remember when it freed, once. What
+        # comes next never depends on how it ended -- ONE MOTHER, ONE TRADE.
+        #
+        # It used to: a campaign that did not end in profit put the same
+        # mother back and started again at once, worth +Rs 3.26L against
+        # +Rs 2.83L on the one recorded path. Stress-tested on 2026-08-21
+        # that rule reads the SIGN of a campaign's P&L, and the book has
+        # campaigns sitting on zero -- 02-Jan-2025 nets +Rs 279.55, and
+        # Rs 1.86/unit of slippage flips it, fires the retry, and the retry
+        # expires worthless for -Rs 1,05,850. Over 40 perturbed replays the
+        # retry rule's median was Rs 92k with 31 of them holding one to
+        # expiry; never retrying was Rs 2.06L, none, and a 3% spread. Phil,
+        # 2026-08-21: "Change it to never retry (new high only)".
         st = runtime.engine.get_status()
         mother_key = str((st.get("mother") or {}).get("timestamp"))
         if setting.get("last_mother") == mother_key and not setting.get("_freed_logged") == mother_key:
@@ -11805,8 +11812,7 @@ async def _candle_entry_auto_step(
             )
             setting["free_from"] = str(freed)
             setting["_freed_logged"] = mother_key
-            net = st.get("net_pnl")
-            setting["retry_same"] = not (net is not None and float(net) > 0)
+            setting.pop("retry_same", None)  # a value stored under the old rule
             await _save_candle_entry_auto(uid)
     if now.time() >= _CANDLE_AUTO_LAST_START:
         return "too-late"
@@ -11825,17 +11831,15 @@ async def _candle_entry_auto_step(
         not_before = datetime.fromisoformat(str(setting["last_mother"])) + timedelta(minutes=1)
         if not_before.tzinfo is None:
             not_before = not_before.replace(tzinfo=IST)
-    retry_same = bool(setting.get("retry_same")) and not_before is not None
     finder = find_mother or (
         lambda: _candle_entry_find_box_mother(
             CascadeOptionsAdapter(broker_client, paper_only=True),
             _CANDLE_AUTO_RULE["timeframe"],
             int(_CANDLE_AUTO_RULE["box_bars"]),
-            # A retry reads the box as it stood at the exit -- the latest high
-            # at or before it, the same mother allowed. Otherwise the FIRST
-            # new high after the exit.
-            not_before if retry_same else now,
-            not_before=None if retry_same else not_before,
+            # The FIRST new high at or after the exit, always. A high that
+            # printed while a campaign was open is not taken.
+            now,
+            not_before=not_before,
         )
     )
     try:
@@ -11848,7 +11852,7 @@ async def _candle_entry_auto_step(
             return "waiting-for-new-high"
         setting["last_error"] = f"{now.strftime('%H:%M')} {exc.detail}"
         return "find-failed"
-    if setting.get("last_mother") == mother.timestamp.isoformat() and not retry_same:
+    if setting.get("last_mother") == mother.timestamp.isoformat():
         return "waiting-for-new-high"
     mother_closes = min(
         mother.timestamp + timedelta(minutes=TIMEFRAME_MINUTES[_CANDLE_AUTO_RULE["timeframe"]]),
@@ -11858,9 +11862,9 @@ async def _candle_entry_auto_step(
         return "waiting-for-candle"
     payload = CandleEntryPaperStartPayload(
         mother_timestamp=mother.timestamp.replace(tzinfo=None).isoformat(),
-        # A retry watches from the moment the last campaign freed, not from
-        # the mother -- the history between was that campaign's.
-        watch_from=(not_before.replace(tzinfo=None).isoformat() if retry_same else ""),
+        # A new mother is watched from itself: there is no earlier history
+        # to skip, because the bar is new.
+        watch_from="",
         mode=str(setting.get("mode") or "paper"),
         **_CANDLE_AUTO_RULE,
     )
