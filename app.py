@@ -1835,9 +1835,19 @@ async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) ->
     snapshot it used to be -- see the restore for how the old shape survives.
     """
     runtimes = _fib_boundary_engines.get(int(user_id), {})
-    if not runtimes:
-        return
     now = time.time()
+    if not runtimes:
+        # DELETING THE LAST LADDER HAS TO STICK. This returned early on an
+        # empty registry, so the stored row kept the campaign that had just
+        # been deleted and the next restart restored it -- Phil deleted the
+        # same ended 19-Aug NIFTY CE monitor over and over (2026-08-22).
+        # An empty registry is a fact worth writing down.
+        await _db_mod.set_app_state(
+            _fib_boundary_open_state_key(user_id),
+            json.dumps({"campaigns": [], "saved_at": datetime.now(IST).isoformat()}, default=str),
+        )
+        _fib_boundary_open_state_last_save[int(user_id)] = now
+        return
     if not force and now - _fib_boundary_open_state_last_save[int(user_id)] < _CASCADE_OPEN_STATE_SAVE_INTERVAL_SEC:
         return
     payload = {
@@ -13128,6 +13138,20 @@ async def fib_boundary_backtest(payload: FibTouchBacktestPayload, request: Reque
 @app.get("/api/fib-boundary/backtests")
 async def list_fib_boundary_backtests(request: Request, limit: int = 50):
     return {"status": "ok", "runs": await _db_mod.list_fib_backtest_runs(_request_user_id(request), limit)}
+
+
+@app.delete("/api/fib-boundary/backtests/latest")
+async def delete_latest_fib_boundary_backtest(request: Request):
+    """Throw the saved replay away.
+
+    A replay is filed so a reload brings it back without paying for it again,
+    but the file outlives the rule and the panel re-renders it exactly like a
+    fresh result. Phil, 2026-08-22, on a 19-Aug SENSEX run still sitting on the
+    page three days later: "no delete button stale record... Not sure what to
+    do with this". Candle Entry got this on 20 Aug; this is its twin.
+    """
+    removed = await _db_mod.delete_latest_fib_backtest_run(_request_user_id(request))
+    return {"status": "ok", "removed": bool(removed)}
 
 
 @app.get("/api/fib-boundary/backtests/latest")

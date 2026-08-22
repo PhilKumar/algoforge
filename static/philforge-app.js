@@ -1963,6 +1963,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
   'runFibBoundaryBacktest',
+  'deleteFibBoundaryBacktest',
   'toggleFibBoundaryBacktestChart',
   'runTestBench',
   'toggleTestBenchChart',
@@ -2273,8 +2274,24 @@ function _cascadeOptionsSetFormStatus(message, tone = 'muted') {
   _cascadeSetTone(el, tone);
   el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
+// Every stamp on the page is IST. This used to strip only the two offsets it
+// expected (+05:30 and Z) and leave anything else in the string, so a run
+// filed in UTC printed as "2026-08-19 07:36:00.723601+00:00" -- not just ugly
+// but wrong by five and a half hours (Phil's Fib Boundary panel, 2026-08-22).
+// Any explicit offset is CONVERTED now; a naive stamp is already IST and is
+// left exactly as it was.
 function _cascadeOptionsTimestamp(value) {
-  return value ? String(value).replace('T', ' ').replace(/(?:\.\d+)?(?:\+05:30|Z)$/, ' IST') : '—';
+  if (!value) return '—';
+  const raw = String(value);
+  const offset = raw.match(/(?:\+|-)\d\d:\d\d$|Z$/);
+  if (!offset) return raw.replace('T', ' ');
+  if (offset[0] === '+05:30') return raw.replace('T', ' ').replace(/(?:\.\d+)?\+05:30$/, ' IST');
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return raw.replace('T', ' ');
+  const ist = new Date(at.getTime() + (5 * 60 + 30) * 60000);
+  const pad = n => String(n).padStart(2, '0');
+  return `${ist.getUTCFullYear()}-${pad(ist.getUTCMonth() + 1)}-${pad(ist.getUTCDate())} `
+    + `${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())}:${pad(ist.getUTCSeconds())} IST`;
 }
 function _cascadeOptionsToneClass(accent) {
   const tone = String(accent || '').toLowerCase();
@@ -5145,8 +5162,17 @@ async function _restoreLastFibBoundaryBacktest() {
     const payload = data && data.run && data.run.payload;
     if (!payload || payload.status !== 'ok' || _lastFibBacktest) return;
     _renderFibBoundaryBacktest(payload);
+    const when = data.run.created_at ? _cascadeOptionsTimestamp(data.run.created_at) : '';
     const note = document.getElementById('fibx-backtest-note');
-    if (note) note.textContent = `${note.textContent} · saved run from ${_cascadeOptionsTimestamp(data.run.created_at)}`;
+    if (note && when) note.textContent = `${note.textContent} · saved run from ${when}`;
+    const badge = document.getElementById('fibx-backtest-badge');
+    if (badge && !badge.textContent.startsWith('SAVED')) badge.textContent = `SAVED · ${badge.textContent}`;
+    const stale = document.getElementById('fibx-backtest-stale');
+    if (stale) {
+      stale.textContent = `Saved replay${when ? ` from ${when}` : ''} — a stored result, not today's. It keeps the rule it ran `
+        + 'under, so an old one can show a ladder the page no longer trades. Backtest replaces it; ✕ Delete throws it away.';
+      stale.style.display = '';
+    }
   } catch (_error) {
     /* No saved run, or it cannot be read — the panel simply stays closed. */
   }
@@ -5181,6 +5207,36 @@ function _fibCampaignFills(campaign) {
   return banked.concat(open);
 }
 
+// The same trap Candle Entry had: a replay is filed server-side so a reload
+// brings it back, and it then reads exactly like a fresh result. Phil, on a
+// SENSEX run saved 19 Aug still sitting there on 22 Aug: "the next one no
+// delete button stale record... Not sure what to do with this".
+async function deleteFibBoundaryBacktest() {
+  const confirmed = await customConfirm(
+    'Throw this saved replay away? Nothing traded is touched \u2014 it is a recorded backtest, and the same mother can always be replayed again.',
+    { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
+  );
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/fib-boundary/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay could not be deleted.'));
+  } catch (error) {
+    _fibSetFormStatus(error.message || 'The replay could not be deleted.', 'error');
+    return;
+  }
+  _lastFibBacktest = null;
+  _fibBoundaryCollapseBacktestChart();
+  const panel = document.getElementById('fibx-backtest');
+  if (panel) panel.style.display = 'none';
+  ['fibx-backtest-csv', 'fibx-backtest-delete', 'fibx-backtest-chart-btn'].forEach(id => {
+    const node = document.getElementById(id);
+    if (node) node.style.display = 'none';
+  });
+  _fibSetFormStatus('Saved replay deleted. Press Backtest to replay a mother fresh.', 'success');
+}
+window.deleteFibBoundaryBacktest = deleteFibBoundaryBacktest;
+
 function _renderFibBoundaryBacktest(data) {
   const panel = document.getElementById('fibx-backtest');
   if (panel) panel.style.display = '';
@@ -5192,6 +5248,10 @@ function _renderFibBoundaryBacktest(data) {
   _fibBoundaryCollapseBacktestChart();
   const chartBtn = document.getElementById('fibx-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
+  const stale = document.getElementById('fibx-backtest-stale');
+  if (stale) { stale.textContent = ''; stale.style.display = 'none'; }
+  const del = document.getElementById('fibx-backtest-delete');
+  if (del) del.style.display = '';
 
   const badge = document.getElementById('fibx-backtest-badge');
   if (badge) {

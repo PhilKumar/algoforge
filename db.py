@@ -1597,6 +1597,21 @@ async def get_fib_backtest_run(user_id: int, run_id: int) -> dict | None:
         await db.close()
 
 
+async def delete_latest_fib_backtest_run(user_id: int) -> bool:
+    """Forget this user's most recent Fib Boundary replay. True if one went."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM fib_backtest_runs WHERE id = ("
+            "SELECT id FROM fib_backtest_runs WHERE user_id = ? ORDER BY id DESC LIMIT 1)",
+            (int(user_id),),
+        )
+        await db.commit()
+        return bool(cursor.rowcount)
+    finally:
+        await db.close()
+
+
 # ── Passkeys (Face ID / fingerprint) ─────────────────────────────
 async def add_passkey(credential_id: str, user_id: int, public_key: str, sign_count: int, label: str) -> None:
     """Store one registered passkey. Public key only — never a biometric."""
