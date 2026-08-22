@@ -1163,6 +1163,14 @@ class PaperTradingEngine:
                     self.session_date = now.date()
                     self._reset_intraday_status()
                     self.log_event("info", f"📅 New trading day: {self.session_date}")
+                    # PERSIST THE ROLLOVER. The date moved in memory only, so a
+                    # flat engine's file still read yesterday -- and the restore
+                    # skips a stale file that holds no position. PhilForge was
+                    # stopped at 15:32 on 2026-08-21 for a Dhan backfill and
+                    # started again at 00:33, 33 minutes past midnight: all three
+                    # paper engines were dropped as stale and vanished from the
+                    # Live page. Saving here costs one write a day.
+                    self._save_state()
 
                 # Check market hours
                 from datetime import time as time_class
@@ -1625,6 +1633,14 @@ class PaperTradingEngine:
             self.session_date = now.date()
             self._reset_intraday_status()
             self.log_event("info", f"📅 New trading day: {self.session_date}")
+            # PERSIST THE ROLLOVER. The date moved in memory only, so a
+            # flat engine's file still read yesterday -- and the restore
+            # skips a stale file that holds no position. PhilForge was
+            # stopped at 15:32 on 2026-08-21 for a Dhan backfill and
+            # started again at 00:33, 33 minutes past midnight: all three
+            # paper engines were dropped as stale and vanished from the
+            # Live page. Saving here costs one write a day.
+            self._save_state()
 
         # Check market hours
         market_open = self.strategy.get("market_open", "09:15")
