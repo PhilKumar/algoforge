@@ -356,7 +356,7 @@ test('Every primary navigation surface has a working owner and active page', asy
   await expect(page.locator('#cpr-modal .chart-type-btn')).toHaveCount(0);
 });
 
-test('Trading owns the Equity, Scalp, and Cascade sections with stable deep links', async ({ page }) => {
+test('Trading owns the Cascade, Scalp, and Equity sections with stable deep links', async ({ page }) => {
   await login(page);
 
   const primaryLabels = await page.locator('.nav-tabs > .nav-tab .tab-label').allTextContents();
@@ -369,10 +369,16 @@ test('Trading owns the Equity, Scalp, and Cascade sections with stable deep link
   await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
   await expect(page).toHaveURL(/#trading\/equity$/);
 
+  await expect(page.locator('#stock-terminal-page .trading-section-tab strong')).toHaveText([
+    'Cascade',
+    'Scalp',
+    'Equity',
+  ]);
+
   const activeEquityTab = page.locator('#stock-terminal-page .trading-section-tab.is-active');
   await expect(activeEquityTab).toContainText('Equity');
   await activeEquityTab.focus();
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await expect(page).toHaveURL(/#trading\/scalp$/);
 
