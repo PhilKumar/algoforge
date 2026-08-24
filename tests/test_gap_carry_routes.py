@@ -243,7 +243,7 @@ class ExpiryLookupTests(unittest.TestCase):
 
     def _lookup(self, rows, rule="weekly"):
         original = app_module._fib_touch_expiry_source
-        app_module._fib_touch_expiry_source = lambda _b, _s: (lambda _on: rows)
+        app_module._fib_touch_expiry_source = lambda _b, _s: lambda _on: rows
         try:
             return app_module._gap_carry_expiry_lookup(self._Broker(), rule)
         finally:
