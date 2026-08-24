@@ -3577,6 +3577,11 @@ function _syncGapCarryRecipe() {
       `below with RSI ${put}− buys a PE · ATM+${p.strike_offset_steps} ITM · ${p.lots} lot${p.lots > 1 ? 's' : ''} · ` +
       `${p.expiry_rule} expiry · sold ${p.exit_time} next session`;
   }
+  const start = document.getElementById('gap-carry-start');
+  if (start && !start.dataset.running) {
+    start.textContent = (document.getElementById('gap-carry-mode')?.value === 'live')
+      ? '▶ Start LIVE carry' : '▶ Start paper carry';
+  }
   const state = _cascadeOptionsEl('gap-carry-advanced-state');
   if (state) {
     const measured = p.rsi_threshold === 70 && p.strike_offset_steps === 4 && p.lots === 1
@@ -3733,9 +3738,12 @@ function _renderGapCarryAuto(auto) {
   card.innerHTML = bits.join(' · ');
 }
 
+// The same tile Candle Entry draws. It used to reach for
+// .candle-entry-tile-label / -value, which the stylesheet has never defined,
+// so every Gap Carry tile rendered as two runs of bare text.
 function _gapCarryTile(label, value, tone) {
   const colour = tone === 'good' ? '#6ee7b7' : tone === 'bad' ? 'var(--danger)' : 'var(--text)';
-  return `<div class="candle-entry-tile"><span class="candle-entry-tile-label">${label}</span><span class="candle-entry-tile-value" style="color:${colour};">${value}</span></div>`;
+  return _candleEntryTile(String(label), String(value), colour);
 }
 
 function _renderGapCarryStatus(campaign, running) {
@@ -3743,48 +3751,141 @@ function _renderGapCarryStatus(campaign, running) {
   const summary = _cascadeOptionsEl('gap-carry-summary');
   const monitor = _cascadeOptionsEl('gap-carry-monitor');
   const kill = _cascadeOptionsEl('gap-carry-kill');
+  const startBtn = document.getElementById('gap-carry-start');
+  const live = document.getElementById('gap-carry-mode')?.value === 'live';
+  // THE BUTTON MUST SAY WHICH STATE IT IS IN. Phil, 2026-08-24: it sat on
+  // "Start paper carry" while a campaign was already carrying, so the page gave
+  // no sign that Start had worked.
+  const setStart = (busy) => {
+    if (!startBtn) return;
+    startBtn.disabled = busy;
+    if (busy) {
+      startBtn.dataset.running = '1';
+      startBtn.textContent = live ? '● Carrying · LIVE' : '● Carrying · paper';
+    } else {
+      delete startBtn.dataset.running;
+      startBtn.textContent = live ? '▶ Start LIVE carry' : '▶ Start paper carry';
+    }
+  };
   if (!campaign) {
-    if (badge) badge.textContent = 'IDLE';
+    if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
     if (summary) summary.textContent = 'No active Gap Carry campaign.';
     if (monitor) monitor.hidden = true;
     if (kill) kill.style.display = 'none';
+    setStart(false);
     return;
   }
-  const status = String(campaign.status || 'WAITING');
-  if (badge) badge.textContent = status;
-  if (kill) kill.style.display = campaign.open ? '' : 'none';
+  const status = String(campaign.status || 'WAITING').replaceAll('_', ' ').toUpperCase();
+  const isRunning = running === undefined ? !!campaign.running : !!running;
   const pos = campaign.position;
-  if (summary) {
-    if (!pos) {
-      const why = campaign.signal && campaign.signal.reason ? ` — ${campaign.signal.reason}` : '';
-      summary.textContent = `Watching for ${campaign.rule?.entry_time || '15:10'}${why}`;
+  const history = Array.isArray(campaign.history) ? campaign.history : [];
+  if (badge) {
+    badge.textContent = isRunning ? status : `ENDED · ${status}`;
+    _cascadeSetTone(badge, isRunning ? 'info' : 'warning');
+    badge.style.color = isRunning ? '#fde68a' : 'var(--warn)';
+  }
+  setStart(isRunning);
+  // Kill stops the LOOP, not just an open leg -- a campaign waiting for 15:10
+  // is still a campaign, and used to have no way to be stopped.
+  if (kill) kill.style.display = isRunning ? '' : 'none';
+
+  const rule = campaign.rule || {};
+  const entryAt = rule.entry_time || '15:10';
+  const exitAt = rule.exit_time || '09:20';
+  if (summary) summary.textContent = '';
+
+  if (!monitor) return;
+  monitor.hidden = !(isRunning || pos || history.length);
+  if (monitor.hidden) return;
+
+  const kicker = _cascadeOptionsEl('gap-carry-monitor-kicker');
+  if (kicker) kicker.textContent = live ? 'Live carry' : 'Paper carry';
+  const title = _cascadeOptionsEl('gap-carry-monitor-title');
+  if (title) {
+    title.textContent = campaign.open
+      ? `Holding overnight · sells at ${exitAt}`
+      : (isRunning ? `Waiting for ${entryAt}` : `Ended · ${status.toLowerCase()}`);
+  }
+
+  const tiles = _cascadeOptionsEl('gap-carry-monitor-tiles');
+  if (tiles) {
+    const rows = [];
+    const sig = campaign.signal;
+    if (campaign.open && campaign.mark) {
+      rows.push(_gapCarryTile('Unrealised', _GC_MONEY(campaign.mark.unrealised), campaign.mark.unrealised >= 0 ? 'good' : 'bad'));
+    } else if (sig) {
+      rows.push(_gapCarryTile('Last read', `RSI ${sig.rsi} · ${sig.side || 'no trade'}`, sig.side ? 'good' : undefined));
     } else {
-      summary.textContent =
-        `${pos.side} ${pos.strike} · ${pos.lots} lot${pos.lots > 1 ? 's' : ''} · expiry ${pos.expiry}` +
-        (pos.entry ? ` · bought ₹${pos.entry.premium} at ${String(pos.entry.timestamp || '').slice(11, 16)}` : '') +
-        (pos.exit ? ` · sold ₹${pos.exit.premium}${pos.exit.priced ? '' : ' (at intrinsic)'}` : '');
+      rows.push(_gapCarryTile('Next read', entryAt));
+    }
+    rows.push(_gapCarryTile('Index', campaign.last_index_close ? String(campaign.last_index_close) : '—'));
+    if (pos && pos.entry) rows.push(_gapCarryTile('Capital', _GC_MONEY(pos.entry.capital)));
+    rows.push(_gapCarryTile('Realised', _GC_MONEY(campaign.realised), (campaign.realised || 0) >= 0 ? 'good' : 'bad'));
+    rows.push(_gapCarryTile('Nights closed', String(campaign.closed_trades ?? 0)));
+    // Floored exits get their own tile on purpose: a floor is not a price.
+    if (campaign.floored_exits) rows.push(_gapCarryTile(`At intrinsic (${campaign.floored_exits})`, _GC_MONEY(campaign.floored_net)));
+    tiles.innerHTML = rows.join('');
+  }
+
+  const ruleLine = _cascadeOptionsEl('gap-carry-monitor-rule');
+  if (ruleLine) {
+    const put = rule.rsi_for_put ?? (100 - Number(rule.rsi_threshold || 70));
+    ruleLine.textContent =
+      `${campaign.timeframe || '5m'} · ${entryAt} in, ${exitAt} out · close above EMA${rule.ema_period || 20} with RSI ` +
+      `${rule.rsi_for_call ?? rule.rsi_threshold ?? 70}+ buys a CE, below with RSI ${put}− buys a PE · ` +
+      `ATM+${rule.strike_offset_steps ?? 4} ITM · ${rule.lots ?? 1} lot${(rule.lots ?? 1) > 1 ? 's' : ''}`;
+  }
+
+  const body = _cascadeOptionsEl('gap-carry-monitor-rows');
+  if (body) {
+    // The open leg first, then the nights already settled, newest first.
+    const seen = [];
+    if (pos && campaign.open) seen.push([pos, true]);
+    for (const row of history.slice().reverse()) seen.push([row, false]);
+    if (!pos && !history.length) {
+      body.innerHTML = `<tr><td colspan="8" class="candle-entry-empty">Nothing bought yet — the candle is read at ${escapeHtml(entryAt)}.</td></tr>`;
+    } else {
+      if (!seen.length && pos) seen.push([pos, false]);
+      body.innerHTML = seen.map(([row, open]) => {
+        const net = row.net == null ? null : Number(row.net);
+        const mark = open && campaign.mark ? campaign.mark : null;
+        const now = row.exit
+          ? `${_GC_MONEY(row.exit.premium)}${row.exit.priced ? '' : ' <span style="color:var(--warn);">at intrinsic</span>'}`
+          : (mark ? _GC_MONEY(mark.premium) : '—');
+        const shown = net == null ? (mark ? Number(mark.unrealised) : null) : net;
+        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? '#6ee7b7' : 'var(--danger)');
+        return `<tr>`
+          + `<td>${escapeHtml(String(row.session || ''))}${open ? ' <span style="color:#fde68a;">open</span>' : ''}</td>`
+          + `<td>${escapeHtml(String(row.side || ''))}</td>`
+          + `<td>${escapeHtml(String(row.strike || ''))}</td>`
+          + `<td>${escapeHtml(String(row.expiry || ''))}</td>`
+          + `<td>${escapeHtml(String(row.lots ?? ''))}</td>`
+          + `<td>${row.entry ? _GC_MONEY(row.entry.premium) : '—'}</td>`
+          + `<td>${now}</td>`
+          + `<td style="color:${tone};">${shown == null ? '—' : _GC_MONEY(shown)}</td>`
+          + `</tr>`;
+      }).join('');
     }
   }
-  if (monitor) {
-    const tiles = _cascadeOptionsEl('gap-carry-monitor-tiles');
-    const hasAny = Boolean(pos) || campaign.closed_trades;
-    monitor.hidden = !hasAny;
-    if (tiles && hasAny) {
-      const mark = campaign.mark;
-      const rows = [];
-      if (mark) rows.push(_gapCarryTile('Unrealised', _GC_MONEY(mark.unrealised), mark.unrealised >= 0 ? 'good' : 'bad'));
-      if (pos && pos.entry) rows.push(_gapCarryTile('Capital', _GC_MONEY(pos.entry.capital)));
-      rows.push(_gapCarryTile('Realised', _GC_MONEY(campaign.realised), campaign.realised >= 0 ? 'good' : 'bad'));
-      rows.push(_gapCarryTile('Nights closed', String(campaign.closed_trades ?? 0)));
-      // Floored exits get their own tile on purpose: a floor is not a price.
-      if (campaign.floored_exits) {
-        rows.push(_gapCarryTile(`At intrinsic (${campaign.floored_exits})`, _GC_MONEY(campaign.floored_net)));
-      }
-      tiles.innerHTML = rows.join('');
-    }
-    const stamp = _cascadeOptionsEl('gap-carry-monitor-updated');
-    if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
+
+  const notes = Array.isArray(campaign.notes) ? campaign.notes.slice().reverse() : [];
+  const events = _cascadeOptionsEl('gap-carry-events');
+  const count = _cascadeOptionsEl('gap-carry-event-count');
+  if (count) count.textContent = `${notes.length} update${notes.length === 1 ? '' : 's'}`;
+  if (events) {
+    events.innerHTML = notes.length
+      ? notes.map((note) => {
+          const text = String(note);
+          const split = text.indexOf(': ');
+          const when = split > 0 ? text.slice(0, split) : '';
+          const what = split > 0 ? text.slice(split + 2) : text;
+          return `<tr><td>${escapeHtml(when)}</td><td>${escapeHtml(what)}</td></tr>`;
+        }).join('')
+      : '<tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr>';
   }
+
+  const stamp = _cascadeOptionsEl('gap-carry-monitor-updated');
+  if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
 }
 
 function _renderGapCarryBacktest(data) {

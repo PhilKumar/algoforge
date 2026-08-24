@@ -1001,6 +1001,59 @@ test('A held Candle Entry basket shows what it is worth right now', async ({ pag
   await expect(tiles).toContainText('+₹4,500.00');
 });
 
+// Phil, 2026-08-24: "I need a change on the button after paper / Live is
+// started.... and status and info panel on the right". Every Gap Carry test
+// before this one mocked `not_started`, so the suite had never once seen a
+// RUNNING carry -- and a campaign that had started left the button reading
+// "Start paper carry" over an empty right-hand pane.
+test('A started Gap Carry says so on the button and fills the right pane', async ({ page }) => {
+  await login(page);
+  const waiting = {
+    status: 'ok', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'],
+    campaign: {
+      strategy: 'gap_carry', status: 'WAITING', timeframe: '5m', running: true, open: false,
+      rule: { rsi_threshold: 70, rsi_for_call: 70, rsi_for_put: 30, strike_offset_steps: 4, lots: 1,
+              entry_time: '15:10', exit_time: '09:20', ema_period: 20 },
+      signal: { timestamp: '2026-08-24T15:10:00+05:30', close: 24612.4, ema: 24580.1, rsi: 64.2,
+                side: null, reason: 'RSI 64.2 is inside the band' },
+      position: null, mark: null, last_index_close: 24612.4,
+      closed_trades: 0, realised: 0, floored_exits: 0, floored_net: 0,
+      notes: ['2026-08-24: RSI 64.2 is inside the band'], history: [],
+    },
+  };
+  await page.route('**/api/gap-carry/paper/status', route => route.fulfill({ json: waiting }));
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-gapcarry');
+
+  // THE BUTTON. It must not still be inviting a start that already happened.
+  const start = page.locator('#gap-carry-start');
+  await expect(start).toContainText('Carrying');
+  await expect(start).toBeDisabled();
+  // And Kill must be reachable while it merely WAITS -- a campaign waiting for
+  // 15:10 is still a campaign, and used to have no way to be stopped.
+  await expect(page.locator('#gap-carry-kill')).toBeVisible();
+  await expect(page.locator('#gap-carry-badge')).toContainText('WAITING');
+
+  // THE RIGHT PANE. It used to stay hidden until something was bought, so a
+  // carry started in the morning showed nothing at all until 15:10.
+  const monitor = page.locator('#gap-carry-monitor');
+  await expect(monitor).toBeVisible();
+  await expect(page.locator('#gap-carry-monitor-title')).toContainText('Waiting for 15:10');
+  await expect(page.locator('#gap-carry-monitor-tiles')).toContainText('RSI 64.2');
+  await expect(page.locator('#gap-carry-monitor-rule')).toContainText('ATM+4 ITM');
+  await expect(page.locator('#gap-carry-monitor-rows')).toContainText('Nothing bought yet');
+  await expect(page.locator('#gap-carry-event-count')).toContainText('1 update');
+  // The tiles must use the styled class, not the two that never existed.
+  await expect(page.locator('#gap-carry-monitor-tiles .candle-entry-tile').first()).toBeVisible();
+
+  // A phone reads it without the page itself scrolling sideways.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await expect(monitor).toBeVisible();
+});
+
 // Phil, 2026-08-16, pointing at the Cash Cascade page: "Why don't you put the
 // panels in this format?.. The (i) for cascades". They already shared its
 // classes; what they did not share was ROOM. A .pf-info-doc flows its sections

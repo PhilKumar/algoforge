@@ -332,6 +332,9 @@ class GapCarryPaper:
             "floored_net": round(sum(float(p.net or 0.0) for p in floored), 2),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "notes": list(self.notes[-8:]),
+            # The nights already settled, so the panel can show the book so far
+            # rather than a single row. Capped: this rides a 3s poll.
+            "history": [p.as_dict() for p in self.history[-10:]],
         }
 
     # ── persistence ──────────────────────────────────────────────────────

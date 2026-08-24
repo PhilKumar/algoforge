@@ -276,6 +276,27 @@ class StatusTests(unittest.TestCase):
     def test_stages_is_the_one_chart_the_loop_must_fetch(self):
         self.assertEqual(_engine().stages, ("5m",))
 
+    def test_the_settled_nights_reach_the_panel(self):
+        """The right-hand panel draws a row per night, so the nights have to be
+        IN the status payload -- it used to carry only a count, which is why the
+        panel could never show a book."""
+        eng = _engine()
+        eng.ingest({"5m": _day(SESSION, RISING)})
+        eng.last_index_close = 24600.0
+        eng.settle_past_expiry(datetime.combine(EXPIRY + timedelta(days=1), time(9, 20)))
+        st = eng.get_status()
+        self.assertEqual(len(st["history"]), st["closed_trades"])
+        row = st["history"][0]
+        for field in ("session", "side", "strike", "expiry", "lots", "entry", "exit", "net"):
+            self.assertIn(field, row, f"the panel reads {field} off every row")
+
+    def test_the_history_the_panel_gets_is_capped(self):
+        """It rides a 3-second poll; an unbounded book would grow every payload."""
+        import inspect
+
+        src = inspect.getsource(GapCarryPaper.get_status)
+        self.assertIn("self.history[-10:]", src)
+
     def test_floored_exits_are_reported_separately_from_the_rest(self):
         eng = _engine()
         eng.ingest({"5m": _day(SESSION, RISING)})

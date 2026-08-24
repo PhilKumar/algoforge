@@ -3190,9 +3190,18 @@
       <div class="candle-entry-pane candle-entry-pane-live">
         <div id="gap-carry-auto-card" class="candle-entry-auto-card" hidden></div>
         <div id="gap-carry-summary" class="candle-entry-summary">No active Gap Carry campaign.</div>
-        <section id="gap-carry-monitor" class="candle-entry-monitor" hidden>
-          <div class="candle-entry-monitor-head"><span class="candle-entry-monitor-kicker">The night in progress</span><span id="gap-carry-monitor-updated" class="candle-entry-monitor-updated"></span></div>
+        <section id="gap-carry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Gap Carry paper campaign monitor" hidden>
+          <div class="candle-entry-monitor-head">
+            <div><div class="candle-entry-monitor-kicker" id="gap-carry-monitor-kicker">Paper carry</div><h4 id="gap-carry-monitor-title">Running</h4></div>
+            <div id="gap-carry-monitor-updated" class="candle-entry-monitor-updated"></div>
+          </div>
           <div id="gap-carry-monitor-tiles" class="candle-entry-tiles"></div>
+          <div id="gap-carry-monitor-rule" class="candle-entry-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
+          <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="gap-carry-monitor-rows"></tbody></table></div></div>
+          <details class="candle-entry-activity">
+            <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="gap-carry-event-count">0 updates</span></summary>
+            <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="gap-carry-events"><tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
+          </details>
         </section>
         <section id="gap-carry-backtest" class="candle-entry-monitor" hidden>
           <div class="candle-entry-monitor-head"><span class="candle-entry-monitor-kicker">Replay on recorded prices</span><span id="gap-carry-backtest-updated" class="candle-entry-monitor-updated"></span></div>
