@@ -588,11 +588,145 @@ def archived_dates(charts_root: str | Path, symbol: str) -> set[date]:
     return result
 
 
+_MONTH_NUMBERS = {
+    name.upper(): number
+    for number in range(1, 13)
+    for name in (calendar.month_name[number], calendar.month_abbr[number])
+}
+
+
+def _folder_date(path: Path) -> date | None:
+    """Read a date from both the original and generated Journal folder styles."""
+    try:
+        year = int(path.parent.parent.name)
+    except (TypeError, ValueError):
+        return None
+    month_match = re.search(r"[A-Za-z]+", path.parent.name)
+    month = _MONTH_NUMBERS.get(month_match.group(0).upper()) if month_match else None
+    if month is None:
+        return None
+
+    name = path.name
+    for pattern, month_is_text in (
+        (r"^(\d{1,2})[-_ ](\d{1,2})[-_ ](20\d{2})$", False),
+        (r"^(\d{1,2})[-_ ]([A-Za-z]+)[-_ ](20\d{2})$", True),
+        (r"^(\d{1,2})[-_ ]([A-Za-z]+)$", True),
+        (r"^(\d{1,2})$", False),
+    ):
+        match = re.fullmatch(pattern, name)
+        if not match:
+            continue
+        values = match.groups()
+        day_number = int(values[0])
+        parsed_year = int(values[2]) if len(values) == 3 else year
+        if len(values) >= 2:
+            parsed_month = _MONTH_NUMBERS.get(values[1].upper()) if month_is_text else int(values[1])
+        else:
+            parsed_month = month
+        if parsed_year != year or parsed_month != month:
+            return None
+        try:
+            return date(parsed_year, parsed_month, day_number)
+        except ValueError:
+            return None
+    return None
+
+
+def _generated_chart_name(name: str, day: date | None = None) -> bool:
+    match = re.fullmatch(r"(?:Nifty|Sensex)_(20\d{2}-\d{2}-\d{2})\.png", name, re.IGNORECASE)
+    if not match:
+        return False
+    if day is None:
+        return True
+    try:
+        return date.fromisoformat(match.group(1)) == day
+    except ValueError:
+        return False
+
+
+def _existing_day_folders(charts_root: str | Path, day: date) -> list[Path]:
+    year_root = Path(charts_root) / str(day.year)
+    if not year_root.is_dir():
+        return []
+    matches: list[Path] = []
+    for month_folder in year_root.iterdir():
+        if not month_folder.is_dir():
+            continue
+        for day_folder in month_folder.iterdir():
+            if day_folder.is_dir() and _folder_date(day_folder) == day:
+                matches.append(day_folder)
+    return matches
+
+
+def _preferred_day_folder(charts_root: str | Path, day: date) -> Path:
+    """Use the owner's existing dated folder before creating our canonical one."""
+    canonical = Path(charts_root) / str(day.year) / f"{day:%b}-{day:%Y}" / f"{day:%d}-{day:%b}-{day:%Y}"
+    existing = _existing_day_folders(charts_root, day)
+    if not existing:
+        return canonical
+
+    def score(folder: Path) -> tuple[int, int, int, str]:
+        files = [item for item in folder.iterdir() if item.is_file()]
+        owner_files = sum(not _generated_chart_name(item.name, day) for item in files)
+        return (owner_files > 0, owner_files, len(files), str(folder))
+
+    return max(existing, key=score)
+
+
 def chart_path(charts_root: str | Path, symbol: str, day: date) -> Path:
     prefix = SYMBOLS[symbol.upper()]["file"]
-    month = f"{day:%b}-{day:%Y}"
-    folder = Path(charts_root) / str(day.year) / month / f"{day:%d}-{day:%b}-{day:%Y}"
+    folder = _preferred_day_folder(charts_root, day)
     return folder / f"{prefix}_{day:%Y-%m-%d}.png"
+
+
+def consolidate_generated_day_folders(charts_root: str | Path) -> list[dict[str, str]]:
+    """Merge generated-only duplicate folders into the owner's original date.
+
+    Only our exact ``Nifty_YYYY-MM-DD.png`` and ``Sensex_YYYY-MM-DD.png`` files
+    move. Manual charts, notes, spreadsheets, and name conflicts are left
+    untouched. Empty generated folders and their empty month are then removed.
+    """
+    root = Path(charts_root)
+    if not root.is_dir():
+        return []
+    moved: list[dict[str, str]] = []
+    for year_root in [path for path in root.iterdir() if path.is_dir() and path.name.isdigit()]:
+        for canonical_month in list(year_root.iterdir()):
+            if not canonical_month.is_dir() or not re.fullmatch(r"[A-Z][a-z]{2}-\d{4}", canonical_month.name):
+                continue
+            for generated_folder in list(canonical_month.iterdir()):
+                if not generated_folder.is_dir():
+                    continue
+                day = _folder_date(generated_folder)
+                if day is None or generated_folder.name != f"{day:%d}-{day:%b}-{day:%Y}":
+                    continue
+                alternatives = [folder for folder in _existing_day_folders(root, day) if folder != generated_folder]
+                if not alternatives:
+                    continue
+                destination_folder = _preferred_day_folder(root, day)
+                if destination_folder == generated_folder:
+                    continue
+                for source in list(generated_folder.iterdir()):
+                    if not source.is_file() or not _generated_chart_name(source.name, day):
+                        continue
+                    destination = destination_folder / source.name
+                    if destination.exists():
+                        if source.read_bytes() == destination.read_bytes():
+                            source.unlink()
+                            moved.append({"from": str(source), "to": str(destination), "result": "duplicate-removed"})
+                        continue
+                    destination_folder.mkdir(parents=True, exist_ok=True)
+                    os.replace(source, destination)
+                    moved.append({"from": str(source), "to": str(destination), "result": "moved"})
+                try:
+                    generated_folder.rmdir()
+                except OSError:
+                    pass
+            try:
+                canonical_month.rmdir()
+            except OSError:
+                pass
+    return moved
 
 
 def save_chart(image: Image.Image, destination: str | Path) -> bool:
@@ -632,7 +766,14 @@ def backfill_charts(
     """Generate every missing complete session for both indices, idempotently."""
     current = now or datetime.now(IST)
     through = eligible_through(current)
-    result = {"status": "ok", "through": through.isoformat(), "created": [], "skipped": [], "errors": []}
+    result = {
+        "status": "ok",
+        "through": through.isoformat(),
+        "created": [],
+        "skipped": [],
+        "consolidated": consolidate_generated_day_folders(charts_root),
+        "errors": [],
+    }
     histories: dict[str, list[JournalCandle]] = {}
     existing_by_symbol = {symbol: archived_dates(charts_root, symbol) for symbol in SYMBOLS}
     if start > through:

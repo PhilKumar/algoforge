@@ -11,6 +11,7 @@ from journal_charts import (
     archived_dates,
     backfill_charts,
     chart_path,
+    consolidate_generated_day_folders,
     eligible_through,
     find_gap_events,
     previous_session_levels,
@@ -95,6 +96,70 @@ class JournalChartsTest(unittest.TestCase):
             chart_path(root, "SENSEX", date(2026, 8, 24)),
             root / "2026" / "Aug-2026" / "24-Aug-2026" / "Sensex_2026-08-24.png",
         )
+
+    def test_chart_path_reuses_the_owners_existing_date_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "charts"
+            original = root / "2023" / "JAN_2023" / "09_01_2023"
+            original.mkdir(parents=True)
+            (original / "Nifty_09_01_2023.JPG").write_bytes(b"owner chart")
+
+            self.assertEqual(
+                chart_path(root, "SENSEX", date(2023, 1, 9)),
+                original / "Sensex_2023-01-09.png",
+            )
+
+    def test_generated_duplicate_folder_is_merged_without_touching_owner_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "charts"
+            original = root / "2023" / "JAN_2023" / "09_01_2023"
+            generated = root / "2023" / "Jan-2023" / "09-Jan-2023"
+            original.mkdir(parents=True)
+            generated.mkdir(parents=True)
+            owner = original / "Nifty_09_01_2023.JPG"
+            owner.write_bytes(b"owner chart")
+            generated_chart = generated / "Sensex_2023-01-09.png"
+            generated_chart.write_bytes(b"generated sensex")
+
+            moved = consolidate_generated_day_folders(root)
+
+            self.assertEqual(owner.read_bytes(), b"owner chart")
+            self.assertEqual((original / generated_chart.name).read_bytes(), b"generated sensex")
+            self.assertFalse(generated.exists())
+            self.assertFalse((root / "2023" / "Jan-2023").exists())
+            self.assertEqual(len(moved), 1)
+
+    def test_missing_sensex_is_added_to_the_existing_nifty_date_folder(self):
+        nifty = _series(self.days)
+        sensex = _series(self.days, 78_000.0)
+
+        class FakeHistory:
+            def __init__(self, _cache_root):
+                pass
+
+            def candles(self, symbol, _start, _end):
+                return nifty if symbol == "NIFTY" else sensex
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "charts"
+            original = root / "2026" / "FEB_2026" / "26_02_2026"
+            original.mkdir(parents=True)
+            (original / "Nifty_26_02_2026.JPG").write_bytes(b"owner chart")
+
+            result = backfill_charts(
+                root,
+                Path(folder) / "cache",
+                start=date(2026, 2, 26),
+                now=datetime(2026, 2, 26, 16, 0, tzinfo=IST),
+                history_factory=FakeHistory,
+            )
+
+            self.assertEqual(
+                {(item["symbol"], item["date"]) for item in result["created"]},
+                {("SENSEX", "2026-02-26")},
+            )
+            self.assertTrue((original / "Sensex_2026-02-26.png").exists())
+            self.assertFalse((root / "2026" / "Feb-2026").exists())
 
     def test_gap_direction_repaints_the_real_opening_candle(self):
         rows = _series(self.days)

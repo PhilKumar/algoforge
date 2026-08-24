@@ -321,6 +321,64 @@ test('the tearsheet is served whole and embedded in the workspace it belongs to'
   expect(mobileOverflow).toBe(false);
 });
 
+test('tearsheet controls, contents rail, coloured heading pill, and all three orbit bodies stay readable', async ({ page }) => {
+  await login(page);
+  await page.goto('/app#assets/tearsheet');
+  await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
+
+  const pillColours: Record<string, string> = {
+    options: 'rgb(196, 181, 253)',
+    fib: 'rgb(56, 189, 248)',
+    candle: 'rgb(147, 197, 253)',
+    gapcarry: 'rgb(251, 191, 36)',
+  };
+  for (const [doc, colour] of Object.entries(pillColours)) {
+    const pill = page.locator(`.pf-tearsheet-doc[data-doc="${doc}"]`);
+    await pill.click();
+    await expect(pill).toHaveClass(/is-active/);
+    await expect(pill).toHaveCSS('color', colour);
+  }
+
+  await page.locator('.pf-tearsheet-doc[data-doc="gapcarry"]').click();
+  const frame = page.frameLocator('#assets-tearsheet-frame');
+  await expect(frame.locator('h1')).toContainText('Gap Carry');
+
+  const orbitBodies = await frame.locator('.system-sigil').evaluate((sigil) => {
+    const styles = ['.ring-one', '.ring-two', '.ring-three'].map((selector) => {
+      const ring = sigil.querySelector(selector)!;
+      const pseudo = getComputedStyle(ring, '::after');
+      return {
+        content: pseudo.content,
+        animationName: pseudo.animationName,
+        offsetPath: pseudo.offsetPath,
+      };
+    });
+    return styles;
+  });
+  expect(orbitBodies.every((body) => body.content !== 'none')).toBe(true);
+  expect(orbitBodies[1].animationName).toContain('sigil-orbit-ellipse');
+  expect(orbitBodies[1].offsetPath).not.toBe('none');
+
+  await frame.locator('#document-body > section').last().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(100);
+  const frozen = await frame.locator('body').evaluate(() => {
+    const toolbar = document.querySelector('.reader-toolbar')!.getBoundingClientRect();
+    const rail = document.querySelector('.document-rail')!.getBoundingClientRect();
+    const label = document.querySelector('.rail-label')!.getBoundingClientRect();
+    return {
+      toolbarTop: toolbar.top,
+      toolbarBottom: toolbar.bottom,
+      railTop: rail.top,
+      labelTop: label.top,
+      viewportHeight: innerHeight,
+    };
+  });
+  expect(Math.abs(frozen.toolbarTop)).toBeLessThanOrEqual(1);
+  expect(frozen.railTop).toBeGreaterThanOrEqual(frozen.toolbarBottom + 12);
+  expect(frozen.labelTop).toBeGreaterThanOrEqual(frozen.railTop);
+  expect(frozen.labelTop).toBeLessThan(frozen.viewportHeight);
+});
+
 test('production CSP permits the same-origin tearsheet frame and nothing else', async ({ page }) => {
   // The embed is invisible in production if this policy forbids frames — which
   // it did, as frame-src 'none'. Locally there is no nginx in front of the app,

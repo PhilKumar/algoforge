@@ -861,24 +861,29 @@ a {{ color:var(--accent); }}
 
    The directions and speeds are not arbitrary. The inner body runs faster than
    the outer one and the other way round, which is how real orbits read: closer
-   in, shorter period. ring-two is deliberately left alone -- it already carries
-   `rotate(-24deg)` to tilt the ellipse, and spinning it would throw that away.
+   in, shorter period. The middle body follows its ellipse with a motion path so
+   the ring keeps its deliberate -24 degree tilt.
 
    `prefers-reduced-motion` stops both, and the whole sigil is already hidden in
    print and on small screens. */
 @keyframes sigil-orbit-cw {{ from {{ transform:rotate(0deg); }} to {{ transform:rotate(360deg); }} }}
 @keyframes sigil-orbit-ccw {{ from {{ transform:rotate(360deg); }} to {{ transform:rotate(0deg); }} }}
+@keyframes sigil-orbit-ellipse {{ from {{ offset-distance:0%; }} to {{ offset-distance:100%; }} }}
 .ring-one {{ animation:sigil-orbit-cw 32s linear infinite; }}
 .ring-three {{ animation:sigil-orbit-ccw 17s linear infinite; }}
-.ring-one::after, .ring-three::after {{
+.ring-one::after, .ring-two::after, .ring-three::after {{
   content:''; position:absolute; left:50%; border-radius:50%;
   background:var(--accent); }}
 .ring-one::after {{ width:7px; height:7px; top:-4px; margin-left:-3.5px;
   box-shadow:0 0 10px 2px rgba(var(--accent-rgb),.45); opacity:.85; }}
 .ring-three::after {{ width:5px; height:5px; top:-3px; margin-left:-2.5px;
   box-shadow:0 0 8px 1px rgba(var(--accent-rgb),.55); }}
+.ring-two::after {{ width:6px; height:6px; left:0; top:0;
+  offset-path:ellipse(50% 50% at 50% 50%); offset-distance:0%; offset-rotate:0deg;
+  animation:sigil-orbit-ellipse 24s linear infinite;
+  box-shadow:0 0 9px 1px rgba(var(--accent-rgb),.5); opacity:.92; }}
 @media (prefers-reduced-motion: reduce) {{
-  .ring-one, .ring-three {{ animation:none; }}
+  .ring-one, .ring-three, .ring-two::after {{ animation:none; }}
 }}
 
 /* THE SEARCH BAR FREEZES (Phil, 2026-08-24). The language toggle, the search
@@ -905,8 +910,8 @@ kbd {{ padding:4px 7px; border:1px solid var(--line-strong); border-radius:5px; 
   text-transform:uppercase; letter-spacing:.08em; }}
 
 .reader-layout {{ display:grid; grid-template-columns:250px minmax(0,1fr); gap:30px; align-items:start; }}
-.document-rail {{ position:sticky; top:18px; align-self:start; min-width:0; }}
-.rail-sticky {{ max-height:calc(100vh - 40px); overflow-y:auto; overscroll-behavior:contain;
+.document-rail {{ position:sticky; top:98px; align-self:start; min-width:0; }}
+.rail-sticky {{ max-height:calc(100vh - 116px); overflow-y:auto; overscroll-behavior:contain;
   padding-right:8px; scrollbar-width:thin; scrollbar-gutter:stable; }}
 .rail-label {{ margin:0 0 12px; color:var(--dim); font:600 10px var(--mono); letter-spacing:.12em;
   text-transform:uppercase; }}

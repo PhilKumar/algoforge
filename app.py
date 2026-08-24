@@ -20815,8 +20815,13 @@ async def _journal_chart_backfill_once() -> dict:
     )
     result = await asyncio.to_thread(backfill_charts, charts_root, cache_root, start=backfill_start)
     created = len(result.get("created") or [])
+    consolidated = len(result.get("consolidated") or [])
     errors = len(result.get("errors") or [])
     message = f"Daily Journal charts are current; {created} image{'s' if created != 1 else ''} added."
+    if consolidated:
+        message += (
+            f" {consolidated} generated image{'s' if consolidated != 1 else ''} merged into existing date folders."
+        )
     if errors:
         message = f"Daily Journal chart run completed with {errors} data/render error{'s' if errors != 1 else ''}."
     _journal_chart_state.update(
