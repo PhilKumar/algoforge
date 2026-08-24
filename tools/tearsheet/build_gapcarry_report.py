@@ -170,49 +170,49 @@ def build() -> str:
   <p class="doc-lede">One candle is read at 15:10. If it closed on the strong side of its EMA20 with
   momentum to match, one in-the-money contract is bought and sold into the next morning's open.
   No stop, no target, and nothing on the way out but the clock.</p>
-  <p class="doc-meta">{s['first']} → {s['last']} · one lot · ATM+4 in the money · nearest weekly ·
-  recorded premiums from two archives · {s['trades']} nights</p>
+  <p class="doc-meta">{s["first"]} → {s["last"]} · one lot · ATM+4 in the money · nearest weekly ·
+  recorded premiums from two archives · {s["trades"]} nights</p>
 </header>
 
 <section id="headline">
   <div class="shead"><h2>The book</h2></div>
   <div class="tiles">
-    <div class="tile"><span class="k">Net</span><span class="v {cls(s['net'])}">{r(s['net'])}</span></div>
-    <div class="tile"><span class="k">Nights</span><span class="v">{s['trades']}</span></div>
-    <div class="tile"><span class="k">Won</span><span class="v">{s['win_rate'] * 100:.1f}%</span></div>
-    <div class="tile"><span class="k">Profit factor</span><span class="v">{s['pf']:.2f}</span></div>
-    <div class="tile"><span class="k">Worst drawdown</span><span class="v neg">{r(s['dd'])}</span></div>
-    <div class="tile"><span class="k">Capital at most</span><span class="v">{r(s['peak_capital'])}</span></div>
+    <div class="tile"><span class="k">Net</span><span class="v {cls(s["net"])}">{r(s["net"])}</span></div>
+    <div class="tile"><span class="k">Nights</span><span class="v">{s["trades"]}</span></div>
+    <div class="tile"><span class="k">Won</span><span class="v">{s["win_rate"] * 100:.1f}%</span></div>
+    <div class="tile"><span class="k">Profit factor</span><span class="v">{s["pf"]:.2f}</span></div>
+    <div class="tile"><span class="k">Worst drawdown</span><span class="v neg">{r(s["dd"])}</span></div>
+    <div class="tile"><span class="k">Capital at most</span><span class="v">{r(s["peak_capital"])}</span></div>
   </div>
-  {curve_svg(s['curve'])}
-  <p class="note">Average night {r(s['avg'])}. Best {r(s['best'])}, worst {r(s['worst'])}.</p>
+  {curve_svg(s["curve"])}
+  <p class="note">Average night {r(s["avg"])}. Best {r(s["best"])}, worst {r(s["worst"])}.</p>
 </section>
 
 <section id="curve-gapcarry">
   <div class="shead"><h2>Year by year, and which side paid</h2></div>
-  <div class="two-up">{rowspan(by_year, 'Year')}{rowspan(by_side, 'Side')}</div>
+  <div class="two-up">{rowspan(by_year, "Year")}{rowspan(by_side, "Side")}</div>
 </section>
 
 <section id="weekday">
   <div class="shead"><h2>The weekday problem</h2></div>
-  {rowspan(by_dow, 'Entry day')}
-  <p class="warn"><strong>Friday alone is {fri['net'] / s['net'] * 100:.0f}% of the net</strong> from
-  {fri['n']} of {s['trades']} nights. A Friday entry is held over the weekend, so part of this book is a
+  {rowspan(by_dow, "Entry day")}
+  <p class="warn"><strong>Friday alone is {fri["net"] / s["net"] * 100:.0f}% of the net</strong> from
+  {fri["n"]} of {s["trades"]} nights. A Friday entry is held over the weekend, so part of this book is a
   three-day gap wearing a one-night rule's clothes. <strong>Thursday loses.</strong> Neither fact is
   settled, and the live tab exists to prove them forward rather than assume them.</p>
 </section>
 
 <section id="honesty">
   <div class="shead"><h2>What is not measured</h2></div>
-  <p><strong>{len(s['floored'])} of {s['trades']} exits are floored at intrinsic value</strong>
-  ({r(s['floored_net'])} of the net). Those are contracts that gapped far enough to leave what the
+  <p><strong>{len(s["floored"])} of {s["trades"]} exits are floored at intrinsic value</strong>
+  ({r(s["floored_net"])} of the net). Those are contracts that gapped far enough to leave what the
   archives carry — which happens precisely when the night went well, so the floor
   <em>understates</em> them. A floor is not a price, and they are counted apart everywhere they appear.</p>
-  <p><strong>The top three nights are {r(sum(top3))}</strong>, {sum(top3) / s['net'] * 100:.0f}% of the
-  net; without them the book still makes {r(s['net'] - sum(top3))}.</p>
+  <p><strong>The top three nights are {r(sum(top3))}</strong>, {sum(top3) / s["net"] * 100:.0f}% of the
+  net; without them the book still makes {r(s["net"] - sum(top3))}.</p>
   <p><strong>RSI 70 is the top of a band, not a plateau.</strong> Every threshold from 65 to 76 is
   positive with both halves of the window green, but 70 is the best cell in it. Read the strength as
-  profit factor ~1.35–1.40 rather than the {s['pf']:.2f} above.</p>
+  profit factor ~1.35–1.40 rather than the {s["pf"]:.2f} above.</p>
   <p class="note">Twelve of twelve combinations of 5m/10m/15m/30m against RSI 68/70/72 were profitable
   over this window, eleven of them green in both halves — the candle is read once and both ends are
   clock times, so there is very little for a fit to grip.</p>
