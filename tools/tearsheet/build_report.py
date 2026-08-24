@@ -881,9 +881,18 @@ a {{ color:var(--accent); }}
   .ring-one, .ring-three {{ animation:none; }}
 }}
 
+/* THE SEARCH BAR FREEZES (Phil, 2026-08-24). The language toggle, the search
+   box and the document-state readout are the controls you reach for WHILE
+   reading, so they have to stay reachable while the document moves under them.
+   `--surface` is translucent, so an opaque backdrop is needed or the text of
+   the section scrolling beneath shows through the bar. */
 .reader-toolbar {{ min-height:74px; margin:24px 0; padding:11px; display:flex; align-items:center;
   justify-content:space-between; gap:20px; flex-wrap:wrap;
-  border:1px solid var(--line); border-radius:13px; background:var(--surface); }}
+  position:sticky; top:0; z-index:40;
+  background-color:var(--paper); background-image:linear-gradient(var(--surface), var(--surface));
+  border:1px solid var(--line); border-radius:13px;
+  box-shadow:0 6px 18px rgba(0,0,0,.18); }}
+@media print {{ .reader-toolbar {{ position:static; box-shadow:none; }} }}
 .document-search {{ width:min(420px,100%); min-height:48px; padding:0 12px; display:flex;
   align-items:center; gap:10px; border:1px solid var(--line); border-radius:9px; background:var(--surface-2); }}
 .document-search svg {{ width:18px; height:18px; flex:none; fill:none; stroke:var(--dim); stroke-width:1.7; }}
