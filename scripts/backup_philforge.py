@@ -12,6 +12,7 @@ Output:
 
 Safety:
 - streams large trees directly into the archive instead of staging a full copy
+- prunes expired local archives before enforcing the free-space reserve
 - aborts early when free disk space is too low for a safe local backup
 """
 
@@ -228,6 +229,13 @@ def _prune_old_archives(output_dir: Path, retention_days: int) -> int:
                 removed += 1
         except FileNotFoundError:
             continue
+
+    # Avoid leaving convenience links dangling when their expired target was
+    # pruned before a replacement backup can be created.
+    for latest_name in ("latest.tar.gz", "latest.sha256"):
+        latest = output_dir / latest_name
+        if latest.is_symlink() and not latest.exists():
+            latest.unlink(missing_ok=True)
     return removed
 
 
@@ -292,6 +300,9 @@ def main() -> int:
     legacy_sources = _discover_legacy_sources(legacy_root) if args.include_legacy else []
     timestamp = _now_utc()
     archive_path = output_dir / _archive_name(timestamp)
+    # Prune first so an expired local backup cannot prevent its own
+    # replacement by tripping the minimum-free-space safety check.
+    removed = _prune_old_archives(output_dir, args.retention_days)
     estimated_required = _estimate_required_bytes(db_src, user_data_src, legacy_sources)
     if option_archive_src != user_data_src and user_data_src not in option_archive_src.parents:
         estimated_required += _path_size(option_archive_src)
@@ -328,7 +339,7 @@ def main() -> int:
     checksum_path.write_text(f"{checksum}  {archive_path.name}\n", encoding="utf-8")
     _update_latest_symlink(output_dir, archive_path, checksum_path)
     offsite = _upload_offsite(archive_path, checksum_path)
-    removed = _prune_old_archives(output_dir, args.retention_days)
+    removed += _prune_old_archives(output_dir, args.retention_days)
 
     print(
         json.dumps(

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,54 @@ VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_backup.py"
 
 
 class BackupPhilForgeTests(unittest.TestCase):
+    def test_expired_archives_are_pruned_before_free_space_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_root = root / "backups"
+            backup_root.mkdir()
+            old_archive = backup_root / "philforge-backup-20200101-000000.tar.gz"
+            old_checksum = old_archive.with_suffix(old_archive.suffix + ".sha256")
+            old_archive.write_bytes(b"old backup")
+            old_checksum.write_text("old checksum\n", encoding="utf-8")
+            (backup_root / "latest.tar.gz").symlink_to(old_archive.name)
+            (backup_root / "latest.sha256").symlink_to(old_checksum.name)
+            old_mtime = time.time() - 3 * 86400
+            os.utime(old_archive, (old_mtime, old_mtime))
+            os.utime(old_checksum, (old_mtime, old_mtime))
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PHILFORGE_DB": str(root / "missing.db"),
+                    "PHILFORGE_USER_DATA_ROOT": str(root / "user-data"),
+                    "PHILFORGE_BACKUP_ROOT": str(backup_root),
+                    # Force the safety check to fail after pruning.
+                    "PHILFORGE_BACKUP_MIN_FREE_MB": str(10**9),
+                }
+            )
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--output-dir",
+                    str(backup_root),
+                    "--retention-days",
+                    "1",
+                ],
+                cwd=str(REPO_ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("Insufficient free space for backup", proc.stderr)
+            self.assertFalse(old_archive.exists())
+            self.assertFalse(old_checksum.exists())
+            self.assertFalse((backup_root / "latest.tar.gz").is_symlink())
+            self.assertFalse((backup_root / "latest.sha256").is_symlink())
+
     def test_backup_archive_includes_db_user_data_and_legacy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
