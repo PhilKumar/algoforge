@@ -81,3 +81,45 @@ test('Scalp follows the selected skin and reserves green for trading meaning', a
     ],
   });
 });
+
+test('Scalp panels size to content and Advanced preserves every execution field', async ({ page }) => {
+  await login(page);
+  await page.evaluate(() => {
+    (window as any).showPage('scalp-page', document.getElementById('nav-scalp'));
+  });
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+
+  const advanced = page.locator('#scalp-page .scalp-advanced');
+  await expect(advanced).not.toHaveAttribute('open', '');
+  await expect(advanced.locator('summary')).toContainText('Advanced');
+  await expect(advanced.locator('summary')).toContainText('Exit rules + stop-limit entry');
+
+  const geometry = await page.evaluate(() => {
+    const grid = document.querySelector('#scalp-page .scalp-desk-grid')!;
+    const entry = document.querySelector('#scalp-page .scalp-entry-card')!.getBoundingClientRect();
+    const events = document.querySelector('#scalp-page .scalp-event-card')!.getBoundingClientRect();
+    const advancedBox = document.querySelector('#scalp-page .scalp-advanced')!.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(grid).gridTemplateColumns,
+      alignItems: getComputedStyle(grid).alignItems,
+      entryHeight: entry.height,
+      eventHeight: events.height,
+      advancedHeight: advancedBox.height,
+    };
+  });
+  expect(geometry.columns.split(' ')).toHaveLength(2);
+  expect(geometry.alignItems).toBe('start');
+  expect(geometry.eventHeight).toBeLessThan(geometry.entryHeight);
+  expect(geometry.advancedHeight).toBeLessThan(50);
+
+  await advanced.locator('summary').click();
+  await expect(advanced).toHaveAttribute('open', '');
+  for (const id of [
+    'scalp-sl-rs', 'scalp-target-rs', 'scalp-sl-prem',
+    'scalp-target-prem', 'scalp-limit-price', 'scalp-limit-max',
+  ]) {
+    await expect(page.locator(`#${id}`)).toBeVisible();
+  }
+  await expect(page.locator('[onclick="submitScalpEntry(\'BUY\')"]')).toHaveCount(1);
+  await expect(page.locator('[onclick="submitScalpEntry(\'SELL\')"]')).toHaveCount(1);
+});

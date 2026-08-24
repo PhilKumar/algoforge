@@ -559,7 +559,7 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
     animations: 'disabled',
     maxDiffPixelRatio: 0.04,
   });
-  await page.click('[data-pf-action="closeAppearanceModal"]');
+  await page.getByRole('button', { name: 'Close appearance', exact: true }).click();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.nav-bar')).toBeVisible();

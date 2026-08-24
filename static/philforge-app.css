@@ -9137,6 +9137,127 @@ body :is(
 [data-theme="light"] #live-page .live-conditions { background: rgba(15,23,42,.03); }
 [data-theme="light"] #live-page .live-card-count { background: rgba(15,23,42,.04); }
 
+/* Scalp density pass: Cascade-sized panels that stop at their own content.
+   This is presentation only; every ticket field and handler remains in the
+   original form and the optional controls simply live in a native details. */
+#scalp-page .scalp-engine-bar {
+  min-height: 54px;
+  padding: 10px 14px !important;
+  gap: 12px !important;
+}
+#scalp-page .scalp-positions-card,
+#scalp-page .scalp-entry-card,
+#scalp-page .scalp-event-card,
+#scalp-page .scalp-history-card {
+  padding: 14px !important;
+}
+#scalp-page .scalp-positions-card > div:first-child,
+#scalp-page .scalp-history-card > div:first-child {
+  margin-bottom: 10px !important;
+}
+#scalp-page .scalp-desk-grid {
+  grid-template-columns: minmax(480px, .82fr) minmax(420px, 1.18fr) !important;
+  align-items: start;
+  gap: 12px !important;
+}
+#scalp-page .scalp-entry-card > h3:first-child,
+#scalp-page .scalp-event-card > h3:first-child {
+  margin-bottom: 10px !important;
+  padding-bottom: 9px;
+}
+#scalp-page .scalp-entry-grid {
+  gap: 8px 10px !important;
+  margin-bottom: 10px !important;
+}
+#scalp-page .scalp-entry-grid :is(input, select),
+#scalp-page .scalp-entry-grid :is(#scalp-live-ltp, #scalp-margin) {
+  min-height: 36px;
+}
+#scalp-page .scalp-advanced {
+  margin: 0 0 10px;
+  border: 1px solid var(--pf-workspace-line);
+  border-radius: 10px;
+  background: var(--pf-workspace-inset);
+  overflow: hidden;
+}
+#scalp-page .scalp-advanced > summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+#scalp-page .scalp-advanced > summary::-webkit-details-marker { display: none; }
+#scalp-page .scalp-advanced > summary::before {
+  content: '›';
+  color: var(--accent);
+  font-size: 17px;
+  line-height: 1;
+  transform-origin: center;
+  transition: transform .16s ease;
+}
+#scalp-page .scalp-advanced[open] > summary::before { transform: rotate(90deg); }
+#scalp-page .scalp-advanced > summary span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+#scalp-page .scalp-advanced > summary small {
+  margin-left: auto;
+  color: var(--muted);
+  font: 500 9px var(--font-mono);
+}
+#scalp-page .scalp-advanced[open] > summary {
+  border-bottom: 1px solid var(--pf-workspace-line);
+  background: rgba(var(--pf-tint-primary-rgb, 0,191,165), .045);
+}
+#scalp-page .scalp-advanced-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+#scalp-page .scalp-advanced-body > :is(.scalp-exit-rules, .scalp-stop-limit) {
+  margin: 0 !important;
+  padding: 10px !important;
+  border-radius: 8px !important;
+}
+#scalp-page .scalp-entry-actions { min-height: 38px; }
+#scalp-page .scalp-live-note { margin-top: 8px; }
+#scalp-page .scalp-event-card { align-self: start; }
+#scalp-page #scalp-event-log {
+  min-height: 170px;
+  max-height: 286px !important;
+  line-height: 1.55 !important;
+}
+#scalp-page .scalp-positions-card td,
+#scalp-page .scalp-history-card td { padding-top: 7px; padding-bottom: 7px; }
+
+@media (max-width: 1100px) {
+  #scalp-page .scalp-desk-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+@media (max-width: 560px) {
+  #scalp-page .scalp-advanced > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  #scalp-page .scalp-advanced > summary small {
+    width: 100%;
+    margin-left: 26px;
+  }
+  #scalp-page .scalp-advanced-body > :is(.scalp-exit-rules, .scalp-stop-limit) > div:nth-child(2) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  #scalp-page .scalp-entry-actions { flex-wrap: wrap; }
+  #scalp-page #scalp-mode-toggle { width: 100% !important; }
+}
+
 /* The Fib Boundary head: the name, the ⓘ, and the way to the confirmed sheet.
    Phil, 2026-08-20: only the link outside, nothing else. */
 #options-cascade-page .fibx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

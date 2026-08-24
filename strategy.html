@@ -3787,7 +3787,7 @@
   </section>
 
   <!-- Engine Status Bar -->
-  <div class="card-glass pf-page-command" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+  <div class="card-glass pf-page-command scalp-engine-bar" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
       <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
       <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>
@@ -3808,7 +3808,7 @@
   </div>
 
   <!-- Active Positions -->
-  <div class="card" style="padding: 20px; margin-bottom: 16px;">
+  <div class="card scalp-positions-card" style="padding: 20px; margin-bottom: 16px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
       <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
       <div style="display: flex; align-items: center; gap: 10px;">
@@ -3845,12 +3845,12 @@
     </div>
   </div>
 
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+  <div class="scalp-desk-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
 
     <!-- Entry Form -->
-    <div class="card" style="padding: 20px;">
+    <div class="card scalp-entry-card" style="padding: 20px;">
       <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+      <div class="scalp-entry-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
         <!-- Row 1: UNDERLYING | EXPIRY -->
         <div>
           <label for="scalp-underlying" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
@@ -3912,8 +3912,14 @@
         </div>
       </div>
 
-      <!-- Exit Rules -->
-      <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+      <details class="scalp-advanced">
+        <summary>
+          <span>Advanced</span>
+          <small>Exit rules + stop-limit entry</small>
+        </summary>
+        <div class="scalp-advanced-body">
+      <!-- Exit Rules: IDs and values are deliberately unchanged. -->
+      <div class="scalp-exit-rules" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
         <div id="scalp-exit-rules-note" style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>
@@ -3936,7 +3942,7 @@
       </div>
 
       <!-- Stop-Limit Entry (optional) -->
-      <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+      <div class="scalp-stop-limit" style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
         <div style="font-size: 10px; font-weight: 700; color: rgba(139,143,255,0.9); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">⏳ Stop-Limit Entry (optional — leave 0 for market order)</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>
@@ -3950,9 +3956,11 @@
         </div>
         <div style="font-size: 9px; color: var(--muted); margin-top: 6px; line-height: 1.4;">Enter when premium reaches ₹Trigger–₹Max range. E.g. market at 256, set 262–263 to buy on breakout.</div>
       </div>
+        </div>
+      </details>
 
       <!-- Mode + BUY/SELL -->
-      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
+      <div class="scalp-entry-actions" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
         <input type="hidden" id="scalp-mode" value="paper">
         <div id="scalp-mode-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
           <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" onclick="setScalpMode('paper')"><span>Paper</span></button>
@@ -3966,7 +3974,7 @@
     </div>
 
     <!-- Event Log -->
-    <div class="card" style="padding: 20px; display: flex; flex-direction: column;">
+    <div class="card scalp-event-card" style="padding: 20px; display: flex; flex-direction: column;">
       <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 12px;">Event Log</h3>
       <div id="scalp-event-log" style="flex: 1; max-height: 360px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent;">
         <div style="color: var(--muted); text-align: center; padding: 20px;">No events yet</div>
@@ -3975,7 +3983,7 @@
   </div>
 
   <!-- Closed Trades (session + file) -->
-  <div class="card" style="padding: 20px;">
+  <div class="card scalp-history-card" style="padding: 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
       <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Trade History</h3>
       <span id="scalp-total-pnl-label" style="font-size: 13px; font-weight: 700; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Total: ₹0.00</span>
