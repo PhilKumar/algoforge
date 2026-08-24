@@ -1520,6 +1520,25 @@ const TRADING_PAGE_BY_SECTION = Object.fromEntries(
   Object.entries(TRADING_SECTION_BY_PAGE).map(([page, section]) => [section, page])
 );
 
+// UI-only view memory. Cascade is the first Trading desk; after the user
+// chooses another desk or a page subview, that exact choice wins on return and
+// after refresh. These keys never contain order, broker, or engine state.
+const PF_VIEW_STATE = Object.freeze({
+  activePage: 'philforge_active_tab',
+  tradingPage: 'philforge_trading_page_v1',
+  optionsCascadeTab: 'philforge_options_cascade_tab_v1',
+  insightsTab: 'philforge_insights_tab_v1',
+  architectureView: 'philforge_architecture_view_v1',
+  assetsTearsheet: 'philforge_assets_tearsheet_v1',
+  journalPanel: 'philforge_journal_panel_v1',
+  liveEngine: 'philforge_live_engine_v1',
+});
+
+function _storedView(key, allowed, fallback) {
+  const saved = _getLocalState(key);
+  return allowed.includes(saved) ? saved : fallback;
+}
+
 const ARCHITECTURE_VIEWS = new Set(['overview', 'tearsheet', 'cryptoforge', 'philforge']);
 
 // The tearsheet is a separate document in a frame, but it honours the same
@@ -1534,7 +1553,11 @@ function _assetsEffectiveTheme() {
 
 // Which tearsheet the tab is showing: the five-year options sheet or the Fib
 // Boundary sheet. One frame, one route (?doc=), one theme contract.
-let _assetsTearsheetDoc = 'options';
+let _assetsTearsheetDoc = _storedView(
+  PF_VIEW_STATE.assetsTearsheet,
+  ['options', 'fib', 'candle', 'gapcarry'],
+  'options'
+);
 const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet' };
 function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'Five-Year Tearsheet'; }
 function _assetsTearsheetUrl() {
@@ -1544,6 +1567,7 @@ function pickAssetsTearsheet(_event, button) {
   const doc = button && button.dataset ? button.dataset.doc : 'options';
   if (!doc || doc === _assetsTearsheetDoc) return;
   _assetsTearsheetDoc = doc;
+  _setLocalState(PF_VIEW_STATE.assetsTearsheet, doc);
   document.querySelectorAll('.pf-tearsheet-doc').forEach(btn => {
     const on = btn.dataset.doc === doc;
     btn.classList.toggle('is-active', on);
@@ -1567,6 +1591,7 @@ function _openStrategyTearsheet(event, doc, hash) {
     document.querySelectorAll(`.pf-info-btn[data-pf-info="${pop.id}"]`).forEach(b => b.setAttribute('aria-expanded', 'false'));
   });
   _assetsTearsheetDoc = doc;
+  _setLocalState(PF_VIEW_STATE.assetsTearsheet, doc);
   document.querySelectorAll('.pf-tearsheet-doc').forEach((btn) => {
     const on = btn.dataset.doc === doc;
     btn.classList.toggle('is-active', on);
@@ -1619,11 +1644,17 @@ function _watchAssetsTearsheetTheme() {
     attributeFilter: ['data-theme'],
   });
 }
-let _architectureView = 'overview';
+let _architectureView = _storedView(
+  PF_VIEW_STATE.architectureView,
+  Array.from(ARCHITECTURE_VIEWS),
+  'overview'
+);
 
-function initArchitecturePage(requestedView = _architectureView) {
-  const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : 'overview';
+function initArchitecturePage(requestedView = null) {
+  const storedView = _storedView(PF_VIEW_STATE.architectureView, Array.from(ARCHITECTURE_VIEWS), 'overview');
+  const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : storedView;
   _architectureView = view;
+  _setLocalState(PF_VIEW_STATE.architectureView, view);
   const overview = document.getElementById('architecture-overview-panel');
   const reader = document.getElementById('architecture-reader-panel');
   const documentReader = document.getElementById('architecture-reader-view');
@@ -1688,6 +1719,7 @@ window.openArchitectureView = openArchitectureView;
 
 function syncTradingSectionControls(page) {
   const section = TRADING_SECTION_BY_PAGE[page] || '';
+  if (section) _setLocalState(PF_VIEW_STATE.tradingPage, page);
   document.querySelectorAll('[data-pf-trading-page]').forEach((button) => {
     const selected = button.getAttribute('data-pf-trading-page') === page;
     button.classList.toggle('is-active', selected);
@@ -2060,10 +2092,22 @@ document.addEventListener('click', (event) => {
   const navEl = event.target.closest('[data-pf-nav-page]');
   if (navEl) {
     event.preventDefault();
-    const page = navEl.getAttribute('data-pf-nav-page');
+    const page = navEl.id === 'nav-trading'
+      ? _storedView(
+          PF_VIEW_STATE.tradingPage,
+          Object.keys(TRADING_SECTION_BY_PAGE),
+          'options-cascade-page'
+        )
+      : navEl.getAttribute('data-pf-nav-page');
     const btnId = navEl.getAttribute('data-pf-nav-tab');
     showPage(page, btnId ? document.getElementById(btnId) : navEl);
-    const after = navEl.getAttribute('data-pf-after-nav');
+    const after = page === 'options-cascade-page'
+      ? 'initOptionsCascadePage'
+      : page === 'scalp-page'
+        ? 'initScalpPage'
+        : page === 'stock-terminal-page'
+          ? 'initStockTerminalPage'
+          : navEl.getAttribute('data-pf-after-nav');
     if (after && typeof window[after] === 'function') window[after]();
   }
 });
@@ -2081,7 +2125,7 @@ async function applyNavState(state) {
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
-  if (page === 'assets-page') initArchitecturePage(state?.architectureView || 'overview');
+  if (page === 'assets-page') initArchitecturePage(state?.architectureView || null);
 }
 
 document.addEventListener('architecture-view-change', (event) => {
@@ -2178,7 +2222,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
     ensurePortfolioLoaded();
   }
-  if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || _architectureView);
+  if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || null);
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();
@@ -2186,7 +2230,7 @@ function showPage(id, btn, options = {}) {
     ensureRunsLoaded();
   }
   // Persist active tab across page refresh
-  try { _setLocalState('philforge_active_tab', id); } catch(e) {}
+  try { _setLocalState(PF_VIEW_STATE.activePage, id); } catch(e) {}
   if (options.pushHistory !== false) {
     const navState = buildNavState(id, options.historyState || {});
     const nextHash = navHashForState(navState);
@@ -3814,7 +3858,9 @@ const _OC_TABS = ['fib', 'candle', 'recovery', 'gapcarry', 'bench'];
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
 function showInsightsTab(event, el) {
-  const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
+  const requested = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
+  const tab = _INSIGHTS_TABS.includes(requested) ? requested : 'heatmap';
+  _setLocalState(PF_VIEW_STATE.insightsTab, tab);
   document.querySelectorAll('#insights-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-insights-tab') === tab;
     b.classList.toggle('is-active', selected);
@@ -3848,12 +3894,16 @@ function _insightsStartTab(tab) {
 }
 
 function initInsightsPage() {
-  const active = document.querySelector('#insights-page .oc-tab.is-active');
-  _insightsStartTab(active?.getAttribute('data-insights-tab') || 'heatmap');
+  const tab = _storedView(PF_VIEW_STATE.insightsTab, _INSIGHTS_TABS, 'heatmap');
+  showInsightsTab(null, {
+    getAttribute: (name) => (name === 'data-insights-tab' ? tab : null),
+  });
 }
 
 function showOptionsCascadeTab(event, el) {
-  const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
+  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
+  const tab = _OC_TABS.includes(requested) ? requested : 'fib';
+  _setLocalState(PF_VIEW_STATE.optionsCascadeTab, tab);
   document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-oc-tab') === tab;
     b.classList.toggle('is-active', selected);
@@ -4067,6 +4117,10 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
+  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'fib');
+  showOptionsCascadeTab(null, {
+    getAttribute: (name) => (name === 'data-oc-tab' ? rememberedTab : null),
+  });
   ['fibx-symbol', 'fibx-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) {
@@ -5883,7 +5937,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Restore active tab from URL or previous session and seed browser history.
   try {
-    const savedTab = _getLocalState('philforge_active_tab');
+    const savedTab = _getLocalState(PF_VIEW_STATE.activePage);
     const initialState =
       history.state ||
       navStateFromLocation() ||
@@ -15416,6 +15470,12 @@ async function loadLiveMonitor() {
     const data = await res.json();
     _liveEngines = data.engines || [];
 
+    const rememberedEngine = _getLocalState(PF_VIEW_STATE.liveEngine);
+    const rememberedIndex = _liveEngines.findIndex((engine) =>
+      _liveEngineIdentityKey(engine.run_id, engine.mode) === rememberedEngine
+    );
+    if (rememberedIndex >= 0) _selectedLiveTab = rememberedIndex;
+
     // Update live dot in nav
     updateLiveTabDot(_liveEngines);
 
@@ -15437,6 +15497,12 @@ async function loadLiveMonitor() {
 
 function selectLiveTab(idx) {
   _selectedLiveTab = idx;
+  if (_liveEngines[idx]) {
+    _setLocalState(
+      PF_VIEW_STATE.liveEngine,
+      _liveEngineIdentityKey(_liveEngines[idx].run_id, _liveEngines[idx].mode)
+    );
+  }
   renderLiveTabs();
   if (_liveEngines[idx]) renderLivePanel(_liveEngines[idx], idx);
 }
@@ -17831,7 +17897,7 @@ fetchRuns = async function() {
   let _cjLoadGeneration = 0;
   const _cjSaveChains = new Map();
   let _cjCurrentDayMeta = null;  // {year, monthFolder, dayFolder}
-  let _cjPanelMode = 'journal';
+  let _cjPanelMode = _storedView(PF_VIEW_STATE.journalPanel, ['journal', 'plan'], 'journal');
   let _cjPlanTimer = null;
   let _cjPlanner = null;
   const _cjPlanMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -17897,7 +17963,7 @@ fetchRuns = async function() {
       _cjBindForm();
       _cjBindPaste();
       _cjLoadPlanner();
-      window._cjShowPanel('journal');
+      window._cjShowPanel(_cjPanelMode);
     }
     _chResetSelection();
     _chLoadTree();
@@ -18817,6 +18883,7 @@ fetchRuns = async function() {
 
   window._cjShowPanel = function(mode) {
     _cjPanelMode = mode === 'plan' ? 'plan' : 'journal';
+    _setLocalState(PF_VIEW_STATE.journalPanel, _cjPanelMode);
     const journal = document.getElementById('cj-journal-view');
     const plan = document.getElementById('cj-plan-view');
     const journalTab = document.getElementById('cj-tab-journal');

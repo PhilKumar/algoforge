@@ -18,6 +18,7 @@ const PIN = process.env.E2E_PIN || '123456';
 
 async function openEquity(page: Page) {
   await page.click('#nav-trading');
+  await page.locator('.page-section.active-page [data-pf-trading-page="stock-terminal-page"]').click();
   await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
 }
 

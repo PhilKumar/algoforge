@@ -117,6 +117,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/terminal/nifty200') await route.fulfill({ json: { status: 'ok', symbols: [] } });
     else if (path === '/api/terminal/cascade/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/terminal/cascade/closed') await route.fulfill({ json: { status: 'ok', campaigns: [] } });
+    else if (path === '/api/two-red/status') await route.fulfill({ json: { status: 'ok', campaigns: [], closed: [] } });
     else if (path === '/api/terminal/forever') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/charts/tree') await route.fulfill({ json: { years: {} } });
     else if (path === '/api/financial-plan') await route.fulfill({ json: { status: 'ok', plan: {} } });
@@ -177,6 +178,7 @@ async function login(page: Page) {
 
   // Wait for the authenticated shell (nav bar rendered by strategy.html)
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-nav-ready') === '1');
 }
 
 async function openTradingSection(page: Page, section: 'equity' | 'scalp' | 'cascade') {
@@ -235,7 +237,7 @@ test('Authenticated primary surfaces have landmarks and no serious automated WCA
     ['#nav-portfolio', '#portfolio-page'],
     ['#nav-insights', '#insights-page'],
     ['#nav-live', '#live-page'],
-    ['#nav-trading', '#stock-terminal-page'],
+    ['#nav-trading', '#options-cascade-page'],
     ['#nav-builder', '#builder-page'],
     ['#nav-charts', '#charts-page'],
     ['#nav-results', '#results-page'],
@@ -331,7 +333,7 @@ test('Every primary navigation surface has a working owner and active page', asy
     ['#nav-dashboard', '#dashboard-page'],
     ['#nav-portfolio', '#portfolio-page'],
     ['#nav-live', '#live-page'],
-    ['#nav-trading', '#stock-terminal-page'],
+    ['#nav-trading', '#options-cascade-page'],
     ['#nav-builder', '#builder-page'],
     ['#nav-charts', '#charts-page'],
     ['#nav-results', '#results-page'],
@@ -359,7 +361,7 @@ test('Every primary navigation surface has a working owner and active page', asy
   await expect(page.locator('#cpr-modal .chart-type-btn')).toHaveCount(0);
 });
 
-test('Trading owns the Cascade, Scalp, and Equity sections with stable deep links', async ({ page }) => {
+test('Trading defaults to Cascade and remembers its last desk and page views', async ({ page }) => {
   await login(page);
 
   const primaryLabels = await page.locator('.nav-tabs > .nav-tab .tab-label').allTextContents();
@@ -369,30 +371,80 @@ test('Trading owns the Cascade, Scalp, and Equity sections with stable deep link
   expect(primaryLabels).not.toContain('Cascade');
 
   await page.click('#nav-trading');
-  await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
-  await expect(page).toHaveURL(/#trading\/equity$/);
+  await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
+  await expect(page).toHaveURL(/#trading\/cascade$/);
 
-  await expect(page.locator('#stock-terminal-page .trading-section-tab strong')).toHaveText([
+  await expect(page.locator('#options-cascade-page .trading-section-tab strong')).toHaveText([
     'Cascade',
     'Scalp',
     'Equity',
   ]);
 
-  const activeEquityTab = page.locator('#stock-terminal-page .trading-section-tab.is-active');
-  await expect(activeEquityTab).toContainText('Equity');
-  await activeEquityTab.focus();
-  await page.keyboard.press('ArrowLeft');
+  const activeCascadeTab = page.locator('#options-cascade-page .trading-section-tab.is-active');
+  await expect(activeCascadeTab).toContainText('Cascade');
+  await activeCascadeTab.focus();
+  await page.keyboard.press('ArrowRight');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await expect(page).toHaveURL(/#trading\/scalp$/);
+
+  await page.click('#nav-dashboard');
+  await page.click('#nav-trading');
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
 
   await page.locator('#scalp-page .trading-section-tab[data-pf-trading-page="options-cascade-page"]').click();
   await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
   await expect(page).toHaveURL(/#trading\/cascade$/);
 
+  await page.locator('[data-oc-tab="gapcarry"]').click();
+  await expect(page.locator('#oc-tab-gapcarry')).toBeVisible();
+
   await page.reload();
   await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
   await expect(page.locator('#nav-trading')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#options-cascade-page .trading-section-tab.is-active')).toContainText('Cascade');
+  await expect(page.locator('[data-oc-tab="gapcarry"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#oc-tab-gapcarry')).toBeVisible();
+});
+
+test('Primary pages and stable nested views survive refresh', async ({ page }) => {
+  await login(page);
+
+  for (const [control, pageSection] of [
+    ['#nav-portfolio', '#portfolio-page'],
+    ['#nav-builder', '#builder-page'],
+    ['#nav-results', '#results-page'],
+  ] as const) {
+    await page.click(control);
+    await page.reload();
+    await expect(page.locator(pageSection)).toHaveClass(/active-page/);
+  }
+
+  await page.click('#nav-insights');
+  await page.locator('[data-insights-tab="study"]').click();
+  await page.reload();
+  await expect(page.locator('#insights-page')).toHaveClass(/active-page/);
+  await expect(page.locator('[data-insights-tab="study"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#insights-study')).toBeVisible();
+
+  await page.click('#nav-assets');
+  await page.locator('[data-pf-architecture-view="philforge"]').click();
+  await page.reload();
+  await expect(page.locator('#assets-page')).toHaveClass(/active-page/);
+  await expect(page.locator('[data-pf-architecture-view="philforge"]')).toHaveAttribute('aria-selected', 'true');
+
+  await page.click('#nav-charts');
+  await page.locator('#cj-tab-plan').click();
+  await page.reload();
+  await expect(page.locator('#charts-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#cj-tab-plan')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#cj-plan-view')).toBeVisible();
+
+  await openTradingSection(page, 'equity');
+  await page.locator('[data-equity-strategy="tworeds"]').click();
+  await page.reload();
+  await expect(page.locator('#stock-terminal-page')).toHaveClass(/active-page/);
+  await expect(page.locator('[data-equity-strategy="tworeds"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#equity-strategy-tworeds')).toBeVisible();
 });
 
 test('Appearance presets switch and persist after reload', async ({ page }) => {

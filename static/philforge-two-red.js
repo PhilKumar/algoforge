@@ -15,6 +15,8 @@
   var timer = null;
   var lastCampaigns = [];
   var lastClosed = [];
+  var VIEW_KEY = 'philforge_equity_strategy_v1';
+  var VIEW_NAMES = ['cascade', 'tworeds', 'desk'];
 
   function $(id) { return document.getElementById(id); }
 
@@ -50,6 +52,7 @@
    * it is on screen before spending a quote poll on it.
    */
   function showStrategy(which) {
+    which = VIEW_NAMES.indexOf(which) >= 0 ? which : 'cascade';
     var groups = {
       cascade: $('equity-strategy-cascade'),
       tworeds: $('equity-strategy-tworeds'),
@@ -65,6 +68,7 @@
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-checked', active ? 'true' : 'false');
     });
+    try { localStorage.setItem(VIEW_KEY, which); } catch (_error) {}
     // Polling only while its own half is on screen: this console is useless in
     // the background and the Dhan rate budget is account-wide.
     if (which === 'tworeds') {
@@ -545,6 +549,13 @@
         showStrategy(button.getAttribute('data-equity-strategy'));
       });
     }
+
+    var remembered = 'cascade';
+    try {
+      var saved = localStorage.getItem(VIEW_KEY);
+      if (VIEW_NAMES.indexOf(saved) >= 0) remembered = saved;
+    } catch (_error) {}
+    showStrategy(remembered);
 
     var campaigns = $('tworeds-campaigns-body');
     if (campaigns) {
