@@ -851,6 +851,36 @@ a {{ color:var(--accent); }}
 .label-one {{ right:4px; top:56px; }}
 .label-two {{ left:12px; bottom:52px; }}
 
+/* A body on each orbit (Phil, 2026-08-24: "a small planet rotating on the GC
+   orbit in every direction ... something sensible and meaningful").
+
+   No new markup: the rings ALREADY exist on every sheet, so each one spins and
+   carries a dot on its own edge as ::after. That is why this lives here in the
+   parent stylesheet -- all four tearsheets borrow this block, so all four get
+   it without touching four builders.
+
+   The directions and speeds are not arbitrary. The inner body runs faster than
+   the outer one and the other way round, which is how real orbits read: closer
+   in, shorter period. ring-two is deliberately left alone -- it already carries
+   `rotate(-24deg)` to tilt the ellipse, and spinning it would throw that away.
+
+   `prefers-reduced-motion` stops both, and the whole sigil is already hidden in
+   print and on small screens. */
+@keyframes sigil-orbit-cw {{ from {{ transform:rotate(0deg); }} to {{ transform:rotate(360deg); }} }}
+@keyframes sigil-orbit-ccw {{ from {{ transform:rotate(360deg); }} to {{ transform:rotate(0deg); }} }}
+.ring-one {{ animation:sigil-orbit-cw 32s linear infinite; }}
+.ring-three {{ animation:sigil-orbit-ccw 17s linear infinite; }}
+.ring-one::after, .ring-three::after {{
+  content:''; position:absolute; left:50%; border-radius:50%;
+  background:var(--accent); }}
+.ring-one::after {{ width:7px; height:7px; top:-4px; margin-left:-3.5px;
+  box-shadow:0 0 10px 2px rgba(var(--accent-rgb),.45); opacity:.85; }}
+.ring-three::after {{ width:5px; height:5px; top:-3px; margin-left:-2.5px;
+  box-shadow:0 0 8px 1px rgba(var(--accent-rgb),.55); }}
+@media (prefers-reduced-motion: reduce) {{
+  .ring-one, .ring-three {{ animation:none; }}
+}}
+
 .reader-toolbar {{ min-height:74px; margin:24px 0; padding:11px; display:flex; align-items:center;
   justify-content:space-between; gap:20px; flex-wrap:wrap;
   border:1px solid var(--line); border-radius:13px; background:var(--surface); }}

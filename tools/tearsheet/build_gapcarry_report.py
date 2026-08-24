@@ -183,12 +183,36 @@ def book(rows: list[dict]) -> dict:
         "avg_gap": (sum(gaps) / len(gaps)) if gaps else 0,
         "avg_hold_days": round(sum(held) / len(held), 2) if held else 0,
         "max_hold_days": max(held) if held else 0,
+        "lot_eras": _lot_eras(rows),
         "months_green": sum(1 for v in by_month.values() if v > 0),
         "months_total": len(by_month),
         "top_months": sorted(by_month.items(), key=lambda kv: -kv[1])[:3],
         "first": rows[0]["session"].isoformat() if rows else "—",
         "last": rows[-1]["session"].isoformat() if rows else "—",
     }
+
+
+def _lot_eras(rows: list[dict]) -> list[dict]:
+    """Contiguous stretches of one lot size, in the order they were traded.
+
+    NIFTY's lot is not a constant and it is keyed to the EXPIRY, not the trade
+    date. Over this window it is 75, then 50, then 25, then 75 again, then 65 --
+    so "one lot" was 7,770 rupees of premium at one point in this book and
+    33,304 at another. Grouping by size alone would merge the two 75 eras three
+    years apart and hide exactly that.
+    """
+    eras: list[dict] = []
+    for x in rows:
+        if eras and eras[-1]["lot"] == x["lot"]:
+            era = eras[-1]
+        else:
+            era = {"lot": x["lot"], "n": 0, "net": 0.0, "cap": 0.0, "first": x["session"], "last": x["session"]}
+            eras.append(era)
+        era["n"] += 1
+        era["net"] += x["net"]
+        era["cap"] = max(era["cap"], x["capital"])
+        era["last"] = x["session"]
+    return eras
 
 
 def _rsi_bucket(x: dict) -> str:
@@ -437,6 +461,51 @@ def capital(b: dict) -> str:
 </section>"""
 
 
+def lots(b: dict) -> str:
+    eras = b["lot_eras"]
+    body = "".join(
+        f"<tr><th scope='row'>{e['lot']}</th><td>{e['first']} &rarr; {e['last']}</td>"
+        f"<td>{e['n']}</td><td>{r(e['cap'])}</td>"
+        f"<td class='{cls(e['net'])}'><strong>{r(e['net'])}</strong></td>"
+        f"<td>{r(e['net'] / e['n']) if e['n'] else '—'}</td></tr>"
+        for e in eras
+    )
+    smallest = min(eras, key=lambda e: e["cap"])
+    biggest = max(eras, key=lambda e: e["cap"])
+    return f"""
+<section id="lots">
+  <div class="shead"><div><h2>{
+        t("One lot, always — but the lot changed size", "எப்போதும் ஒரு lot — ஆனால் lot அளவு மாறியது")
+    }</h2>
+    <p>{
+        t(
+            "There is no position sizing in this rule. It buys ONE lot when the candle qualifies and nothing when it does not — no ramp with a winning streak, no cut after a loss, no second lot ever, and never two positions open at once. Every figure in this document is one lot.",
+            "இந்த விதியில் position sizing இல்லை. Candle தகுதி பெற்றால் ஒரு lot, இல்லையெனில் ஒன்றுமில்லை — வெற்றித் தொடரில் அதிகரிப்பு இல்லை, நஷ்டத்திற்குப் பின் குறைப்பு இல்லை, இரண்டாவது lot ஒருபோதும் இல்லை.",
+        )
+    }</p></div></div>
+  <p>{
+        t(
+            "What DID change is the lot itself. NIFTY's lot size is set by the exchange and is keyed to the contract's EXPIRY, not to the day you trade it — so the same unchanged rule was risking very different money at different times.",
+            "மாறியது lot-இன் அளவு. NIFTY lot அளவை exchange நிர்ணயிக்கிறது, அது contract-இன் EXPIRY-ஐ ஒட்டியது, நீங்கள் வர்த்தகம் செய்யும் நாளை அல்ல.",
+        )
+    }</p>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Lot", "Lot")}</th><th scope="col">{t("From &rarr; to", "முதல் &rarr; வரை")}</th>
+      <th scope="col">{t("Nights", "இரவுகள்")}</th><th scope="col">{t("Most at risk", "அதிகபட்ச ஆபத்து")}</th>
+      <th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per night", "இரவுக்கு")}</th></tr></thead>
+    <tbody>{body}</tbody></table></div>
+  <p class="note note-warn">{t("One lot meant", "ஒரு lot என்பது")} <strong>{r(smallest["cap"])}</strong>
+  {t("of premium at its smallest and", "மிகக் குறைந்தபோது, மேலும்")} <strong>{r(biggest["cap"])}</strong>
+  {t("at its largest — a", "அதிகபட்சமாக —")} {biggest["cap"] / smallest["cap"]:.1f}&times;
+  {
+        t(
+            "swing in capital at risk for an identical rule. Read every rupee figure in this document against the lot that was live at the time, not against today's 65.",
+            "அதே விதிக்கு மூலதன ஆபத்தில் இவ்வளவு வேறுபாடு. இந்த ஆவணத்தின் ஒவ்வொரு ரூபாய் எண்ணையும் அப்போது இருந்த lot-ஐ ஒட்டிப் படியுங்கள்.",
+        )
+    }</p>
+</section>"""
+
+
 def charges(b: dict) -> str:
     pct = (b["charges"] / b["gross_before_charges"] * 100) if b["gross_before_charges"] else 0
     return f"""
@@ -547,22 +616,22 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
             "15:10-இல் ஒரு candle படிக்கப்படுகிறது. அது தன் EMA20-இன் வலுவான பக்கத்தில், பொருந்தும் momentum-உடன் மூடினால், ஒரு in-the-money contract வாங்கப்பட்டு இரவு முழுவதும் வைக்கப்படுகிறது; அடுத்த காலை விற்கப்படுகிறது. Stop இல்லை, இலக்கு இல்லை, கடிகாரம் மட்டுமே.",
         )
     }</p>
-  </div>
-  <div class="document-meta">
-    <div class="meta-chip"><span>{t("Window", "காலம்")}</span><strong>{b["first"]} &rarr; {b["last"]}</strong></div>
-    <div class="meta-chip"><span>{t("Nights", "இரவுகள்")}</span><strong>{b["trades"]}</strong></div>
-    <div class="meta-chip"><span>{t("Size", "அளவு")}</span><strong>{
+    <div class="document-meta">
+      <div class="meta-chip"><span>{t("Window", "காலம்")}</span><strong>{b["first"]} &rarr; {b["last"]}</strong></div>
+      <div class="meta-chip"><span>{t("Nights", "இரவுகள்")}</span><strong>{b["trades"]}</strong></div>
+      <div class="meta-chip"><span>{t("Size", "அளவு")}</span><strong>{
         t("one lot &middot; ATM+4 in the money", "ஒரு lot &middot; ATM+4 in the money")
     }</strong></div>
-    <div class="meta-chip"><span>{t("Expiry", "Expiry")}</span><strong>{
+      <div class="meta-chip"><span>{t("Expiry", "Expiry")}</span><strong>{
         t("nearest weekly that survives the night", "இரவைத் தாண்டும் அருகிலுள்ள weekly")
     }</strong></div>
-    <div class="meta-chip"><span>{t("Prices", "விலைகள்")}</span><strong>{
+      <div class="meta-chip"><span>{t("Prices", "விலைகள்")}</span><strong>{
         t("recorded premiums, two archives", "பதிவான premium-கள், இரண்டு archive")
     }</strong></div>
-    <div class="meta-chip"><span>{t("Costs", "கட்டணங்கள்")}</span><strong>{
+      <div class="meta-chip"><span>{t("Costs", "கட்டணங்கள்")}</span><strong>{
         t("Brokerage, STT, GST, stamp, both legs", "புரோக்கரேஜ், STT, GST, stamp, இரு leg")
     }</strong></div>
+    </div>
   </div>
   <div class="system-sigil" aria-hidden="true">
     <div class="sigil-ring ring-one"></div><div class="sigil-ring ring-two"></div><div class="sigil-ring ring-three"></div>
@@ -623,6 +692,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {cuts(b)}
 {ten(b)}
 {capital(b)}
+{lots(b)}
 {charges(b)}
 {honesty(b)}
 {every_night(b)}

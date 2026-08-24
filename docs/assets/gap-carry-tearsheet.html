@@ -122,6 +122,36 @@ a { color:var(--accent); }
 .label-one { right:4px; top:56px; }
 .label-two { left:12px; bottom:52px; }
 
+/* A body on each orbit (Phil, 2026-08-24: "a small planet rotating on the GC
+   orbit in every direction ... something sensible and meaningful").
+
+   No new markup: the rings ALREADY exist on every sheet, so each one spins and
+   carries a dot on its own edge as ::after. That is why this lives here in the
+   parent stylesheet -- all four tearsheets borrow this block, so all four get
+   it without touching four builders.
+
+   The directions and speeds are not arbitrary. The inner body runs faster than
+   the outer one and the other way round, which is how real orbits read: closer
+   in, shorter period. ring-two is deliberately left alone -- it already carries
+   `rotate(-24deg)` to tilt the ellipse, and spinning it would throw that away.
+
+   `prefers-reduced-motion` stops both, and the whole sigil is already hidden in
+   print and on small screens. */
+@keyframes sigil-orbit-cw { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+@keyframes sigil-orbit-ccw { from { transform:rotate(360deg); } to { transform:rotate(0deg); } }
+.ring-one { animation:sigil-orbit-cw 32s linear infinite; }
+.ring-three { animation:sigil-orbit-ccw 17s linear infinite; }
+.ring-one::after, .ring-three::after {
+  content:''; position:absolute; left:50%; border-radius:50%;
+  background:var(--accent); }
+.ring-one::after { width:7px; height:7px; top:-4px; margin-left:-3.5px;
+  box-shadow:0 0 10px 2px rgba(var(--accent-rgb),.45); opacity:.85; }
+.ring-three::after { width:5px; height:5px; top:-3px; margin-left:-2.5px;
+  box-shadow:0 0 8px 1px rgba(var(--accent-rgb),.55); }
+@media (prefers-reduced-motion: reduce) {
+  .ring-one, .ring-three { animation:none; }
+}
+
 .reader-toolbar { min-height:74px; margin:24px 0; padding:11px; display:flex; align-items:center;
   justify-content:space-between; gap:20px; flex-wrap:wrap;
   border:1px solid var(--line); border-radius:13px; background:var(--surface); }
@@ -360,14 +390,14 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <p class="eyebrow"><b>TEARSHEET</b><span class="tr"><i lang="en">PhilForge &middot; Options Cascade &middot; Gap Carry</i><i lang="ta">PhilForge &middot; Options Cascade &middot; Gap Carry</i></span></p>
     <h1><span class="tr"><i lang="en">Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 in and 09:20 out, 5.5 years</i><i lang="ta">Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 நுழைவு, 09:20 வெளியேற்றம், 5.5 ஆண்டுகள்</i></span></h1>
     <p class="lede"><span class="tr"><i lang="en">One candle is read at 15:10. If it closed on the strong side of its EMA20 with momentum to match, one in-the-money contract is bought and held overnight, then sold into the next morning's open. No stop, no target, and nothing on the way out but the clock.</i><i lang="ta">15:10-இல் ஒரு candle படிக்கப்படுகிறது. அது தன் EMA20-இன் வலுவான பக்கத்தில், பொருந்தும் momentum-உடன் மூடினால், ஒரு in-the-money contract வாங்கப்பட்டு இரவு முழுவதும் வைக்கப்படுகிறது; அடுத்த காலை விற்கப்படுகிறது. Stop இல்லை, இலக்கு இல்லை, கடிகாரம் மட்டுமே.</i></span></p>
-  </div>
-  <div class="document-meta">
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Window</i><i lang="ta">காலம்</i></span></span><strong>2021-01-05 &rarr; 2026-07-09</strong></div>
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Nights</i><i lang="ta">இரவுகள்</i></span></span><strong>179</strong></div>
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></span><strong><span class="tr"><i lang="en">one lot &middot; ATM+4 in the money</i><i lang="ta">ஒரு lot &middot; ATM+4 in the money</i></span></strong></div>
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Expiry</i><i lang="ta">Expiry</i></span></span><strong><span class="tr"><i lang="en">nearest weekly that survives the night</i><i lang="ta">இரவைத் தாண்டும் அருகிலுள்ள weekly</i></span></strong></div>
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Prices</i><i lang="ta">விலைகள்</i></span></span><strong><span class="tr"><i lang="en">recorded premiums, two archives</i><i lang="ta">பதிவான premium-கள், இரண்டு archive</i></span></strong></div>
-    <div class="meta-chip"><span><span class="tr"><i lang="en">Costs</i><i lang="ta">கட்டணங்கள்</i></span></span><strong><span class="tr"><i lang="en">Brokerage, STT, GST, stamp, both legs</i><i lang="ta">புரோக்கரேஜ், STT, GST, stamp, இரு leg</i></span></strong></div>
+    <div class="document-meta">
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Window</i><i lang="ta">காலம்</i></span></span><strong>2021-01-05 &rarr; 2026-07-09</strong></div>
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Nights</i><i lang="ta">இரவுகள்</i></span></span><strong>179</strong></div>
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></span><strong><span class="tr"><i lang="en">one lot &middot; ATM+4 in the money</i><i lang="ta">ஒரு lot &middot; ATM+4 in the money</i></span></strong></div>
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Expiry</i><i lang="ta">Expiry</i></span></span><strong><span class="tr"><i lang="en">nearest weekly that survives the night</i><i lang="ta">இரவைத் தாண்டும் அருகிலுள்ள weekly</i></span></strong></div>
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Prices</i><i lang="ta">விலைகள்</i></span></span><strong><span class="tr"><i lang="en">recorded premiums, two archives</i><i lang="ta">பதிவான premium-கள், இரண்டு archive</i></span></strong></div>
+      <div class="meta-chip"><span><span class="tr"><i lang="en">Costs</i><i lang="ta">கட்டணங்கள்</i></span></span><strong><span class="tr"><i lang="en">Brokerage, STT, GST, stamp, both legs</i><i lang="ta">புரோக்கரேஜ், STT, GST, stamp, இரு leg</i></span></strong></div>
+    </div>
   </div>
   <div class="system-sigil" aria-hidden="true">
     <div class="sigil-ring ring-one"></div><div class="sigil-ring ring-two"></div><div class="sigil-ring ring-three"></div>
@@ -521,6 +551,21 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
       <div class="kpi-v">25 &middot; 50 &middot; 65 &middot; 75</div>
       <div class="kpi-s"><span class="tr"><i lang="en">by expiry date, not by trade date</i><i lang="ta">Expiry தேதி வாரியாக, trade தேதி அல்ல</i></span></div></div>
   </div>
+</section>
+
+<section id="lots">
+  <div class="shead"><div><h2><span class="tr"><i lang="en">One lot, always — but the lot changed size</i><i lang="ta">எப்போதும் ஒரு lot — ஆனால் lot அளவு மாறியது</i></span></h2>
+    <p><span class="tr"><i lang="en">There is no position sizing in this rule. It buys ONE lot when the candle qualifies and nothing when it does not — no ramp with a winning streak, no cut after a loss, no second lot ever, and never two positions open at once. Every figure in this document is one lot.</i><i lang="ta">இந்த விதியில் position sizing இல்லை. Candle தகுதி பெற்றால் ஒரு lot, இல்லையெனில் ஒன்றுமில்லை — வெற்றித் தொடரில் அதிகரிப்பு இல்லை, நஷ்டத்திற்குப் பின் குறைப்பு இல்லை, இரண்டாவது lot ஒருபோதும் இல்லை.</i></span></p></div></div>
+  <p><span class="tr"><i lang="en">What DID change is the lot itself. NIFTY's lot size is set by the exchange and is keyed to the contract's EXPIRY, not to the day you trade it — so the same unchanged rule was risking very different money at different times.</i><i lang="ta">மாறியது lot-இன் அளவு. NIFTY lot அளவை exchange நிர்ணயிக்கிறது, அது contract-இன் EXPIRY-ஐ ஒட்டியது, நீங்கள் வர்த்தகம் செய்யும் நாளை அல்ல.</i></span></p>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col"><span class="tr"><i lang="en">Lot</i><i lang="ta">Lot</i></span></th><th scope="col"><span class="tr"><i lang="en">From &rarr; to</i><i lang="ta">முதல் &rarr; வரை</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Nights</i><i lang="ta">இரவுகள்</i></span></th><th scope="col"><span class="tr"><i lang="en">Most at risk</i><i lang="ta">அதிகபட்ச ஆபத்து</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Net</i><i lang="ta">நிகர</i></span></th><th scope="col"><span class="tr"><i lang="en">Per night</i><i lang="ta">இரவுக்கு</i></span></th></tr></thead>
+    <tbody><tr><th scope='row'>75</th><td>2021-01-05 &rarr; 2021-07-06</td><td>16</td><td>₹22,125</td><td class='pos'><strong>₹52,306</strong></td><td>₹3,269</td></tr><tr><th scope='row'>50</th><td>2021-07-30 &rarr; 2024-04-22</td><td>102</td><td>₹17,418</td><td class='pos'><strong>₹75,075</strong></td><td>₹736</td></tr><tr><th scope='row'>25</th><td>2024-04-29 &rarr; 2024-12-20</td><td>17</td><td>₹7,770</td><td class='neg'><strong>-₹324</strong></td><td>-₹19</td></tr><tr><th scope='row'>75</th><td>2025-02-25 &rarr; 2025-11-24</td><td>20</td><td>₹33,304</td><td class='pos'><strong>₹9,875</strong></td><td>₹494</td></tr><tr><th scope='row'>65</th><td>2026-02-01 &rarr; 2026-07-09</td><td>24</td><td>₹24,531</td><td class='pos'><strong>₹74,692</strong></td><td>₹3,112</td></tr></tbody></table></div>
+  <p class="note note-warn"><span class="tr"><i lang="en">One lot meant</i><i lang="ta">ஒரு lot என்பது</i></span> <strong>₹7,770</strong>
+  <span class="tr"><i lang="en">of premium at its smallest and</i><i lang="ta">மிகக் குறைந்தபோது, மேலும்</i></span> <strong>₹33,304</strong>
+  <span class="tr"><i lang="en">at its largest — a</i><i lang="ta">அதிகபட்சமாக —</i></span> 4.3&times;
+  <span class="tr"><i lang="en">swing in capital at risk for an identical rule. Read every rupee figure in this document against the lot that was live at the time, not against today's 65.</i><i lang="ta">அதே விதிக்கு மூலதன ஆபத்தில் இவ்வளவு வேறுபாடு. இந்த ஆவணத்தின் ஒவ்வொரு ரூபாய் எண்ணையும் அப்போது இருந்த lot-ஐ ஒட்டிப் படியுங்கள்.</i></span></p>
 </section>
 
 <section id="charges">
