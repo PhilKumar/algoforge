@@ -56,6 +56,46 @@ class EmptyRegistryPersistsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(app_module._fib_boundary_open_state_key(self.USER), self.written)
 
 
+class DeleteClearsEveryReplayTests(unittest.IsolatedAsyncioTestCase):
+    """Deleting only the newest read as "nothing happened".
+
+    The panel restores the next row, and Phil had 81 of them, so each click
+    just uncovered another 19-Aug run: "Even after deleting this still comes
+    back". Nothing in the UI browses that history -- only /latest is read --
+    so the button clears the lot, and a save keeps a short tail so it cannot
+    climb back to 81.
+    """
+
+    # fib_backtest_runs has a foreign key to users, so the test owns one.
+    async def asyncSetUp(self):
+        await app_module._db_mod.init_db()
+        name = f"fib-delete-test-{self._testMethodName}"
+        existing = await app_module._db_mod.get_user_by_username(name)
+        self.USER = int(existing["id"]) if existing else await app_module._db_mod.create_user(name, "x", role="user")
+        await app_module._db_mod.delete_fib_backtest_runs(self.USER)
+
+    async def _save(self, n):
+        for i in range(n):
+            await app_module._db_mod.save_fib_backtest_run(
+                self.USER, {"mother": {"timestamp": f"2026-08-19T10:0{i % 10}:00+05:30"}, "side": "CE"}
+            )
+
+    async def test_delete_removes_every_saved_replay(self):
+        await self._save(5)
+        self.assertEqual(len(await app_module._db_mod.list_fib_backtest_runs(self.USER, 50)), 5)
+        removed = await app_module._db_mod.delete_fib_backtest_runs(self.USER)
+        self.assertEqual(removed, 5)
+        self.assertEqual(await app_module._db_mod.list_fib_backtest_runs(self.USER, 50), [])
+
+    async def test_saving_keeps_only_a_short_tail(self):
+        await self._save(app_module._db_mod.FIB_BACKTEST_RUNS_KEPT + 7)
+        kept = await app_module._db_mod.list_fib_backtest_runs(self.USER, 200)
+        self.assertEqual(len(kept), app_module._db_mod.FIB_BACKTEST_RUNS_KEPT)
+
+    async def asyncTearDown(self):
+        await app_module._db_mod.delete_fib_backtest_runs(self.USER)
+
+
 class ReplayDeleteRouteTests(unittest.IsolatedAsyncioTestCase):
     def test_the_delete_route_exists_and_is_a_delete(self):
         routes = [r for r in app_module.app.routes if getattr(r, "path", "") == "/api/fib-boundary/backtests/latest"]

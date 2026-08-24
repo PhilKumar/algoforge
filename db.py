@@ -1535,6 +1535,9 @@ def _test_bench_row(row, *, with_payload: bool = True) -> dict:
 
 
 # ── Fib Boundary backtests: durable, user-owned replay packages ──
+FIB_BACKTEST_RUNS_KEPT = 10
+
+
 async def save_fib_backtest_run(user_id: int, payload: dict) -> int:
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     db = await get_db()
@@ -1556,6 +1559,14 @@ async def save_fib_backtest_run(user_id: int, payload: dict) -> int:
                 _json_dumps(payload),
                 _now_iso(),
             ),
+        )
+        # ONE PANEL, A HANDFUL OF ROWS. Every replay appended forever and the
+        # page reads only the newest, so this had reached 81 rows for one user.
+        # Keep a short tail for the export links and drop the rest.
+        await db.execute(
+            "DELETE FROM fib_backtest_runs WHERE user_id = ? AND id NOT IN ("
+            "SELECT id FROM fib_backtest_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?)",
+            (int(user_id), int(user_id), FIB_BACKTEST_RUNS_KEPT),
         )
         await db.commit()
         return int(cursor.lastrowid or 0)
@@ -1597,17 +1608,20 @@ async def get_fib_backtest_run(user_id: int, run_id: int) -> dict | None:
         await db.close()
 
 
-async def delete_latest_fib_backtest_run(user_id: int) -> bool:
-    """Forget this user's most recent Fib Boundary replay. True if one went."""
+async def delete_fib_backtest_runs(user_id: int) -> int:
+    """Forget every saved Fib Boundary replay this user has. Returns how many.
+
+    Deleting only the newest was worse than useless: the panel restores the
+    next one, so it looked like the delete had done nothing. Phil clicked it
+    repeatedly against a stack 81 deep (2026-08-22): "Even after deleting this
+    still comes back". Nothing in the UI browses this history -- the panel
+    reads only the latest -- so the button means what it says.
+    """
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "DELETE FROM fib_backtest_runs WHERE id = ("
-            "SELECT id FROM fib_backtest_runs WHERE user_id = ? ORDER BY id DESC LIMIT 1)",
-            (int(user_id),),
-        )
+        cursor = await db.execute("DELETE FROM fib_backtest_runs WHERE user_id = ?", (int(user_id),))
         await db.commit()
-        return bool(cursor.rowcount)
+        return int(cursor.rowcount or 0)
     finally:
         await db.close()
 
