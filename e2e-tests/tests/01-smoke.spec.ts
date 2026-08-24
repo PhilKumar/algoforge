@@ -575,6 +575,16 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
   await openTradingSection(page, 'scalp');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await expect(page.locator('#scalp-form-title')).toBeVisible();
+  // This screenshot checks the launchpad layout, not live WebSocket timing.
+  // CI can reach the local feed before the capture while a slower run reaches
+  // the disconnected heartbeat first; those two labels wrap the command bar
+  // differently on a 390px screen. Pin the documented offline state so the
+  // visual gate measures one deterministic layout.
+  await page.evaluate(() => {
+    const setIndicator = (window as typeof window & { _wsSetLiveIndicator?: (connected: boolean, stale: boolean) => void })._wsSetLiveIndicator;
+    if (typeof setIndicator === 'function') setIndicator(false, false);
+  });
+  await expect(page.locator('#ws-status-label')).toHaveText('Disconnected');
   await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {
     animations: 'disabled',
     maxDiffPixelRatio: 0.04,
