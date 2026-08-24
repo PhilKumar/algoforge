@@ -453,37 +453,32 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
   await page.click('#appearance-btn');
   await expect(page.locator('#appearance-modal')).toHaveClass(/open/);
 
-  await page.click('[data-appearance-tint="native"]');
-  await expect(page.locator('html')).not.toHaveAttribute('data-pf-tint');
-
-  // The roster comes from the page's own registry, never typed here: a
-  // hand-listed id survives a rename in the product and fails for the wrong
-  // reason — which is exactly how this spec broke when the five pastels
-  // became five contrasting rooms.
+  // The roster comes from the page's own registry, never typed here.
   const tintIds: string[] = await page.evaluate(() =>
     ((window as any).PHILFORGE_APPEARANCE_PRESETS?.tints || [])
       .map((t: any) => t.id)
-      .filter((id: string) => id !== 'native')
   );
-  expect(tintIds).toHaveLength(5);
+  expect(tintIds).toHaveLength(6);
   const tintPalettes: Record<string, string> = {};
+  const surfacePalettes: Record<string, string> = {};
   for (const tint of tintIds) {
     await page.click(`[data-appearance-tint="${tint}"]`);
     await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
     tintPalettes[tint] = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
-      return [
-        root.getPropertyValue('--bg').trim(),
-        root.getPropertyValue('--card').trim(),
-        root.getPropertyValue('--accent').trim(),
-        getComputedStyle(document.body).backgroundImage,
-      ].join('|');
+      return [root.getPropertyValue('--accent').trim(), getComputedStyle(document.body).backgroundImage].join('|');
     });
+    surfacePalettes[tint] = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--card').trim());
   }
-  expect(new Set(Object.values(tintPalettes)).size).toBe(5);
+  expect(new Set(Object.values(tintPalettes)).size).toBe(6);
+  expect(new Set(Object.values(surfacePalettes)).size).toBe(1);
 
   const fontStacks: Record<string, string> = {};
-  for (const font of ['forge', 'atelier', 'exchange', 'blueprint', 'scribe']) {
+  const fontIds: string[] = await page.evaluate(() =>
+    ((window as any).PHILFORGE_APPEARANCE_PRESETS?.fonts || []).map((font: any) => font.id)
+  );
+  expect(fontIds).toHaveLength(6);
+  for (const font of fontIds) {
     await page.click(`[data-appearance-font="${font}"]`);
     await expect(page.locator('html')).toHaveAttribute('data-pf-font', font);
     fontStacks[font] = await page.evaluate(() => {
@@ -495,12 +490,12 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
       ].join('|');
     });
   }
-  expect(new Set(Object.values(fontStacks)).size).toBe(5);
+  expect(new Set(Object.values(fontStacks)).size).toBe(6);
 
   await page.reload();
   await expect(page.locator('.nav-tab').first()).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tintIds[tintIds.length - 1]);
-  await expect(page.locator('html')).toHaveAttribute('data-pf-font', 'scribe');
+  await expect(page.locator('html')).toHaveAttribute('data-pf-font', fontIds[fontIds.length - 1]);
 });
 
 test('Cascade generated statuses remain legible in light mode', async ({ page }) => {

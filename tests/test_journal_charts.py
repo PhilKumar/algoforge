@@ -85,6 +85,17 @@ class JournalChartsTest(unittest.TestCase):
         # EMA, pivots, and gap annotations.
         self.assertGreater(len(image.resize((128, 64)).getcolors(maxcolors=100_000) or []), 20)
 
+    def test_chart_path_matches_the_existing_year_month_day_tree(self):
+        root = Path("charts")
+        self.assertEqual(
+            chart_path(root, "NIFTY", date(2025, 1, 2)),
+            root / "2025" / "Jan-2025" / "02-Jan-2025" / "Nifty_2025-01-02.png",
+        )
+        self.assertEqual(
+            chart_path(root, "SENSEX", date(2026, 8, 24)),
+            root / "2026" / "Aug-2026" / "24-Aug-2026" / "Sensex_2026-08-24.png",
+        )
+
     def test_gap_direction_repaints_the_real_opening_candle(self):
         rows = _series(self.days)
         image = render_chart("NIFTY", rows, self.days[-1])
@@ -114,12 +125,14 @@ class JournalChartsTest(unittest.TestCase):
     def test_backfill_writes_both_indices_and_is_idempotent(self):
         nifty = _series(self.days)
         sensex = _series(self.days, 78_000.0)
+        calls = []
 
         class FakeHistory:
             def __init__(self, _cache_root):
                 pass
 
             def candles(self, symbol, _start, _end):
+                calls.append((symbol, _start, _end))
                 return nifty if symbol == "NIFTY" else sensex
 
         with tempfile.TemporaryDirectory() as folder:
@@ -133,12 +146,42 @@ class JournalChartsTest(unittest.TestCase):
             self.assertEqual(max(archived_dates(root, "NIFTY")), date(2026, 2, 26))
             self.assertEqual(max(archived_dates(root, "SENSEX")), date(2026, 2, 26))
 
-            class MustNotFetch:
-                def __init__(self, _cache_root):
-                    raise AssertionError("an up-to-date archive must not fetch history")
-
-            second = backfill_charts(root, Path(folder) / "cache", now=now, history_factory=MustNotFetch)
+            second = backfill_charts(root, Path(folder) / "cache", now=now, history_factory=FakeHistory)
             self.assertEqual(second["created"], [])
+            self.assertEqual(len(calls), 4)
+            self.assertTrue(all(call[1] == date(2022, 12, 18) for call in calls))
+
+    def test_backfill_repairs_holes_before_the_newest_existing_chart(self):
+        nifty = _series(self.days)
+        sensex = _series(self.days, 78_000.0)
+
+        class FakeHistory:
+            def __init__(self, _cache_root):
+                pass
+
+            def candles(self, symbol, _start, _end):
+                return nifty if symbol == "NIFTY" else sensex
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "charts"
+            for symbol, rows in (("NIFTY", nifty), ("SENSEX", sensex)):
+                newest = chart_path(root, symbol, date(2026, 2, 26))
+                newest.parent.mkdir(parents=True, exist_ok=True)
+                render_chart(symbol, rows, date(2026, 2, 26)).save(newest)
+
+            result = backfill_charts(
+                root,
+                Path(folder) / "cache",
+                now=datetime(2026, 2, 26, 16, 0, tzinfo=IST),
+                history_factory=FakeHistory,
+            )
+            created = {(item["symbol"], item["date"]) for item in result["created"]}
+            self.assertIn(("NIFTY", "2026-02-24"), created)
+            self.assertIn(("NIFTY", "2026-02-25"), created)
+            self.assertIn(("SENSEX", "2026-02-24"), created)
+            self.assertIn(("SENSEX", "2026-02-25"), created)
+            self.assertNotIn(("NIFTY", "2026-02-26"), created)
+            self.assertNotIn(("SENSEX", "2026-02-26"), created)
 
     def test_today_becomes_eligible_only_after_market_processing_window(self):
         day = date(2026, 8, 24)

@@ -54,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260824-persist-fib-mother-mode-1" in MANIFEST
+    assert "20260824-cryptoforge-skins-journal-backfill-1" in MANIFEST

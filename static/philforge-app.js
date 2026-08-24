@@ -17021,9 +17021,9 @@ function renderYearlyMonthlyTable() {
 //  APPEARANCE CONTROLS
 // ══════════════════════════════════════════════════════════════
 const PF_APPEARANCE_FALLBACK = {
-  default: { tint: 'native', font: 'forge' },
-  tints: [{ id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true }],
-  fonts: [{ id: 'forge', label: 'Forge Native', className: 'font-forge', sample: 'Aa' }],
+  default: { tint: 'gold', font: 'institutional' },
+  tints: [{ id: 'gold', label: 'Gold Desk', swatch: 'swatch-gold' }],
+  fonts: [{ id: 'institutional', label: 'Institutional', className: 'font-institutional', sample: 'Aa' }],
 };
 
 function appearancePresetConfig() {
@@ -17037,7 +17037,7 @@ function appearancePresetConfig() {
 
 function appearanceDefaults() {
   const defaults = appearancePresetConfig().default || PF_APPEARANCE_FALLBACK.default;
-  return { tint: defaults.tint || 'native', font: defaults.font || 'forge' };
+  return { tint: defaults.tint || 'gold', font: defaults.font || 'institutional' };
 }
 
 function appearancePresetLabel(type, id) {
@@ -17146,7 +17146,8 @@ function toggleTheme() {
       ? window.pfGetStoredTheme()
       : _getLocalState('philforge_theme');
     const btn = document.getElementById('theme-toggle');
-    if (saved === 'light') {
+    const active = document.documentElement.getAttribute('data-theme') || saved || 'dark';
+    if (active === 'light') {
       if (typeof window.pfApplyTheme === 'function') window.pfApplyTheme('light');
       else document.documentElement.setAttribute('data-theme', 'light');
       if (btn) btn.innerHTML = ICO.moon(18);

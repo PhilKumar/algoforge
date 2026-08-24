@@ -12,82 +12,58 @@ async function login(page: Page) {
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
 
-test('remaining workspaces follow the Cascade hierarchy under a green appearance tint', async ({ page }) => {
+test('CryptoForge skins keep PhilForge surfaces readable and logos native', async ({ page }) => {
   await login(page);
-  await page.evaluate(() => {
-    document.documentElement.setAttribute('data-pf-tint', 'forest');
-  });
+  const darkAccents: Record<string, string> = {
+    gold: '#f59e0b', arctic: '#60a5fa', magenta: '#e879f9',
+    citrus: '#a3e635', graphite: '#cbd5e1', bronze: '#d6a06a',
+  };
+  const lightAccents: Record<string, string> = {
+    gold: '#b45309', arctic: '#1d4ed8', magenta: '#a21caf',
+    citrus: '#4d7c0f', graphite: '#334155', bronze: '#92400e',
+  };
+  const originalLogo = await page.locator('.header-brand-logo').evaluate((el) => getComputedStyle(el).backgroundImage);
 
-  const dark = await page.evaluate(() => {
-    const color = (selector: string) => getComputedStyle(document.querySelector(selector)!).color;
-    const custom = (selector: string, property: string) =>
-      getComputedStyle(document.querySelector(selector)!).getPropertyValue(property).trim();
-    return {
-      dashboard: color('#strategy-arsenal-card span[style*="color:var(--accent)"]'),
-      builder: color('#builder-page label[style*="color: var(--accent)"]'),
-      results: color('#results-page .analytics-inner h4'),
-      resultsRisk: color('#res-risk'),
-      live: color('#live-panels-container .ico'),
-      portfolio: color('#portfolio-balance'),
-      equityQuote: color('#stock-terminal-ltp'),
-      equityOrder: color('#stock-unit-price'),
-      insightsAccent: custom('#insights-page', '--accent'),
-      charts: color('#charts-page #ch-content p[style*="color:var(--accent)"]'),
-      refreshButton: color('#cascade-scan-run'),
-      semanticWin: color('#dash-best-pnl'),
-      semanticBuy: color('#stock-terminal-page button[onclick="submitStockTerminalOrder(\'BUY\')"]'),
-    };
-  });
+  for (const [tint, expectedAccent] of Object.entries(darkAccents)) {
+    const state = await page.evaluate((nextTint) => {
+      (window as any).pfApplyTheme('dark', { persist: false });
+      (window as any).pfApplyAppearance({ tint: nextTint }, { persist: false });
+      const root = getComputedStyle(document.documentElement);
+      const logo = document.querySelector('.header-brand-logo')!;
+      return {
+        accent: root.getPropertyValue('--accent').trim(),
+        text: root.getPropertyValue('--text').trim(),
+        card: root.getPropertyValue('--card').trim(),
+        green: root.getPropertyValue('--green').trim(),
+        red: root.getPropertyValue('--red').trim(),
+        logo: getComputedStyle(logo).backgroundImage,
+        inlineLogo: (logo as HTMLElement).style.backgroundImage,
+      };
+    }, tint);
+    expect(state.accent).toBe(expectedAccent);
+    expect(state.text).toBe('#dde3ee');
+    expect(state.card).toBe('rgba(18, 26, 42, 0.85)');
+    expect(state.green).not.toBe(state.red);
+    expect(state.logo).toBe(originalLogo);
+    expect(state.inlineLogo).toBe('');
+  }
 
-  expect(dark).toEqual({
-    dashboard: 'rgb(147, 197, 253)',
-    builder: 'rgb(147, 197, 253)',
-    results: 'rgb(147, 197, 253)',
-    resultsRisk: 'rgb(251, 191, 36)',
-    live: 'rgb(196, 181, 253)',
-    portfolio: 'rgb(147, 197, 253)',
-    equityQuote: 'rgb(147, 197, 253)',
-    equityOrder: 'rgb(147, 197, 253)',
-    insightsAccent: '#93c5fd',
-    charts: 'rgb(147, 197, 253)',
-    refreshButton: 'rgb(219, 234, 254)',
-    semanticWin: 'rgb(52, 211, 153)',
-    semanticBuy: 'rgb(52, 211, 153)',
-  });
-
-  const light = await page.evaluate(() => {
-    document.documentElement.setAttribute('data-theme', 'light');
-    const color = (selector: string) => getComputedStyle(document.querySelector(selector)!).color;
-    const custom = (selector: string, property: string) =>
-      getComputedStyle(document.querySelector(selector)!).getPropertyValue(property).trim();
-    return {
-      dashboard: color('#strategy-arsenal-card span[style*="color:var(--accent)"]'),
-      builder: color('#builder-page label[style*="color: var(--accent)"]'),
-      results: color('#results-page .analytics-inner h4'),
-      resultsRisk: color('#res-risk'),
-      live: color('#live-panels-container .ico'),
-      portfolio: color('#portfolio-balance'),
-      equityQuote: color('#stock-terminal-ltp'),
-      insightsAccent: custom('#insights-page', '--accent'),
-      charts: color('#charts-page #ch-content p[style*="color:var(--accent)"]'),
-      refreshButton: color('#cascade-scan-run'),
-      semanticWin: color('#dash-best-pnl'),
-      semanticBuy: color('#stock-terminal-page button[onclick="submitStockTerminalOrder(\'BUY\')"]'),
-    };
-  });
-
-  expect(light).toEqual({
-    dashboard: 'rgb(29, 78, 216)',
-    builder: 'rgb(29, 78, 216)',
-    results: 'rgb(29, 78, 216)',
-    resultsRisk: 'rgb(146, 64, 14)',
-    live: 'rgb(109, 40, 217)',
-    portfolio: 'rgb(29, 78, 216)',
-    equityQuote: 'rgb(29, 78, 216)',
-    insightsAccent: '#1d4ed8',
-    charts: 'rgb(29, 78, 216)',
-    refreshButton: 'rgb(23, 37, 84)',
-    semanticWin: 'rgb(4, 120, 87)',
-    semanticBuy: 'rgb(6, 78, 59)',
-  });
+  for (const [tint, expectedAccent] of Object.entries(lightAccents)) {
+    const state = await page.evaluate((nextTint) => {
+      (window as any).pfApplyTheme('light', { persist: false });
+      (window as any).pfApplyAppearance({ tint: nextTint }, { persist: false });
+      const root = getComputedStyle(document.documentElement);
+      return {
+        accent: root.getPropertyValue('--accent').trim(),
+        text: root.getPropertyValue('--text').trim(),
+        card: root.getPropertyValue('--card').trim(),
+        green: root.getPropertyValue('--green').trim(),
+        red: root.getPropertyValue('--red').trim(),
+      };
+    }, tint);
+    expect(state.accent).toBe(expectedAccent);
+    expect(state.text).toBe('#0f172a');
+    expect(state.card).toBe('rgba(255,255,255,0.96)');
+    expect(state.green).not.toBe(state.red);
+  }
 });

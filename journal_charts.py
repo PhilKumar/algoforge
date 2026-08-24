@@ -34,7 +34,7 @@ SYMBOLS = {
     "NIFTY": {"title": "NIFTY 50 Index", "upstox_key": "NSE_INDEX|Nifty 50", "file": "Nifty"},
     "SENSEX": {"title": "SENSEX Index", "upstox_key": "BSE_INDEX|SENSEX", "file": "Sensex"},
 }
-DEFAULT_BACKFILL_START = date(2026, 2, 24)
+DEFAULT_BACKFILL_START = date(2023, 1, 1)
 SESSION_OPEN_MINUTES = 9 * 60 + 15
 SESSION_LAST_OPEN_MINUTES = 15 * 60 + 25
 MIN_SESSION_BARS = 60
@@ -635,16 +635,15 @@ def backfill_charts(
     result = {"status": "ok", "through": through.isoformat(), "created": [], "skipped": [], "errors": []}
     histories: dict[str, list[JournalCandle]] = {}
     existing_by_symbol = {symbol: archived_dates(charts_root, symbol) for symbol in SYMBOLS}
-    starts = {
-        symbol: max(start, (max(days) + timedelta(days=1)) if days else start)
-        for symbol, days in existing_by_symbol.items()
-    }
-    earliest = min(starts.values())
-    if earliest > through:
+    if start > through:
         return result
 
     history = history_factory(data_cache_root)
-    seed_start = earliest - timedelta(days=14)
+    # Always scan from the configured archive boundary.  Starting after the
+    # newest image only appends and silently leaves older holes (notably all of
+    # 2025) forever. Closed-month market data is cached, so this remains cheap
+    # on daily restarts while still repairing any missing day or index image.
+    seed_start = start - timedelta(days=14)
     for symbol in SYMBOLS:
         try:
             histories[symbol] = list(history.candles(symbol, seed_start, through))
@@ -654,7 +653,7 @@ def backfill_charts(
 
     for symbol, candles in histories.items():
         for day in complete_session_days(candles, through=through):
-            if day < starts[symbol] or day in existing_by_symbol[symbol]:
+            if day < start or day in existing_by_symbol[symbol]:
                 continue
             destination = chart_path(charts_root, symbol, day)
             try:

@@ -1,48 +1,21 @@
 (function (global) {
   global.PHILFORGE_APPEARANCE_PRESETS = {
-    default: { tint: 'native', font: 'forge' },
+    default: { tint: 'gold', font: 'institutional' },
     tints: [
-      { id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true },
-      /* Five deliberately CONTRASTING rooms — the old five (jade, cobalt,
-         copper, fuchsia, lime) were all low-saturation pastels an arm's
-         length apart, and Phil's verdict was "all feels same greenish".
-         An old stored id normalises to native, harmlessly. */
-      { id: 'ember', label: 'Ember Glow', swatch: 'swatch-ember' },
-      { id: 'azure', label: 'Azure Sky', swatch: 'swatch-azure' },
-      { id: 'orchid', label: 'Orchid Bloom', swatch: 'swatch-orchid' },
-      { id: 'crimson', label: 'Crimson Pulse', swatch: 'swatch-crimson' },
-      { id: 'emerald', label: 'Emerald Drive', swatch: 'swatch-emerald' },
+      { id: 'gold', label: 'Gold Desk', swatch: 'swatch-gold' },
+      { id: 'arctic', label: 'Arctic Steel', swatch: 'swatch-arctic' },
+      { id: 'magenta', label: 'Magenta Flux', swatch: 'swatch-magenta' },
+      { id: 'citrus', label: 'Citrus Signal', swatch: 'swatch-citrus' },
+      { id: 'graphite', label: 'Graphite Mono', swatch: 'swatch-graphite' },
+      { id: 'bronze', label: 'Bronze Archive', swatch: 'swatch-bronze' },
     ],
     fonts: [
-      { id: 'forge', label: 'Forge Native', className: 'font-forge', href: '', sample: 'Aa' },
-      {
-        id: 'atelier',
-        label: 'Grotesk Desk',
-        className: 'font-atelier',
-        href: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap',
-        sample: 'Aa',
-      },
-      {
-        id: 'exchange',
-        label: 'Terminal Tape',
-        className: 'font-exchange',
-        href: 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap',
-        sample: 'Aa',
-      },
-      {
-        id: 'blueprint',
-        label: 'Circuit Draft',
-        className: 'font-blueprint',
-        href: 'https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600;700&family=Oxanium:wght@500;600;700;800&display=swap',
-        sample: 'Aa',
-      },
-      {
-        id: 'scribe',
-        label: 'Editorial Serif',
-        className: 'font-scribe',
-        href: 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Nunito+Sans:wght@400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600;700&display=swap',
-        sample: 'Aa',
-      },
+      { id: 'institutional', label: 'Institutional', className: 'font-institutional', href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap', sample: 'Aa' },
+      { id: 'swiss', label: 'Swiss Precision', className: 'font-swiss', href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap', sample: 'Aa' },
+      { id: 'grotesk', label: 'Neo Grotesk', className: 'font-grotesk', href: 'https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap', sample: 'Aa' },
+      { id: 'editorial', label: 'Editorial Sharp', className: 'font-editorial', href: 'https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&family=Source+Code+Pro:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap', sample: 'Aa' },
+      { id: 'techno', label: 'Techno Wide', className: 'font-techno', href: 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Share+Tech+Mono&display=swap', sample: 'Aa' },
+      { id: 'humanist', label: 'Humanist Warm', className: 'font-humanist', href: 'https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Martian+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;600;700;800&display=swap', sample: 'Aa' },
     ],
   };
 })(window);

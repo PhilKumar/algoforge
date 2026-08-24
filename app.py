@@ -20761,7 +20761,7 @@ async def _journal_chart_backfill_once() -> dict:
     user_id = int(admin["id"])
     charts_root = _user_charts_root(user_id)
     cache_root = os.path.join(_user_storage_root(user_id), "journal_chart_data")
-    start_text = os.getenv("PHILFORGE_JOURNAL_CHART_START", "2026-02-24").strip()
+    start_text = os.getenv("PHILFORGE_JOURNAL_CHART_START", "2023-01-01").strip()
     try:
         backfill_start = date.fromisoformat(start_text)
     except ValueError as exc:
