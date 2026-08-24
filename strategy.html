@@ -3193,7 +3193,7 @@
         <section id="gap-carry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Gap Carry paper campaign monitor" hidden>
           <div class="candle-entry-monitor-head">
             <div><div class="candle-entry-monitor-kicker" id="gap-carry-monitor-kicker">Paper carry</div><h4 id="gap-carry-monitor-title">Running</h4></div>
-            <div id="gap-carry-monitor-updated" class="candle-entry-monitor-updated"></div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="gap-carry-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadGapCarryChart" aria-label="Open the carry chart">↗ Chart</button><div id="gap-carry-monitor-updated" class="candle-entry-monitor-updated"></div></div>
           </div>
           <div id="gap-carry-monitor-tiles" class="candle-entry-tiles"></div>
           <div id="gap-carry-monitor-rule" class="candle-entry-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
@@ -3207,9 +3207,19 @@
           <div class="candle-entry-monitor-head"><span class="candle-entry-monitor-kicker">Replay on recorded prices</span><span id="gap-carry-backtest-updated" class="candle-entry-monitor-updated"></span></div>
           <div id="gap-carry-backtest-tiles" class="candle-entry-tiles"></div>
           <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table" id="gap-carry-backtest-table"></table></div></div>
-          <div class="pf-cascade-campaign-actions"><button id="gap-carry-backtest-delete" class="btn btn-sm cascade-options-control" type="button" data-pf-action="deleteGapCarryBacktest">✕ Delete saved replay</button></div>
+          <div class="cascade-options-strip-actions"><a id="gap-carry-backtest-csv" class="cascade-options-control" href="/api/gap-carry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="gap-carry-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleGapCarryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="gap-carry-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteGapCarryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result &mdash; an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div id="gap-carry-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="gap-carry-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
         </section>
       </div>
+      </div>
+    </div>
+    <div id="gap-carry-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Gap Carry chart">
+      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title"><h3 id="gap-carry-chart-title">Gap Carry chart</h3><div id="gap-carry-chart-meta">Loading chart&hellip;</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#fb923c;">▬ EMA20</span><span style="color:#c084fc;">▬ RSI</span><span style="color:#fff;">▲ buy</span><span style="color:#fde68a;">▼ sell</span></div><div id="gap-carry-chart-strip"></div></div>
+        </div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="gap-carry-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles with the EMA20 the rule reads, the RSI underneath it, and the night&rsquo;s buy and sell drawn on top.</div></div></div>
       </div>
     </div>
   </div>

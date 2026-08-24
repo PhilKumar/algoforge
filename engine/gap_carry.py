@@ -180,6 +180,49 @@ def _ema(closes: list, period: int) -> list:
     return out
 
 
+def indicator_series(candles: list, config: GapCarryConfig) -> dict:
+    """The EMA and RSI the chart draws, from the SAME two functions the rule
+    reads with.
+
+    A chart is only evidence if it is drawn from the numbers that made the
+    decision. Recomputing an EMA in the route -- or in JavaScript -- would give
+    a picture that agrees with the rule right up until one of them is changed.
+    NaN is emitted as None so the renderer can leave the warm-up unpainted
+    instead of drawing a line to zero.
+    """
+    rows = [c for c in candles if c is not None]
+    if not rows:
+        return {
+            "ema": [],
+            "rsi": [],
+            "ema_period": int(config.ema_period),
+            "rsi_period": int(config.rsi_period),
+            "rsi_upper": float(config.rsi_floor_for_call),
+            "rsi_lower": float(config.rsi_ceiling_for_put),
+        }
+    closes = [float(c.close) for c in rows]
+    ema = _ema(closes, int(config.ema_period))
+    rsi = _wilder_rsi(closes, int(config.rsi_period))
+
+    def clean(value):
+        number = float(value)
+        return None if number != number else round(number, 2)  # NaN != NaN
+
+    # The EMA's own warm-up: seeded from the first close, it is not an average
+    # of `period` bars until it has seen that many, and a chart that draws the
+    # seed implies a level the rule would never have read.
+    warm = int(config.ema_period) - 1
+    stamps = [int(c.timestamp.timestamp()) for c in rows]
+    return {
+        "ema": [{"t": s, "v": None if i < warm else clean(v)} for i, (s, v) in enumerate(zip(stamps, ema))],
+        "rsi": [{"t": s, "v": clean(v)} for s, v in zip(stamps, rsi)],
+        "ema_period": int(config.ema_period),
+        "rsi_period": int(config.rsi_period),
+        "rsi_upper": float(config.rsi_floor_for_call),
+        "rsi_lower": float(config.rsi_ceiling_for_put),
+    }
+
+
 def read_signal(candles: list, config: GapCarryConfig, *, at: Optional[datetime] = None) -> Optional[SignalReading]:
     """The last candle closed at or before the entry time, and what it asks for.
 

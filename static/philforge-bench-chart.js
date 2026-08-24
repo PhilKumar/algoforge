@@ -77,14 +77,16 @@ var _PF_CHART_DARK = {
   up: '#3fae56', down: '#d9534f', mother: '#a855f7', tp: '#10b981',
   avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
   buyMark: '#ffffff', sellMark: '#fbbf24', markRing: '#0b1220',
-  fibs: ['#3b82f6', '#22c55e', '#ef4444']
+  fibs: ['#3b82f6', '#22c55e', '#ef4444'],
+  ema: '#fb923c', rsi: '#c084fc', rsiGuide: 'rgba(148,163,184,0.45)', rsiBand: 'rgba(192,132,252,0.10)'
 };
 var _PF_CHART_LIGHT = {
   grid: 'rgba(15,23,42,0.10)', axis: 'rgba(51,65,85,0.75)',
   up: '#0f766e', down: '#be123c', mother: '#7c3aed', tp: '#047857',
   avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
   buyMark: '#1e293b', sellMark: '#b45309', markRing: '#ffffff',
-  fibs: ['#1d4ed8', '#15803d', '#be123c']
+  fibs: ['#1d4ed8', '#15803d', '#be123c'],
+  ema: '#c2410c', rsi: '#7e22ce', rsiGuide: 'rgba(51,65,85,0.45)', rsiBand: 'rgba(126,34,206,0.08)'
 };
 
 function _pfChartPalette() {
@@ -451,7 +453,8 @@ function _pfChartCanvasPaintKey(d) {
     legs: d.legs || [], trendlines: d.trendlines || [], lines: d.lines || [],
     fills: d.fills || [], entries: d.entries || [], exits: d.exits || [],
     avg_entry_price: d.avg_entry_price, tp_price: d.tp_price,
-    tp_label: d.tp_label || '', timeframe: d.timeframe
+    tp_label: d.tp_label || '', timeframe: d.timeframe,
+    indicators: d.indicators || null
   });
 }
 
@@ -518,7 +521,18 @@ function _pfChartCanvasProjection(c) {
   var padT = Math.max(18, 26 * c.h / 660);
   var padB = Math.max(26, 34 * c.h / 660);
   var plotW = Math.max(c.w - padL - padR, 1);
-  var plotH = Math.max(c.h - padT - padB, 1);
+  var fullH = Math.max(c.h - padT - padB, 1);
+  // A SUB-PANE IS OPT-IN. Reserving the band unconditionally would move every
+  // pixel of the four charts that already exist; keyed off the payload, a chart
+  // that sends no RSI is byte-identical to before this pane existed.
+  var rsi = (c.data && c.data.indicators && c.data.indicators.rsi) || null;
+  // A FLOOR WOULD EAT THE PRICE. `Math.max(46, ...)` took 46px of a 130px plot
+  // in testing and left the candles 71px tall. The band is a SHARE of the
+  // height, capped, and simply not drawn when the surface is too short for a
+  // readable one -- the price pane always keeps at least ~three quarters.
+  var rsiH = rsi && rsi.length && fullH >= 190 ? Math.min(120, fullH * 0.22) : 0;
+  var rsiGap = rsiH ? Math.max(10, padT * 0.5) : 0;
+  var plotH = Math.max(fullH - rsiH - rsiGap, 40);
   var tSpan = Math.max(v.tMax - v.tMin, 1);
   var pSpan = Math.max(v.pMax - v.pMin, Number.EPSILON);
   var p = {
@@ -529,7 +543,15 @@ function _pfChartCanvasProjection(c) {
     tAt: function (x) { return v.tMin + ((Number(x) - padL) / plotW) * tSpan; },
     timeAt: function (idx) { return _pfChartCanvasTimeAt(axis, idx); },
     pAt: function (y) { return v.pMax - ((Number(y) - padT) / plotH) * pSpan; },
-    inPrice: function (price) { return Number(price) >= v.pMin && Number(price) <= v.pMax; }
+    inPrice: function (price) { return Number(price) >= v.pMin && Number(price) <= v.pMax; },
+    rsiH: rsiH, rsiGap: rsiGap,
+    rsiTop: padT + plotH + rsiGap,
+    // RSI is bounded 0-100 by construction, so this axis is fixed rather than
+    // fitted -- a fitted one would silently rescale the 70/30 lines that are
+    // the whole point of looking at it.
+    rsiYOf: function (value) {
+      return padT + plotH + rsiGap + (1 - Math.max(0, Math.min(100, Number(value))) / 100) * rsiH;
+    }
   };
   c.projection = p;
   return p;
@@ -868,6 +890,105 @@ function _pfChartCanvasLabels(c, p, labels) {
   return count;
 }
 
+/* ── Indicator layers ────────────────────────────────────────────────────
+ *
+ * Added 2026-08-24 for Gap Carry, whose rule IS an EMA and an RSI: a chart of
+ * that rule without them shows the night's candle and no reason for it.
+ *
+ * Both layers are driven by `payload.indicators`:
+ *   { ema: [{t, v}], ema_period: 20,
+ *     rsi: [{t, v}], rsi_period: 14, rsi_upper: 70, rsi_lower: 30 }
+ * `t` is epoch SECONDS like every other timestamp here. A payload without
+ * `indicators` draws nothing and reserves no space, which is why the four
+ * charts that predate this are unaffected.
+ */
+
+// An EMA is a CURVE, so it cannot be expressed as a line/trendline: `lines`
+// are horizontal and a trendline has exactly two anchors. Hence a real path.
+function _pfChartCanvasIndicators(c, p, PAL, labels) {
+  var ind = (c.data || {}).indicators;
+  var series = ind && ind.ema;
+  if (!series || !series.length) return 0;
+  var ctx = c.ctx, drawn = 0, last = null;
+  _pfChartCanvasClip(ctx, p, function () {
+    ctx.strokeStyle = PAL.ema;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([]);          // Phil's standard: no dashed indicator lines.
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    var started = false;
+    for (var i = 0; i < series.length; i++) {
+      var point = series[i];
+      if (!point || point.v === null || point.v === undefined || !isFinite(Number(point.v))) continue;
+      var x = p.xOf(point.t), y = p.yOf(point.v);
+      if (!isFinite(x) || !isFinite(y)) continue;
+      if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+      drawn++;
+      last = { x: x, y: y, v: point.v };
+    }
+    if (started) ctx.stroke();
+  });
+  if (last) {
+    labels.push({
+      y: last.y, text: 'EMA' + (ind.ema_period || 20) + ' ' + Math.round(Number(last.v)),
+      color: PAL.ema, align: 'right'
+    });
+  }
+  return drawn;
+}
+
+// Its own pane under the price, on a FIXED 0-100 axis with the rule's two
+// thresholds drawn: the whole reason to look at it is where 70 and 30 sit.
+function _pfChartCanvasRsiPane(c, p, PAL) {
+  var ind = (c.data || {}).indicators;
+  var series = ind && ind.rsi;
+  if (!series || !series.length || !p.rsiH) return 0;
+  var ctx = c.ctx, scale = p.fontScale;
+  var upper = Number(ind.rsi_upper);
+  var lower = Number(ind.rsi_lower);
+  if (!isFinite(upper)) upper = 70;
+  if (!isFinite(lower)) lower = 30;
+
+  // The band between the two thresholds is the "nothing happens" zone.
+  ctx.fillStyle = PAL.rsiBand;
+  ctx.fillRect(p.padL, p.rsiYOf(upper), p.plotW, Math.max(1, p.rsiYOf(lower) - p.rsiYOf(upper)));
+
+  ctx.strokeStyle = PAL.rsiGuide;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  [upper, 50, lower].forEach(function (level) {
+    var y = p.rsiYOf(level);
+    ctx.beginPath();
+    ctx.moveTo(p.padL, y);
+    ctx.lineTo(p.padL + p.plotW, y);
+    ctx.stroke();
+    _pfChartCanvasText(ctx, String(Math.round(level)), p.padL - 6, y, PAL.axis, 9, 'right', '400', scale);
+  });
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(p.padL, p.rsiTop, p.plotW, p.rsiH);
+  ctx.clip();
+  ctx.strokeStyle = PAL.rsi;
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  var started = false, drawn = 0;
+  for (var i = 0; i < series.length; i++) {
+    var point = series[i];
+    if (!point || point.v === null || point.v === undefined || !isFinite(Number(point.v))) continue;
+    var x = p.xOf(point.t), y = p.rsiYOf(point.v);
+    if (!isFinite(x) || !isFinite(y)) continue;
+    if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+    drawn++;
+  }
+  if (started) ctx.stroke();
+  ctx.restore();
+
+  _pfChartCanvasText(ctx, 'RSI' + (ind.rsi_period || 14), p.padL + 6, p.rsiTop + 8 * scale, PAL.rsi, 9, 'left', '700', scale);
+  return drawn;
+}
+
 function _pfChartCanvasDraw() {
   var c = _pfChartCanvas;
   if (!c || !c.ctx) return;
@@ -888,6 +1009,8 @@ function _pfChartCanvasDraw() {
   var trendlineCount = _pfChartCanvasTrendlines(c, p, PAL, labels);
   var fibCount = _pfChartCanvasFibs(c, p, PAL, labels);
   var overlayCount = _pfChartCanvasOverlays(c, p, PAL, labels);
+  var emaCount = _pfChartCanvasIndicators(c, p, PAL, labels);
+  var rsiCount = _pfChartCanvasRsiPane(c, p, PAL);
   var markerCount = _pfChartCanvasMarkers(c, p, PAL, labels);
   var labelCount = _pfChartCanvasLabels(c, p, labels);
   // E2E reads this small semantic paint record in addition to real pixels. It
@@ -895,7 +1018,7 @@ function _pfChartCanvasDraw() {
   // but silently loses candles/labels/geometry.
   c.paint = {
     candles: candleCount, trendlines: trendlineCount, fibs: fibCount, markers: markerCount,
-    overlays: overlayCount,
+    overlays: overlayCount, ema: emaCount, rsi: rsiCount,
     gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
     theme: document.documentElement.getAttribute('data-theme') || 'auto'

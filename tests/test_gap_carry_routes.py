@@ -214,6 +214,12 @@ class RegistrationTests(unittest.TestCase):
                 "/api/gap-carry/backtest",
                 "/api/gap-carry/backtests/latest",
                 "/api/gap-carry/auto",
+                # The chart and the two exports. A chart that is not registered
+                # leaves a button on the page that 404s.
+                "/api/gap-carry/paper/chart",
+                "/api/gap-carry/backtests/latest/chart",
+                "/api/gap-carry/backtests/latest/export.csv",
+                "/api/gap-carry/backtests/latest/export.json",
             },
         )
 
@@ -233,6 +239,101 @@ class RegistrationTests(unittest.TestCase):
 
         self.assertIn("/api/gap-carry/", auth.VIEWER_SHARED_READ_PREFIXES)
         self.assertFalse(any("gap-carry" in str(p) for p in auth.VIEWER_WRITE_ALLOWLIST))
+
+
+class IndicatorTests(unittest.TestCase):
+    """The chart's EMA and RSI come from the RULE's own two functions.
+
+    A chart recomputing its own EMA -- in the route, or in JavaScript -- agrees
+    with the rule right up until one of them is changed, and then it is a
+    picture of a rule nobody trades.
+    """
+
+    def _candles(self, n=60):
+        import engine.gap_carry as gap_carry
+
+        Candle = type(
+            "C",
+            (),
+            {"__init__": lambda s, t, c: (setattr(s, "timestamp", t), setattr(s, "close", c), None)[2]},
+        )
+        base = datetime(2026, 8, 3, 9, 15, tzinfo=IST)
+        del gap_carry
+        return [Candle(base + timedelta(minutes=5 * i), 24000.0 + i * 3) for i in range(n)]
+
+    def test_the_series_agree_with_the_rules_own_maths(self):
+        import engine.gap_carry as gap_carry
+
+        rows = self._candles()
+        config = app_module._gap_carry_config(_payload())
+        out = gap_carry.indicator_series(rows, config)
+        closes = [r.close for r in rows]
+        self.assertAlmostEqual(out["ema"][-1]["v"], round(gap_carry._ema(closes, 20)[-1], 2), places=2)
+        self.assertAlmostEqual(out["rsi"][-1]["v"], round(gap_carry._wilder_rsi(closes, 14)[-1], 2), places=2)
+
+    def test_the_warm_up_is_null_not_a_number_the_rule_never_read(self):
+        import engine.gap_carry as gap_carry
+
+        out = gap_carry.indicator_series(self._candles(), app_module._gap_carry_config(_payload()))
+        self.assertIsNone(out["ema"][0]["v"], "the EMA seed is one close, not an average of twenty")
+        self.assertIsNone(out["ema"][18]["v"])
+        self.assertIsNotNone(out["ema"][19]["v"])
+        self.assertIsNone(out["rsi"][0]["v"])
+
+    def test_the_thresholds_travel_with_the_series(self):
+        """The renderer draws the two guide lines from these, so a changed RSI
+        setting has to move them."""
+        import engine.gap_carry as gap_carry
+
+        out = gap_carry.indicator_series(self._candles(), app_module._gap_carry_config(_payload(rsi_threshold=72.0)))
+        self.assertEqual(out["rsi_upper"], 72.0)
+        self.assertEqual(out["rsi_lower"], 28.0)
+
+    def test_no_candles_is_empty_not_an_error(self):
+        import engine.gap_carry as gap_carry
+
+        out = gap_carry.indicator_series([], app_module._gap_carry_config(_payload()))
+        self.assertEqual(out["ema"], [])
+        self.assertEqual(out["rsi"], [])
+        self.assertEqual(out["rsi_upper"], 70.0)
+
+    def test_every_stamp_is_epoch_seconds(self):
+        """The renderer does arithmetic on `t`; an ISO string silently breaks it."""
+        import engine.gap_carry as gap_carry
+
+        out = gap_carry.indicator_series(self._candles(), app_module._gap_carry_config(_payload()))
+        for row in out["ema"] + out["rsi"]:
+            self.assertIsInstance(row["t"], int)
+
+
+class ExportTests(unittest.TestCase):
+    def test_a_floored_exit_is_flagged_in_the_spreadsheet(self):
+        """A floor is not a price, and a CSV that does not say so reads as one."""
+        rows = app_module._gap_carry_export_rows(
+            {
+                "positions": [
+                    {
+                        "session": "2026-08-03",
+                        "side": "CE",
+                        "strike": 24400,
+                        "net": 5210.0,
+                        "entry": {"premium": 240.0},
+                        "exit": {"premium": 330.0, "priced": False},
+                        "signal": {"rsi": 73.8},
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIs(rows[0]["exit_priced"], False)
+        self.assertEqual(rows[0]["rsi"], 73.8)
+
+    def test_an_empty_replay_exports_nothing_rather_than_a_header(self):
+        self.assertEqual(app_module._gap_carry_export_rows({}), [])
+
+    def test_a_bad_stamp_is_zero_not_a_crash(self):
+        self.assertEqual(app_module._gap_carry_epoch("not a time"), 0)
+        self.assertGreater(app_module._gap_carry_epoch("2026-08-03T15:10:00+05:30"), 0)
 
 
 class ExpiryLookupTests(unittest.TestCase):

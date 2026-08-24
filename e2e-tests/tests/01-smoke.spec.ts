@@ -1054,6 +1054,88 @@ test('A started Gap Carry says so on the button and fills the right pane', async
   await expect(monitor).toBeVisible();
 });
 
+// Phil, 2026-08-24: "Is delete button and stop button placed for paper run
+// backtest and live and also the chart with indicators?" The chart did not
+// exist, and the shared renderer could draw no indicator at all -- a trendline
+// has two anchors and `lines` are horizontal, so neither can be a curve. This
+// asserts the two new layers actually paint, and that the RSI pane never eats
+// the price pane it sits under.
+test('The Gap Carry chart draws the EMA and the RSI that are its rule', async ({ page }) => {
+  await login(page);
+  const running = {
+    status: 'ok', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'],
+    campaign: {
+      strategy: 'gap_carry', status: 'HOLDING', timeframe: '5m', running: true, open: true,
+      rule: { rsi_threshold: 70, rsi_for_call: 70, rsi_for_put: 30, strike_offset_steps: 4, lots: 1,
+              entry_time: '15:10', exit_time: '09:20', ema_period: 20 },
+      signal: { timestamp: '2026-08-19T15:10:00+05:30', close: 24700, ema: 24610, rsi: 73.8, side: 'CE', reason: 'RSI 73.8' },
+      position: { session: '2026-08-19', side: 'CE', strike: 24500, expiry: '2026-08-28', lots: 1, lot_size: 65,
+                  entry: { timestamp: '2026-08-19T15:10:00+05:30', spot: 24700, premium: 268.5, capital: 17452.5 }, exit: null, net: null },
+      mark: { at: '2026-08-20T09:19:00+05:30', premium: 301.75, unrealised: 2161.25 },
+      last_index_close: 24712, closed_trades: 0, realised: 0, floored_exits: 0, floored_net: 0, notes: [], history: [],
+    },
+  };
+  // 240 bars of a real-shaped tape, with the two series the engine emits.
+  const t0 = 1755500000, candles = [], ema = [], rsi = [];
+  let px = 24500;
+  for (let i = 0; i < 240; i++) {
+    px += Math.sin(i / 11) * 9 + (i % 5 - 2);
+    candles.push({ t: t0 + i * 300, o: px, h: px + 12, l: px - 11, c: px + 3, is_mother: false });
+    ema.push({ t: t0 + i * 300, v: i < 19 ? null : px - 8 });
+    rsi.push({ t: t0 + i * 300, v: i < 13 ? null : 50 + 22 * Math.sin(i / 13) });
+  }
+  await page.route('**/api/gap-carry/paper/status', route => route.fulfill({ json: running }));
+  await page.route('**/api/gap-carry/paper/chart**', route => route.fulfill({
+    json: {
+      status: 'ok', timeframe: '5m', stages: ['5m', '15m'], campaign_status: 'HOLDING',
+      chart: {
+        timeframe: '5m', candles, mother: { high: null, low: null }, trendlines: [], legs: [],
+        lines: [{ price: 24500, label: 'CE 24500 · 2026-08-28', inr_notional: 0, filled: true }],
+        entries: [{ t: t0 + 300 * 100, price: 24700 }], exits: [],
+        avg_entry_price: null, tp_price: null, tp_label: '',
+        indicators: { ema, rsi, ema_period: 20, rsi_period: 14, rsi_upper: 70, rsi_lower: 30 },
+      },
+    },
+  }));
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-gapcarry');
+
+  // The button only exists while there is a campaign to draw.
+  const chartBtn = page.locator('#gap-carry-chart-btn');
+  await expect(chartBtn).toBeVisible();
+  await chartBtn.click();
+  await expect(page.locator('#gap-carry-chart-overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('#gap-carry-chart #pf-bench-canvas-host')).toBeVisible();
+
+  // THE PAINT SEAM. Pixels alone cannot tell a missing EMA from a flat one.
+  const paint = await page.evaluate(() => {
+    const c = window._pfChartCanvas;
+    return c && c.paint ? { candles: c.paint.candles, ema: c.paint.ema, rsi: c.paint.rsi,
+                            rsiH: Math.round(c.projection.rsiH), plotH: Math.round(c.projection.plotH) } : null;
+  });
+  expect(paint).not.toBeNull();
+  expect(paint.candles).toBe(240);
+  expect(paint.ema).toBeGreaterThan(200);
+  expect(paint.rsi).toBeGreaterThan(200);
+  // The sub-pane is a SHARE of the height, and the price keeps the majority.
+  expect(paint.rsiH).toBeGreaterThan(40);
+  expect(paint.plotH).toBeGreaterThan(paint.rsiH * 2);
+  await expect(page.locator('#gap-carry-chart-meta')).toContainText('EMA20 and RSI14');
+
+  // A payload WITHOUT indicators must reserve no pane at all -- that is the
+  // whole reason the other four charts on this page are unaffected.
+  const noInd = await page.evaluate(() => {
+    const d = JSON.parse(JSON.stringify(window._pfChartCanvas.data));
+    delete d.indicators;
+    window._pfChartCanvasRefresh(d, null);
+    const c = window._pfChartCanvas;
+    return { rsiH: Math.round(c.projection.rsiH), ema: c.paint.ema, rsi: c.paint.rsi };
+  });
+  expect(noInd.rsiH).toBe(0);
+  expect(noInd.ema).toBe(0);
+  expect(noInd.rsi).toBe(0);
+});
+
 // Phil, 2026-08-16, pointing at the Cash Cascade page: "Why don't you put the
 // panels in this format?.. The (i) for cascades". They already shared its
 // classes; what they did not share was ROOM. A .pf-info-doc flows its sections

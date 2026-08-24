@@ -1970,6 +1970,8 @@ const PF_DELEGATED_ACTIONS = new Set([
   'killGapCarryPaper',
   'runGapCarryBacktest',
   'deleteGapCarryBacktest',
+  'loadGapCarryChart',
+  'toggleGapCarryBacktestChart',
   'setGapCarryMode',
   'setGapCarryAuto',
   'setGapCarryExpiry',
@@ -3496,6 +3498,9 @@ window.startGapCarryPaper = startGapCarryPaper;
 window.killGapCarryPaper = killGapCarryPaper;
 window.runGapCarryBacktest = runGapCarryBacktest;
 window.deleteGapCarryBacktest = deleteGapCarryBacktest;
+window.loadGapCarryChart = loadGapCarryChart;
+window.hideGapCarryChart = hideGapCarryChart;
+window.toggleGapCarryBacktestChart = toggleGapCarryBacktestChart;
 window.setGapCarryMode = setGapCarryMode;
 window.setGapCarryAuto = setGapCarryAuto;
 window.setGapCarryExpiry = setGapCarryExpiry;
@@ -3544,6 +3549,7 @@ let _lastFibBacktest = null;
 // server owns every decision; this reads the form, posts it, and renders back
 // what came home. Nothing here recomputes a side, a strike or a P&L.
 
+let _lastGapCarryTimeframes = ['5m', '15m'];
 const _GC_MONEY = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
 
 function _setGapCarryFormStatus(message, tone = 'muted') {
@@ -3884,6 +3890,8 @@ function _renderGapCarryStatus(campaign, running) {
       : '<tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr>';
   }
 
+  const chartBtn = _cascadeOptionsEl('gap-carry-chart-btn');
+  if (chartBtn) chartBtn.style.display = (isRunning || pos) ? '' : 'none';
   const stamp = _cascadeOptionsEl('gap-carry-monitor-updated');
   if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
 }
@@ -3924,6 +3932,105 @@ function _renderGapCarryBacktest(data) {
     const skipped = data.skipped ? ` · ${data.skipped} skipped` : '';
     stamp.textContent = `${data.window ? `${data.window.from} → ${data.window.to}` : ''}${skipped}`;
   }
+  // CSV, the journal chart and Delete belong to a replay that EXISTS. Shown
+  // unconditionally, Delete offered to throw away nothing at all.
+  const hasBook = ((data.positions || []).length) > 0;
+  ['gap-carry-backtest-csv', 'gap-carry-backtest-chart-btn', 'gap-carry-backtest-delete'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = hasBook ? '' : 'none';
+  });
+  if (!hasBook) _gapCarryCollapseBacktestChart();
+}
+
+// ── Gap Carry · charts ──────────────────────────────────────────────────
+// Both draw through pfBenchDrawChart, the one renderer. Gap Carry is the first
+// caller to send `indicators`, which is what makes the RSI pane appear; every
+// other chart sends none and is drawn exactly as before.
+let _gapCarryChartTf = '';
+
+function _gapCarryCollapseBacktestChart() {
+  const wrap = document.getElementById('gap-carry-backtest-chart-wrap');
+  const btn = document.getElementById('gap-carry-backtest-chart-btn');
+  if (wrap) wrap.style.display = 'none';
+  if (btn) btn.textContent = '↗ Journal chart';
+}
+
+async function toggleGapCarryBacktestChart() {
+  const wrap = document.getElementById('gap-carry-backtest-chart-wrap');
+  const box = document.getElementById('gap-carry-backtest-chart');
+  const btn = document.getElementById('gap-carry-backtest-chart-btn');
+  if (!wrap || !box) return;
+  if (wrap.style.display !== 'none') { _gapCarryCollapseBacktestChart(); return; }
+  // The overlay and this journal share ONE canvas renderer; put the other away.
+  hideGapCarryChart();
+  wrap.style.display = '';
+  box.innerHTML = '<div class="pf-cascade-chart-empty">Loading the replay\u2019s candles…</div>';
+  if (btn) btn.textContent = '× Hide chart';
+  try {
+    const response = await fetch('/api/gap-carry/backtests/latest/chart', { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
+    await pfWaitForCascadeChartLayout();
+    if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(box, data.chart || {});
+  } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    box.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+  }
+}
+
+async function loadGapCarryChart() {
+  const el = (id) => document.getElementById(id);
+  const chart = el('gap-carry-chart');
+  const meta = el('gap-carry-chart-meta');
+  const overlay = el('gap-carry-chart-overlay');
+  const title = el('gap-carry-chart-title');
+  const stages = Array.isArray(_lastGapCarryTimeframes) && _lastGapCarryTimeframes.length ? _lastGapCarryTimeframes : ['5m', '15m'];
+  const timeframe = stages.includes(_gapCarryChartTf) ? _gapCarryChartTf : (document.getElementById('gap-carry-timeframe')?.value || stages[0]);
+  _gapCarryChartTf = timeframe;
+  _gapCarryCollapseBacktestChart();
+  pfSetCascadeChartOverlayOpen(overlay, true);
+  if (title) title.textContent = `NIFTY gap carry · ${String(timeframe).toUpperCase()} · EMA20 + RSI`;
+  const stripHost = el('gap-carry-chart-strip');
+  if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
+    pfChartStrip(stripHost, {
+      timeframes: stages,
+      active: timeframe,
+      onTimeframe: (tf) => { _gapCarryChartTf = tf; loadGapCarryChart(); },
+      onRefresh: () => loadGapCarryChart(),
+      onClose: () => hideGapCarryChart(),
+    });
+  }
+  if (chart && !chart.querySelector('#pf-bench-canvas-host')) {
+    chart.innerHTML = `<div class="pf-cascade-chart-empty">Loading closed NIFTY ${escapeHtml(timeframe)} candles…</div>`;
+  }
+  try {
+    const query = new URLSearchParams({ timeframe });
+    const response = await fetch(`/api/gap-carry/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
+    const payload = data.chart || {};
+    await pfWaitForCascadeChartLayout();
+    if (chart && typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, payload);
+    if (meta) {
+      const ind = payload.indicators || {};
+      const drawn = (ind.rsi || []).filter((r) => r && r.v !== null).length;
+      meta.textContent = `${(payload.candles || []).length} closed ${String(data.timeframe).toUpperCase()} candles · `
+        + `EMA${ind.ema_period || 20} and RSI${ind.rsi_period || 14} over ${drawn} of them · `
+        + `RSI ${ind.rsi_upper ?? 70}+ buys a CE, ${ind.rsi_lower ?? 30}− a PE · `
+        + `${String(data.campaign_status || '').replaceAll('_', ' ').toLowerCase()} · drag to pan, wheel to zoom`;
+    }
+  } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+  }
+}
+
+function hideGapCarryChart() {
+  const overlay = document.getElementById('gap-carry-chart-overlay');
+  if (!overlay || !overlay.classList.contains('is-open')) return;
+  pfSetCascadeChartOverlayOpen(overlay, false);
+  _gapCarryChartTf = '';
 }
 
 async function _restoreLastGapCarryBacktest() {
@@ -3947,6 +4054,7 @@ async function refreshGapCarryStatus() {
       return;
     }
     _renderGapCarryAuto(data.auto || {});
+    if (Array.isArray(data.timeframes) && data.timeframes.length) _lastGapCarryTimeframes = data.timeframes;
     _renderGapCarryStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
     _syncGapCarryRecipe();
   } catch (_error) {

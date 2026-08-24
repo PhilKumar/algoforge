@@ -12088,6 +12088,9 @@ async def candle_entry_auto(payload: CandleEntryAutoPayload, request: Request):
 # fail at the first candle request, so the page offers the intersection.
 _GAP_CARRY_TIMEFRAMES = ("5m", "15m")
 _GAP_CARRY_EXPIRY_RULES = ("weekly", "monthly")
+# Enough closed bars for an EMA20 to be an average rather than its own seed,
+# and for the RSI to have warmed, with the traded night still on screen.
+_GAP_CARRY_CHART_DAYS = 12
 _GAP_CARRY_TERMINAL = _gap_carry_paper.TERMINAL
 # The measured configuration. Automation is pinned to it so the console cannot
 # put an unattended loop on a setting nobody has replayed.
@@ -12723,6 +12726,270 @@ async def gap_carry_latest_backtest(request: Request):
 async def gap_carry_delete_backtest(request: Request):
     removed = await _db_mod.delete_app_state(_gap_carry_backtest_key(_request_user_id(request)))
     return {"status": "ok", "removed": bool(removed)}
+
+
+@app.get("/api/gap-carry/paper/chart")
+async def gap_carry_paper_chart(request: Request, timeframe: str = ""):
+    """The carry drawn on its own chart -- with the two indicators that ARE the rule.
+
+    Gap Carry has no ladder and no fib geometry: the whole decision is one
+    candle's close against its EMA20 and its RSI. So this is the first chart on
+    the site to send `indicators`, and the renderer reserves the RSI pane only
+    because this payload carries it -- every other chart is unchanged.
+
+    The series come from engine.gap_carry.indicator_series, the same two
+    functions read_signal() reads with, so the picture cannot drift from the
+    rule that made the trade.
+    """
+    runtime = _gap_carry_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Gap Carry campaign to draw. Start one first.")
+    engine = runtime.engine
+    key = _gap_carry_timeframe(timeframe or engine.config.timeframe)
+    rows = await _gap_carry_load_candles(runtime.adapter, key, days=_GAP_CARRY_CHART_DAYS)
+    if not rows:
+        raise HTTPException(status_code=503, detail=f"No closed NIFTY {key} candles to draw.")
+    pos = engine.position or (engine.history[-1] if engine.history else None)
+
+    lines, entries, exits = [], [], []
+    if pos is not None:
+        # The strike is a price on this axis, so it belongs on the chart: it is
+        # what "ATM+4 in the money" actually meant on the night.
+        lines.append(
+            {
+                "price": float(pos.strike),
+                "label": f"{pos.side} {int(pos.strike)} · {pos.expiry.isoformat()}",
+                "inr_notional": 0,
+                "filled": True,
+            }
+        )
+        if pos.entry_timestamp is not None and pos.entry_spot is not None:
+            entries.append({"t": int(pos.entry_timestamp.timestamp()), "price": float(pos.entry_spot)})
+        if pos.exit_timestamp is not None and pos.exit_spot is not None:
+            exits.append(
+                {
+                    "t": int(pos.exit_timestamp.timestamp()),
+                    "price": float(pos.exit_spot),
+                    "pnl": float(pos.net or 0.0),
+                }
+            )
+    return {
+        "status": "ok",
+        "timeframe": key,
+        "stages": list(_GAP_CARRY_TIMEFRAMES),
+        "campaign_status": engine.status,
+        "chart": {
+            "timeframe": key,
+            "candles": [
+                {
+                    "t": int(row.timestamp.timestamp()),
+                    "o": row.open,
+                    "h": row.high,
+                    "l": row.low,
+                    "c": row.close,
+                    "is_mother": False,
+                }
+                for row in rows
+            ],
+            # Gap Carry has no mother candle and no swing geometry -- sending
+            # empty shapes rather than omitting them keeps one payload contract.
+            "mother": {"high": None, "low": None},
+            "trendlines": [],
+            "legs": [],
+            "lines": lines,
+            "entries": entries,
+            "exits": exits,
+            "avg_entry_price": None,
+            "tp_price": None,
+            "tp_label": "",
+            "indicators": _gap_carry_mod.indicator_series(rows, engine.config),
+        },
+    }
+
+
+def _gap_carry_export_rows(saved: dict) -> list:
+    """One row per night, in the order the replay booked them."""
+    out = []
+    for row in saved.get("positions") or []:
+        entry = row.get("entry") or {}
+        exit_ = row.get("exit") or {}
+        signal = row.get("signal") or {}
+        out.append(
+            {
+                "session": row.get("session"),
+                "side": row.get("side"),
+                "strike": row.get("strike"),
+                "expiry": row.get("expiry"),
+                "lots": row.get("lots"),
+                "lot_size": row.get("lot_size"),
+                "quantity": row.get("quantity"),
+                "rsi": signal.get("rsi"),
+                "close": signal.get("close"),
+                "ema": signal.get("ema"),
+                "entry_timestamp": entry.get("timestamp"),
+                "entry_spot": entry.get("spot"),
+                "entry_premium": entry.get("premium"),
+                "capital": entry.get("capital"),
+                "exit_timestamp": exit_.get("timestamp"),
+                "exit_spot": exit_.get("spot"),
+                "exit_premium": exit_.get("premium"),
+                # A floored exit is NOT a quote, and a spreadsheet that does not
+                # say so reads as a price it never was.
+                "exit_priced": exit_.get("priced"),
+                "exit_reason": exit_.get("reason"),
+                "charges": row.get("charges"),
+                "net": row.get("net"),
+            }
+        )
+    return out
+
+
+@app.get("/api/gap-carry/backtests/latest/chart")
+async def gap_carry_backtest_chart(request: Request):
+    """The saved replay's whole book on one chart, with the rule's indicators.
+
+    The replay itself stores no candles -- a year of 5m bars in app_state would
+    be megabytes -- so the bars are re-fetched for exactly the window it covers
+    and the nights are drawn on top. The indicator settings come from the
+    replay's OWN saved rule, not from whatever the form currently reads, or the
+    picture would describe a different rule than the book.
+    """
+    raw = await _db_mod.get_app_state(_gap_carry_backtest_key(_request_user_id(request)))
+    try:
+        saved = json.loads(raw) if raw else None
+    except Exception:
+        saved = None
+    if not saved or saved.get("status") == "empty":
+        raise HTTPException(status_code=404, detail="No Gap Carry replay to draw. Run a backtest first.")
+    positions = saved.get("positions") or []
+    if not positions:
+        raise HTTPException(status_code=404, detail="That replay booked no nights, so there is nothing to draw.")
+    rule = saved.get("rule") or {}
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to draw the replay.")
+    key = _gap_carry_timeframe(str(rule.get("timeframe") or "5m"))
+    try:
+        config = _gap_carry_mod.GapCarryConfig(
+            timeframe=key,
+            rsi_threshold=float(rule.get("rsi_threshold") or 70.0),
+            strike_offset_steps=int(rule.get("strike_offset_steps") or 4),
+            lots=int(rule.get("lots") or 1),
+            entry_time=_gap_carry_clock(str(rule.get("entry_time") or "15:10"), label="Entry time"),
+            exit_time=_gap_carry_clock(str(rule.get("exit_time") or "09:20"), label="Exit time"),
+        )
+    except _gap_carry_mod.GapCarryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # The window the book actually covers, not the form's current lookback.
+    first = min(str(row.get("session") or "") for row in positions)
+    last = max(str(row.get("session") or "") for row in positions)
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    try:
+        from_day = date.fromisoformat(first[:10])
+        to_day = min(date.fromisoformat(last[:10]) + timedelta(days=3), datetime.now(IST).date())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="That replay's sessions are unreadable.") from exc
+    try:
+        rows = list(await adapter.async_get_candles("NIFTY", key, from_date=from_day, to_date=to_day))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {key} candles: {exc}") from exc
+    if not rows:
+        raise HTTPException(status_code=503, detail=f"No closed NIFTY {key} candles over that window.")
+
+    entries, exits = [], []
+    for row in positions:
+        entry, exit_ = row.get("entry") or {}, row.get("exit") or {}
+        if entry.get("timestamp") and entry.get("spot") is not None:
+            entries.append({"t": _gap_carry_epoch(entry["timestamp"]), "price": float(entry["spot"])})
+        if exit_.get("timestamp") and exit_.get("spot") is not None:
+            exits.append(
+                {
+                    "t": _gap_carry_epoch(exit_["timestamp"]),
+                    "price": float(exit_["spot"]),
+                    "pnl": float(row.get("net") or 0.0),
+                }
+            )
+    return {
+        "status": "ok",
+        "timeframe": key,
+        "stages": [key],
+        "nights": len(positions),
+        "chart": {
+            "timeframe": key,
+            "candles": [
+                {
+                    "t": int(r.timestamp.timestamp()),
+                    "o": r.open,
+                    "h": r.high,
+                    "l": r.low,
+                    "c": r.close,
+                    "is_mother": False,
+                }
+                for r in rows
+            ],
+            "mother": {"high": None, "low": None},
+            "trendlines": [],
+            "legs": [],
+            "lines": [],
+            "entries": [e for e in entries if e["t"]],
+            "exits": [x for x in exits if x["t"]],
+            "avg_entry_price": None,
+            "tp_price": None,
+            "tp_label": "",
+            "indicators": _gap_carry_mod.indicator_series(rows, config),
+        },
+    }
+
+
+def _gap_carry_epoch(value) -> int:
+    """A saved ISO stamp as epoch seconds, or 0 when it cannot be read."""
+    try:
+        stamp = datetime.fromisoformat(str(value))
+    except Exception:
+        return 0
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=IST)
+    return int(stamp.timestamp())
+
+
+@app.get("/api/gap-carry/backtests/latest/export.csv")
+async def export_gap_carry_backtest_csv(request: Request):
+    import csv
+
+    raw = await _db_mod.get_app_state(_gap_carry_backtest_key(_request_user_id(request)))
+    try:
+        saved = json.loads(raw) if raw else None
+    except Exception:
+        saved = None
+    if not saved or saved.get("status") == "empty":
+        raise HTTPException(status_code=404, detail="No Gap Carry replay has been run yet.")
+    rows = _gap_carry_export_rows(saved)
+    if not rows:
+        raise HTTPException(status_code=404, detail="That replay booked no nights to export.")
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    stamp = str(saved.get("saved_at") or "")[:10]
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="gap-carry-replay-{stamp or "latest"}.csv"'},
+    )
+
+
+@app.get("/api/gap-carry/backtests/latest/export.json")
+async def export_gap_carry_backtest_json(request: Request):
+    raw = await _db_mod.get_app_state(_gap_carry_backtest_key(_request_user_id(request)))
+    try:
+        saved = json.loads(raw) if raw else None
+    except Exception:
+        saved = None
+    if not saved or saved.get("status") == "empty":
+        raise HTTPException(status_code=404, detail="No Gap Carry replay has been run yet.")
+    return saved
 
 
 @app.post("/api/gap-carry/auto")
