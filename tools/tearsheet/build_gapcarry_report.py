@@ -134,10 +134,15 @@ def _group(rows: list, key) -> list:
 def build() -> str:
     helpers, css = _borrow()
     r, lakh, cls, curve_svg = helpers["r"], helpers["lakh"], helpers["cls"], helpers["curve_svg"]
+    del lakh  # the parent's, borrowed for parity; this sheet quotes plain rupees
     rows = _rows()
     s = _stats(rows)
     if len(s["curve"]) < 2:
         return ""  # curve_svg divides by len-1
+    # SIX PIECES OF PATH DATA, not an <svg> element: line, filled area, the
+    # underwater shading, the zero baseline, and the high/low of the range. The
+    # parent assembles the markup itself and so must this sheet.
+    c_line, c_area, c_dd, c_zero, c_hi, _c_lo = curve_svg(s["curve"])
 
     by_year = sorted(_group(rows, lambda x: x["session"].year), key=lambda g: g["name"])
     by_side = sorted(_group(rows, lambda x: x["side"]), key=lambda g: g["name"])
@@ -152,8 +157,8 @@ def build() -> str:
             for g in groups
         )
         return (
-            f"<table><thead><tr><th>{label}</th><th class='num'>Nights</th>"
-            f"<th class='num'>Net</th><th class='num'>Won</th></tr></thead><tbody>{body}</tbody></table>"
+            f"<div class='tblwrap'><table><thead><tr><th>{label}</th><th class='num'>Nights</th>"
+            f"<th class='num'>Net</th><th class='num'>Won</th></tr></thead><tbody>{body}</tbody></table></div>"
         )
 
     top3 = sorted((x["net"] for x in rows), reverse=True)[:3]
@@ -163,40 +168,71 @@ def build() -> str:
 <style>
 {css}
 </style>
-<div id="document-body">
-<header class="doc-head">
-  <div class="doc-kicker">NIFTY · EMA20 + RSI · 15:10 in · 09:20 out</div>
-  <h1>Gap Carry</h1>
-  <p class="doc-lede">One candle is read at 15:10. If it closed on the strong side of its EMA20 with
-  momentum to match, one in-the-money contract is bought and sold into the next morning's open.
-  No stop, no target, and nothing on the way out but the clock.</p>
-  <p class="doc-meta">{s["first"]} → {s["last"]} · one lot · ATM+4 in the money · nearest weekly ·
-  recorded premiums from two archives · {s["trades"]} nights</p>
-</header>
+<section class="document-hero">
+  <div class="hero-copy">
+    <p class="eyebrow"><b>TEARSHEET</b>NIFTY &middot; EMA20 + RSI &middot; 15:10 in &middot; 09:20 out</p>
+    <h1>Gap Carry &mdash; the overnight book</h1>
+    <p class="lede">One candle is read at 15:10. If it closed on the strong side of its EMA20 with
+    momentum to match, one in-the-money contract is bought and sold into the next morning's open.
+    No stop, no target, and nothing on the way out but the clock.</p>
+  </div>
+  <div class="document-meta">
+    <div class="meta-chip">{s["first"]} &rarr; {s["last"]}</div>
+    <div class="meta-chip">{s["trades"]} nights &middot; one lot</div>
+    <div class="meta-chip">ATM+4 in the money</div>
+    <div class="meta-chip">nearest weekly</div>
+    <div class="meta-chip">recorded premiums, two archives</div>
+  </div>
+</section>
 
+<article class="document-body" id="document-body">
 <section id="headline">
   <div class="shead"><h2>The book</h2></div>
-  <div class="tiles">
-    <div class="tile"><span class="k">Net</span><span class="v {cls(s["net"])}">{r(s["net"])}</span></div>
-    <div class="tile"><span class="k">Nights</span><span class="v">{s["trades"]}</span></div>
-    <div class="tile"><span class="k">Won</span><span class="v">{s["win_rate"] * 100:.1f}%</span></div>
-    <div class="tile"><span class="k">Profit factor</span><span class="v">{s["pf"]:.2f}</span></div>
-    <div class="tile"><span class="k">Worst drawdown</span><span class="v neg">{r(s["dd"])}</span></div>
-    <div class="tile"><span class="k">Capital at most</span><span class="v">{r(s["peak_capital"])}</span></div>
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-l">Net</div>
+      <div class="kpi-v {cls(s["net"])}">{r(s["net"])}</div>
+      <div class="kpi-s">after all charges &middot; {s["trades"]} nights</div></div>
+    <div class="kpi"><div class="kpi-l">Won</div>
+      <div class="kpi-v">{s["win_rate"] * 100:.1f}%</div>
+      <div class="kpi-s">{s["wins"]} of {s["trades"]}</div></div>
+    <div class="kpi"><div class="kpi-l">Profit factor</div>
+      <div class="kpi-v">{s["pf"]:.2f}</div>
+      <div class="kpi-s">gross won per rupee lost</div></div>
+    <div class="kpi"><div class="kpi-l">Worst drawdown</div>
+      <div class="kpi-v neg">{r(s["dd"])}</div>
+      <div class="kpi-s">deepest fall from a peak</div></div>
+    <div class="kpi"><div class="kpi-l">Capital at most</div>
+      <div class="kpi-v">{r(s["peak_capital"])}</div>
+      <div class="kpi-s">one lot, largest single night</div></div>
   </div>
-  {curve_svg(s["curve"])}
+  <div class="panel">
+    <div class="chart">
+      <svg viewBox="0 0 1040 260" role="img" preserveAspectRatio="none"
+           aria-label="Cumulative net profit from {s["first"]} to {s["last"]}, ending at {r(s["net"])}">
+        <path d="{c_dd}" fill="rgba(var(--neg-fill),.13)"/>
+        <path d="{c_area}" fill="rgba(var(--curve-rgb),.10)"/>
+        <line x1="0" y1="{c_zero:.1f}" x2="1040" y2="{c_zero:.1f}"
+              stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+        <path class="curve-line" d="{c_line}" fill="none" stroke="var(--curve)"
+              stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+    </div>
+    <div class="axis"><span>{s["first"]}</span>
+      <span>peak {r(c_hi)} &middot; shaded = below previous high</span>
+      <span>{s["last"]}</span></div>
+  </div>
   <p class="note">Average night {r(s["avg"])}. Best {r(s["best"])}, worst {r(s["worst"])}.</p>
 </section>
 
 <section id="curve-gapcarry">
   <div class="shead"><h2>Year by year, and which side paid</h2></div>
-  <div class="two-up">{rowspan(by_year, "Year")}{rowspan(by_side, "Side")}</div>
+  <div class="split">{rowspan(by_year, "Year")}{rowspan(by_side, "Side")}</div>
 </section>
 
 <section id="weekday">
   <div class="shead"><h2>The weekday problem</h2></div>
   {rowspan(by_dow, "Entry day")}
-  <p class="warn"><strong>Friday alone is {fri["net"] / s["net"] * 100:.0f}% of the net</strong> from
+  <p class="note note-warn"><strong>Friday alone is {fri["net"] / s["net"] * 100:.0f}% of the net</strong> from
   {fri["n"]} of {s["trades"]} nights. A Friday entry is held over the weekend, so part of this book is a
   three-day gap wearing a one-night rule's clothes. <strong>Thursday loses.</strong> Neither fact is
   settled, and the live tab exists to prove them forward rather than assume them.</p>
@@ -217,7 +253,7 @@ def build() -> str:
   over this window, eleven of them green in both halves — the candle is read once and both ends are
   clock times, so there is very little for a fit to grip.</p>
 </section>
-</div>
+</article>
 """
 
 
