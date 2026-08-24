@@ -2802,6 +2802,7 @@ _STARTUP_TRADE_BACKFILL_ENABLED = _startup_flag("PHILFORGE_STARTUP_TRADE_BACKFIL
 _STARTUP_EMPTY_RUN_CLEANUP_ENABLED = _startup_flag("PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP", True)
 _STARTUP_ENGINE_RESTORE_ENABLED = _startup_flag("PHILFORGE_STARTUP_ENGINE_RESTORE", True)
 _STARTUP_EXAMPLE_SEED_ENABLED = _startup_flag("PHILFORGE_STARTUP_EXAMPLE_SEED", True)
+_STARTUP_JOURNAL_CHARTS_ENABLED = _startup_flag("PHILFORGE_JOURNAL_CHARTS", True)
 
 
 def _engine_restore_owner_is_active_instance() -> bool:
@@ -4534,6 +4535,13 @@ import re as _re
 
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
 _USER_DATA_ROOT = config.USER_DATA_ROOT
+_journal_chart_task: asyncio.Task | None = None
+_journal_chart_state: dict[str, Any] = {
+    "status": "idle",
+    "message": "Daily NIFTY and SENSEX charts have not run yet.",
+    "last_run": None,
+    "result": None,
+}
 
 # Build month-name lookup: JAN→1, JANUARY→1, FEB→2, FEBRUARY→2, …
 _MONTH_MAP: dict[str, int] = {}
@@ -5078,6 +5086,16 @@ async def charts_tree(request: Request):
         f"[CHARTS] Tree result: {len(tree)} years, total days: {sum(sum(len(m['days']) for m in ms) for ms in tree.values())}"
     )
     return {"years": tree}
+
+
+@app.get("/api/charts/daily-status")
+async def daily_chart_status(request: Request):
+    """Read-only health/status for the after-market Journal chart job."""
+    return {
+        **_journal_chart_state,
+        "enabled": _STARTUP_JOURNAL_CHARTS_ENABLED,
+        "symbols": ["NIFTY", "SENSEX"],
+    }
 
 
 @app.get("/api/charts/images/{year}/{month}/{day}")
@@ -20728,6 +20746,92 @@ async def _backfill_in_background():
         _backfill_state.update({"status": "error", "message": str(e)})
 
 
+async def _journal_chart_backfill_once() -> dict:
+    """Build missing admin Journal charts in a worker thread.
+
+    This is intentionally a display/archive job.  Its module reads Upstox
+    historical candles and Pillow-renders PNGs; it never receives a Dhan client
+    and cannot place, modify, or cancel an order.
+    """
+    from journal_charts import backfill_charts
+
+    admin = await _get_preferred_admin_user()
+    if not admin:
+        raise RuntimeError("No admin user available for daily Journal charts")
+    user_id = int(admin["id"])
+    charts_root = _user_charts_root(user_id)
+    cache_root = os.path.join(_user_storage_root(user_id), "journal_chart_data")
+    start_text = os.getenv("PHILFORGE_JOURNAL_CHART_START", "2026-02-24").strip()
+    try:
+        backfill_start = date.fromisoformat(start_text)
+    except ValueError as exc:
+        raise RuntimeError("PHILFORGE_JOURNAL_CHART_START must be YYYY-MM-DD") from exc
+    _journal_chart_state.update(
+        {
+            "status": "running",
+            "message": "Checking NIFTY and SENSEX Journal charts...",
+            "last_run": datetime.now(IST).isoformat(),
+        }
+    )
+    result = await asyncio.to_thread(backfill_charts, charts_root, cache_root, start=backfill_start)
+    created = len(result.get("created") or [])
+    errors = len(result.get("errors") or [])
+    message = f"Daily Journal charts are current; {created} image{'s' if created != 1 else ''} added."
+    if errors:
+        message = f"Daily Journal chart run completed with {errors} data/render error{'s' if errors != 1 else ''}."
+    _journal_chart_state.update(
+        {
+            "status": result.get("status", "error"),
+            "message": message,
+            "last_run": datetime.now(IST).isoformat(),
+            "result": result,
+        }
+    )
+    return result
+
+
+async def _run_journal_chart_loop() -> None:
+    """Catch up on startup, then create the new pair once each market day."""
+    last_success_through = ""
+    interval = max(300, int(os.getenv("PHILFORGE_JOURNAL_CHART_CHECK_SECONDS", "900")))
+    while True:
+        try:
+            # Both blue/green workers may exist, but only the active instance
+            # may write. The standby keeps looping and naturally takes over
+            # after the active-port marker flips during deployment.
+            if _engine_restore_owner_is_active_instance():
+                from journal_charts import eligible_through
+
+                through = eligible_through(datetime.now(IST)).isoformat()
+                if through != last_success_through:
+                    try:
+                        result = await _journal_chart_backfill_once()
+                    except Exception as exc:
+                        _logger.warning("[JOURNAL CHARTS] Daily job failed: %s", exc)
+                        _journal_chart_state.update(
+                            {
+                                "status": "error",
+                                "message": str(exc),
+                                "last_run": datetime.now(IST).isoformat(),
+                            }
+                        )
+                    else:
+                        if result.get("status") == "ok":
+                            last_success_through = through
+                            _logger.info(
+                                "[JOURNAL CHARTS] Through %s: %d created, %d skipped",
+                                through,
+                                len(result.get("created") or []),
+                                len(result.get("skipped") or []),
+                            )
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[JOURNAL CHARTS] Scheduler recovered from: %s", exc)
+            await asyncio.sleep(interval)
+
+
 # ── Prometheus instrumentation (must run before app starts) ────
 if _PROMETHEUS_ENABLED:
     _PFI(app).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
@@ -20767,6 +20871,7 @@ async def _init_database():
 
 @app.on_event("startup")
 async def _start_token_renewal():
+    global _journal_chart_task
     if _SKIP_STARTUP_JOBS:
         print("🧪 [Startup] Skipping network-heavy startup jobs (PHILFORGE_SKIP_STARTUP_JOBS=1)")
         return
@@ -20794,6 +20899,14 @@ async def _start_token_renewal():
             print(f"🧹 [STARTUP] Removed {removed} empty 0-trade runs from history")
     else:
         print("🧹 [STARTUP] Empty-run cleanup disabled (PHILFORGE_STARTUP_EMPTY_RUN_CLEANUP=0)")
+
+    if _STARTUP_JOURNAL_CHARTS_ENABLED:
+        if _journal_chart_task is None or _journal_chart_task.done():
+            _journal_chart_task = asyncio.create_task(_run_journal_chart_loop())
+        print("📈 [JOURNAL CHARTS] NIFTY + SENSEX after-market scheduler ready")
+    else:
+        _journal_chart_state.update({"status": "disabled", "message": "Daily Journal charts are disabled."})
+        print("📈 [JOURNAL CHARTS] Scheduler disabled (PHILFORGE_JOURNAL_CHARTS=0)")
 
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())
@@ -20978,6 +21091,14 @@ async def _restore_paper_engines():
 @app.on_event("shutdown")
 async def _shutdown_cleanup():
     """Save all running engine results and clean up."""
+    global _journal_chart_task
+    if _journal_chart_task is not None and not _journal_chart_task.done():
+        _journal_chart_task.cancel()
+        try:
+            await _journal_chart_task
+        except asyncio.CancelledError:
+            pass
+    _journal_chart_task = None
     # Save all running scalp engines
     for owner_id, engine in list(_scalp_engines.items()):
         try:
