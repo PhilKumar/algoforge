@@ -6194,7 +6194,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .candle-entry-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
-  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
+  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields,
+  .candle-entry-pane-form #gap-carry-advanced .candle-entry-switch-grid > div:has(#gap-carry-lots-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
   .candle-entry-pane-form #candle-entry-strike-at-toggle { flex:1 1 100%; }
   /* The form is short: it rides along rather than scrolling away. */
   .candle-entry-pane-form { position:sticky; top:8px; }
@@ -6207,7 +6208,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-actions .btn { flex:1 1 auto; }
   /* One setting per line in the fold -- two columns of hairline rows need
      more room than this pane has. */
-  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
+  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid,
+  .candle-entry-pane-form #gap-carry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
   .candle-entry-pane-live > .candle-entry-monitor:first-child,
   .candle-entry-pane-live > .candle-entry-auto-card:first-child { margin-top:0; }
 }
@@ -6229,7 +6231,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    the right -- and the chosen option is a flat tint rather than a lit
    gradient. Scoped to this fold: the Fib Boundary form keeps the ember
    switches Phil asked for. */
-#candle-entry-advanced .candle-entry-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
+#candle-entry-advanced .candle-entry-switch-grid,
+#gap-carry-advanced .candle-entry-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
+/* The three-choice groups would render 2+1 in a two-column grid. */
+#gap-carry-rsi-toggle, #gap-carry-offset-toggle, #gap-carry-lots-toggle { grid-template-columns: repeat(3, minmax(0,1fr)); }
 #candle-entry-advanced .candle-entry-switch-grid > div {
   display:grid; grid-template-columns: minmax(0,1fr) auto; align-items:center; gap:10px;
   min-height:38px; padding:5px 0; border-bottom:1px solid rgba(148,163,184,.10);

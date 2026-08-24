@@ -1929,6 +1929,16 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setCandleEntryExpiry',
   'setCandleEntryTarget',
   'setCandleEntryExit',
+  'startGapCarryPaper',
+  'killGapCarryPaper',
+  'runGapCarryBacktest',
+  'deleteGapCarryBacktest',
+  'setGapCarryMode',
+  'setGapCarryAuto',
+  'setGapCarryExpiry',
+  'setGapCarryRsi',
+  'setGapCarryOffset',
+  'setGapCarryLots',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
   'showInsightsTab',
@@ -2956,7 +2966,7 @@ async function _restoreLastCandleEntryBacktest() {
 // it (Phil, 2026-08-20: "I am not able to remove the old one").
 async function deleteCandleEntryBacktest() {
   const confirmed = await customConfirm(
-    'Throw this saved replay away? Nothing traded is touched \u2014 it is a recorded backtest, and the same mother can always be replayed again.',
+    'Throw the saved replays away? Every stored Fib Boundary replay goes, so the panel stays empty until you run a new one. Nothing traded is touched \u2014 these are recorded backtests, and any mother can be replayed again.',
     { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
   );
   if (!confirmed) return;
@@ -3432,6 +3442,16 @@ window.startCascadeOptionsPaper = startCascadeOptionsPaper;
 window.stopCascadeOptionsPaper = stopCascadeOptionsPaper;
 window.loadCascadeOptionsChart = loadCascadeOptionsChart;
 window.hideCascadeOptionsChart = hideCascadeOptionsChart;
+window.startGapCarryPaper = startGapCarryPaper;
+window.killGapCarryPaper = killGapCarryPaper;
+window.runGapCarryBacktest = runGapCarryBacktest;
+window.deleteGapCarryBacktest = deleteGapCarryBacktest;
+window.setGapCarryMode = setGapCarryMode;
+window.setGapCarryAuto = setGapCarryAuto;
+window.setGapCarryExpiry = setGapCarryExpiry;
+window.setGapCarryRsi = setGapCarryRsi;
+window.setGapCarryOffset = setGapCarryOffset;
+window.setGapCarryLots = setGapCarryLots;
 window.startCandleEntryPaper = startCandleEntryPaper;
 window.killCandleEntryPaper = killCandleEntryPaper;
 window.runCandleEntryBacktest = runCandleEntryBacktest;
@@ -3468,7 +3488,323 @@ let _lastFibBacktest = null;
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
 // moved in beside the two paper strategies the same day — both on Phil's call,
 // so the top nav stays one row.
-const _OC_TABS = ['fib', 'candle', 'recovery', 'bench'];
+
+// ─────────────────────────── Gap Carry ───────────────────────────
+// One candle read at 15:10, one contract held one night, sold at 09:20. The
+// server owns every decision; this reads the form, posts it, and renders back
+// what came home. Nothing here recomputes a side, a strike or a P&L.
+
+const _GC_MONEY = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
+
+function _setGapCarryFormStatus(message, tone = 'muted') {
+  const el = _cascadeOptionsEl('gap-carry-form-status');
+  if (!el) return;
+  el.textContent = message || '';
+  _cascadeSetTone(el, tone);
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+}
+
+function _gapCarryPayload() {
+  const val = (id, fallback) => document.getElementById(id)?.value || fallback;
+  return {
+    timeframe: val('gap-carry-timeframe', '5m'),
+    rsi_threshold: Number(val('gap-carry-rsi', '70')),
+    strike_offset_steps: Number(val('gap-carry-offset', '4')),
+    lots: Number(val('gap-carry-lots', '1')),
+    entry_time: val('gap-carry-entry-time', '15:10'),
+    exit_time: val('gap-carry-exit-time', '09:20'),
+    expiry_rule: val('gap-carry-expiry-rule', 'weekly'),
+  };
+}
+
+function _syncGapCarryRecipe() {
+  const p = _gapCarryPayload();
+  const recipe = _cascadeOptionsEl('gap-carry-recipe');
+  const put = (100 - p.rsi_threshold).toFixed(0);
+  if (recipe) {
+    recipe.textContent =
+      `${p.timeframe} · at ${p.entry_time} a close above EMA20 with RSI ${p.rsi_threshold}+ buys a CE, ` +
+      `below with RSI ${put}− buys a PE · ATM+${p.strike_offset_steps} ITM · ${p.lots} lot${p.lots > 1 ? 's' : ''} · ` +
+      `${p.expiry_rule} expiry · sold ${p.exit_time} next session`;
+  }
+  const state = _cascadeOptionsEl('gap-carry-advanced-state');
+  if (state) {
+    const measured = p.rsi_threshold === 70 && p.strike_offset_steps === 4 && p.lots === 1
+      && p.entry_time === '15:10' && p.exit_time === '09:20' && p.expiry_rule === 'weekly';
+    state.textContent = measured ? 'rule as measured' : 'changed from the measured rule';
+  }
+}
+
+function setGapCarryMode(_event, button) {
+  _candleEntrySetSwitch('gap-carry-mode', 'gap-carry-mode-toggle', button?.dataset?.value || 'paper');
+  _syncGapCarryRecipe();
+}
+function setGapCarryExpiry(_event, button) {
+  _candleEntrySetSwitch('gap-carry-expiry-rule', 'gap-carry-expiry-toggle', button?.dataset?.value || 'weekly');
+  _syncGapCarryRecipe();
+}
+function setGapCarryRsi(_event, button) {
+  _candleEntrySetSwitch('gap-carry-rsi', 'gap-carry-rsi-toggle', button?.dataset?.value || '70');
+  _syncGapCarryRecipe();
+}
+function setGapCarryOffset(_event, button) {
+  _candleEntrySetSwitch('gap-carry-offset', 'gap-carry-offset-toggle', button?.dataset?.value || '4');
+  _syncGapCarryRecipe();
+}
+function setGapCarryLots(_event, button) {
+  _candleEntrySetSwitch('gap-carry-lots', 'gap-carry-lots-toggle', button?.dataset?.value || '1');
+  _syncGapCarryRecipe();
+}
+
+// The auto switch is the only toggle that reaches the server, so it rolls back
+// when the server refuses. A switch that looks on while the loop is off is the
+// worst possible lie on this page.
+let _gapCarryAutoInFlight = false;
+async function setGapCarryAuto(_event, button) {
+  if (_gapCarryAutoInFlight) return;
+  const wanted = button?.dataset?.value || 'off';
+  const previous = document.getElementById('gap-carry-auto')?.value || 'off';
+  if (wanted === previous) return;
+  _gapCarryAutoInFlight = true;
+  _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', wanted);
+  try {
+    const response = await fetch('/api/gap-carry/auto', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: wanted === 'on', mode: document.getElementById('gap-carry-mode')?.value || 'paper' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The auto switch could not be changed.'));
+    _renderGapCarryAuto(data.auto || {});
+    _setGapCarryFormStatus(wanted === 'on' ? 'Auto carry is on — 15:10 in, 09:20 out, every session.' : 'Auto carry is off.', 'success');
+  } catch (error) {
+    _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', previous);
+    _setGapCarryFormStatus(error.message || 'The auto switch could not be changed.', 'error');
+  } finally {
+    _gapCarryAutoInFlight = false;
+  }
+}
+
+async function startGapCarryPaper() {
+  const button = _cascadeOptionsEl('gap-carry-start');
+  if (button) button.disabled = true;
+  _setGapCarryFormStatus('Reading the candle and pricing the contract…', 'busy');
+  try {
+    const response = await fetch('/api/gap-carry/paper/start', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ..._gapCarryPayload(), mode: document.getElementById('gap-carry-mode')?.value || 'paper' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'The campaign could not be started.'));
+    _renderGapCarryStatus(data.campaign || null, true);
+    _setGapCarryFormStatus('Paper carry started.', 'success');
+  } catch (error) {
+    _setGapCarryFormStatus(error.message || 'The campaign could not be started.', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function killGapCarryPaper() {
+  const confirmed = await customConfirm(
+    'Close the open contract now, at its current quote? The night is ended early and the result is booked as it stands.',
+    { title: 'Kill & close', icon: ICO.warn(28), okText: 'Kill & close', danger: true },
+  );
+  if (!confirmed) return;
+  _setGapCarryFormStatus('Closing at the current quote…', 'busy');
+  try {
+    const response = await fetch('/api/gap-carry/paper/kill', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, 'The campaign could not be closed.'));
+    _renderGapCarryStatus(data.campaign || null, false);
+    _setGapCarryFormStatus('Closed.', 'success');
+  } catch (error) {
+    _setGapCarryFormStatus(error.message || 'The campaign could not be closed.', 'error');
+  }
+}
+
+async function runGapCarryBacktest() {
+  const button = _cascadeOptionsEl('gap-carry-backtest-btn');
+  const label = button ? button.textContent : '';
+  if (button) { button.disabled = true; button.textContent = '◱ Replaying…'; }
+  _setGapCarryFormStatus('Replaying the same rule on recorded prices…', 'busy');
+  try {
+    const response = await fetch('/api/gap-carry/backtest', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ..._gapCarryPayload(), lookback_days: 120 }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay failed.'));
+    _renderGapCarryBacktest(data);
+    _setGapCarryFormStatus(`Replayed ${data.summary?.trades ?? 0} nights.`, 'success');
+  } catch (error) {
+    _setGapCarryFormStatus(error.message || 'The replay failed.', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = label || '◱ Backtest'; }
+  }
+}
+
+async function deleteGapCarryBacktest() {
+  const confirmed = await customConfirm(
+    'Throw the saved replay away? Nothing traded is touched — it is a recorded backtest, and the same window can always be replayed again.',
+    { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
+  );
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/gap-carry/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay could not be deleted.'));
+  } catch (error) {
+    _setGapCarryFormStatus(error.message || 'The replay could not be deleted.', 'error');
+    return;
+  }
+  const panel = _cascadeOptionsEl('gap-carry-backtest');
+  if (panel) panel.hidden = true;
+  _setGapCarryFormStatus('Saved replay deleted. Press Backtest to replay it fresh.', 'success');
+}
+
+function _renderGapCarryAuto(auto) {
+  const card = _cascadeOptionsEl('gap-carry-auto-card');
+  if (!card) return;
+  const on = Boolean(auto && auto.enabled);
+  _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', on ? 'on' : 'off');
+  if (!on) { card.hidden = true; card.textContent = ''; return; }
+  card.hidden = false;
+  const bits = [`<strong>Auto carry is on.</strong> 15:10 in, 09:20 out, every session.`];
+  if (auto.state) bits.push(`State: <code>${String(auto.state)}</code>`);
+  if (auto.entry_day) bits.push(`Last entry checked: ${String(auto.entry_day)}`);
+  if (auto.alert) bits.push(`<span style="color:var(--danger);">${String(auto.alert)}</span>`);
+  if (auto.last_error) bits.push(`<span style="color:var(--danger);">${String(auto.last_error)}</span>`);
+  card.innerHTML = bits.join(' · ');
+}
+
+function _gapCarryTile(label, value, tone) {
+  const colour = tone === 'good' ? '#6ee7b7' : tone === 'bad' ? 'var(--danger)' : 'var(--text)';
+  return `<div class="candle-entry-tile"><span class="candle-entry-tile-label">${label}</span><span class="candle-entry-tile-value" style="color:${colour};">${value}</span></div>`;
+}
+
+function _renderGapCarryStatus(campaign, running) {
+  const badge = _cascadeOptionsEl('gap-carry-badge');
+  const summary = _cascadeOptionsEl('gap-carry-summary');
+  const monitor = _cascadeOptionsEl('gap-carry-monitor');
+  const kill = _cascadeOptionsEl('gap-carry-kill');
+  if (!campaign) {
+    if (badge) badge.textContent = 'IDLE';
+    if (summary) summary.textContent = 'No active Gap Carry campaign.';
+    if (monitor) monitor.hidden = true;
+    if (kill) kill.style.display = 'none';
+    return;
+  }
+  const status = String(campaign.status || 'WAITING');
+  if (badge) badge.textContent = status;
+  if (kill) kill.style.display = campaign.open ? '' : 'none';
+  const pos = campaign.position;
+  if (summary) {
+    if (!pos) {
+      const why = campaign.signal && campaign.signal.reason ? ` — ${campaign.signal.reason}` : '';
+      summary.textContent = `Watching for ${campaign.rule?.entry_time || '15:10'}${why}`;
+    } else {
+      summary.textContent =
+        `${pos.side} ${pos.strike} · ${pos.lots} lot${pos.lots > 1 ? 's' : ''} · expiry ${pos.expiry}` +
+        (pos.entry ? ` · bought ₹${pos.entry.premium} at ${String(pos.entry.timestamp || '').slice(11, 16)}` : '') +
+        (pos.exit ? ` · sold ₹${pos.exit.premium}${pos.exit.priced ? '' : ' (at intrinsic)'}` : '');
+    }
+  }
+  if (monitor) {
+    const tiles = _cascadeOptionsEl('gap-carry-monitor-tiles');
+    const hasAny = Boolean(pos) || campaign.closed_trades;
+    monitor.hidden = !hasAny;
+    if (tiles && hasAny) {
+      const mark = campaign.mark;
+      const rows = [];
+      if (mark) rows.push(_gapCarryTile('Unrealised', _GC_MONEY(mark.unrealised), mark.unrealised >= 0 ? 'good' : 'bad'));
+      if (pos && pos.entry) rows.push(_gapCarryTile('Capital', _GC_MONEY(pos.entry.capital)));
+      rows.push(_gapCarryTile('Realised', _GC_MONEY(campaign.realised), campaign.realised >= 0 ? 'good' : 'bad'));
+      rows.push(_gapCarryTile('Nights closed', String(campaign.closed_trades ?? 0)));
+      // Floored exits get their own tile on purpose: a floor is not a price.
+      if (campaign.floored_exits) {
+        rows.push(_gapCarryTile(`At intrinsic (${campaign.floored_exits})`, _GC_MONEY(campaign.floored_net)));
+      }
+      tiles.innerHTML = rows.join('');
+    }
+    const stamp = _cascadeOptionsEl('gap-carry-monitor-updated');
+    if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
+  }
+}
+
+function _renderGapCarryBacktest(data) {
+  const panel = _cascadeOptionsEl('gap-carry-backtest');
+  if (!panel || !data || !data.summary) return;
+  panel.hidden = false;
+  const s = data.summary;
+  const tiles = _cascadeOptionsEl('gap-carry-backtest-tiles');
+  if (tiles) {
+    const rows = [
+      _gapCarryTile('Nights', String(s.trades ?? 0)),
+      _gapCarryTile('Net', _GC_MONEY(s.net), (s.net || 0) >= 0 ? 'good' : 'bad'),
+      _gapCarryTile('Won', s.win_rate === undefined ? '—' : `${Math.round(s.win_rate * 100)}%`),
+      _gapCarryTile('Profit factor', s.profit_factor === null || s.profit_factor === undefined ? '—' : Number(s.profit_factor).toFixed(2)),
+      _gapCarryTile('Worst drawdown', _GC_MONEY(s.max_drawdown), 'bad'),
+      _gapCarryTile('Peak capital', _GC_MONEY(s.peak_capital)),
+    ];
+    if (s.floored_exits) rows.push(_gapCarryTile(`At intrinsic (${s.floored_exits})`, _GC_MONEY(s.floored_net)));
+    tiles.innerHTML = rows.join('');
+  }
+  const table = _cascadeOptionsEl('gap-carry-backtest-table');
+  if (table) {
+    const rows = (data.positions || []).slice(-40).reverse();
+    table.innerHTML =
+      '<thead><tr><th>Night</th><th>Side</th><th>Strike</th><th>In</th><th>Out</th><th>Net</th></tr></thead><tbody>' +
+      rows.map((p) => {
+        const net = p.net === null || p.net === undefined ? '—' : _GC_MONEY(p.net);
+        const colour = (p.net || 0) >= 0 ? '#6ee7b7' : 'var(--danger)';
+        const floored = p.exit && p.exit.priced === false ? ' *' : '';
+        return `<tr><td>${p.session}</td><td>${p.side}</td><td>${p.strike}</td><td>${p.entry ? p.entry.premium : '—'}</td><td>${p.exit ? p.exit.premium : '—'}${floored}</td><td style="color:${colour};">${net}</td></tr>`;
+      }).join('') +
+      '</tbody>';
+  }
+  const stamp = _cascadeOptionsEl('gap-carry-backtest-updated');
+  if (stamp) {
+    const skipped = data.skipped ? ` · ${data.skipped} skipped` : '';
+    stamp.textContent = `${data.window ? `${data.window.from} → ${data.window.to}` : ''}${skipped}`;
+  }
+}
+
+async function _restoreLastGapCarryBacktest() {
+  try {
+    const response = await fetch('/api/gap-carry/backtests/latest', { credentials: 'same-origin' });
+    if (!response.ok) return;
+    const data = await response.json().catch(() => ({}));
+    if (data && data.status === 'ok') _renderGapCarryBacktest(data);
+  } catch (_error) { /* a missing replay is not an error */ }
+}
+
+async function refreshGapCarryStatus() {
+  try {
+    const response = await fetch('/api/gap-carry/paper/status', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      // The poll writes its errors to the SUMMARY, never the form status — a
+      // 3-second poll would otherwise wipe the message Start just produced.
+      const summary = _cascadeOptionsEl('gap-carry-summary');
+      if (summary) summary.textContent = pfErrorText(data, 'Gap Carry status is unavailable.');
+      return;
+    }
+    _renderGapCarryAuto(data.auto || {});
+    _renderGapCarryStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
+    _syncGapCarryRecipe();
+  } catch (_error) {
+    const summary = _cascadeOptionsEl('gap-carry-summary');
+    if (summary) summary.textContent = 'Gap Carry status is unavailable.';
+  }
+}
+
+const _OC_TABS = ['fib', 'candle', 'recovery', 'gapcarry', 'bench'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -3528,6 +3864,7 @@ function showOptionsCascadeTab(event, el) {
     }
   });
   if (tab === 'candle') refreshCandleEntryStatus();
+  else if (tab === 'gapcarry') refreshGapCarryStatus();
   else if (tab === 'bench') initTestBenchPage();
   else if (tab === 'recovery') refreshRecoveryStatus();
   else refreshFibBoundaryStatus();
@@ -3743,12 +4080,14 @@ async function initOptionsCascadePage() {
   _ceRenderTimeframes();
   _restoreLastFibBoundaryBacktest();
   _restoreLastCandleEntryBacktest();
+  _restoreLastGapCarryBacktest();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
+  await refreshGapCarryStatus();
   if (!_fibBoundaryPollTimer) {
     _fibBoundaryPollTimer = setInterval(() => {
       if (document.querySelector('.pf-cascade-chart-overlay.is-open')) return;
-      if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); }
+      if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); refreshGapCarryStatus(); }
     }, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
 }
@@ -5217,10 +5556,12 @@ async function deleteFibBoundaryBacktest() {
     { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
   );
   if (!confirmed) return;
+  let removed = 0;
   try {
     const response = await fetch('/api/fib-boundary/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay could not be deleted.'));
+    removed = data.removed;
   } catch (error) {
     _fibSetFormStatus(error.message || 'The replay could not be deleted.', 'error');
     return;
@@ -5233,7 +5574,13 @@ async function deleteFibBoundaryBacktest() {
     const node = document.getElementById(id);
     if (node) node.style.display = 'none';
   });
-  _fibSetFormStatus('Saved replay deleted. Press Backtest to replay a mother fresh.', 'success');
+  const gone = Number(removed) || 0;
+  _fibSetFormStatus(
+    gone > 1
+      ? `${gone} saved replays deleted. Press Backtest to replay a mother fresh.`
+      : 'Saved replay deleted. Press Backtest to replay a mother fresh.',
+    'success',
+  );
 }
 window.deleteFibBoundaryBacktest = deleteFibBoundaryBacktest;
 

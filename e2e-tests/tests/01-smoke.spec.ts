@@ -128,6 +128,7 @@ async function installOfflineE2E(page: Page) {
     // A LIST now — one ladder per instrument, so the console reads `campaigns`.
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', campaigns: [] } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/gap-carry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'] } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
@@ -150,6 +151,7 @@ async function installOfflineE2E(page: Page) {
     // redraw. No saved run is the normal answer.
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
+    else if (path === '/api/gap-carry/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }
@@ -274,6 +276,7 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
     ['#oc-tabbtn-fib', '#oc-tab-fib'],
     ['#oc-tabbtn-candle', '#oc-tab-candle'],
     ['#oc-tabbtn-recovery', '#oc-tab-recovery'],
+    ['#oc-tabbtn-gapcarry', '#oc-tab-gapcarry'],
     ['#oc-tabbtn-bench', '#oc-tab-bench'],
   ]) {
     await page.click(control);
@@ -960,6 +963,7 @@ test('Every cascade ⓘ reads as the Cash Cascade document', async ({ page }) =>
     ['#oc-tabbtn-fib', 'fibx-info'],
     ['#oc-tabbtn-candle', 'candle-info'],
     ['#oc-tabbtn-recovery', 'recovery-info'],
+    ['#oc-tabbtn-gapcarry', 'gapcarry-info'],
     ['#oc-tabbtn-bench', 'bench-info'],
   ]) {
     await page.click(tab);
