@@ -82,8 +82,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import auth as _auth_mod
 import config
 import db as _db_mod
+import engine.gap_carry as _gap_carry_mod
+import engine.gap_carry_paper as _gap_carry_paper
 import webauthn_auth as _webauthn_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
+from cascade_costs import calculate_nifty_option_round_costs
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.candle_ladder import (
     LADDER_DEPTH,
@@ -2844,6 +2847,7 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
         "fib_boundary": 0,
         "terminal_cascade": 0,
         "fib_space": 0,
+        "gap_carry": 0,
     }
     if not _engine_restore_owner_is_active_instance():
         return restored
@@ -2862,6 +2866,8 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
                 restored["cascade"] += 1
             if await _restore_candle_entry_open_state(user_id, broker_client, activate=True) is not None:
                 restored["candle_entry"] += 1
+            if await _restore_gap_carry_open_state(user_id, broker_client, activate=True) is not None:
+                restored["gap_carry"] += 1
             fib_ladders = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
             restored["fib_boundary"] += len(fib_ladders)
             terminal = await _restore_terminal_cascade_open_state(user_id, broker_client)
@@ -4198,6 +4204,41 @@ class FibTouchStartPayload(BaseModel):
     # fibs' levels meet). The engine has taken it since fcdfb34; without this
     # field nothing outside a test could ever choose the second half.
     buy_mode: str = Field(default="levels")
+
+
+class GapCarryPaperStartPayload(BaseModel):
+    """Gap Carry's controls. Bounds mirror GapCarryConfig.validate() so pydantic
+    and the engine refuse exactly the same things."""
+
+    timeframe: str = "5m"
+    rsi_threshold: float = Field(default=70.0, ge=50.0, le=95.0)
+    # Steps INTO the money, always positive: strike_for() applies the sign
+    # itself, because in the money is a lower strike for a call and a higher one
+    # for a put. A negative here would buy the cheap out-of-the-money wing.
+    strike_offset_steps: int = Field(default=4, ge=0, le=10)
+    lots: int = Field(default=1, ge=1, le=20)
+    entry_time: str = "15:10"
+    exit_time: str = "09:20"
+    expiry_rule: str = "weekly"
+    mode: str = "paper"
+
+
+class GapCarryBacktestPayload(BaseModel):
+    """Field-for-field the start payload minus `mode`, plus the window."""
+
+    timeframe: str = "5m"
+    rsi_threshold: float = Field(default=70.0, ge=50.0, le=95.0)
+    strike_offset_steps: int = Field(default=4, ge=0, le=10)
+    lots: int = Field(default=1, ge=1, le=20)
+    entry_time: str = "15:10"
+    exit_time: str = "09:20"
+    expiry_rule: str = "weekly"
+    lookback_days: int = Field(default=120, ge=7, le=400)
+
+
+class GapCarryAutoPayload(BaseModel):
+    enabled: bool = Field(default=True)
+    mode: str = Field(default="paper")
 
 
 class CandleEntryAutoPayload(BaseModel):
@@ -6765,6 +6806,7 @@ def _runtime_owner_ids() -> set[int]:
         | set(_scalp_engines)
         | set(_cascade_engines)
         | set(_candle_entry_engines)
+        | set(_gap_carry_engines)
         | set(_fib_boundary_engines)
         | set(_terminal_cascade_engines)
     )
@@ -6782,6 +6824,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
     scalp_running = bool(scalp and getattr(scalp, "_running", False))
     cascade_running = bool(_cascade_engines.get(owner_id) and _cascade_engines[owner_id].running)
     candle_running = bool(_candle_entry_engines.get(owner_id) and _candle_entry_engines[owner_id].running)
+    gap_carry_running = bool(_gap_carry_engines.get(owner_id) and _gap_carry_engines[owner_id].running)
     fib_running = sum(1 for runtime in _fib_boundary_engines.get(owner_id, {}).values() if runtime.running)
     terminal_running = sum(1 for runtime in _terminal_cascade_engines.get(owner_id, {}).values() if runtime.running)
     any_running = bool(
@@ -6791,6 +6834,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
         or scalp_open
         or cascade_running
         or candle_running
+        or gap_carry_running
         or fib_running
         or terminal_running
     )
@@ -6803,6 +6847,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
         "scalp_live_open_trades": sum(1 for trade in scalp_open if _trade_mode_value(trade) == "live"),
         "cascade_running": cascade_running,
         "candle_entry_running": candle_running,
+        "gap_carry_running": gap_carry_running,
         "fib_boundary_running": fib_running,
         "terminal_cascade_running": terminal_running,
         "any_running": any_running,
@@ -7002,6 +7047,42 @@ async def emergency_stop(request: Request):
                 await _save_candle_entry_open_state(owner_id, force=True)
             except Exception as exc:
                 results[f"candle-entry:{owner_id}"] = f"error: {exc}"
+
+        gap_carry = _gap_carry_engines.get(owner_id)
+        if gap_carry and gap_carry.running:
+            try:
+                engine = gap_carry.engine
+                closed = False
+                if engine.has_open_position:
+                    pos = engine.position
+                    # A held option is closed at ITS OWN quote. Pricing it off
+                    # the index, or flooring it at intrinsic, would be inventing
+                    # a fill for a position someone is standing in front of.
+                    try:
+                        premium = await asyncio.to_thread(
+                            gap_carry.broker.get_option_ltp,
+                            "NIFTY",
+                            int(pos.strike),
+                            pos.expiry.isoformat(),
+                            str(pos.side),
+                        )
+                    except Exception:
+                        premium = None
+                    closed = bool(premium) and engine.kill_and_close(float(premium))
+                else:
+                    closed = True
+                    engine.kill_and_close(0.0)
+                if closed:
+                    gap_carry.running = False
+                    if gap_carry.task and not gap_carry.task.done():
+                        gap_carry.task.cancel()
+                    stopped_count += 1
+                    results[f"gap-carry:{owner_id}"] = "stopped"
+                else:
+                    results[f"gap-carry:{owner_id}"] = "exit_quote_unavailable_engine_left_running"
+                await _save_gap_carry_open_state(owner_id, force=True)
+            except Exception as exc:
+                results[f"gap-carry:{owner_id}"] = f"error: {exc}"
 
         fib_ladders = _fib_boundary_engines.get(owner_id, {})
         for fib_symbol, fib in list(fib_ladders.items()):
@@ -8033,6 +8114,9 @@ async def save_state(request: Request):
     for owner_id in list(_candle_entry_engines):
         await _save_candle_entry_open_state(owner_id, force=True)
         saved.append(f"candle-entry:{owner_id}")
+    for owner_id in list(_gap_carry_engines):
+        await _save_gap_carry_open_state(owner_id, force=True)
+        saved.append(f"gap-carry:{owner_id}")
     for owner_id in list(_fib_boundary_engines):
         await _save_fib_boundary_open_state(owner_id, force=True)
         saved.append(f"fib-boundary:{owner_id}")
@@ -11980,6 +12064,676 @@ async def candle_entry_auto(payload: CandleEntryAutoPayload, request: Request):
     return {"status": "ok", "auto": _candle_auto_public(setting)}
 
 
+# ─────────────────────────── Gap Carry ───────────────────────────
+# The third strategy on this page. At 15:10 one candle is read; a close above
+# its EMA20 with RSI at or over the threshold buys an in-the-money call, a close
+# below with RSI at or under the mirror buys the put. One leg, held one night,
+# sold at 09:20. The rule lives in engine/gap_carry.py and is measured; nothing
+# here re-decides a side or a strike.
+
+# THE CHART LIST IS NOT THE ENGINE'S. engine.gap_carry.TIMEFRAMES advertises
+# 10m and 30m because the rule was measured on them, but CascadeOptionsAdapter
+# can only fetch 1m/5m/15m/1h. Offering a chart the adapter cannot source would
+# fail at the first candle request, so the page offers the intersection.
+_GAP_CARRY_TIMEFRAMES = ("5m", "15m")
+_GAP_CARRY_EXPIRY_RULES = ("weekly", "monthly")
+_GAP_CARRY_TERMINAL = _gap_carry_paper.TERMINAL
+# The measured configuration. Automation is pinned to it so the console cannot
+# put an unattended loop on a setting nobody has replayed.
+_GAP_CARRY_AUTO_RULE = {
+    "timeframe": "5m",
+    "rsi_threshold": 70.0,
+    "strike_offset_steps": 4,
+    "lots": 1,
+    "entry_time": "15:10",
+    "exit_time": "09:20",
+    "expiry_rule": "weekly",
+}
+_GAP_CARRY_AUTO_POLL_SEC = 15
+_GAP_CARRY_AUTO_ENTRY_GIVE_UP = dt_time(15, 25)
+_GAP_CARRY_AUTO_EXIT_GIVE_UP = dt_time(10, 0)
+_GAP_CARRY_LIVE_QUOTE_SECONDS = 7 * 60
+_GAP_CARRY_POLL_SEC = 20
+
+_gap_carry_engines: Dict[int, _CascadeRuntime] = {}
+_gap_carry_open_state_last_save: Dict[int, float] = defaultdict(float)
+_gap_carry_auto: Dict[int, dict] = {}
+_gap_carry_auto_loaded: set = set()
+
+
+def _gap_carry_open_state_key(user_id: int) -> str:
+    return f"gap_carry_open:{int(user_id)}"
+
+
+def _gap_carry_auto_key(user_id: int) -> str:
+    return f"gap_carry_auto:{int(user_id)}"
+
+
+def _gap_carry_backtest_key(user_id: int) -> str:
+    return f"gap_carry_backtest_latest:{int(user_id)}"
+
+
+def _gap_carry_trade_mode(value: str) -> str:
+    mode = str(value or "paper").strip().lower()
+    if mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Gap Carry live execution is disabled until Dhan fill verification, "
+                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+            ),
+        )
+    return mode
+
+
+def _gap_carry_timeframe(value: str) -> str:
+    tf = str(value or "5m").strip().lower()
+    if tf not in _GAP_CARRY_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Chart must be one of {', '.join(_GAP_CARRY_TIMEFRAMES)}.")
+    return tf
+
+
+def _gap_carry_expiry_rule(value: str) -> str:
+    rule = str(value or "weekly").strip().lower()
+    if rule not in _GAP_CARRY_EXPIRY_RULES:
+        raise HTTPException(status_code=400, detail=f"Expiry must be one of {', '.join(_GAP_CARRY_EXPIRY_RULES)}.")
+    return rule
+
+
+def _gap_carry_clock(value: str, *, label: str) -> dt_time:
+    """A HH:MM the loop can actually reach.
+
+    The background loop only wakes inside the session, so a time outside it is
+    not a setting, it is a control that silently never fires.
+    """
+    text = str(value or "").strip()
+    try:
+        hh, _, mm = text.partition(":")
+        parsed = dt_time(int(hh), int(mm))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"{label} must be HH:MM.") from exc
+    if not (dt_time(9, 15) <= parsed < dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail=f"{label} must fall inside the trading session.")
+    return parsed
+
+
+def _gap_carry_config(payload) -> "_gap_carry_mod.GapCarryConfig":
+    """Build the engine's own config, and let ITS refusals reach the user."""
+    timeframe = _gap_carry_timeframe(getattr(payload, "timeframe", "5m"))
+    _gap_carry_expiry_rule(getattr(payload, "expiry_rule", "weekly"))
+    entry_time = _gap_carry_clock(getattr(payload, "entry_time", "15:10"), label="Entry time")
+    exit_time = _gap_carry_clock(getattr(payload, "exit_time", "09:20"), label="Exit time")
+    try:
+        config = _gap_carry_mod.GapCarryConfig(
+            timeframe=timeframe,
+            rsi_threshold=float(getattr(payload, "rsi_threshold", 70.0)),
+            strike_offset_steps=int(getattr(payload, "strike_offset_steps", 4)),
+            lots=int(getattr(payload, "lots", 1)),
+            entry_time=entry_time,
+            exit_time=exit_time,
+        )
+        config.validate()
+    except _gap_carry_mod.GapCarryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return config
+
+
+def _gap_carry_premium_lookup(broker: DhanClient, history=None):
+    """Price by the AGE of the minute: the live quote if it is now, history if not.
+
+    A live quote pinned on a past minute is a fabrication, so an old minute with
+    no history simply has no price and the campaign records the gap.
+    """
+
+    def lookup(when: datetime, strike: int, side: str, expiry: date):
+        now = datetime.now(IST)
+        stamp = when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
+        if abs((now - stamp).total_seconds()) <= _GAP_CARRY_LIVE_QUOTE_SECONDS:
+            try:
+                value = broker.get_option_ltp("NIFTY", int(strike), expiry.isoformat(), str(side))
+                if float(value or 0) > 0:
+                    return float(value)
+            except Exception:
+                return None
+            return None
+        if history is None:
+            return None
+        try:
+            return history(stamp, int(strike), str(side), expiry)
+        except Exception:
+            return None
+
+    return lookup
+
+
+def _gap_carry_expiry_lookup(broker: DhanClient, rule: str = "weekly"):
+    """The nearest listed expiry that still exists when the leg is sold.
+
+    A contract settling tonight cannot carry an overnight position, so it is
+    refused rather than settled at intrinsic -- the same refusal the engine's
+    own replay makes, and the two must not disagree.
+    """
+    source = _fib_touch_expiry_source(broker, "NIFTY")
+
+    def lookup(session: date):
+        try:
+            rows = sorted({d for d in source(session) if d >= session + timedelta(days=1)})
+        except Exception:
+            return None
+        if not rows:
+            return None
+        if str(rule) == "monthly":
+            monthly = [d for d in rows if not any(o.month == d.month and o.year == d.year and o > d for o in rows)]
+            return monthly[0] if monthly else rows[-1]
+        return rows[0]
+
+    return lookup
+
+
+def _gap_carry_contract(strike: int, side: str, expiry: date, lot_size: int = 75) -> FixedCampaignOption:
+    """The shape the recorded-history lookup asks for. `security_id` is unused
+    by the archives, which key on underlying/strike/expiry/type."""
+    return FixedCampaignOption("NIFTY", int(strike), expiry, str(side), int(lot_size), "")
+
+
+def _gap_carry_lot_size_lookup(broker: DhanClient):
+    def lookup(expiry: date) -> int:
+        try:
+            value = ScripMaster.get_lot_size("NIFTY", expiry.isoformat())
+            if int(value or 0) > 0:
+                return int(value)
+        except Exception:
+            pass
+        return 75
+
+    return lookup
+
+
+async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> None:
+    """Persist the campaign, and persist an EMPTY registry as a fact.
+
+    Returning early on an empty registry is how a killed campaign came back
+    from the dead on Fib Boundary: the stale row survived and the next restart
+    restored it.
+    """
+    uid = int(user_id)
+    if uid not in _gap_carry_engines:
+        await _db_mod.set_app_state(
+            _gap_carry_open_state_key(uid),
+            json.dumps({"engine": None, "running": False, "saved_at": datetime.now(IST).isoformat()}, default=str),
+        )
+        _gap_carry_open_state_last_save[uid] = time.time()
+        return
+    await _save_specialized_cascade_state(
+        uid,
+        _gap_carry_engines,
+        _gap_carry_open_state_key(uid),
+        _gap_carry_open_state_last_save,
+        force=force,
+    )
+
+
+async def _restore_gap_carry_open_state(
+    user_id: int, broker: DhanClient | None, *, activate: bool = True
+) -> _CascadeRuntime | None:
+    """Bring a saved campaign back. Never raises -- it runs over every user."""
+    existing = _gap_carry_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    try:
+        raw = await _db_mod.get_app_state(_gap_carry_open_state_key(user_id))
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        saved = payload.get("engine")
+        if not saved:
+            return None
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        engine = _gap_carry_paper.GapCarryPaper.from_dict(
+            saved,
+            option_premium_lookup=_gap_carry_premium_lookup(broker),
+            expiry_lookup=_gap_carry_expiry_lookup(broker),
+            lot_size_lookup=_gap_carry_lot_size_lookup(broker),
+        )
+        last_raw = str(payload.get("last_candle_timestamp") or "")
+        try:
+            last = datetime.fromisoformat(last_raw.replace("Z", "+00:00"))
+        except Exception:
+            last = datetime.now(IST)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=IST)
+        # The ENGINE decides whether this is finished. A deploy can persist
+        # running=False over a leg that is still open.
+        unfinished = engine.status not in _GAP_CARRY_TERMINAL
+        running = unfinished and (bool(payload.get("running")) or engine.has_open_position)
+        runtime = _CascadeRuntime(
+            engine=engine, adapter=adapter, broker=broker, last_candle_timestamp=last, running=running
+        )
+        _gap_carry_engines[int(user_id)] = runtime
+        if running and activate and _engine_restore_owner_is_active_instance():
+            runtime.task = asyncio.create_task(_run_gap_carry_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[GAP CARRY] restore failed for user %s: %s", user_id, exc)
+        return None
+
+
+async def _gap_carry_auto_settings(user_id: int) -> dict:
+    uid = int(user_id)
+    if uid not in _gap_carry_auto_loaded:
+        _gap_carry_auto_loaded.add(uid)
+        try:
+            raw = await _db_mod.get_app_state(_gap_carry_auto_key(uid))
+            _gap_carry_auto[uid] = json.loads(raw) if raw else {}
+        except Exception as exc:
+            _logger.warning("[GAP AUTO] could not read settings for user %s: %s", uid, exc)
+            _gap_carry_auto[uid] = {}
+    return _gap_carry_auto.setdefault(uid, {})
+
+
+async def _save_gap_carry_auto(user_id: int) -> None:
+    await _db_mod.set_app_state(
+        _gap_carry_auto_key(user_id), json.dumps(_gap_carry_auto.get(int(user_id), {}), default=str)
+    )
+
+
+def _gap_carry_auto_public(setting: dict) -> dict:
+    return {k: v for k, v in (setting or {}).items() if not str(k).startswith("_")}
+
+
+async def _gap_carry_load_candles(adapter: CascadeOptionsAdapter, timeframe: str, days: int = 12) -> list:
+    """Enough closed candles for an EMA20 and an RSI(14) to mean anything."""
+    to_day = datetime.now(IST).date()
+    from_day = to_day - timedelta(days=int(days))
+    try:
+        return list(await adapter.async_get_candles("NIFTY", timeframe, from_day, to_day))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+
+
+async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: DhanClient) -> _CascadeRuntime:
+    """Request-free so the auto loop can call it too."""
+    config = _gap_carry_config(payload)
+    expiry_rule = _gap_carry_expiry_rule(getattr(payload, "expiry_rule", "weekly"))
+    existing = await _restore_gap_carry_open_state(int(user_id), broker_client, activate=False)
+    if existing is not None and existing.running and existing.engine.status not in _GAP_CARRY_TERMINAL:
+        raise HTTPException(
+            status_code=409,
+            detail="A Gap Carry campaign is already running. Kill it before starting another.",
+        )
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    rows = await _gap_carry_load_candles(adapter, config.timeframe)
+    engine = _gap_carry_paper.GapCarryPaper(
+        config=config,
+        option_premium_lookup=_gap_carry_premium_lookup(broker_client),
+        expiry_lookup=_gap_carry_expiry_lookup(broker_client, expiry_rule),
+        lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
+    )
+    await asyncio.to_thread(engine.ingest, {config.timeframe: rows})
+    last = rows[-1].timestamp if rows else datetime.now(IST)
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=IST)
+    runtime = _CascadeRuntime(
+        engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=last, running=True
+    )
+    old = _gap_carry_engines.get(int(user_id))
+    if old is not None:
+        old.running = False
+        if old.task is not None:
+            old.task.cancel()
+    _gap_carry_engines[int(user_id)] = runtime
+    runtime.task = asyncio.create_task(_run_gap_carry_paper_loop(int(user_id), runtime))
+    await _save_gap_carry_open_state(int(user_id), force=True)
+    return runtime
+
+
+async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
+    """Watch one campaign: mark the open leg, take the exit, settle an expiry.
+
+    The registry identity check is the second kill switch -- replacing the entry
+    retires this loop on its next tick, which mutating the object in place would
+    not do.
+    """
+    while runtime.running and _gap_carry_engines.get(int(user_id)) is runtime:
+        try:
+            now = datetime.now(IST)
+            engine = runtime.engine
+            if engine.has_open_position:
+                pos = engine.position
+                premium = None
+                if is_nse_cash_session(now):
+                    try:
+                        premium = await asyncio.to_thread(
+                            runtime.broker.get_option_ltp,
+                            "NIFTY",
+                            int(pos.strike),
+                            pos.expiry.isoformat(),
+                            str(pos.side),
+                        )
+                    except Exception as exc:
+                        _logger.debug("[GAP CARRY] quote failed for user %s: %s", user_id, exc)
+                engine.mark(now, premium=float(premium) if premium else None)
+                engine.settle_past_expiry(now)
+            else:
+                # Between campaigns the loop still watches for the entry clock,
+                # so a manual Start before 15:10 arms rather than doing nothing.
+                rows = await _gap_carry_load_candles(runtime.adapter, engine.config.timeframe, days=6)
+                if rows:
+                    await asyncio.to_thread(engine.ingest, {engine.config.timeframe: rows})
+            if engine.status in _GAP_CARRY_TERMINAL:
+                runtime.running = False
+            await _save_gap_carry_open_state(int(user_id), force=not runtime.running)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[GAP CARRY] poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or _GAP_CARRY_POLL_SEC)
+
+
+async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = None) -> str:
+    """One tick of the unattended rule. The EXIT is checked before the entry."""
+    now = now or datetime.now(IST)
+    uid = int(user["id"])
+    today = now.date().isoformat()
+    if setting.get("skipped_day") == today:
+        return "day-skipped"
+    broker_client, _source = await _resolve_user_broker_client(user)
+    if broker_client is None:
+        return "no-broker"
+    runtime = await _restore_gap_carry_open_state(uid, broker_client, activate=True)
+
+    # ── the exit, first and late-tolerant ──
+    if runtime is not None and runtime.engine.has_open_position:
+        pos = runtime.engine.position
+        if now.date() > pos.session and now.time() >= runtime.engine.config.exit_time:
+            if now.time() > _GAP_CARRY_AUTO_EXIT_GIVE_UP:
+                if setting.get("alert") != f"exit-missed:{today}":
+                    setting["alert"] = f"exit-missed:{today}"
+                    await _save_gap_carry_auto(uid)
+                return "exit-missed"
+            try:
+                premium = await asyncio.to_thread(
+                    runtime.broker.get_option_ltp, "NIFTY", int(pos.strike), pos.expiry.isoformat(), str(pos.side)
+                )
+            except Exception as exc:
+                setting["last_error"] = f"exit quote failed: {exc}"
+                await _save_gap_carry_auto(uid)
+                return "exit-failed"
+            if not premium or float(premium) <= 0:
+                return "exit-failed"
+            runtime.engine.mark(now, premium=float(premium))
+            await _save_gap_carry_open_state(uid, force=True)
+            if runtime.engine.status in _GAP_CARRY_TERMINAL:
+                runtime.running = False
+                setting["exit_day"] = today
+                await _save_gap_carry_auto(uid)
+                return "exited"
+        return "holding"
+
+    # ── the entry ──
+    entry_at = _gap_carry_clock(_GAP_CARRY_AUTO_RULE["entry_time"], label="Entry time")
+    if setting.get("entry_day") == today:
+        return "day-done"
+    if now.time() < entry_at:
+        return "waiting-for-clock"
+    if now.time() > _GAP_CARRY_AUTO_ENTRY_GIVE_UP:
+        setting["skipped_day"] = today
+        await _save_gap_carry_auto(uid)
+        return "too-late"
+    payload = SimpleNamespace(**_GAP_CARRY_AUTO_RULE, mode="paper")
+    try:
+        await _start_gap_carry_campaign(uid, payload, broker_client=broker_client)
+    except HTTPException as exc:
+        setting["last_error"] = str(exc.detail)
+        setting["entry_day"] = today
+        await _save_gap_carry_auto(uid)
+        return "start-failed"
+    setting["entry_day"] = today
+    setting.pop("last_error", None)
+    await _save_gap_carry_auto(uid)
+    return "entered"
+
+
+async def _run_gap_carry_auto_loop() -> None:
+    """Drive every enabled Gap Carry auto; one task for the whole process."""
+    while True:
+        try:
+            idle = _terminal_cascade_offsession_sleep_sec()
+            if idle:
+                await asyncio.sleep(idle)
+                continue
+            for user in await _db_mod.list_users():
+                uid = int(user["id"])
+                setting = await _gap_carry_auto_settings(uid)
+                if not setting.get("enabled"):
+                    continue
+                try:
+                    state = await _gap_carry_auto_step(user, setting)
+                    setting["state"] = state
+                    setting["state_at"] = datetime.now(IST).isoformat()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    _logger.warning("[GAP AUTO] step failed for user %s: %s", uid, exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[GAP AUTO] loop error: %s", exc)
+        await asyncio.sleep(_GAP_CARRY_AUTO_POLL_SEC)
+
+
+@app.get("/api/gap-carry/paper/status")
+async def gap_carry_paper_status(request: Request):
+    user_id = _request_user_id(request)
+    runtime = _gap_carry_engines.get(user_id)
+    if runtime is None:
+        try:
+            _user, broker_client, _source = await _request_broker_context(request)
+            if broker_client is not None:
+                runtime = await _restore_gap_carry_open_state(user_id, broker_client, activate=True)
+        except Exception as exc:
+            _logger.debug("[GAP CARRY] status restore skipped: %s", exc)
+    auto = _gap_carry_auto_public(await _gap_carry_auto_settings(user_id))
+    body = {
+        "status": "ok" if runtime is not None else "not_started",
+        "mode": "paper",
+        "live_available": bool(_FIB_TOUCH_LIVE_EXECUTION_ENABLED),
+        "auto": auto,
+        "timeframes": list(_GAP_CARRY_TIMEFRAMES),
+    }
+    if runtime is not None:
+        body["campaign"] = {**runtime.engine.get_status(), "running": runtime.running}
+    return body
+
+
+@app.post("/api/gap-carry/paper/start")
+async def gap_carry_paper_start(payload: GapCarryPaperStartPayload, request: Request):
+    """Start Gap Carry as a paper campaign. Live is refused at the same gate."""
+    check_rate_limit("gap_carry_start", _request_rate_subject(request), max_calls=3, window_sec=5)
+    _gap_carry_trade_mode(payload.mode)
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting the Gap Carry campaign.")
+    runtime = await _start_gap_carry_campaign(user_id, payload, broker_client=broker_client)
+    return {
+        "status": "started",
+        "mode": "paper",
+        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.post("/api/gap-carry/paper/kill")
+async def gap_carry_paper_kill(request: Request):
+    """Close the open leg at a real quote, or refuse.
+
+    Never floored at intrinsic: that is a replay's concession to a gappy
+    archive, not a fill for a position someone is standing in front of.
+    """
+    user_id = _request_user_id(request)
+    runtime = _gap_carry_engines.get(user_id)
+    if runtime is None:
+        _user, broker_client, _source = await _request_broker_context(request)
+        runtime = await _restore_gap_carry_open_state(user_id, broker_client, activate=False)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Gap Carry campaign to kill.")
+    engine = runtime.engine
+    if engine.has_open_position:
+        pos = engine.position
+        try:
+            premium = await asyncio.to_thread(
+                runtime.broker.get_option_ltp, "NIFTY", int(pos.strike), pos.expiry.isoformat(), str(pos.side)
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Current option quote unavailable; the open paper position remains monitored.",
+            ) from exc
+        if not premium or float(premium) <= 0:
+            raise HTTPException(
+                status_code=409,
+                detail="Current option quote unavailable; the open paper position remains monitored.",
+            )
+        engine.kill_and_close(float(premium))
+    else:
+        engine.kill_and_close(0.0)
+    runtime.running = False
+    if runtime.task is not None:
+        runtime.task.cancel()
+    await _save_gap_carry_open_state(user_id, force=True)
+    return {"status": "killed", "mode": "paper", "campaign": {**engine.get_status(), "running": False}}
+
+
+@app.post("/api/gap-carry/backtest")
+async def gap_carry_backtest(payload: GapCarryBacktestPayload, request: Request):
+    """Replay the SAME rule on recorded prices. Nothing is placed or booked."""
+    check_rate_limit("gap_carry_backtest", _request_rate_subject(request), max_calls=3, window_sec=10)
+    user_id = _request_user_id(request)
+    config = _gap_carry_config(payload)
+    expiry_rule = _gap_carry_expiry_rule(payload.expiry_rule)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to replay Gap Carry.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    to_day = datetime.now(IST).date()
+    from_day = to_day - timedelta(days=int(payload.lookback_days))
+    try:
+        rows = list(await adapter.async_get_candles("NIFTY", config.timeframe, from_day, to_day))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {config.timeframe} candles: {exc}") from exc
+    if not rows:
+        raise HTTPException(status_code=400, detail="No candles in that window to replay.")
+
+    history = await asyncio.to_thread(_candle_entry_pricing, broker_client, from_day, to_day)
+    price_history = history[0] if isinstance(history, tuple) else history
+    by_session: Dict[date, list] = {}
+    for row in rows:
+        by_session.setdefault(row.timestamp.date(), []).append(row)
+    sessions = sorted(by_session)
+    expiry_lookup = _gap_carry_expiry_lookup(broker_client, expiry_rule)
+    lot_lookup = _gap_carry_lot_size_lookup(broker_client)
+    spot_by_session = {d: float(by_session[d][-1].close) for d in sessions}
+    skips: list = []
+
+    def _candles_for(day: date) -> list:
+        i = sessions.index(day)
+        return [r for d in sessions[max(0, i - 6) : i + 1] for r in by_session[d]]
+
+    def _price_at(when: datetime, strike: int, side: str, expiry: date):
+        if price_history is None:
+            return None
+        try:
+            return price_history(when, _gap_carry_contract(strike, side, expiry))
+        except Exception:
+            return None
+
+    def _run() -> list:
+        return _gap_carry_mod.replay(
+            sessions,
+            config=config,
+            candles_for=_candles_for,
+            spot_at=lambda ts: spot_by_session.get(ts.date()),
+            price_at=_price_at,
+            expiry_for=expiry_lookup,
+            lot_size_for=lot_lookup,
+            charges_for=lambda d, buy, sell, qty: float(
+                calculate_nifty_option_round_costs(buy_price=buy, sell_price=sell, quantity=qty).total
+            ),
+            on_skip=lambda d, why: skips.append({"session": d.isoformat(), "reason": why}),
+        )
+
+    try:
+        positions = await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
+
+    result = {
+        "status": "ok",
+        "window": {"from": from_day.isoformat(), "to": to_day.isoformat(), "sessions": len(sessions)},
+        "rule": {
+            "timeframe": config.timeframe,
+            "rsi_threshold": config.rsi_threshold,
+            "strike_offset_steps": config.strike_offset_steps,
+            "lots": config.lots,
+            "entry_time": config.entry_time.strftime("%H:%M"),
+            "exit_time": config.exit_time.strftime("%H:%M"),
+            "expiry_rule": expiry_rule,
+        },
+        "summary": _gap_carry_mod.summarise(positions),
+        "positions": [p.as_dict() for p in positions],
+        "skips": skips[:40],
+        "skipped": len(skips),
+        "saved_at": datetime.now(IST).isoformat(),
+    }
+    try:
+        await _db_mod.set_app_state(_gap_carry_backtest_key(user_id), json.dumps(result, default=str))
+    except Exception as exc:
+        _logger.warning("[GAP CARRY] could not save the replay: %s", exc)
+    return result
+
+
+@app.get("/api/gap-carry/backtests/latest")
+async def gap_carry_latest_backtest(request: Request):
+    raw = await _db_mod.get_app_state(_gap_carry_backtest_key(_request_user_id(request)))
+    if not raw:
+        return {"status": "empty"}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"status": "empty"}
+
+
+@app.delete("/api/gap-carry/backtests/latest")
+async def gap_carry_delete_backtest(request: Request):
+    removed = await _db_mod.delete_app_state(_gap_carry_backtest_key(_request_user_id(request)))
+    return {"status": "ok", "removed": bool(removed)}
+
+
+@app.post("/api/gap-carry/auto")
+async def gap_carry_auto(payload: GapCarryAutoPayload, request: Request):
+    """Switch the unattended Gap Carry on or off, pinned to the measured rule."""
+    if payload.enabled:
+        _gap_carry_trade_mode(payload.mode)
+    user_id = _request_user_id(request)
+    setting = await _gap_carry_auto_settings(user_id)
+    setting["enabled"] = bool(payload.enabled)
+    setting["mode"] = str(payload.mode or "paper").lower()
+    setting["rule"] = dict(_GAP_CARRY_AUTO_RULE)
+    setting["changed_at"] = datetime.now(IST).isoformat()
+    if payload.enabled:
+        setting.pop("alert", None)
+        setting.pop("last_error", None)
+        setting.pop("skipped_day", None)
+    await _save_gap_carry_auto(user_id)
+    return {"status": "ok", "auto": _gap_carry_auto_public(setting)}
+
+
 async def _run_fib_boundary_auto_loop() -> None:
     """Drive every enabled auto mother; one task for the whole process."""
     while True:
@@ -13149,9 +13903,13 @@ async def delete_latest_fib_boundary_backtest(request: Request):
     fresh result. Phil, 2026-08-22, on a 19-Aug SENSEX run still sitting on the
     page three days later: "no delete button stale record... Not sure what to
     do with this". Candle Entry got this on 20 Aug; this is its twin.
+
+    It clears EVERY saved replay, not the newest one: the panel restores the
+    next row, so a single-row delete read as "nothing happened" against a
+    stack 81 deep. Nothing in the UI browses that history.
     """
-    removed = await _db_mod.delete_latest_fib_backtest_run(_request_user_id(request))
-    return {"status": "ok", "removed": bool(removed)}
+    removed = await _db_mod.delete_fib_backtest_runs(_request_user_id(request))
+    return {"status": "ok", "removed": int(removed)}
 
 
 @app.get("/api/fib-boundary/backtests/latest")
@@ -19768,6 +20526,10 @@ async def _start_token_renewal():
         # standby worker never starts a second ladder on the same symbol.
         asyncio.create_task(_run_fib_boundary_auto_loop())
         asyncio.create_task(_run_candle_entry_auto_loop())
+        # Gap Carry acts at two clock times a day rather than on bar arrival,
+        # so it needs its own loop; same active-instance guard, so a standby
+        # worker never opens a second night's position on the same account.
+        asyncio.create_task(_run_gap_carry_auto_loop())
     elif _STARTUP_ENGINE_RESTORE_ENABLED:
         print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:
@@ -19990,6 +20752,15 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved Candle Entry campaign: {owner_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save Candle Entry campaign {owner_id}: {e}")
+    for owner_id, runtime in list(_gap_carry_engines.items()):
+        try:
+            await _save_gap_carry_open_state(owner_id, force=True)
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+            print(f"🛑 [Shutdown] Saved Gap Carry campaign: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save Gap Carry campaign {owner_id}: {e}")
     # Nested one level deeper than Candle Entry: a user can hold one ladder per
     # instrument, and each has its own poll task to cancel.
     for owner_id, ladders in list(_fib_boundary_engines.items()):
