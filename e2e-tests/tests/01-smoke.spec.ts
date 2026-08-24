@@ -1171,6 +1171,30 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   expect(jsErrors).toEqual([]);
 });
 
+test('Fib Boundary remembers Auto mother mode after a page refresh', async ({ page }) => {
+  await login(page);
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-fib');
+
+  const auto = page.locator('#fibx-mother-mode-toggle [data-value="auto"]');
+  const manual = page.locator('#fibx-mother-mode-toggle [data-value="manual"]');
+  await auto.click();
+  await expect(page.locator('#fibx-mother-mode')).toHaveValue('auto');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  await expect(manual).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('#fibx-mother-manual-row')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('philforge_fib_boundary_mother_mode_v1'))).toBe('auto');
+
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-nav-ready') === '1');
+  await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#oc-tab-fib')).toBeVisible();
+  await expect(page.locator('#fibx-mother-mode')).toHaveValue('auto');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  await expect(manual).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('#fibx-mother-manual-row')).toBeHidden();
+});
+
 // A running ladder, shaped exactly like FibTouchLadder.get_status().
 const fibTouchCampaign = {
   symbol: 'NIFTY', side: 'CE', timeframe: '15m', entry_timeframe: '1m',

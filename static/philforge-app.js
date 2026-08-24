@@ -1532,6 +1532,7 @@ const PF_VIEW_STATE = Object.freeze({
   assetsTearsheet: 'philforge_assets_tearsheet_v1',
   journalPanel: 'philforge_journal_panel_v1',
   liveEngine: 'philforge_live_engine_v1',
+  fibBoundaryMotherMode: 'philforge_fib_boundary_mother_mode_v1',
 });
 
 function _storedView(key, allowed, fallback) {
@@ -4121,6 +4122,10 @@ async function initOptionsCascadePage() {
   showOptionsCascadeTab(null, {
     getAttribute: (name) => (name === 'data-oc-tab' ? rememberedTab : null),
   });
+  _applyFibBoundaryMotherMode(
+    _storedView(PF_VIEW_STATE.fibBoundaryMotherMode, ['manual', 'auto'], 'manual'),
+    { persist: false },
+  );
   ['fibx-symbol', 'fibx-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) {
@@ -4232,6 +4237,13 @@ function _renderFibBoundaryStatus(payload) {
   // under auto the watch card IS the monitor, and a second dead card saying
   // "IDLE · No active campaign" is the thing Phil called dead (2026-08-20).
   _renderFibBoundaryAuto(payload?.auto);
+  const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  // A running server-side auto mother is the truth after a reload. Restoring
+  // Manual over it would hide the scheduler that is still able to start a
+  // campaign, so an enabled setting always brings its Auto control back.
+  if (_lastFibBoundaryAuto[picked]?.enabled && _fibMotherMode() !== 'auto') {
+    _applyFibBoundaryMotherMode('auto');
+  }
   const autoWatching = Object.values(_lastFibBoundaryAuto || {}).some(row => row && row.enabled);
 
   const roots = _fibxPanelRoots(campaigns.map(row => String(row.symbol || 'NIFTY')));
@@ -5112,17 +5124,23 @@ function setFibBoundaryBuyMode(_event, button) {
 // button becomes "Enable auto" and the timestamp input steps aside.
 function setFibBoundaryMotherMode(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'manual';
+  _applyFibBoundaryMotherMode(value);
+}
+
+function _applyFibBoundaryMotherMode(value, options = {}) {
+  const mode = value === 'auto' ? 'auto' : 'manual';
   const input = document.getElementById('fibx-mother-mode');
-  if (!input || input.value === value) return;
-  input.value = value;
+  if (!input) return;
+  input.value = mode;
   const group = document.getElementById('fibx-mother-mode-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
-      const on = btn.dataset.value === value;
+      const on = btn.dataset.value === mode;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
+  if (options.persist !== false) _setLocalState(PF_VIEW_STATE.fibBoundaryMotherMode, mode);
   _syncFibMotherModeRow();
   _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
 }

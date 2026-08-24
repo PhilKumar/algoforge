@@ -24,6 +24,7 @@ def test_top_level_page_and_nested_views_use_ui_only_local_state():
         "assetsTearsheet",
         "journalPanel",
         "liveEngine",
+        "fibBoundaryMotherMode",
     ):
         assert f"{key}: 'philforge_" in APP_JS
     state_block = APP_JS[APP_JS.index("const PF_VIEW_STATE") : APP_JS.index("function _storedView")]
@@ -37,6 +38,14 @@ def test_options_insights_assets_and_journal_restore_validated_choices():
     assert "_storedView(PF_VIEW_STATE.journalPanel, ['journal', 'plan'], 'journal')" in APP_JS
 
 
+def test_fib_boundary_mother_mode_survives_reload_without_changing_execution_state():
+    assert "_storedView(PF_VIEW_STATE.fibBoundaryMotherMode, ['manual', 'auto'], 'manual')" in APP_JS
+    assert "_setLocalState(PF_VIEW_STATE.fibBoundaryMotherMode, mode)" in APP_JS
+    assert "_lastFibBoundaryAuto[picked]?.enabled" in APP_JS
+    state_block = APP_JS[APP_JS.index("const PF_VIEW_STATE") : APP_JS.index("function _storedView")]
+    assert "api/" not in state_block.lower()
+
+
 def test_equity_subview_restores_and_defaults_to_cash_cascade():
     assert "var VIEW_KEY = 'philforge_equity_strategy_v1';" in EQUITY_JS
     assert "var VIEW_NAMES = ['cascade', 'tworeds', 'desk'];" in EQUITY_JS
@@ -45,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260824-persist-page-views-1" in MANIFEST
+    assert "20260824-persist-fib-mother-mode-1" in MANIFEST
