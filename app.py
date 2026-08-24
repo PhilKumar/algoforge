@@ -12361,7 +12361,7 @@ async def _gap_carry_load_candles(adapter: CascadeOptionsAdapter, timeframe: str
     to_day = datetime.now(IST).date()
     from_day = to_day - timedelta(days=int(days))
     try:
-        return list(await adapter.async_get_candles("NIFTY", timeframe, from_day, to_day))
+        return list(await adapter.async_get_candles("NIFTY", timeframe, from_date=from_day, to_date=to_day))
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
 
@@ -12632,10 +12632,9 @@ async def gap_carry_backtest(payload: GapCarryBacktestPayload, request: Request)
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     to_day = datetime.now(IST).date()
     from_day = to_day - timedelta(days=int(payload.lookback_days))
-    try:
-        rows = list(await adapter.async_get_candles("NIFTY", config.timeframe, from_day, to_day))
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {config.timeframe} candles: {exc}") from exc
+    # One loader for Start, the poll loop and this replay, so a signature can
+    # only ever be got wrong in a single place.
+    rows = await _gap_carry_load_candles(adapter, config.timeframe, days=int(payload.lookback_days))
     if not rows:
         raise HTTPException(status_code=400, detail="No candles in that window to replay.")
 

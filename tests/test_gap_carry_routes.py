@@ -9,7 +9,7 @@ pointed at the out-of-the-money wing.
 import base64
 import os
 import unittest
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("PHILFORGE_PIN", "123456")
@@ -257,6 +257,63 @@ class ExpiryLookupTests(unittest.TestCase):
     def test_nothing_far_enough_out_is_none(self):
         session = date(2026, 3, 10)
         self.assertIsNone(self._lookup([session])(session))
+
+
+class AdapterBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    """The one boundary the rest of this file does not cross.
+
+    Every other test here is a refusal or a shape, so all 28 of them passed
+    while `_gap_carry_load_candles` called `async_get_candles` with its
+    keyword-only dates passed positionally -- a TypeError that the loader's own
+    `except Exception` then dressed up as a 503, so Start simply never started.
+    This test drives the REAL CascadeOptionsAdapter, which is the only thing
+    that can catch that signature drifting again.
+    """
+
+    class _StubDhan:
+        def get_historical_data(self, security_id, exchange_segment, instrument_type, *args, **kwargs):
+            import pandas as pd
+
+            start = datetime(2026, 8, 20, 9, 15)
+            index = pd.DatetimeIndex([start + timedelta(minutes=5 * i) for i in range(40)])
+            base = [24000.0 + i for i in range(40)]
+            return pd.DataFrame(
+                {
+                    "open": base,
+                    "high": [b + 5 for b in base],
+                    "low": [b - 5 for b in base],
+                    "close": base,
+                },
+                index=index,
+            )
+
+    async def test_the_loader_actually_reaches_the_adapter(self):
+        from engine.cascade_options import CascadeOptionsAdapter
+
+        adapter = CascadeOptionsAdapter(self._StubDhan(), paper_only=True)
+        rows = await app_module._gap_carry_load_candles(adapter, "5m", days=6)
+        self.assertTrue(rows, "the loader returned nothing; Start would have had no candle to read")
+
+    async def test_a_real_failure_still_becomes_a_503(self):
+        class _Broken:
+            def get_historical_data(self, *a, **k):
+                raise RuntimeError("Dhan said no")
+
+        from engine.cascade_options import CascadeOptionsAdapter
+
+        adapter = CascadeOptionsAdapter(_Broken(), paper_only=True)
+        with self.assertRaises(HTTPException) as ctx:
+            await app_module._gap_carry_load_candles(adapter, "5m", days=6)
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("Dhan said no", str(ctx.exception.detail))
+
+    def test_start_and_the_replay_share_one_loader(self):
+        """The replay used to fetch its own candles with the same wrong call."""
+        import inspect
+
+        src = inspect.getsource(app_module.gap_carry_backtest)
+        self.assertIn("_gap_carry_load_candles", src)
+        self.assertNotIn("async_get_candles", src)
 
 
 if __name__ == "__main__":
