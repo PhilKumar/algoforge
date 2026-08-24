@@ -332,21 +332,40 @@ def cuts(b: dict) -> str:
     return f"""
 <section id="cuts">
   <div class="shead"><div><h2>{t("By year, by weekday, by side, by RSI", "ஆண்டு, வாரநாள், பக்கம், RSI வாரியாக")}</h2>
-    <p>{t("The same book cut four ways. Nothing here is a separate run — every night appears once in each table.", "அதே புத்தகம் நான்கு வழிகளில். இங்கு தனி ரன் இல்லை — ஒவ்வொரு இரவும் ஒவ்வொரு அட்டவணையிலும் ஒரு முறை.")}</p></div></div>
+    <p>{
+        t(
+            "The same book cut four ways. Nothing here is a separate run — every night appears once in each table.",
+            "அதே புத்தகம் நான்கு வழிகளில். இங்கு தனி ரன் இல்லை — ஒவ்வொரு இரவும் ஒவ்வொரு அட்டவணையிலும் ஒரு முறை.",
+        )
+    }</p></div></div>
   <div class="split">
     <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_year"], lambda k: str(k))}</tbody></table></div>
-    <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_dow"], lambda k: t(
-            DOW[k], DOW_TA[k]
-        ))}</tbody></table></div>
+    <div class="tblwrap"><table>{head}<tbody>{
+        _rows_of(b["by_dow"], lambda k: t(DOW[k], DOW_TA[k]))
+    }</tbody></table></div>
   </div>
   <div class="split">
-    <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_side"], lambda k: "Call (CE)" if k == "CE" else "Put (PE)")}</tbody></table></div>
+    <div class="tblwrap"><table>{head}<tbody>{
+        _rows_of(b["by_side"], lambda k: "Call (CE)" if k == "CE" else "Put (PE)")
+    }</tbody></table></div>
     <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_rsi"], lambda k: k)}</tbody></table></div>
   </div>
-  <p class="note note-warn"><strong>{t("Friday alone is", "வெள்ளி மட்டும்")} {share:.0f}% {t("of the net", "நிகரத்தில்")}</strong>
-  {t("from", "மொத்தம்")} {fri["n"] if "n" in fri else fri["trades"]} {t("of", "இல்")} {b["trades"]} {t("nights. A Friday entry is held over the weekend, so part of this book is a three-day gap wearing a one-night rule's clothes.", "இரவுகள். வெள்ளி நுழைவு வார இறுதி வரை. எனவே இந்தப் புத்தகத்தின் ஒரு பகுதி மூன்று நாள் gap.")}
+  <p class="note note-warn"><strong>{t("Friday alone is", "வெள்ளி மட்டும்")} {share:.0f}% {
+        t("of the net", "நிகரத்தில்")
+    }</strong>
+  {t("from", "மொத்தம்")} {fri["n"] if "n" in fri else fri["trades"]} {t("of", "இல்")} {b["trades"]} {
+        t(
+            "nights. A Friday entry is held over the weekend, so part of this book is a three-day gap wearing a one-night rule's clothes.",
+            "இரவுகள். வெள்ளி நுழைவு வார இறுதி வரை. எனவே இந்தப் புத்தகத்தின் ஒரு பகுதி மூன்று நாள் gap.",
+        )
+    }
   <strong>{t("Thursday loses", "வியாழன் நஷ்டம்")} ({r(thu["net"])}).</strong>
-  {t("Neither fact is settled, and the live tab exists to prove them forward rather than assume them.", "இரண்டும் இன்னும் உறுதி இல்லை. நேரடி tab இதை முன்னோக்கி நிரூபிக்கவே உள்ளது.")}</p>
+  {
+        t(
+            "Neither fact is settled, and the live tab exists to prove them forward rather than assume them.",
+            "இரண்டும் இன்னும் உறுதி இல்லை. நேரடி tab இதை முன்னோக்கி நிரூபிக்கவே உள்ளது.",
+        )
+    }</p>
 </section>"""
 
 
