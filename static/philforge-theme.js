@@ -30,17 +30,9 @@
     }
   }
 
-  function prefersLightTheme() {
-    try {
-      return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
-    } catch (e) {
-      return false;
-    }
-  }
-
   function resolveTheme(theme) {
     var stored = normalizeTheme(theme);
-    return stored || (prefersLightTheme() ? 'light' : 'dark');
+    return stored || 'dark';
   }
 
   function applyTheme(theme, options) {
@@ -121,16 +113,6 @@
     return state;
   }
 
-  function bindSystemThemeWatcher() {
-    if (!window.matchMedia) return;
-    var media = window.matchMedia('(prefers-color-scheme: light)');
-    var onChange = function () {
-      if (!getStoredTheme()) applyTheme('', { persist: false });
-    };
-    try { media.addEventListener('change', onChange); }
-    catch (e) { if (typeof media.addListener === 'function') media.addListener(onChange); }
-  }
-
   window.pfGetStoredTheme = getStoredTheme;
   window.pfResolveTheme = resolveTheme;
   window.pfApplyTheme = applyTheme;
@@ -142,5 +124,4 @@
 
   applyTheme(getStoredTheme(), { persist: false });
   applyAppearance(getStoredAppearance(), { persist: false });
-  bindSystemThemeWatcher();
 })();

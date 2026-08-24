@@ -101,6 +101,14 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
     ].map(id => [id, read(id)]));
   }, { ids: pageIds, classes: tableClasses });
 
+  const activeMonoFamily = await page.evaluate(() =>
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--font-mono')
+      .split(',')[0]
+      .replace(/["']/g, '')
+      .trim()
+  );
+
   for (const name of [...pageIds, 'overlay']) {
     expect(styles[name].tableWidth).not.toBe('0px');
     expect(styles[name]).toMatchObject({
@@ -120,8 +128,8 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
       evenBackground: 'rgba(255, 255, 255, 0.02)',
       numericVariant: 'tabular-nums',
     });
-    expect(styles[name].tableFontFamily).toContain('JetBrains Mono');
-    expect(styles[name].cellFontFamily).toContain('JetBrains Mono');
+    expect(styles[name].tableFontFamily).toContain(activeMonoFamily);
+    expect(styles[name].cellFontFamily).toContain(activeMonoFamily);
     expect(styles[name].headerBackground).toContain('rgba(79, 142, 247, 0.16)');
   }
 

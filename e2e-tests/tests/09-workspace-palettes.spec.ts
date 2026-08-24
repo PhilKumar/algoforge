@@ -22,7 +22,10 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
     gold: '#b45309', arctic: '#1d4ed8', magenta: '#a21caf',
     citrus: '#4d7c0f', graphite: '#334155', bronze: '#92400e',
   };
-  const originalLogo = await page.locator('.header-brand-logo').evaluate((el) => getComputedStyle(el).backgroundImage);
+  const darkLogo = await page.evaluate(() => {
+    (window as any).pfApplyTheme('dark', { persist: false });
+    return getComputedStyle(document.querySelector('.header-brand-logo')!).backgroundImage;
+  });
 
   for (const [tint, expectedAccent] of Object.entries(darkAccents)) {
     const state = await page.evaluate((nextTint) => {
@@ -44,7 +47,7 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
     expect(state.text).toBe('#dde3ee');
     expect(state.card).toBe('rgba(18, 26, 42, 0.85)');
     expect(state.green).not.toBe(state.red);
-    expect(state.logo).toBe(originalLogo);
+    expect(state.logo).toBe(darkLogo);
     expect(state.inlineLogo).toBe('');
   }
 
