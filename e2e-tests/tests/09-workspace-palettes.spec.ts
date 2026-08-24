@@ -33,6 +33,8 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
       (window as any).pfApplyAppearance({ tint: nextTint }, { persist: false });
       const root = getComputedStyle(document.documentElement);
       const logo = document.querySelector('.header-brand-logo')!;
+      const dashboardHero = getComputedStyle(document.querySelector('#dashboard-page .pf-workspace-hero')!);
+      const tradingHero = getComputedStyle(document.querySelector('#options-cascade-page .trading-workspace-head')!);
       return {
         accent: root.getPropertyValue('--accent').trim(),
         text: root.getPropertyValue('--text').trim(),
@@ -41,6 +43,8 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
         red: root.getPropertyValue('--red').trim(),
         logo: getComputedStyle(logo).backgroundImage,
         inlineLogo: (logo as HTMLElement).style.backgroundImage,
+        dashboardHero: [dashboardHero.backgroundImage, dashboardHero.borderColor, dashboardHero.boxShadow],
+        tradingHero: [tradingHero.backgroundImage, tradingHero.borderColor, tradingHero.boxShadow],
       };
     }, tint);
     expect(state.accent).toBe(expectedAccent);
@@ -49,6 +53,7 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
     expect(state.green).not.toBe(state.red);
     expect(state.logo).toBe(darkLogo);
     expect(state.inlineLogo).toBe('');
+    expect(state.tradingHero).toEqual(state.dashboardHero);
   }
 
   for (const [tint, expectedAccent] of Object.entries(lightAccents)) {
@@ -56,17 +61,22 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
       (window as any).pfApplyTheme('light', { persist: false });
       (window as any).pfApplyAppearance({ tint: nextTint }, { persist: false });
       const root = getComputedStyle(document.documentElement);
+      const dashboardHero = getComputedStyle(document.querySelector('#dashboard-page .pf-workspace-hero')!);
+      const tradingHero = getComputedStyle(document.querySelector('#options-cascade-page .trading-workspace-head')!);
       return {
         accent: root.getPropertyValue('--accent').trim(),
         text: root.getPropertyValue('--text').trim(),
         card: root.getPropertyValue('--card').trim(),
         green: root.getPropertyValue('--green').trim(),
         red: root.getPropertyValue('--red').trim(),
+        dashboardHero: [dashboardHero.backgroundImage, dashboardHero.borderColor, dashboardHero.boxShadow],
+        tradingHero: [tradingHero.backgroundImage, tradingHero.borderColor, tradingHero.boxShadow],
       };
     }, tint);
     expect(state.accent).toBe(expectedAccent);
     expect(state.text).toBe('#0f172a');
     expect(state.card).toBe('rgba(255,255,255,0.96)');
     expect(state.green).not.toBe(state.red);
+    expect(state.tradingHero).toEqual(state.dashboardHero);
   }
 });
