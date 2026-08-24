@@ -474,15 +474,13 @@
   .scalp-range-editor { display:inline-flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; }
   .scalp-action-wrap { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; flex-wrap:wrap; }
   #scalp-page {
-    /* Cascade-style informational ramp. It deliberately ignores the global
-       appearance tint so a green preset cannot turn every Scalp label green. */
-    --scalp-info: #93c5fd;
-    --scalp-info-secondary: #c4b5fd;
+    /* Informational chrome follows the selected workspace skin. Outcome
+       colours remain on --green / --red and are not sourced from this ramp. */
+    --scalp-info: var(--accent);
+    --scalp-info-secondary: var(--accent2);
     --scalp-caution: #fbbf24;
   }
-  /* Keep ordinary workspace information separate from trading outcomes.
-     Appearance presets may tint the shell, but these pages use the same
-     blue / purple / amber hierarchy as Cascade. Green and red remain the
+  /* Workspace chrome inherits the selected skin. Green and red remain the
      semantic colours for profitable/buy/success and loss/sell/error states. */
   :is(
     #dashboard-page,
@@ -494,17 +492,10 @@
     #insights-page,
     #charts-page
   ) {
-    --accent: #93c5fd;
-    --accent2: #c4b5fd;
-    --purple: #c4b5fd;
-    --border-acc: rgba(96,165,250,0.24);
-    --pf-tint-primary-rgb: 96,165,250;
+    --border-acc: rgba(var(--pf-tint-primary-rgb), 0.26);
   }
   #results-page #results-content {
-    --accent: #93c5fd;
-    --accent2: #c4b5fd;
     --warn: #fbbf24;
-    --pf-tint-primary-rgb: 96,165,250;
   }
   :is(
     #dashboard-page,
@@ -516,22 +507,22 @@
     #insights-page,
     #charts-page
   ) .btn:not(.btn-submit):not(.btn-danger):not(.btn-secondary):not(.btn-purple):not([style*="--btn-color"]) {
-    --btn-bg: linear-gradient(180deg, rgba(96,165,250,0.22), rgba(30,64,175,0.40));
-    --btn-color: #dbeafe;
-    --btn-border: rgba(147,197,253,0.40);
+    --btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb),0.20), rgba(var(--pf-tint-secondary-rgb),0.32));
+    --btn-color: var(--accent);
+    --btn-border: rgba(var(--pf-tint-primary-rgb),0.40);
   }
   #results-page .btn[onclick="downloadCSV()"],
   #results-page .runs-filter-btn[data-filter="all"] {
-    --btn-bg: linear-gradient(180deg, rgba(96,165,250,0.24), rgba(30,64,175,0.42)) !important;
-    --btn-color: #dbeafe !important;
-    --btn-border: rgba(147,197,253,0.44) !important;
+    --btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb),0.22), rgba(var(--pf-tint-secondary-rgb),0.34)) !important;
+    --btn-color: var(--accent) !important;
+    --btn-border: rgba(var(--pf-tint-primary-rgb),0.44) !important;
   }
   #results-page #res-risk { color: var(--warn) !important; }
   #dashboard-page #confidence-val { color: var(--accent2) !important; }
   #stock-terminal-page #stock-terminal-head-ico {
     color: var(--accent) !important;
-    background: rgba(96,165,250,0.12) !important;
-    border-color: rgba(96,165,250,0.28) !important;
+    background: rgba(var(--pf-tint-primary-rgb),0.12) !important;
+    border-color: rgba(var(--pf-tint-primary-rgb),0.28) !important;
   }
   #stock-terminal-page #stock-terminal-ltp,
   #stock-terminal-page #stock-unit-price { color: var(--accent) !important; }
@@ -1335,8 +1326,8 @@
 
   /* ── LIGHT THEME: Scalp Page ── */
   [data-theme="light"] #scalp-page {
-    --scalp-info: #1d4ed8;
-    --scalp-info-secondary: #6d28d9;
+    --scalp-info: var(--accent);
+    --scalp-info-secondary: var(--accent2);
     --scalp-caution: #92400e;
   }
   [data-theme="light"] body :is(
@@ -1349,17 +1340,10 @@
     #insights-page,
     #charts-page
   ) {
-    --accent: #1d4ed8;
-    --accent2: #6d28d9;
-    --purple: #6d28d9;
-    --border-acc: rgba(37,99,235,0.20);
-    --pf-tint-primary-rgb: 37,99,235;
+    --border-acc: rgba(var(--pf-tint-primary-rgb),0.22);
   }
   [data-theme="light"] #results-page #results-content {
-    --accent: #1d4ed8;
-    --accent2: #6d28d9;
     --warn: #92400e;
-    --pf-tint-primary-rgb: 37,99,235;
   }
   [data-theme="light"] :is(
     #dashboard-page,
@@ -1371,9 +1355,9 @@
     #insights-page,
     #charts-page
   ) .btn:not(.btn-submit):not(.btn-danger):not(.btn-secondary):not(.btn-purple):not([style*="--btn-color"]) {
-    --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.10), rgba(59,130,246,0.18));
-    --btn-color: #1e3a8a;
-    --btn-border: rgba(59,130,246,0.24);
+    --btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb),0.08), rgba(var(--pf-tint-secondary-rgb),0.15));
+    --btn-color: var(--accent);
+    --btn-border: rgba(var(--pf-tint-primary-rgb),0.24);
   }
   /* Exit Rules box */
   [data-theme="light"] #scalp-page div[style*="background: rgba(0,0,0,0.15)"] {
@@ -1385,7 +1369,7 @@
   [data-theme="light"] #scalp-margin {
     background: rgba(255,255,255,0.85) !important;
     border-color: rgba(0,0,0,0.1) !important;
-    color: #1d4ed8 !important;
+    color: var(--scalp-info) !important;
     font-weight: 800 !important;
   }
   [data-theme="light"] #scalp-margin { color: #b45309 !important; }
@@ -3839,8 +3823,6 @@
      but share one visible page hierarchy and one top-level navigation owner. */
   .trading-workspace-head {
     --trading-local-accent: #22c55e;
-    --accent: #93c5fd;
-    --pf-tint-primary-rgb: 96, 165, 250;
     display: grid;
     grid-template-columns: minmax(220px, 0.72fr) minmax(540px, 1.55fr);
     align-items: center;
@@ -3975,8 +3957,6 @@
   .trading-section-icon-study { color: #7dd3fc; }
 
   [data-theme="light"] .trading-workspace-head {
-    --accent: #1d4ed8;
-    --pf-tint-primary-rgb: 37, 99, 235;
     background:
       radial-gradient(ellipse at 93% -30%, rgba(var(--pf-tint-primary-rgb, 0,191,165), .14), transparent 52%),
       linear-gradient(112deg, #ffffff, #f4f8fc 60%, #edf4f8);

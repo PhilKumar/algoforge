@@ -26,6 +26,7 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
     (window as any).pfApplyTheme('dark', { persist: false });
     return getComputedStyle(document.querySelector('.header-brand-logo')!).backgroundImage;
   });
+  const darkSurfaces = new Set<string>();
 
   for (const [tint, expectedAccent] of Object.entries(darkAccents)) {
     const state = await page.evaluate((nextTint) => {
@@ -35,6 +36,7 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
       const logo = document.querySelector('.header-brand-logo')!;
       const dashboardHero = getComputedStyle(document.querySelector('#dashboard-page .pf-workspace-hero')!);
       const tradingHero = getComputedStyle(document.querySelector('#options-cascade-page .trading-workspace-head')!);
+      const dashboardCard = getComputedStyle(document.querySelector('#dashboard-page .stat-box')!);
       return {
         accent: root.getPropertyValue('--accent').trim(),
         text: root.getPropertyValue('--text').trim(),
@@ -45,6 +47,7 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
         inlineLogo: (logo as HTMLElement).style.backgroundImage,
         dashboardHero: [dashboardHero.backgroundImage, dashboardHero.borderColor, dashboardHero.boxShadow],
         tradingHero: [tradingHero.backgroundImage, tradingHero.borderColor, tradingHero.boxShadow],
+        dashboardCard: [dashboardCard.backgroundImage, dashboardCard.borderColor],
       };
     }, tint);
     expect(state.accent).toBe(expectedAccent);
@@ -54,8 +57,15 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
     expect(state.logo).toBe(darkLogo);
     expect(state.inlineLogo).toBe('');
     expect(state.tradingHero).toEqual(state.dashboardHero);
+    darkSurfaces.add([...state.dashboardHero, ...state.dashboardCard].join('|'));
   }
+  expect(darkSurfaces.size).toBe(Object.keys(darkAccents).length);
 
+  const lightLogo = await page.evaluate(() => {
+    (window as any).pfApplyTheme('light', { persist: false });
+    return getComputedStyle(document.querySelector('.header-brand-logo')!).backgroundImage;
+  });
+  const lightSurfaces = new Set<string>();
   for (const [tint, expectedAccent] of Object.entries(lightAccents)) {
     const state = await page.evaluate((nextTint) => {
       (window as any).pfApplyTheme('light', { persist: false });
@@ -63,20 +73,29 @@ test('CryptoForge skins keep PhilForge surfaces readable and logos native', asyn
       const root = getComputedStyle(document.documentElement);
       const dashboardHero = getComputedStyle(document.querySelector('#dashboard-page .pf-workspace-hero')!);
       const tradingHero = getComputedStyle(document.querySelector('#options-cascade-page .trading-workspace-head')!);
+      const dashboardCard = getComputedStyle(document.querySelector('#dashboard-page .stat-box')!);
+      const logo = document.querySelector('.header-brand-logo')!;
       return {
         accent: root.getPropertyValue('--accent').trim(),
         text: root.getPropertyValue('--text').trim(),
         card: root.getPropertyValue('--card').trim(),
         green: root.getPropertyValue('--green').trim(),
         red: root.getPropertyValue('--red').trim(),
+        logo: getComputedStyle(logo).backgroundImage,
+        inlineLogo: (logo as HTMLElement).style.backgroundImage,
         dashboardHero: [dashboardHero.backgroundImage, dashboardHero.borderColor, dashboardHero.boxShadow],
         tradingHero: [tradingHero.backgroundImage, tradingHero.borderColor, tradingHero.boxShadow],
+        dashboardCard: [dashboardCard.backgroundImage, dashboardCard.borderColor],
       };
     }, tint);
     expect(state.accent).toBe(expectedAccent);
     expect(state.text).toBe('#0f172a');
     expect(state.card).toBe('rgba(255,255,255,0.96)');
     expect(state.green).not.toBe(state.red);
+    expect(state.logo).toBe(lightLogo);
+    expect(state.inlineLogo).toBe('');
     expect(state.tradingHero).toEqual(state.dashboardHero);
+    lightSurfaces.add([...state.dashboardHero, ...state.dashboardCard].join('|'));
   }
+  expect(lightSurfaces.size).toBe(Object.keys(lightAccents).length);
 });

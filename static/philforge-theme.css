@@ -401,6 +401,7 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px -14px rgba(0,0,0,0.8);
     flex: 0 0 auto;
   }
+  .swatch-native { background: linear-gradient(135deg, #071725 0%, #00bfa5 52%, #4f8ef7 100%); }
   .swatch-gold { background: linear-gradient(135deg, #431407 0%, #f59e0b 56%, #fde047 100%); }
   .swatch-arctic { background: linear-gradient(135deg, #0c2647 0%, #60a5fa 56%, #38bdf8 100%); }
   .swatch-magenta { background: linear-gradient(135deg, #3b0764 0%, #e879f9 56%, #c084fc 100%); }
@@ -530,4 +531,107 @@ html[data-pf-tint] .filter-chip.active,
 html[data-pf-tint] .unlock-btn {
   border-color: rgba(var(--pf-tint-primary-rgb), 0.44) !important;
   color: var(--accent) !important;
+}
+
+/* CryptoForge-grade skin propagation. The chosen appearance owns the shared
+   shell, page heads and neutral work surfaces; desk identity and trading
+   outcomes keep their own semantic colours. */
+html[data-pf-tint] {
+  --pf-skin-hero:
+    radial-gradient(ellipse at 93% -30%, rgba(var(--pf-tint-primary-rgb), .23), transparent 52%),
+    radial-gradient(ellipse at 66% 130%, rgba(var(--pf-tint-secondary-rgb), .11), transparent 48%),
+    linear-gradient(112deg, rgba(28, 38, 58, .98) 0%, rgba(12, 19, 34, .98) 57%, rgba(8, 15, 28, .98) 100%);
+  --pf-skin-card:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-primary-rgb), .13), transparent 36%),
+    linear-gradient(155deg, rgba(31, 42, 62, .94), rgba(11, 19, 34, .97) 64%, rgba(7, 14, 26, .98));
+  --pf-skin-card-muted:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-secondary-rgb), .09), transparent 38%),
+    linear-gradient(155deg, rgba(24, 34, 52, .90), rgba(8, 15, 28, .96));
+}
+
+html[data-theme="light"][data-pf-tint] {
+  --pf-skin-hero:
+    radial-gradient(ellipse at 93% -30%, rgba(var(--pf-tint-primary-rgb), .13), transparent 52%),
+    radial-gradient(ellipse at 66% 130%, rgba(var(--pf-tint-secondary-rgb), .07), transparent 48%),
+    linear-gradient(112deg, #ffffff, #f7f9fc 60%, #f1f5f9);
+  --pf-skin-card:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-primary-rgb), .085), transparent 38%),
+    linear-gradient(155deg, #ffffff, #f5f8fc);
+  --pf-skin-card-muted:
+    radial-gradient(circle at 100% 0, rgba(var(--pf-tint-secondary-rgb), .06), transparent 40%),
+    linear-gradient(155deg, #ffffff, #f2f6fa);
+}
+
+html[data-pf-tint] body :is(.pf-workspace-hero, .trading-workspace-head, .oc-hero) {
+  border-color: rgba(var(--pf-tint-primary-rgb), .30) !important;
+  background: var(--pf-skin-hero) !important;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, .28),
+    0 12px 34px -28px rgba(var(--pf-tint-primary-rgb), .88),
+    inset 0 1px 0 rgba(255,255,255,.13),
+    inset 0 -1px 0 rgba(0,0,0,.42) !important;
+}
+
+html[data-theme="light"][data-pf-tint] body :is(.pf-workspace-hero, .trading-workspace-head, .oc-hero) {
+  box-shadow:
+    0 14px 30px rgba(15,23,42,.08),
+    0 12px 30px -26px rgba(var(--pf-tint-primary-rgb), .52),
+    inset 0 1px 0 #fff !important;
+}
+
+html[data-pf-tint] body :is(.pf-unified-page, #options-cascade-page, #stock-terminal-page, #insights-page) :is(.card, .card-glass, .stat-box, .terminal-cascade-start-panel, .terminal-cascade-instrument-panel) {
+  border-color: rgba(var(--pf-tint-primary-rgb), .20);
+  background: var(--pf-skin-card);
+}
+
+html[data-pf-tint] body :is(.pf-page-command, .pf-results-command) {
+  border-color: rgba(var(--pf-tint-primary-rgb), .30) !important;
+  background: var(--pf-skin-card) !important;
+}
+
+html[data-pf-tint] body :is(.oc-tab, .terminal-cascade-tf-option, .filter-chip).is-active,
+html[data-pf-tint] body .oc-tab[aria-selected="true"],
+html[data-pf-tint] body .terminal-cascade-tf-option[aria-checked="true"] {
+  color: var(--accent) !important;
+  border-color: rgba(var(--pf-tint-primary-rgb), .52) !important;
+  background: rgba(var(--pf-tint-primary-rgb), .13) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 24px -20px rgba(var(--pf-tint-primary-rgb), .95);
+}
+
+html[data-pf-tint] body :is(
+  #scalp-start-btn,
+  .terminal-cascade-card-control,
+  .terminal-cascade-chart-control:not(.is-danger),
+  .scalp-option-chart-btn,
+  .cascade-options-control,
+  .cascade-options-primary-btn
+) {
+  color: var(--accent) !important;
+  border-color: rgba(var(--pf-tint-primary-rgb), .46) !important;
+  background: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb), .24), rgba(var(--pf-tint-secondary-rgb), .34)) !important;
+}
+
+html[data-pf-tint] body .pf-unified-page table thead th {
+  background: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb), .12), rgba(16,23,42,.96));
+}
+
+html[data-theme="light"][data-pf-tint] body .pf-unified-page table thead th {
+  background: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb), .08), #eef3f8) !important;
+}
+
+html[data-pf-tint] .topbar-brand-text {
+  color: var(--accent);
+  background: linear-gradient(120deg, var(--pf-tint-primary), var(--pf-tint-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* The bitmap mark is deliberately native in every skin. */
+html[data-pf-tint] .header-brand-logo {
+  background-image: url('/static/logo.png') !important;
+  filter: none !important;
+}
+html[data-theme="light"][data-pf-tint] .header-brand-logo {
+  background-image: url('/static/logolight.png') !important;
 }

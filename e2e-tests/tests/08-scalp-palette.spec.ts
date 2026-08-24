@@ -12,13 +12,12 @@ async function login(page: Page) {
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
 
-test('Scalp uses the Cascade hierarchy and reserves green for trading meaning', async ({ page }) => {
+test('Scalp follows the selected skin and reserves green for trading meaning', async ({ page }) => {
   await login(page);
   await page.waitForFunction(() => typeof (window as any)._renderScalpStatus === 'function');
   await page.evaluate(() => {
-    // Forest is the strongest regression case: the user's global tint is green,
-    // but Scalp's informational hierarchy must remain blue/purple/amber.
-    document.documentElement.setAttribute('data-pf-tint', 'forest');
+    // Magenta makes any stale fixed blue/purple workspace override obvious.
+    (window as any).pfApplyAppearance({ tint: 'magenta' }, { persist: false });
     (window as any)._renderScalpStatus({
       running: false,
       session_pnl: 0,
@@ -47,14 +46,14 @@ test('Scalp uses the Cascade hierarchy and reserves green for trading meaning', 
     };
   });
 
-  expect(palette.title).toBe('rgb(196, 181, 253)');
-  expect(palette.quote).toBe('rgb(147, 197, 253)');
-  expect(palette.call).toBe('rgb(147, 197, 253)');
-  expect(palette.start).toBe('rgb(219, 234, 254)');
+  expect(palette.title).toBe('rgb(192, 132, 252)');
+  expect(palette.quote).toBe('rgb(232, 121, 249)');
+  expect(palette.call).toBe('rgb(232, 121, 249)');
+  expect(palette.start).toBe('rgb(232, 121, 249)');
   expect(palette.eventColors).toEqual([
-    'rgb(147, 197, 253)',
+    'rgb(232, 121, 249)',
     'rgb(251, 191, 36)',
-    'rgb(196, 181, 253)',
+    'rgb(192, 132, 252)',
   ]);
   // BUY remains green because direction, targets and positive P&L are exactly
   // where the Cascade palette uses semantic green.
@@ -72,13 +71,13 @@ test('Scalp uses the Cascade hierarchy and reserves green for trading meaning', 
     };
   });
   expect(lightPalette).toEqual({
-    title: 'rgb(109, 40, 217)',
-    quote: 'rgb(29, 78, 216)',
-    call: 'rgb(29, 78, 216)',
+    title: 'rgb(126, 34, 206)',
+    quote: 'rgb(162, 28, 175)',
+    call: 'rgb(162, 28, 175)',
     eventColors: [
-      'rgb(29, 78, 216)',
+      'rgb(162, 28, 175)',
       'rgb(146, 64, 14)',
-      'rgb(109, 40, 217)',
+      'rgb(126, 34, 206)',
     ],
   });
 });

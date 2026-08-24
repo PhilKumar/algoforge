@@ -1,7 +1,8 @@
 (function (global) {
   global.PHILFORGE_APPEARANCE_PRESETS = {
-    default: { tint: 'gold', font: 'institutional' },
+    default: { tint: 'native', font: 'institutional' },
     tints: [
+      { id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true },
       { id: 'gold', label: 'Gold Desk', swatch: 'swatch-gold' },
       { id: 'arctic', label: 'Arctic Steel', swatch: 'swatch-arctic' },
       { id: 'magenta', label: 'Magenta Flux', swatch: 'swatch-magenta' },

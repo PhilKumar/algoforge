@@ -458,19 +458,20 @@ test('Appearance presets switch and persist after reload', async ({ page }) => {
     ((window as any).PHILFORGE_APPEARANCE_PRESETS?.tints || [])
       .map((t: any) => t.id)
   );
-  expect(tintIds).toHaveLength(6);
+  expect(tintIds).toHaveLength(7);
   const tintPalettes: Record<string, string> = {};
   const surfacePalettes: Record<string, string> = {};
   for (const tint of tintIds) {
     await page.click(`[data-appearance-tint="${tint}"]`);
-    await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
+    if (tint === 'native') await expect(page.locator('html')).not.toHaveAttribute('data-pf-tint');
+    else await expect(page.locator('html')).toHaveAttribute('data-pf-tint', tint);
     tintPalettes[tint] = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       return [root.getPropertyValue('--accent').trim(), getComputedStyle(document.body).backgroundImage].join('|');
     });
     surfacePalettes[tint] = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--card').trim());
   }
-  expect(new Set(Object.values(tintPalettes)).size).toBe(6);
+  expect(new Set(Object.values(tintPalettes)).size).toBe(7);
   expect(new Set(Object.values(surfacePalettes)).size).toBe(1);
 
   const fontStacks: Record<string, string> = {};

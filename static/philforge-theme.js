@@ -4,10 +4,10 @@
   var PRESETS = window.PHILFORGE_APPEARANCE_PRESETS || {};
   var THEME_META_SELECTOR = 'meta[name="theme-color"]';
   var THEME_COLORS = { dark: '#080d14', light: '#f5f8fc' };
-  var FALLBACK_TINTS = [{ id: 'gold' }, { id: 'arctic' }, { id: 'magenta' }, { id: 'citrus' }, { id: 'graphite' }, { id: 'bronze' }];
+  var FALLBACK_TINTS = [{ id: 'native' }, { id: 'gold' }, { id: 'arctic' }, { id: 'magenta' }, { id: 'citrus' }, { id: 'graphite' }, { id: 'bronze' }];
   var FALLBACK_FONTS = [{ id: 'institutional', href: '' }];
-  var DEFAULT_APPEARANCE = PRESETS.default || { tint: 'gold', font: 'institutional' };
-  var LEGACY_TINTS = { native: 'gold', ember: 'gold', azure: 'arctic', orchid: 'magenta', crimson: 'magenta', emerald: 'citrus' };
+  var DEFAULT_APPEARANCE = PRESETS.default || { tint: 'native', font: 'institutional' };
+  var LEGACY_TINTS = { ember: 'gold', azure: 'arctic', orchid: 'magenta', crimson: 'magenta', emerald: 'citrus' };
   var LEGACY_FONTS = { forge: 'institutional', atelier: 'grotesk', exchange: 'techno', blueprint: 'techno', scribe: 'editorial' };
   var TINTS = {};
   var FONTS = {};
@@ -102,7 +102,8 @@
       font: incoming.font || current.font
     });
     var root = document.documentElement;
-    root.setAttribute('data-pf-tint', state.tint);
+    if (state.tint === 'native') root.removeAttribute('data-pf-tint');
+    else root.setAttribute('data-pf-tint', state.tint);
     root.setAttribute('data-pf-font', state.font);
     loadAppearanceFont(state.font);
     if (options && options.persist) {

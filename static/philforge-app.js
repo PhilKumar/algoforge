@@ -17021,8 +17021,11 @@ function renderYearlyMonthlyTable() {
 //  APPEARANCE CONTROLS
 // ══════════════════════════════════════════════════════════════
 const PF_APPEARANCE_FALLBACK = {
-  default: { tint: 'gold', font: 'institutional' },
-  tints: [{ id: 'gold', label: 'Gold Desk', swatch: 'swatch-gold' }],
+  default: { tint: 'native', font: 'institutional' },
+  tints: [
+    { id: 'native', label: 'PhilForge Default', swatch: 'swatch-native', native: true },
+    { id: 'gold', label: 'Gold Desk', swatch: 'swatch-gold' },
+  ],
   fonts: [{ id: 'institutional', label: 'Institutional', className: 'font-institutional', sample: 'Aa' }],
 };
 
@@ -17037,7 +17040,7 @@ function appearancePresetConfig() {
 
 function appearanceDefaults() {
   const defaults = appearancePresetConfig().default || PF_APPEARANCE_FALLBACK.default;
-  return { tint: defaults.tint || 'gold', font: defaults.font || 'institutional' };
+  return { tint: defaults.tint || 'native', font: defaults.font || 'institutional' };
 }
 
 function appearancePresetLabel(type, id) {
