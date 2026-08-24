@@ -4560,6 +4560,7 @@ import re as _re
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
 _USER_DATA_ROOT = config.USER_DATA_ROOT
 _journal_chart_task: asyncio.Task | None = None
+_journal_chart_wakeup: asyncio.Event | None = None
 
 # THE AUTO MOTHERS' OWN TASKS. They used to be fire-and-forget
 # `create_task` calls inside the startup block, which a deploying worker never
@@ -8204,12 +8205,14 @@ async def restore_engines_after_handover(request: Request):
     # A deployed worker reaches ACTIVE here and nowhere else, so this is the
     # only place its auto mothers can be started.
     auto_loops = _ensure_auto_loops_running()
+    journal_chart_woken = _wake_journal_chart_loop()
     return {
         "status": "ok",
         "live_running": _any_running(live_engines),
         "paper_running": _any_running(paper_engines),
         "auxiliary": auxiliary,
         "auto_loops_started": auto_loops,
+        "journal_chart_woken": journal_chart_woken,
     }
 
 
@@ -20837,6 +20840,9 @@ async def _journal_chart_backfill_once() -> dict:
 
 async def _run_journal_chart_loop() -> None:
     """Catch up on startup, then create the new pair once each market day."""
+    global _journal_chart_wakeup
+    if _journal_chart_wakeup is None:
+        _journal_chart_wakeup = asyncio.Event()
     last_success_through = ""
     interval = max(300, int(os.getenv("PHILFORGE_JOURNAL_CHART_CHECK_SECONDS", "900")))
     while True:
@@ -20869,12 +20875,29 @@ async def _run_journal_chart_loop() -> None:
                                 len(result.get("created") or []),
                                 len(result.get("skipped") or []),
                             )
-            await asyncio.sleep(interval)
+            try:
+                await asyncio.wait_for(_journal_chart_wakeup.wait(), timeout=interval)
+                _journal_chart_wakeup.clear()
+            except TimeoutError:
+                pass
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             _logger.warning("[JOURNAL CHARTS] Scheduler recovered from: %s", exc)
             await asyncio.sleep(interval)
+
+
+def _wake_journal_chart_loop() -> bool:
+    """Wake the Journal job as soon as a standby becomes the active worker."""
+    global _journal_chart_task, _journal_chart_wakeup
+    if not _STARTUP_JOURNAL_CHARTS_ENABLED:
+        return False
+    if _journal_chart_wakeup is None:
+        _journal_chart_wakeup = asyncio.Event()
+    if _journal_chart_task is None or _journal_chart_task.done():
+        _journal_chart_task = asyncio.create_task(_run_journal_chart_loop())
+    _journal_chart_wakeup.set()
+    return True
 
 
 # ── Prometheus instrumentation (must run before app starts) ────

@@ -83,6 +83,7 @@ class AutoLoopsStartTests(unittest.IsolatedAsyncioTestCase):
 
         source = inspect.getsource(app_module.restore_engines_after_handover)
         self.assertIn("_ensure_auto_loops_running", source)
+        self.assertIn("_wake_journal_chart_loop", source)
 
 
 if __name__ == "__main__":
