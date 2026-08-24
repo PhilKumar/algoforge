@@ -2805,6 +2805,30 @@ _STARTUP_EXAMPLE_SEED_ENABLED = _startup_flag("PHILFORGE_STARTUP_EXAMPLE_SEED", 
 _STARTUP_JOURNAL_CHARTS_ENABLED = _startup_flag("PHILFORGE_JOURNAL_CHARTS", True)
 
 
+def _ensure_auto_loops_running() -> list[str]:
+    """Start each auto mother once. Safe to call again; returns what it began.
+
+    Called from startup AND from the post-handover restore, because a deployed
+    worker only becomes the active instance at handover -- by which time the
+    startup block that used to own these has long since been skipped.
+    """
+    loops = {
+        "fib-boundary": _run_fib_boundary_auto_loop,
+        "candle-entry": _run_candle_entry_auto_loop,
+        "gap-carry": _run_gap_carry_auto_loop,
+    }
+    started: list[str] = []
+    for name, factory in loops.items():
+        task = _auto_loop_tasks.get(name)
+        if task is not None and not task.done():
+            continue
+        _auto_loop_tasks[name] = asyncio.create_task(factory())
+        started.append(name)
+    if started:
+        _logger.info("[AUTO] started auto loops: %s", ", ".join(started))
+    return started
+
+
 def _engine_restore_owner_is_active_instance() -> bool:
     """Return whether this blue/green worker currently owns engine restore.
 
@@ -4536,6 +4560,18 @@ import re as _re
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
 _USER_DATA_ROOT = config.USER_DATA_ROOT
 _journal_chart_task: asyncio.Task | None = None
+
+# THE AUTO MOTHERS' OWN TASKS. They used to be fire-and-forget
+# `create_task` calls inside the startup block, which a deploying worker never
+# reaches: it starts while the OLD port is still active, so
+# `_engine_restore_owner_is_active_instance()` is False and the whole block is
+# skipped. The handover route then restored the ENGINES and nothing started
+# these -- so after every deploy the Fib Boundary mother, the Candle Entry
+# mother and Gap Carry were all dead until a restart that happened to begin
+# active. Phil, 2026-08-24, on a day the ladder should have bought three
+# times: "Why no entry was taken?". Held by name now, and started from both
+# paths through `_ensure_auto_loops_running`.
+_auto_loop_tasks: dict[str, asyncio.Task] = {}
 _journal_chart_state: dict[str, Any] = {
     "status": "idle",
     "message": "Daily NIFTY and SENSEX charts have not run yet.",
@@ -8165,11 +8201,15 @@ async def restore_engines_after_handover(request: Request):
     await _restore_live_engines()
     await _restore_paper_engines()
     auxiliary = await _restore_auxiliary_engines()
+    # A deployed worker reaches ACTIVE here and nowhere else, so this is the
+    # only place its auto mothers can be started.
+    auto_loops = _ensure_auto_loops_running()
     return {
         "status": "ok",
         "live_running": _any_running(live_engines),
         "paper_running": _any_running(paper_engines),
         "auxiliary": auxiliary,
+        "auto_loops_started": auto_loops,
     }
 
 
@@ -20912,14 +20952,10 @@ async def _start_token_renewal():
         asyncio.create_task(_restore_live_engines())
         asyncio.create_task(_restore_paper_engines())
         asyncio.create_task(_restore_auxiliary_engines())
-        # The Fib Boundary auto mother: one task, active instance only, so a
-        # standby worker never starts a second ladder on the same symbol.
-        asyncio.create_task(_run_fib_boundary_auto_loop())
-        asyncio.create_task(_run_candle_entry_auto_loop())
-        # Gap Carry acts at two clock times a day rather than on bar arrival,
-        # so it needs its own loop; same active-instance guard, so a standby
-        # worker never opens a second night's position on the same account.
-        asyncio.create_task(_run_gap_carry_auto_loop())
+        # The auto mothers: one task each, active instance only, so a standby
+        # worker never starts a second ladder on the same symbol or opens a
+        # second night's position on the same account.
+        _ensure_auto_loops_running()
     elif _STARTUP_ENGINE_RESTORE_ENABLED:
         print("♻️ [Startup] Standby instance detected — engine restore deferred until handover")
     else:
