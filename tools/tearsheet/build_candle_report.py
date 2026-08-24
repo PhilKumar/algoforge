@@ -28,6 +28,7 @@ from collections import defaultdict
 from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import sizing  # noqa: E402
 from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -376,6 +377,31 @@ def every_campaign(rows: list[dict]) -> str:
     return out
 
 
+def sizing_section(rows: list[dict], b: dict) -> str:
+    """The family's capital table (tools/tearsheet/sizing.py), so all four sheets
+    answer "how much does this need" the same way and from their own book."""
+    from datetime import date as _d
+
+    priced = [x for x in rows if x["gross"] is not None and x["costs"] is not None and x["deployed"]]
+    if not priced:
+        return ""
+    first, last = priced[0]["date"], priced[-1]["date"]
+    years = max((last - first).days / 365.25, 0.25)
+    del _d
+    scaled = [{"gross": x["gross"], "costs": x["costs"], "capital": x["deployed"]} for x in priced]
+    # A campaign is up to three lots across its rungs, so a "multiple" here
+    # multiplies the WHOLE ladder -- 2x means one-then-two becomes two-then-four.
+    return sizing.section(
+        sizing.scale(scaled, years=years),
+        r=r,
+        cls=cls,
+        live_lots=1,
+        anchor="capital-needed",
+        note_en="A multiple here scales the WHOLE ladder: at 2x the first rung is two lots and the second is four. One campaign at a time, so the peak is a single campaign's deepest moment, never two overlapping.",
+        note_ta="இங்கு ஒரு multiple முழு ladder-ஐயும் பெருக்குகிறது: 2x-இல் முதல் rung இரண்டு lots, இரண்டாவது நான்கு. ஒரே நேரத்தில் ஒரு campaign மட்டுமே.",
+    )
+
+
 def side_block(b: dict, name_en: str, name_ta: str, anchor: str) -> str:
     return f"""
 {kpis(b, f"{name_en} &mdash; at a glance", f"{name_ta} &mdash; ஒரே பார்வையில்")}
@@ -416,6 +442,7 @@ page = f"""<title>PhilForge Candle Entry Tearsheet</title>
 {STYLE}
 .two-up {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; }}
 table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
+{sizing.SIZING_CSS}
 /* Every buy says WHEN it went on, one line each (Phil, 2026-08-20). */
 .leg-when {{ font-variant-numeric:tabular-nums; opacity:.72; }}
 {LANG_CSS}
@@ -589,6 +616,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     )
 }</p>
 </div>
+
+{sizing_section(TRAIL_ROWS, TRAIL)}
 
 <section>
   <div class="shead"><div><h2>{

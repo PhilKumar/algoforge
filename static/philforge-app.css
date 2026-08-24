@@ -3507,7 +3507,7 @@
     padding: 12px;
     border: 1px solid var(--border);
     border-radius: 18px;
-    background: linear-gradient(145deg, rgba(117,173,255,.045), transparent 28%), var(--panel);
+    background: linear-gradient(145deg, rgba(117,173,255,.045), transparent 28%), var(--card);
     box-shadow: var(--shadow);
   }
   .pf-architecture-viewbar {
@@ -3557,7 +3557,7 @@
   .pf-architecture-tabs button[aria-selected="true"] {
     color: var(--text);
     border-color: var(--border-hi);
-    background: var(--panel-hi);
+    background: var(--card2);
     box-shadow: inset 0 1px rgba(255,255,255,.035);
   }
   .pf-architecture-tabs i { width: 7px; height: 7px; border-radius: 50%; }
@@ -3601,10 +3601,21 @@
   .pf-tearsheet-panel {
     border: 1px solid var(--border-hi);
     border-radius: 14px;
-    overflow: hidden;
-    background: var(--panel);
+    /* `clip` NOT `hidden` (Phil, 2026-08-24: "I want the scroll to be stopped
+       from here in this bar itself"). `overflow:hidden` makes this a scroll
+       container, and a scroll container kills `position:sticky` on anything
+       inside it -- the same trap that killed the sticky table header on the
+       Strategies page. `clip` still rounds the corners and still clips the
+       frame, but leaves the bar free to stick. */
+    overflow: clip;
+    background: var(--card);
   }
   .pf-tearsheet-bar {
+    /* The document scrolls; this bar does not. It is the last thing that
+       stays put, so which sheet you are reading is always on screen. */
+    position: sticky;
+    top: 0;
+    z-index: 6;
     min-height: 48px;
     display: flex;
     flex-wrap: wrap;
@@ -3612,7 +3623,7 @@
     gap: 8px 16px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    background: var(--panel-hi);
+    background: var(--card2);
   }
   .pf-tearsheet-name { color: var(--text); font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .1em; }
   .pf-tearsheet-meta { color: var(--muted); font: 500 10px 'JetBrains Mono', monospace; letter-spacing: .05em; }
@@ -3631,15 +3642,26 @@
     letter-spacing: .03em;
   }
   .pf-tearsheet-open:hover { border-color: var(--accent); }
-  .pf-tearsheet-docs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+  .pf-tearsheet-docs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
   .pf-tearsheet-doc { appearance: none; border: 0; cursor: pointer; background: transparent; color: var(--muted); font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .06em; padding: 6px 12px; border-radius: 999px; }
-  .pf-tearsheet-doc.is-active { background: var(--panel-hi); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-hi); }
+  .pf-tearsheet-doc { transition: background .15s ease, color .15s ease; }
+  .pf-tearsheet-doc:hover { color: var(--text); background: var(--card2); }
+  /* WHICH SHEET AM I READING. The old state was `panel-hi` on `panel` -- two
+     greys a shade apart, which Phil could not pick out at a glance. It now
+     carries the accent as a filled pill, the same way the language toggle
+     inside the document marks its own active choice: one vocabulary. */
+  .pf-tearsheet-doc.is-active {
+    background: var(--accent);
+    color: #06231f;
+    font-weight: 800;
+    box-shadow: 0 2px 12px rgba(0,191,165,0.30);
+  }
   #assets-tearsheet-frame {
     display: block;
     width: 100%;
     height: min(1120px, calc(100vh - 210px));
     border: 0;
-    background: var(--panel);
+    background: var(--card);
     color-scheme: dark light;
   }
   html[data-theme="light"] .pf-architecture-viewbar { background: rgba(255,255,255,.58); }

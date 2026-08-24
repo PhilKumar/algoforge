@@ -331,6 +331,7 @@ footer { margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
    the parent's stylesheet has no `table.heat`, because the month grid is the
    one thing each sheet lays out for itself. */
 table.heat td { text-align:right; font-variant-numeric:tabular-nums; }
+.trow-live th, .trow-live td { background:var(--accent-soft); font-weight:700; }
 
 .tr > i { font-style:normal; }
 html:not([data-lang="ta"]) .tr > i[lang="ta"] { display:none; }
@@ -566,6 +567,32 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
   <span class="tr"><i lang="en">of premium at its smallest and</i><i lang="ta">மிகக் குறைந்தபோது, மேலும்</i></span> <strong>₹33,304</strong>
   <span class="tr"><i lang="en">at its largest — a</i><i lang="ta">அதிகபட்சமாக —</i></span> 4.3&times;
   <span class="tr"><i lang="en">swing in capital at risk for an identical rule. Read every rupee figure in this document against the lot that was live at the time, not against today's 65.</i><i lang="ta">அதே விதிக்கு மூலதன ஆபத்தில் இவ்வளவு வேறுபாடு. இந்த ஆவணத்தின் ஒவ்வொரு ரூபாய் எண்ணையும் அப்போது இருந்த lot-ஐ ஒட்டிப் படியுங்கள்.</i></span></p>
+</section>
+
+<section id="capital-needed">
+  <div class="shead"><div><h2><span class="tr"><i lang="en">How much capital this needs</i><i lang="ta">இதற்கு எவ்வளவு மூலதனம் தேவை</i></span></h2>
+    <p><span class="tr"><i lang="en">Options are bought, not written, so the money at risk is the premium paid &mdash; there is no margin call. The account still has to carry two things at once: the largest premium ever outstanding in a single day, and the deepest drawdown.</i><i lang="ta">ஆப்ஷன்கள் வாங்கப்படுகின்றன, விற்கப்படுவதில்லை. எனவே ரிஸ்கில் இருக்கும் பணம் கட்டிய பிரீமியம் மட்டுமே &mdash; மார்ஜின் கால் கிடையாது. இருப்பினும் கணக்கு இரண்டையும் ஒரே நேரத்தில் தாங்க வேண்டும்: ஒரு நாளில் நிலுவையில் இருந்த மிகப்பெரிய பிரீமியம், மற்றும் மிக ஆழமான இறக்கம்.</i></span></p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col"><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></th><th scope="col"><span class="tr"><i lang="en">Peak deployed</i><i lang="ta">உச்ச பயன்பாடு</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Max drawdown</i><i lang="ta">அதிகபட்ச இறக்கம்</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Account to fund</i><i lang="ta">தேவையான கணக்கு</i></span></th><th scope="col"><span class="tr"><i lang="en">Net</i><i lang="ta">நிகரம்</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Per year</i><i lang="ta">ஆண்டுக்கு</i></span></th><th scope="col"><span class="tr"><i lang="en">Return</i><i lang="ta">வருவாய்</i></span></th></tr></thead>
+    <tbody><tr class='trow-live'><th scope='row'>1 lot &larr; live</th><td>₹33,304</td><td class='neg'>-₹32,323</td><td><strong>₹85,315</strong></td><td class='pos'>₹2,11,624</td><td>₹38,436</td><td>45%</td></tr><tr><th scope='row'>2 lots</th><td>₹66,608</td><td class='neg'>-₹64,268</td><td><strong>₹1,70,138</strong></td><td class='pos'>₹4,31,697</td><td>₹78,407</td><td>46%</td></tr><tr><th scope='row'>3 lots</th><td>₹99,911</td><td class='neg'>-₹96,214</td><td><strong>₹2,54,962</strong></td><td class='pos'>₹6,51,770</td><td>₹1,18,378</td><td>46%</td></tr><tr><th scope='row'>4 lots</th><td>₹1,33,215</td><td class='neg'>-₹1,28,159</td><td><strong>₹3,39,786</strong></td><td class='pos'>₹8,71,842</td><td>₹1,58,349</td><td>47%</td></tr><tr><th scope='row'>6 lots</th><td>₹1,99,822</td><td class='neg'>-₹1,92,049</td><td><strong>₹5,09,434</strong></td><td class='pos'>₹13,11,988</td><td>₹2,38,291</td><td>47%</td></tr><tr><th scope='row'>8 lots</th><td>₹2,66,430</td><td class='neg'>-₹2,55,940</td><td><strong>₹6,79,081</strong></td><td class='pos'>₹17,52,134</td><td>₹3,18,233</td><td>47%</td></tr></tbody>
+  </table></div>
+  <div class="split" style="margin-top:14px">
+    <div class="panel">
+      <h3><span class="tr"><i lang="en">Reading the table</i><i lang="ta">அட்டவணையை எப்படிப் படிப்பது</i></span></h3>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en"><strong>Account to fund</strong> is peak premium outstanding plus the worst drawdown, plus a 30% buffer. It is the number that keeps the strategy alive through its own worst stretch without a top-up.</i><i lang="ta"><strong>தேவையான கணக்கு</strong> = உச்ச நிலுவை பிரீமியம் + மோசமான இறக்கம் + 30% இடைவெளி. சொந்த மோசமான காலத்தையும் top-up இல்லாமல் கடக்க வைக்கும் எண் இதுவே.</i></span></p>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en"><strong>The floor is 1 lot at about ₹85,315.</strong> Below that the position cannot be split further &mdash; one NIFTY lot is the smallest tradable unit.</i><i lang="ta"><strong>தளம் = 1 lot, சுமார் ₹85,315.</strong> அதற்குக் கீழே position-ஐப் பிரிக்க முடியாது &mdash; ஒரு NIFTY lot தான் மிகச்சிறிய அலகு.</i></span></p>
+      <p style="font-size:13.5px;margin-bottom:0"><span class="tr"><i lang="en"><strong>Live today is 1 lot</strong>, which wants about ₹85,315 funded.</i><i lang="ta"><strong>இன்று நேரடி 1 lot</strong>, சுமார் ₹85,315 தேவை.</i></span></p>
+    </div>
+    <div class="panel">
+      <h3><span class="tr"><i lang="en">Small size is punished, and by how much</i><i lang="ta">சிறிய அளவு தண்டிக்கப்படுகிறது &mdash; எவ்வளவு என்பதுடன்</i></span></h3>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en">Return per rupee funded is 45% a year at 1 lot and 47% at 8 &mdash; not because the edge changes, but because ₹47 of flat brokerage and GST is the same on both. At 1 lot charges eat 5.8% of gross profit; at 8 lots, 2.5%.</i><i lang="ta">ஒரு ரூபாய்க்கான வருவாய் 1 lot-இல் 45%, 8 lot-இல் 47% &mdash; edge மாறுவதால் அல்ல, ₹47 நிலையான புரோக்கரேஜ் இரண்டிலும் ஒன்றே என்பதால். 1 lot-இல் கட்டணங்கள் மொத்த லாபத்தில் 5.8%; 8 lot-இல் 2.5%.</i></span></p>
+      <p style="font-size:13.5px;margin-bottom:0"><span class="tr"><i lang="en">Practical reading: size barely matters here. Return per rupee moves only 2 points from 1 lot to 8, because the premium on an in-the-money contract is large enough that ₹47 of flat cost is already small against it. <strong>Trade this at the size the account can carry, not the size the cost ratio wants.</strong></i><i lang="ta">நடைமுறை: இங்கு அளவு பெரிதாக பொருட்படுத்தப்படுவதில்லை. 1 lot-இலிருந்து 8 வரை வருவாய் 2 புள்ளிகள் மட்டுமே நகர்கிறது. <strong>செலவு விகிதம் கேட்கும் அளவில் அல்ல, கணக்கு தாங்கும் அளவில் வர்த்தகம் செய்யுங்கள்.</strong></i></span></p>
+    </div>
+  </div>
+  <p style='font-size:13.5px'><span class="tr"><i lang="en">Gap Carry holds ONE position at a time and the tab offers 1, 2 or 3 lots, so the deeper rows are what the same rule would have done at a size it has never actually traded.</i><i lang="ta">Gap Carry ஒரே நேரத்தில் ஒரு position மட்டுமே; tab 1, 2 அல்லது 3 lot தருகிறது. ஆழமான வரிசைகள் = அதே விதி, இதுவரை வர்த்தகம் செய்யாத அளவில்.</i></span></p>
 </section>
 
 <section id="charges">

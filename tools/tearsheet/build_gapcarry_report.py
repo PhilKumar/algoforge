@@ -30,6 +30,7 @@ from collections import defaultdict
 from datetime import date
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import sizing  # noqa: E402
 from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -96,6 +97,8 @@ def load(path: pathlib.Path) -> list[dict]:
                     "capital": f("capital") or 0.0,
                     "charges": f("charges") or 0.0,
                     "net": f("net") or 0.0,
+                    # gross BEFORE charges, which is what re-costing scales
+                    "gross": (f("net") or 0.0) + (f("charges") or 0.0),
                 }
             )
     out.sort(key=lambda x: x["session"])
@@ -184,6 +187,7 @@ def book(rows: list[dict]) -> dict:
         "avg_hold_days": round(sum(held) / len(held), 2) if held else 0,
         "max_hold_days": max(held) if held else 0,
         "lot_eras": _lot_eras(rows),
+        "years": ((rows[-1]["session"] - rows[0]["session"]).days / 365.25) if len(rows) > 1 else 1.0,
         "months_green": sum(1 for v in by_month.values() if v > 0),
         "months_total": len(by_month),
         "top_months": sorted(by_month.items(), key=lambda kv: -kv[1])[:3],
@@ -506,6 +510,20 @@ def lots(b: dict) -> str:
 </section>"""
 
 
+def sizing_section(b: dict) -> str:
+    """The family's capital table, from the shared module so all four agree."""
+    rows = [{"gross": x["gross"], "costs": x["charges"], "capital": x["capital"]} for x in b["rows"]]
+    sizes = sizing.scale(rows, years=b["years"])
+    return sizing.section(
+        sizes,
+        r=r,
+        cls=cls,
+        live_lots=1,
+        note_en="Gap Carry holds ONE position at a time and the tab offers 1, 2 or 3 lots, so the deeper rows are what the same rule would have done at a size it has never actually traded.",
+        note_ta="Gap Carry ஒரே நேரத்தில் ஒரு position மட்டுமே; tab 1, 2 அல்லது 3 lot தருகிறது. ஆழமான வரிசைகள் = அதே விதி, இதுவரை வர்த்தகம் செய்யாத அளவில்.",
+    )
+
+
 def charges(b: dict) -> str:
     pct = (b["charges"] / b["gross_before_charges"] * 100) if b["gross_before_charges"] else 0
     return f"""
@@ -591,6 +609,7 @@ def build() -> str:
    the parent's stylesheet has no `table.heat`, because the month grid is the
    one thing each sheet lays out for itself. */
 table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
+{sizing.SIZING_CSS}
 {LANG_CSS}
 </style>
 
@@ -693,6 +712,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {ten(b)}
 {capital(b)}
 {lots(b)}
+{sizing_section(b)}
 {charges(b)}
 {honesty(b)}
 {every_night(b)}

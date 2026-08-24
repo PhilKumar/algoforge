@@ -330,6 +330,7 @@ footer { margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
 
 .two-up { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; }
 table.heat td { text-align:right; font-variant-numeric:tabular-nums; }
+.trow-live th, .trow-live td { background:var(--accent-soft); font-weight:700; }
 /* Every buy says WHEN it went on, one line each (Phil, 2026-08-20). */
 .leg-when { font-variant-numeric:tabular-nums; opacity:.72; }
 
@@ -551,6 +552,33 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
   <h2 class="note-h"><span class="tr"><i lang="en">The put book is NOT traded</i><i lang="ta">புட் புத்தகம் வர்த்தகம் செய்யப்படுவதில்லை</i></span></h2>
   <p><span class="tr"><i lang="en">The same rule in a mirror &mdash; the mother is the bar that makes the 278-bar LOW, two GREEN closes stepping up, a sell-stop on the first green's close, a put bought when price breaks back down, the box asking for the top quarter, ATM+2 at each buy, the same one-mother-one-trade rule &mdash; was replayed over the same 22 months: 28 campaigns, 19 won / 9 lost (67.9%), net -₹53,572, minus the best five -₹1,14,218, worst drawdown -₹1,17,119. It loses outright. Every put setting measured (the midpoint, 15m, 1H, fixed exit) was the same or worse. This sheet, and the page, is calls only.</i><i lang="ta">அதே விதி கண்ணாடியில் &mdash; 278-bar LOW-ஐ உருவாக்கிய bar mother, மேலேறும் இரண்டு பச்சை close, முதல் பச்சையின் close-இல் sell-stop, விலை கீழே உடைந்தால் புட், box-இன் மேல் கால் பகுதி, ஒவ்வொரு வாங்கலிலும் ATM+2, அதே ஒரு-mother-ஒரு-trade விதி &mdash; அதே 22 மாதங்களில்: 28 campaign-கள், 19 வெற்றி / 9 நஷ்டம் (67.9%), நிகர -₹53,572, சிறந்த ஐந்து நீக்கி -₹1,14,218, அதிகபட்ச இறக்கம் -₹1,17,119. அது நேரடியாக நஷ்டம். அளந்த ஒவ்வொரு புட் அமைப்பும் அதே அல்லது மோசம். இந்த அறிக்கையும் பக்கமும் கால் மட்டும்.</i></span></p>
 </div>
+
+
+<section id="capital-needed">
+  <div class="shead"><div><h2><span class="tr"><i lang="en">How much capital this needs</i><i lang="ta">இதற்கு எவ்வளவு மூலதனம் தேவை</i></span></h2>
+    <p><span class="tr"><i lang="en">Options are bought, not written, so the money at risk is the premium paid &mdash; there is no margin call. The account still has to carry two things at once: the largest premium ever outstanding in a single day, and the deepest drawdown.</i><i lang="ta">ஆப்ஷன்கள் வாங்கப்படுகின்றன, விற்கப்படுவதில்லை. எனவே ரிஸ்கில் இருக்கும் பணம் கட்டிய பிரீமியம் மட்டுமே &mdash; மார்ஜின் கால் கிடையாது. இருப்பினும் கணக்கு இரண்டையும் ஒரே நேரத்தில் தாங்க வேண்டும்: ஒரு நாளில் நிலுவையில் இருந்த மிகப்பெரிய பிரீமியம், மற்றும் மிக ஆழமான இறக்கம்.</i></span></p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col"><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></th><th scope="col"><span class="tr"><i lang="en">Peak deployed</i><i lang="ta">உச்ச பயன்பாடு</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Max drawdown</i><i lang="ta">அதிகபட்ச இறக்கம்</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Account to fund</i><i lang="ta">தேவையான கணக்கு</i></span></th><th scope="col"><span class="tr"><i lang="en">Net</i><i lang="ta">நிகரம்</i></span></th>
+      <th scope="col"><span class="tr"><i lang="en">Per year</i><i lang="ta">ஆண்டுக்கு</i></span></th><th scope="col"><span class="tr"><i lang="en">Return</i><i lang="ta">வருவாய்</i></span></th></tr></thead>
+    <tbody><tr class='trow-live'><th scope='row'>1 lot &larr; live</th><td>₹1,69,991</td><td class='neg'>-₹7,453</td><td><strong>₹2,30,678</strong></td><td class='pos'>₹2,23,305</td><td>₹1,27,840</td><td>55%</td></tr><tr><th scope='row'>2 lots</th><td>₹3,39,982</td><td class='neg'>-₹14,860</td><td><strong>₹4,61,295</strong></td><td class='pos'>₹4,48,214</td><td>₹2,56,599</td><td>56%</td></tr><tr><th scope='row'>3 lots</th><td>₹5,09,974</td><td class='neg'>-₹22,266</td><td><strong>₹6,91,911</strong></td><td class='pos'>₹6,73,124</td><td>₹3,85,358</td><td>56%</td></tr><tr><th scope='row'>4 lots</th><td>₹6,79,965</td><td class='neg'>-₹29,672</td><td><strong>₹9,22,528</strong></td><td class='pos'>₹8,98,034</td><td>₹5,14,117</td><td>56%</td></tr><tr><th scope='row'>6 lots</th><td>₹10,19,948</td><td class='neg'>-₹44,484</td><td><strong>₹13,83,762</strong></td><td class='pos'>₹13,47,853</td><td>₹7,71,635</td><td>56%</td></tr><tr><th scope='row'>8 lots</th><td>₹13,59,930</td><td class='neg'>-₹59,297</td><td><strong>₹18,44,995</strong></td><td class='pos'>₹17,97,672</td><td>₹10,29,153</td><td>56%</td></tr></tbody>
+  </table></div>
+  <div class="split" style="margin-top:14px">
+    <div class="panel">
+      <h3><span class="tr"><i lang="en">Reading the table</i><i lang="ta">அட்டவணையை எப்படிப் படிப்பது</i></span></h3>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en"><strong>Account to fund</strong> is peak premium outstanding plus the worst drawdown, plus a 30% buffer. It is the number that keeps the strategy alive through its own worst stretch without a top-up.</i><i lang="ta"><strong>தேவையான கணக்கு</strong> = உச்ச நிலுவை பிரீமியம் + மோசமான இறக்கம் + 30% இடைவெளி. சொந்த மோசமான காலத்தையும் top-up இல்லாமல் கடக்க வைக்கும் எண் இதுவே.</i></span></p>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en"><strong>The floor is 1 lot at about ₹2,30,678.</strong> Below that the position cannot be split further &mdash; one NIFTY lot is the smallest tradable unit.</i><i lang="ta"><strong>தளம் = 1 lot, சுமார் ₹2,30,678.</strong> அதற்குக் கீழே position-ஐப் பிரிக்க முடியாது &mdash; ஒரு NIFTY lot தான் மிகச்சிறிய அலகு.</i></span></p>
+      <p style="font-size:13.5px;margin-bottom:0"><span class="tr"><i lang="en"><strong>Live today is 1 lot</strong>, which wants about ₹2,30,678 funded.</i><i lang="ta"><strong>இன்று நேரடி 1 lot</strong>, சுமார் ₹2,30,678 தேவை.</i></span></p>
+    </div>
+    <div class="panel">
+      <h3><span class="tr"><i lang="en">Small size is punished, and by how much</i><i lang="ta">சிறிய அளவு தண்டிக்கப்படுகிறது &mdash; எவ்வளவு என்பதுடன்</i></span></h3>
+      <p style="font-size:13.5px"><span class="tr"><i lang="en">Return per rupee funded is 55% a year at 1 lot and 56% at 8 &mdash; not because the edge changes, but because ₹47 of flat brokerage and GST is the same on both. At 1 lot charges eat 2.8% of gross profit; at 8 lots, 2.1%.</i><i lang="ta">ஒரு ரூபாய்க்கான வருவாய் 1 lot-இல் 55%, 8 lot-இல் 56% &mdash; edge மாறுவதால் அல்ல, ₹47 நிலையான புரோக்கரேஜ் இரண்டிலும் ஒன்றே என்பதால். 1 lot-இல் கட்டணங்கள் மொத்த லாபத்தில் 2.8%; 8 lot-இல் 2.1%.</i></span></p>
+      <p style="font-size:13.5px;margin-bottom:0"><span class="tr"><i lang="en">Practical reading: size barely matters here. Return per rupee moves only 1 point from 1 lot to 8, because the premium on an in-the-money contract is large enough that ₹47 of flat cost is already small against it. <strong>Trade this at the size the account can carry, not the size the cost ratio wants.</strong></i><i lang="ta">நடைமுறை: இங்கு அளவு பெரிதாக பொருட்படுத்தப்படுவதில்லை. 1 lot-இலிருந்து 8 வரை வருவாய் 1 புள்ளிகள் மட்டுமே நகர்கிறது. <strong>செலவு விகிதம் கேட்கும் அளவில் அல்ல, கணக்கு தாங்கும் அளவில் வர்த்தகம் செய்யுங்கள்.</strong></i></span></p>
+    </div>
+  </div>
+  <p style='font-size:13.5px'><span class="tr"><i lang="en">A multiple here scales the WHOLE ladder: at 2x the first rung is two lots and the second is four. One campaign at a time, so the peak is a single campaign's deepest moment, never two overlapping.</i><i lang="ta">இங்கு ஒரு multiple முழு ladder-ஐயும் பெருக்குகிறது: 2x-இல் முதல் rung இரண்டு lots, இரண்டாவது நான்கு. ஒரே நேரத்தில் ஒரு campaign மட்டுமே.</i></span></p>
+</section>
 
 <section>
   <div class="shead"><div><h2><span class="tr"><i lang="en">Capital at work &mdash; what one campaign costs</i><i lang="ta">பயன்பாட்டில் மூலதனம் &mdash; ஒரு campaign-இன் செலவு</i></span></h2>
