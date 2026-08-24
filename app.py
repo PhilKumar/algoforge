@@ -4793,7 +4793,18 @@ _FIB_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "fib-boundary-tearsh
 # The third: Candle Entry with Phil's box mother. Built by
 # tools/tearsheet/build_candle_report.py from the candle_entry_offline sweep.
 _CANDLE_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "candle-entry-tearsheet.html")
-_TEARSHEET_DOCS = {"options": _TEARSHEET_PATH, "fib": _FIB_TEARSHEET_PATH, "candle": _CANDLE_TEARSHEET_PATH}
+# The overnight book: one candle at 15:10, one contract, sold at 09:20. Built by
+# tools/tearsheet/build_gapcarry_report.py from a replay that reproduces through
+# engine/gap_carry.py to the rupee.
+_GAPCARRY_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "gap-carry-tearsheet.html")
+# An unregistered key falls back to the five-year options sheet SILENTLY, so a
+# doc is registered here before anything links to it.
+_TEARSHEET_DOCS = {
+    "options": _TEARSHEET_PATH,
+    "fib": _FIB_TEARSHEET_PATH,
+    "candle": _CANDLE_TEARSHEET_PATH,
+    "gapcarry": _GAPCARRY_TEARSHEET_PATH,
+}
 
 
 @app.get("/assets/tearsheet", response_class=HTMLResponse)

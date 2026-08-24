@@ -1535,7 +1535,7 @@ function _assetsEffectiveTheme() {
 // Which tearsheet the tab is showing: the five-year options sheet or the Fib
 // Boundary sheet. One frame, one route (?doc=), one theme contract.
 let _assetsTearsheetDoc = 'options';
-const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet' };
+const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet' };
 function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'Five-Year Tearsheet'; }
 function _assetsTearsheetUrl() {
   return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;
@@ -1591,6 +1591,10 @@ function openFibTearsheet(event) {
 // the tearsheet P&L same like that we have it on Fib boundary").
 function openCandleTearsheet(event) {
   _openStrategyTearsheet(event, 'candle', '#curve-trail');
+}
+
+function openGapCarryTearsheet(event) {
+  _openStrategyTearsheet(event, 'gapcarry', '#curve-gapcarry');
 }
 
 function _syncAssetsTearsheetTheme() {
@@ -1969,6 +1973,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'pickAssetsTearsheet',
   'openFibTearsheet',
   'openCandleTearsheet',
+  'openGapCarryTearsheet',
   'openFibAutoChart',
   'loadFibBoundaryChart',
   'hideFibBoundaryChart',
@@ -5726,6 +5731,7 @@ window.setFibBoundaryLotRamp = setFibBoundaryLotRamp;
 window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.openFibTearsheet = openFibTearsheet;
 window.openCandleTearsheet = openCandleTearsheet;
+window.openGapCarryTearsheet = openGapCarryTearsheet;
 window.openFibAutoChart = openFibAutoChart;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;
