@@ -1658,6 +1658,49 @@ let _architectureView = _storedView(
   'overview'
 );
 
+let _blueprintHeaderResize = null;
+
+// THE BLUEPRINT'S FROZEN TOP. Phil, 2026-08-25: "The scroll is going under the
+// search bar... I want everything above search bar including the search bar to
+// be freeze while scrolling down". The reader's toolbar already pinned itself
+// 112px down the viewport, as though a frozen header stood there -- but the app
+// header scrolled away, so that band was empty and the document scrolled
+// through it in plain sight. The header is now frozen for the blueprint alone,
+// and the bar is pinned to the header's MEASURED height instead of a guess.
+function _syncBlueprintStickyOffset() {
+  const header = document.querySelector('.header-shell');
+  const reader = document.getElementById('architecture-reader-view');
+  const shell = reader?.shadowRoot?.querySelector('.reader-shell');
+  if (!header || !reader || !shell) return;
+  const rect = header.getBoundingClientRect();
+  const below = parseFloat(window.getComputedStyle(header).marginBottom) || 0;
+  // CEIL, not round: the header's height is fractional, and rounding DOWN
+  // leaves the bar a pixel below the header's edge -- a hairline seam the
+  // document can be seen sliding through.
+  const offset = Math.max(0, Math.ceil(rect.height + below));
+  // Inline, and on the shell INSIDE the shadow root: the shadow stylesheet sets
+  // --reader-sticky-top on .reader-shell itself, so a value merely inherited
+  // from the host would lose to it. An inline property wins.
+  shell.style.setProperty('--reader-sticky-top', `${offset}px`);
+  reader.style.setProperty('--reader-sticky-top', `${offset}px`);
+}
+
+function _setBlueprintFrozenHeader(on) {
+  document.body.classList.toggle('pf-blueprint-open', !!on);
+  if (!on) {
+    if (_blueprintHeaderResize) {
+      window.removeEventListener('resize', _blueprintHeaderResize);
+      _blueprintHeaderResize = null;
+    }
+    return;
+  }
+  _syncBlueprintStickyOffset();
+  if (!_blueprintHeaderResize) {
+    _blueprintHeaderResize = () => _syncBlueprintStickyOffset();
+    window.addEventListener('resize', _blueprintHeaderResize);
+  }
+}
+
 function initArchitecturePage(requestedView = null) {
   const storedView = _storedView(PF_VIEW_STATE.architectureView, Array.from(ARCHITECTURE_VIEWS), 'overview');
   const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : storedView;
@@ -1701,6 +1744,8 @@ function initArchitecturePage(requestedView = null) {
     _watchAssetsTearsheetTheme();
   }
 
+  _setBlueprintFrozenHeader(isBlueprint);
+
   if (isBlueprint) {
     if (readerStatus) readerStatus.textContent = `Loading ${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint…`;
     documentReader.addEventListener('architecture-document-ready', () => {
@@ -1708,6 +1753,8 @@ function initArchitecturePage(requestedView = null) {
     }, { once: true });
     documentReader.load?.(view).then?.(() => {
       if (readerStatus) readerStatus.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint ready.`;
+      // The shell is re-rendered per platform, so re-apply the measured offset.
+      _syncBlueprintStickyOffset();
     });
   }
 }
@@ -2136,6 +2183,9 @@ async function applyNavState(state) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
   if (page === 'assets-page') initArchitecturePage(state?.architectureView || null);
+  // Leaving the blueprint by any other route must give the header back: the
+  // frozen top belongs to that one page, and nothing else re-runs the init.
+  else _setBlueprintFrozenHeader(false);
 }
 
 document.addEventListener('architecture-view-change', (event) => {
@@ -2233,6 +2283,7 @@ function showPage(id, btn, options = {}) {
     ensurePortfolioLoaded();
   }
   if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || null);
+  else _setBlueprintFrozenHeader(false);
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();
@@ -2511,7 +2562,13 @@ function _renderCandleEntryStatus(payload) {
   const endedAt = campaign.exit && campaign.exit.timestamp ? new Date(campaign.exit.timestamp) : null;
   const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const endedToday = endedAt && endedAt.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayIST;
-  const showMonitor = running || endedToday;
+  // A CAMPAIGN THAT SETTLED ON AN EARLIER DAY STILL HAS MONEY TO SHOW. Gating
+  // on `endedToday` alone hid the whole monitor the next morning, taking the
+  // closed rounds with it, so a finished paper trade was only ever visible on
+  // the day it closed (Phil, 2026-08-25: "The closed paper trades are not
+  // displayed"). Gap Carry already keeps its table up on `history.length`.
+  const closedRounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
+  const showMonitor = running || endedToday || closedRounds.length > 0;
   if (summary) {
     const c = campaign.contract || {};
     // The dead signal-only engine left campaigns with no prices; they say so
@@ -2683,6 +2740,7 @@ function _renderCandleEntryMonitor(campaign) {
   // "refreshed" clock said the same minute as "marked" nearly always, and the
   // date repeats the kicker -- both dropped.
   if (updated) updated.textContent = `${_cascadeOptionsTimestamp(latest.timestamp).slice(11, 16)} · ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''}`;
+  _renderCandleEntryClosedRounds(campaign);
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
@@ -2806,6 +2864,32 @@ async function setCandleEntryAuto(_event, button) {
   } finally {
     _candleEntryAutoPosting = false;
   }
+}
+
+function _renderCandleEntryClosedRounds(campaign) {
+  const wrap = _cascadeOptionsEl('candle-entry-closed-wrap');
+  const body = _cascadeOptionsEl('candle-entry-closed-rounds');
+  const count = _cascadeOptionsEl('candle-entry-closed-count');
+  if (!wrap || !body) return;
+  const rounds = Array.isArray(campaign && campaign.rounds) ? campaign.rounds : [];
+  wrap.hidden = !rounds.length;
+  if (!rounds.length) { body.innerHTML = ''; return; }
+  if (count) count.textContent = `· ${rounds.length}`;
+  body.innerHTML = rounds.slice().reverse().map(round => {
+    const net = round.net_pnl == null ? null : Number(round.net_pnl);
+    const tone = net == null ? 'var(--muted)' : _candleEntryPnlTone(net);
+    const costs = round.costs && round.costs.total != null ? `₹${_cascadeNumber(round.costs.total)}` : '—';
+    return `<tr>`
+      + `<td>${escapeHtml(String(round.round_id ?? round.round ?? ''))}</td>`
+      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.opened_at).slice(5, 16))}</td>`
+      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.closed_at).slice(5, 16))}</td>`
+      + `<td>${round.exit_index_price == null ? '—' : escapeHtml(_cascadeNumber(round.exit_index_price))}</td>`
+      + `<td>${round.exit_option_premium == null ? '—' : `₹${escapeHtml(_cascadeNumber(round.exit_option_premium))}`}</td>`
+      + `<td class="candle-entry-muted">${escapeHtml(String(round.exit_reason || '—'))}</td>`
+      + `<td class="candle-entry-muted">${costs}</td>`
+      + `<td style="color:${tone};">${net == null ? 'unpriced' : escapeHtml(_candleEntrySigned(net))}</td>`
+      + `</tr>`;
+  }).join('');
 }
 
 function _renderCandleEntryAuto(auto) {
@@ -4070,7 +4154,7 @@ async function refreshGapCarryStatus() {
   }
 }
 
-const _OC_TABS = ['fib', 'candle', 'recovery', 'gapcarry', 'bench'];
+const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'bench'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -4118,8 +4202,8 @@ function initInsightsPage() {
 }
 
 function showOptionsCascadeTab(event, el) {
-  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
-  const tab = _OC_TABS.includes(requested) ? requested : 'fib';
+  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'gapcarry';
+  const tab = _OC_TABS.includes(requested) ? requested : 'gapcarry';
   _setLocalState(PF_VIEW_STATE.optionsCascadeTab, tab);
   document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-oc-tab') === tab;
@@ -4334,7 +4418,7 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'fib');
+  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'gapcarry');
   showOptionsCascadeTab(null, {
     getAttribute: (name) => (name === 'data-oc-tab' ? rememberedTab : null),
   });
@@ -20065,15 +20149,18 @@ function renderRecovery(data) {
   if (startBtn) startBtn.style.display = running ? 'none' : '';
   if (stopBtn) stopBtn.style.display = running ? '' : 'none';
 
-  if (!running) {
+  // A STOPPED RUN STILL HAS A BOOK. Returning here threw the campaigns and
+  // every closed trade off the screen the moment Stop was pressed, so settled
+  // paper money was only ever visible while the loop happened to be running
+  // (Phil, 2026-08-25: "The closed paper trades are not displayed").
+  const book = (data && data.book) || {};
+  const campaigns = book.campaigns || [];
+  if (!running && !campaigns.length) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
     return;
   }
-
-  const book = data.book || {};
-  const campaigns = book.campaigns || [];
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
   const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
   const tile = (label, value, colour) =>

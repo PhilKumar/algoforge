@@ -287,7 +287,9 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
   }
   await page.locator('#oc-tabbtn-bench').focus();
   await page.keyboard.press('Home');
-  await expect(page.locator('#oc-tabbtn-fib')).toHaveAttribute('aria-selected', 'true');
+  // Home goes to the FIRST tab, and Gap Carry leads the strip now (Phil,
+  // 2026-08-25: "Get the Gap carry to the first strategy before Fib boundary").
+  await expect(page.locator('#oc-tabbtn-gapcarry')).toHaveAttribute('aria-selected', 'true');
 
   await page.click('#nav-charts');
   for (const [control, panel] of [

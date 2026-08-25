@@ -195,15 +195,33 @@ test('blueprint tools and navigation stay fixed while each document scrolls', as
     const rail = reader.locator('.document-rail');
     await reader.locator('.reader-layout').evaluate((node) => {
       document.documentElement.style.scrollBehavior = 'auto';
+      // The page-transition fade leaves a transform mid-flight, and a transform
+      // becomes the sticky containing block -- settle it or `top` reads a few
+      // pixels off and this measures the animation, not the layout.
+      document.querySelectorAll('.page-section').forEach((el) => el.getAnimations().forEach((a) => a.finish()));
       window.scrollTo(0, node.getBoundingClientRect().top + window.scrollY + 200);
     });
-    await expect.poll(() => toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    // The toolbar is pinned FLUSH beneath the frozen header rather than at a
+    // hard-coded 112px that never matched the header's real height (Phil,
+    // 2026-08-25: "everything above search bar including the search bar to be
+    // freeze"). Any gap here is a seam the document can be read through.
+    const headerBottom = await page.locator('.header-shell')
+      .evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
+    await expect(page.locator('.header-shell')).toHaveCSS('position', 'sticky');
+    expect(await page.locator('.header-shell').evaluate((n) => Math.round(n.getBoundingClientRect().top))).toBe(0);
+    // No POSITIVE gap: the bar may tuck a sub-pixel under the header, but it must
+    // never sit below it, which is where a seam would open.
+    await expect.poll(async () => (await toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))) - headerBottom)
+      .toBeLessThanOrEqual(0);
+    expect(await toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top)))
+      .toBeGreaterThanOrEqual(headerBottom - 2);
     const railTop = await rail.evaluate((node) => Math.round(node.getBoundingClientRect().top));
     expect(railTop).toBeGreaterThan(180);
 
     const contentBefore = await reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top);
     await page.evaluate(() => { window.scrollBy(0, 520); });
-    await expect.poll(() => toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    await expect.poll(async () => (await toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))) - headerBottom)
+      .toBeLessThanOrEqual(0);
     await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(railTop);
 
     await expect.poll(() => reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top))
