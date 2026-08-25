@@ -169,7 +169,10 @@ html[data-theme="dark"] .btn{color:#0c1524}
 .btn.ghost{background:transparent;color:var(--moss);border:1px solid var(--line)}
 .btn.warm{background:var(--terracotta)}
 .btn.small{padding:6px 14px;font-size:.85rem}
-.btn.subtle{background:var(--card-2);color:var(--ink);border:1px solid var(--line-soft);font-weight:600}
+.btn.subtle{background:var(--card-2);color:var(--ink);border:1px solid var(--line);font-weight:600}
+/* the dark near-black text is for FILLED buttons only — outline styles keep their own ink */
+html[data-theme="dark"] .btn.ghost{color:var(--moss)}
+html[data-theme="dark"] .btn.subtle{color:var(--ink)}
 .btn:disabled{opacity:.5;cursor:default;transform:none}
 .field{width:100%;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;outline:none;
   transition:border-color .15s ease, box-shadow .15s ease}
