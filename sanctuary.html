@@ -1118,31 +1118,53 @@ calScan();
    same clip fades in over the last second of the playing one, so the seam
    between takes dissolves instead of popping. If a clip 404s the theme is
    marked dead and the drawn shore carries the page alone. */
-const SCENE_FILM_V = "veo-20260825";  /* bump when a clip is replaced — busts the week-long cache */
+const SCENE_FILM_V = "shore-room-1";  /* bump when a clip is replaced — busts the week-long cache */
 const SCENE_FILM = {
-  light: "/static/sanctuary/shore-day.mp4?v=" + SCENE_FILM_V,
-  dark: "/static/sanctuary/shore-night.mp4?v=" + SCENE_FILM_V,
+  journal: {
+    light: "/static/sanctuary/shore-day.mp4?v=" + SCENE_FILM_V,
+    dark: "/static/sanctuary/shore-night.mp4?v=" + SCENE_FILM_V,
+  },
+  finance: {  /* the ledger sits indoors: a warm room with the same sea outside */
+    light: "/static/sanctuary/room-day.mp4?v=" + SCENE_FILM_V,
+    dark: "/static/sanctuary/room-night.mp4?v=" + SCENE_FILM_V,
+  },
 };
-const _film = {theme: null, el: null, dead: {}};
+const _film = {key: null, view: "journal", el: null, dead: {}, pre: {}};
+const _filmIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1200));
 
-function _filmSpawn(theme){
+function _filmUrl(key){
+  const [view, theme] = key.split(":");
+  return (SCENE_FILM[view] || {})[theme] || "";
+}
+function _filmPrefetch(key){
+  const conn = navigator.connection;
+  if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ""))) return;
+  const url = _filmUrl(key);
+  if (!url || _film.dead[key] || _film.pre[url]) return;
+  _film.pre[url] = 1;  /* warm the other room so the tab switch dissolves instantly */
+  _filmIdle(() => { fetch(url).then((r) => r.blob()).catch(() => {}); });
+}
+
+function _filmSpawn(key){
   const el = document.createElement("video");
   el.muted = true; el.playsInline = true; el.preload = "auto";
   el.className = "scene-video";
   el.addEventListener("error", () => {
-    _film.dead[theme] = true;
+    _film.dead[key] = true;
     el.remove();
-    if (_film.el === el) _film.el = null;
+    if (_film.el === el){ _film.el = null; _film.key = null; sceneVideoSync(); }
   }, {once: true});
   el.addEventListener("canplay", () => {
     el.classList.add("live");
     const p = el.play(); if (p && p.catch) p.catch(() => {});
+    const [view, theme] = key.split(":");
+    _filmPrefetch((view === "journal" ? "finance" : "journal") + ":" + theme);
   }, {once: true});
   el.addEventListener("timeupdate", () => {
     if (el._reborn || !el.duration || _film.el !== el || document.hidden) return;
-    if (el.duration - el.currentTime < 1.1){ el._reborn = true; _filmRenew(theme, el); }
+    if (el.duration - el.currentTime < 1.1){ el._reborn = true; _filmRenew(key, el); }
   });
-  el.src = SCENE_FILM[theme];
+  el.src = _filmUrl(key);
   document.getElementById("scene").appendChild(el);
   return el;
 }
@@ -1150,23 +1172,37 @@ function _filmRetire(old){
   setTimeout(() => old.classList.remove("live"), 600);
   setTimeout(() => old.remove(), 2400);
 }
-function _filmRenew(theme, old){
-  _film.el = _filmSpawn(theme);
+function _filmRenew(key, old){
+  _film.el = _filmSpawn(key);
   _filmRetire(old);
 }
 function sceneVideoSync(){
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   if (navigator.connection && navigator.connection.saveData) return;
   const theme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
-  if (_film.theme === theme && _film.el){
-    if (_film.el.ended){ const old = _film.el; old._reborn = true; _filmRenew(theme, old); }
+  const wanted = _film.view + ":" + theme;
+  /* a room clip that never arrived falls back to the shore rather than to nothing */
+  const key = _film.dead[wanted] ? "journal:" + theme : wanted;
+  if (_film.dead[key]){
+    if (_film.el){ _filmRetire(_film.el); _film.el = null; }
+    _film.key = null;
+    return;
+  }
+  if (_film.key === key && _film.el){
+    if (_film.el.ended){ const old = _film.el; old._reborn = true; _filmRenew(key, old); }
     else { const p = _film.el.play(); if (p && p.catch) p.catch(() => {}); }
     return;
   }
-  _film.theme = theme;
-  if (_film.el){ _filmRetire(_film.el); _film.el = null; }
-  if (_film.dead[theme]) return;
-  _film.el = _filmSpawn(theme);
+  const outgoing = _film.el;   /* spawn first, retire second — the two cross-dissolve */
+  _film.key = key;
+  _film.el = _filmSpawn(key);
+  if (outgoing) _filmRetire(outgoing);
+}
+
+function sceneVideoView(view){
+  if (_film.view === view) return;
+  _film.view = view;
+  sceneVideoSync();
 }
 if (!window._sceneVideoKick){
   window._sceneVideoKick = true;  /* strict autoplay engines wait for one touch */
@@ -1876,6 +1912,7 @@ function switchTab(which){
   $("tab-finance").classList.toggle("on", which === "finance");
   $("view-journal").classList.toggle("hidden", which !== "journal");
   $("view-finance").classList.toggle("hidden", which !== "finance");
+  sceneVideoView(which === "finance" ? "finance" : "journal");
 }
 $("c-save").onclick = saveEntry;
 $("c-file").addEventListener("change", async (e) => {
