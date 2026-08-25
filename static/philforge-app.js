@@ -19947,7 +19947,7 @@ async function recoveryStart() {
     min_profit_inr: Number(document.getElementById('recovery-margin')?.value || 500),
   };
   try {
-    const res = await apiFetch('/api/recovery/paper/start', { method: 'POST', body: JSON.stringify(body) });
+    const res = await fetch('/api/recovery/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(pfErrorText(data, 'Could not start the run.'));
     if (data.readopted_mothers) showToast(`Re-adopted ${data.readopted_mothers} named mother(s)`, 'info');
@@ -19959,7 +19959,7 @@ async function recoveryStart() {
 
 async function recoveryStop() {
   try {
-    await apiFetch('/api/recovery/paper/stop', { method: 'POST', body: '{}' });
+    await fetch('/api/recovery/paper/stop', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   } catch (err) { /* the refresh below tells the truth either way */ }
   refreshRecoveryStatus();
 }
@@ -19969,8 +19969,8 @@ async function recoveryAddMother() {
   const raw = document.getElementById('recovery-mother')?.value;
   if (!raw) { _recoveryError('Pick a completed candle open first.'); return; }
   try {
-    const res = await apiFetch('/api/recovery/paper/mother', {
-      method: 'POST', body: JSON.stringify({ mother_timestamp: raw }),
+    const res = await fetch('/api/recovery/paper/mother', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: raw }),
     });
     const data = await res.json();
     // FastAPI errors can be a list; `data.detail ||` alone swallows those.
@@ -19986,7 +19986,7 @@ async function recoveryDrop(event, el) {
   const id = el?.getAttribute('data-rec-campaign');
   if (!id) return;
   try {
-    await apiFetch('/api/recovery/paper/drop', { method: 'POST', body: JSON.stringify({ campaign_id: id }) });
+    await fetch('/api/recovery/paper/drop', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ campaign_id: id }) });
   } catch (err) { /* refresh reports the real state */ }
   refreshRecoveryStatus();
 }
@@ -20095,7 +20095,7 @@ function renderRecovery(data) {
 
 async function refreshRecoveryStatus() {
   try {
-    const res = await apiFetch('/api/recovery/paper/status');
+    const res = await fetch('/api/recovery/paper/status', { credentials: 'same-origin', cache: 'no-store' });
     renderRecovery(await res.json());
   } catch (err) {
     renderRecovery(null);

@@ -2448,7 +2448,7 @@
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
      tab used to be. Two tabs for one strategy is how they drift apart. -->
-    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
+    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
     <button id="oc-tabbtn-gapcarry" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-gapcarry" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="gapcarry" title="15:10 close against its EMA20 and RSI, held one night, sold at 09:20 — paper"><span class="oc-tab-name">◑ Gap Carry</span><span class="oc-tab-sub">15:10 in · 09:20 out</span></button>
     <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-bench" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother</span></button>
   </div>
@@ -3228,7 +3228,7 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
-          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Recovery <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
           <div id="recovery-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
@@ -3264,7 +3264,7 @@
               <h5>7 &middot; The contract</h5>
               <p><strong>ATM&minus;2 CE</strong>, at least <strong>4 days</strong> to expiry, re-picked at every fill. A missing premium defers the check to the next bar &mdash; a number is never invented.</p>
             </section>
-            <p class="pf-info-warn">Measured Jan&ndash;Jul 2026: the <strong>15m ladder made +&#8377;82,896</strong> on mechanical mothers and the 5m fib-zone +&#8377;6,732 intraday. One configuration survives &mdash; and an early version's lookahead bug had doubled the result; these are the corrected numbers.</p>
+            <p class="pf-info-warn">Re-measured Oct 2024&ndash;Jul 2026 (22 months, real premiums, mechanical mothers): the <strong>15m CE ladder loses &#8377;3,53,953</strong>, the 5m fib-zone loses &#8377;45,665, 1H CE makes a thin &#8377;26,450. The only green configuration is the <strong>1H PE ladder (+&#8377;89,346)</strong> &mdash; a side this panel does not trade &mdash; and even that earns 92% of it in the second half, only from entries before 13:00. The +&#8377;82,896 once quoted here was a 7-month window with a lookahead bug.</p>
             </div><!-- /en -->
             <div class="pf-doc-lang" data-pf-lang="ta">
             <p class="pf-info-lede">அதே வீழ்ச்சி, எதிர் ஒழுக்கம்: ஒவ்வொரு trade-க்கும் stop loss உண்டு; இலக்கு ஒரு விலை அல்ல &mdash; கணக்கேட்டை சரிசெய்வதே இலக்கு.</p>
@@ -3296,7 +3296,7 @@
               <h5>7 &middot; ஒப்பந்தம்</h5>
               <p><strong>ATM&minus;2 CE</strong>, expiry-க்கு குறைந்தது <strong>4 நாட்கள்</strong>, ஒவ்வொரு fill-இலும் மறுதேர்வு. Premium கிடைக்காவிட்டால் அடுத்த bar-க்கு ஒத்திவைப்பு &mdash; எண் கற்பனை இல்லை.</p>
             </section>
-            <p class="pf-info-warn">ஜன&ndash;ஜூலை 2026 அளவீடு: <strong>15m ladder +&#8377;82,896</strong> (இயந்திர mothers), 5m fib-zone +&#8377;6,732 intraday. ஒரே ஒரு configuration பிழைக்கிறது &mdash; முந்தைய பதிப்பின் lookahead பிழை முடிவை இரட்டிப்பாக்கியிருந்தது; இவை திருத்திய எண்கள்.</p>
+            <p class="pf-info-warn">மறு-அளவீடு அக் 2024&ndash;ஜூலை 2026 (22 மாதங்கள், உண்மை premiums, இயந்திர mothers): <strong>15m CE ladder &#8377;3,53,953 இழக்கிறது</strong>, 5m fib-zone &#8377;45,665 இழக்கிறது, 1H CE மெல்லிய &#8377;26,450. பச்சையான ஒரே configuration <strong>1H PE ladder (+&#8377;89,346)</strong> &mdash; இந்த panel trade செய்யாத பக்கம் &mdash; அதுவும் 92% இரண்டாம் பாதியில், 13:00-க்கு முந்தைய நுழைவுகளில் மட்டும். முன்பு இங்கு இருந்த +&#8377;82,896 ஒரு 7-மாத சாளரம், lookahead பிழையுடன்.</p>
             </div><!-- /ta -->
           </div>
         </div>
@@ -3306,7 +3306,7 @@
         <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">UNDERLYING
           <select id="recovery-symbol" class="pf-input" style="width:100%;margin-top:4px;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select></label>
         <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">TIMEFRAME
-          <select id="recovery-timeframe" class="pf-input" style="width:100%;margin-top:4px;"><option value="15m" selected>15m — measured best</option><option value="5m">5m</option><option value="1h">1H</option><option value="1m">1m</option></select></label>
+          <select id="recovery-timeframe" class="pf-input" style="width:100%;margin-top:4px;"><option value="15m">15m — loses over 22 months</option><option value="5m">5m</option><option value="1h" selected>1H — least bad measured</option><option value="1m">1m</option></select></label>
         <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">MODE
           <select id="recovery-mode" class="pf-input" style="width:100%;margin-top:4px;"><option value="ladder">Ladder — re-arm after every stop</option><option value="fib-zone">Fib zones — 2-2 and 4-4 only</option></select></label>
         <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">HORIZON (SESSIONS)
@@ -3316,7 +3316,7 @@
       </div>
       <div style="margin-top:10px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
         Lots 1 then 2 · stop on the entry candle low · ATM−2 CE, 4+ days to expiry, re-picked at every fill.
-        <span id="recovery-measured" style="color:#6ee7b7;">15m ladder measured +₹82,896 over Jan–Jul 2026 on mechanical mothers; 5m fib-zone +₹6,732 intraday.</span>
+        <span id="recovery-measured" style="color:#fbbf24;">Re-measured Oct 2024–Jul 2026 (22 months, mechanical mothers): 15m CE ladder −₹3,53,953 · 5m fib-zone −₹45,665 · 1H CE +₹26,450. Only the 1H PE ladder is green (+₹89,346) — and this panel trades CE.</span>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
         <button id="recovery-start" class="btn" type="button" data-pf-action="recoveryStart">▶ Start paper run</button>
@@ -3325,7 +3325,7 @@
       <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
         <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--muted);">GIVE IT A MOTHER CANDLE</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
-          <label class="sr-only" for="recovery-mother">Recovery mother candle timestamp</label>
+          <label class="sr-only" for="recovery-mother">High Entry mother candle timestamp</label>
           <input id="recovery-mother" class="pf-input" type="datetime-local" step="60" style="flex:1;min-width:220px;">
           <button id="recovery-add-mother" class="btn" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
         </div>
