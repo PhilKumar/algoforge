@@ -279,6 +279,14 @@ from error_handlers import register_error_handlers
 
 register_error_handlers(app)
 
+# The owner's private journal and household ledger lives in its own module:
+# a standalone page outside the terminal, admin-only, double-locked by its
+# own password. Its /api/sanctuary prefix is deliberately NOT on the viewer
+# shared-read list.
+from sanctuary import router as _sanctuary_router
+
+app.include_router(_sanctuary_router)
+
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -3672,6 +3680,10 @@ async def auth_middleware(request: Request, call_next):
         "/charts-viewer",
         "/market-movers",
         "/study-lounge",
+        # The sanctuary page does its own session check and redirects an
+        # anonymous browser to the login page; without this entry the
+        # middleware answers the navigation with a JSON 401 instead.
+        "/sanctuary",
         "/logo.jpg",
         "/logo.png",
         "/favicon.ico",

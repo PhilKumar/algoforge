@@ -203,6 +203,85 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_fib_backtest_user_date ON fib_backtest_runs(user_id, mother_timestamp)",
+    # ── Sanctuary: the owner's private journal and household ledger. ──
+    # Small collections (categories, songs, recurring config, month salaries,
+    # the cached verse of the day) live as JSON values in sanctuary_state,
+    # following the journals/financial_plans document style; only the rows
+    # that get queried by date carry their own tables.
+    """CREATE TABLE IF NOT EXISTS sanctuary_state (
+        user_id     INTEGER NOT NULL,
+        key         TEXT    NOT NULL,
+        value       TEXT    NOT NULL DEFAULT '',
+        updated_at  TEXT    NOT NULL,
+        PRIMARY KEY (user_id, key),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS sanctuary_entries (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL,
+        entry_date  TEXT    NOT NULL,
+        kind        TEXT    NOT NULL DEFAULT 'note',
+        title       TEXT    NOT NULL DEFAULT '',
+        body        TEXT    NOT NULL DEFAULT '',
+        mood        INTEGER,
+        music       TEXT    NOT NULL DEFAULT '',
+        photos      TEXT    NOT NULL DEFAULT '[]',
+        created_at  TEXT    NOT NULL,
+        updated_at  TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_entries_user_date ON sanctuary_entries(user_id, entry_date)",
+    """CREATE TABLE IF NOT EXISTS sanctuary_ledger (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL,
+        entry_date  TEXT    NOT NULL,
+        category    TEXT    NOT NULL DEFAULT 'Other',
+        amount      REAL    NOT NULL DEFAULT 0,
+        note        TEXT    NOT NULL DEFAULT '',
+        source      TEXT    NOT NULL DEFAULT 'manual',
+        ref_id      TEXT    NOT NULL DEFAULT '',
+        created_at  TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_ledger_user_date ON sanctuary_ledger(user_id, entry_date)",
+    """CREATE TABLE IF NOT EXISTS sanctuary_loans (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL,
+        name        TEXT    NOT NULL,
+        lender      TEXT    NOT NULL DEFAULT '',
+        emi_amount  REAL    NOT NULL DEFAULT 0,
+        due_day     INTEGER NOT NULL DEFAULT 5,
+        start_date  TEXT    NOT NULL DEFAULT '',
+        note        TEXT    NOT NULL DEFAULT '',
+        active      INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_loans_user ON sanctuary_loans(user_id)",
+    """CREATE TABLE IF NOT EXISTS sanctuary_emis (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id        INTEGER NOT NULL,
+        loan_id        INTEGER NOT NULL,
+        due_date       TEXT    NOT NULL,
+        amount         REAL    NOT NULL DEFAULT 0,
+        principal_part REAL,
+        interest_part  REAL,
+        outstanding    REAL,
+        paid_on        TEXT    NOT NULL DEFAULT '',
+        created_at     TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (loan_id) REFERENCES sanctuary_loans(id)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sanctuary_emis_loan_due ON sanctuary_emis(loan_id, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_emis_user_due ON sanctuary_emis(user_id, due_date)",
+    """CREATE TABLE IF NOT EXISTS sanctuary_moods (
+        user_id     INTEGER NOT NULL,
+        mood_date   TEXT    NOT NULL,
+        mood        INTEGER NOT NULL,
+        note        TEXT    NOT NULL DEFAULT '',
+        PRIMARY KEY (user_id, mood_date),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
 ]
 
 
@@ -684,6 +763,12 @@ _USER_OWNED_TABLES: tuple[str, ...] = (
     "scalp_trades",
     "test_bench_runs",
     "fib_backtest_runs",
+    "sanctuary_state",
+    "sanctuary_entries",
+    "sanctuary_ledger",
+    "sanctuary_loans",
+    "sanctuary_emis",
+    "sanctuary_moods",
 )
 
 

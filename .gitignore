@@ -96,3 +96,6 @@ fib_space_matrix_results.json
 
 # The tearsheet generator is tracked; its editor backups are not.
 tools/tearsheet/*.bak
+
+# Sanctuary photos and per-user uploads live outside git
+data/users/

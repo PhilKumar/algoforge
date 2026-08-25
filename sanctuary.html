@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Sanctuary</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,560;0,9..144,650;1,9..144,420;1,9..144,560&family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,600;0,6..12,700;0,6..12,800;1,6..12,400&display=swap" rel="stylesheet">
+<style>
+/* ═══════════ Sanctuary — organic day / forest night ═══════════ */
+:root{
+  --ground:#f5f2e8; --ground-2:#ece9db; --card:#fdfcf6; --card-2:#f0f1e2;
+  --ink:#2e352b; --muted:#68745f; --soft:#8b957f;
+  --moss:#4e7355; --moss-deep:#3a5942; --moss-wash:rgba(78,115,85,.12);
+  --terracotta:#b4643e; --terra-wash:rgba(180,100,62,.12);
+  --gold:#a8802f; --gold-wash:rgba(168,128,47,.14);
+  --danger:#a33d2f; --danger-wash:rgba(163,61,47,.12);
+  --line:rgba(63,77,58,.16); --line-soft:rgba(63,77,58,.09);
+  --shadow:0 1px 2px rgba(46,53,43,.05),0 8px 28px rgba(46,53,43,.08);
+  --shadow-lift:0 2px 6px rgba(46,53,43,.08),0 16px 44px rgba(46,53,43,.14);
+  --halo:radial-gradient(1100px 500px at 18% -8%, rgba(168,178,120,.28), transparent 60%),
+         radial-gradient(900px 480px at 88% -12%, rgba(214,177,120,.22), transparent 55%),
+         radial-gradient(1200px 700px at 50% 118%, rgba(120,150,120,.16), transparent 60%);
+  --leaf-a:#7f9b6f; --leaf-b:#b0a26a; --leaf-c:#8f7a55;
+  --serif:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Nunito Sans","Avenir Next",system-ui,-apple-system,sans-serif;
+}
+html[data-theme="dark"]{
+  --ground:#11170f; --ground-2:#0c110b; --card:#1a221a; --card-2:#202b20;
+  --ink:#e7ead9; --muted:#a3af97; --soft:#7d8a73;
+  --moss:#8fbf98; --moss-deep:#a9d3b1; --moss-wash:rgba(143,191,152,.13);
+  --terracotta:#d9906b; --terra-wash:rgba(217,144,107,.13);
+  --gold:#d4b36a; --gold-wash:rgba(212,179,106,.14);
+  --danger:#e08573; --danger-wash:rgba(224,133,115,.14);
+  --line:rgba(167,186,157,.2); --line-soft:rgba(167,186,157,.1);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  --shadow-lift:0 2px 8px rgba(0,0,0,.4),0 18px 50px rgba(0,0,0,.5);
+  --halo:radial-gradient(1100px 520px at 18% -8%, rgba(78,115,85,.24), transparent 60%),
+         radial-gradient(900px 480px at 88% -12%, rgba(120,102,54,.16), transparent 55%),
+         radial-gradient(1200px 700px at 50% 120%, rgba(38,60,42,.3), transparent 60%);
+  --leaf-a:#4d6b4a; --leaf-b:#6b6b42; --leaf-c:#5d5138;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--ground);
+  background-image:var(--halo); background-attachment:fixed; background-repeat:no-repeat;
+  min-height:100dvh; line-height:1.55; font-size:16px;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+::selection{background:var(--moss-wash)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--ink)}
+img{max-width:100%}
+a{color:var(--moss);}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── shared atoms ─────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--line-soft);border-radius:22px;box-shadow:var(--shadow);padding:22px}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:10px 20px;font-weight:700;
+  background:var(--moss);color:#f7f6ec;transition:transform .15s ease, box-shadow .15s ease;border:1px solid transparent}
+html[data-theme="dark"] .btn{color:#12170f}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.btn:active{transform:none}
+.btn.ghost{background:transparent;color:var(--moss);border:1px solid var(--line)}
+.btn.warm{background:var(--terracotta)}
+.btn.small{padding:6px 14px;font-size:.85rem}
+.btn.subtle{background:var(--card-2);color:var(--ink);border:1px solid var(--line-soft);font-weight:600}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+.field{width:100%;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease}
+.field:focus{border-color:var(--moss);box-shadow:0 0 0 3px var(--moss-wash)}
+textarea.field{resize:vertical;min-height:90px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;
+  padding:6px 13px;font-size:.85rem;font-weight:600;color:var(--muted);background:var(--card);transition:all .15s ease}
+.chip:hover{border-color:var(--moss);color:var(--moss)}
+.chip.on{background:var(--moss);border-color:var(--moss);color:#f7f6ec}
+html[data-theme="dark"] .chip.on{color:#12170f}
+.eyebrow{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;font-weight:800;color:var(--soft)}
+.serif{font-family:var(--serif)}
+.hidden{display:none!important}
+.section-title{font-family:var(--serif);font-weight:650;font-size:1.35rem;margin-bottom:4px}
+.section-sub{color:var(--muted);font-size:.92rem;margin-bottom:16px}
+.divider{border:none;height:26px;margin:34px 0 8px;background:none;position:relative}
+.divider::before{content:"";position:absolute;inset:50% 0 auto;height:1px;background:var(--line-soft)}
+.divider::after{content:"❦";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:var(--ground);padding:0 16px;color:var(--soft);font-size:1rem}
+
+/* ── gate ─────────────────────────────────────────────────── */
+#gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;
+  background:var(--ground);background-image:var(--halo);overflow:hidden}
+.gate-card{position:relative;width:min(430px,100%);text-align:center;padding:52px 36px 44px;z-index:2}
+.gate-mark{width:74px;height:74px;margin:0 auto 18px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--moss-wash);animation:breathe 5.5s ease-in-out infinite}
+.gate-mark svg{width:40px;height:40px}
+h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-spacing:.01em}
+.gate-sub{color:var(--muted);margin:6px 0 30px;font-style:italic;font-family:var(--serif)}
+.gate-row{display:flex;gap:10px;margin-top:14px}
+.gate-row .field{text-align:center;letter-spacing:.12em}
+.gate-err{min-height:22px;color:var(--danger);font-size:.9rem;margin-top:12px}
+.gate-note{margin-top:26px;color:var(--soft);font-size:.82rem}
+.shake{animation:shake .4s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.07);opacity:1}}
+.leaf-float{position:absolute;opacity:.5;animation:drift linear infinite;will-change:transform;z-index:1}
+@keyframes drift{
+  0%{transform:translate3d(0,-8vh,0) rotate(0deg)}
+  100%{transform:translate3d(var(--dx,4vw),108vh,0) rotate(var(--rot,220deg))}
+}
+@media (prefers-reduced-motion: reduce){
+  .leaf-float,.gate-mark{animation:none}
+  *{transition:none!important}
+}
+
+/* ── home shell ───────────────────────────────────────────── */
+#home{max-width:1080px;margin:0 auto;padding:26px 20px 80px}
+.topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+.greet .eyebrow{margin-bottom:4px}
+.greet h2{font-family:var(--serif);font-weight:650;font-size:clamp(1.7rem,4.5vw,2.5rem);line-height:1.15}
+.topbar-actions{display:flex;gap:10px}
+.iconbtn{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--card);border:1px solid var(--line-soft);box-shadow:var(--shadow);transition:transform .15s ease}
+.iconbtn:hover{transform:translateY(-2px)}
+.iconbtn svg{width:20px;height:20px}
+
+/* daily strip */
+.daily{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;margin-bottom:18px}
+.verse-card{position:relative;padding:24px 26px 22px;border-left:none;overflow:hidden}
+.verse-card::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:4px;background:var(--gold)}
+.quote-card::before{background:var(--terracotta)}
+.verse-text{font-family:var(--serif);font-style:italic;font-size:1.12rem;line-height:1.6;margin:6px 0 10px}
+.verse-ref{font-weight:800;font-size:.88rem;color:var(--gold)}
+.quote-card .verse-ref{color:var(--terracotta)}
+.verse-ver{color:var(--soft);font-weight:600;font-size:.78rem;margin-left:8px}
+.daily .corner{position:absolute;right:-6px;bottom:-10px;width:92px;opacity:.14;pointer-events:none}
+
+/* mood ribbon */
+.moodbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 22px;margin-bottom:22px}
+.moodbar .lbl{font-family:var(--serif);font-style:italic;color:var(--muted)}
+.mood-leaves{display:flex;gap:8px}
+.mood-leaf{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;
+  border:1px solid var(--line-soft);background:var(--card-2);transition:all .18s ease;filter:grayscale(.55);opacity:.8}
+.mood-leaf:hover{transform:translateY(-3px) scale(1.06);filter:none;opacity:1}
+.mood-leaf.on{filter:none;opacity:1;border-color:var(--moss);background:var(--moss-wash);transform:scale(1.08)}
+.mood-said{color:var(--moss);font-weight:700;font-size:.9rem}
+
+/* tabs */
+.tabs{display:flex;gap:6px;background:var(--card-2);border:1px solid var(--line-soft);border-radius:999px;
+  padding:5px;width:max-content;margin:0 auto 30px;box-shadow:var(--shadow)}
+.tab{border-radius:999px;padding:10px 26px;font-weight:800;color:var(--muted);transition:all .18s ease}
+.tab.on{background:var(--card);color:var(--moss);box-shadow:var(--shadow)}
+
+/* ── journal ─────────────────────────────────────────────── */
+.composer .kinds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.composer .row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.composer .row .field{flex:1;min-width:180px}
+.composer .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px;flex-wrap:wrap}
+.photo-strip{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.photo-thumb{position:relative;width:86px;height:86px;border-radius:14px;overflow:hidden;border:1px solid var(--line-soft)}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-thumb .x{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.55);
+  color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:26px 0 14px}
+.filters .field{width:auto}
+.entry{display:flex;gap:16px;margin-bottom:14px}
+.entry .stem{display:flex;flex-direction:column;align-items:center;width:22px;flex:none;padding-top:6px}
+.entry .stem .dot{width:12px;height:12px;border-radius:50%;background:var(--moss);flex:none}
+.entry .stem .vine{width:1px;flex:1;background:var(--line);margin-top:6px}
+.entry-card{flex:1;padding:18px 20px}
+.entry-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.entry-date{font-weight:800;font-size:.85rem;color:var(--soft)}
+.kind-chip{font-size:.75rem;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--moss-wash);color:var(--moss)}
+.kind-chip.achievement{background:var(--gold-wash);color:var(--gold)}
+.kind-chip.emotion{background:var(--terra-wash);color:var(--terracotta)}
+.entry-title{font-family:var(--serif);font-weight:650;font-size:1.15rem}
+.entry-body{white-space:pre-wrap;color:var(--ink);margin-top:4px}
+.entry-music{margin-top:10px;color:var(--muted);font-size:.9rem;font-style:italic}
+.entry-actions{margin-left:auto;display:flex;gap:6px;opacity:.65}
+.entry-photos{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.entry-photos img{width:110px;height:110px;object-fit:cover;border-radius:14px;cursor:zoom-in;border:1px solid var(--line-soft)}
+.side-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}
+.garden{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}
+.garden .gd{aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:.7rem;font-weight:700;color:var(--soft);background:var(--card-2);border:1px solid var(--line-soft)}
+.garden .gd[data-m]{color:#fff}
+.garden .gd[data-m="1"]{background:#b98868}.garden .gd[data-m="2"]{background:#a99a5f}
+.garden .gd[data-m="3"]{background:#8aa065}.garden .gd[data-m="4"]{background:#5f8f5f}
+.garden .gd[data-m="5"]{background:#3a7048}
+.song{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:.94rem}
+.song:last-child{border-bottom:none}
+.song .t{font-weight:700}.song .a{color:var(--muted)}
+.song .del{margin-left:auto;opacity:.5}
+.achv{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;margin-top:12px}
+.achv-card{flex:0 0 230px;background:linear-gradient(160deg,var(--gold-wash),var(--card));border:1px solid var(--line-soft);
+  border-radius:18px;padding:16px}
+.achv-card .d{font-size:.78rem;color:var(--soft);font-weight:700}
+.achv-card .t{font-family:var(--serif);font-weight:650;margin-top:4px}
+
+/* ── finance ─────────────────────────────────────────────── */
+.alerts{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+.alert{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:16px;border:1px solid var(--line-soft);
+  background:linear-gradient(120deg,var(--gold-wash),var(--card))}
+.alert.overdue{background:linear-gradient(120deg,var(--danger-wash),var(--card))}
+.alert .ico{font-size:20px}
+.alert .msg{flex:1}
+.alert .msg b{font-weight:800}
+.alert .due{font-size:.85rem;color:var(--muted)}
+.monthnav{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:20px}
+.monthnav h3{font-family:var(--serif);font-weight:650;font-size:1.5rem;min-width:220px;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.tile{padding:18px 20px}
+.tile .lbl{font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.tile .val{font-family:var(--serif);font-weight:650;font-size:1.6rem;margin-top:4px}
+.tile .val.pos{color:var(--moss)} .tile .val.neg{color:var(--danger)}
+.tile .sub{font-size:.8rem;color:var(--muted);margin-top:2px}
+.tile .edit{font-size:.8rem;color:var(--moss);font-weight:700;cursor:pointer}
+.quick{margin-bottom:24px}
+.quick-cats{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.qc{display:flex;flex-direction:column;align-items:center;gap:4px;width:86px;padding:12px 4px;border-radius:16px;
+  border:1px solid var(--line-soft);background:var(--card-2);font-size:.76rem;font-weight:700;color:var(--muted);
+  transition:all .15s ease}
+.qc em{font-style:normal;font-size:22px}
+.qc:hover{transform:translateY(-2px);border-color:var(--moss)}
+.qc.on{background:var(--moss-wash);border-color:var(--moss);color:var(--moss)}
+.quick .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.quick .row .field{width:150px}
+.fin-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-bottom:24px}
+.bars{margin-top:14px}
+.bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin-bottom:9px;font-size:.9rem}
+.bar-row .n{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-track{height:14px;border-radius:7px;background:var(--card-2);overflow:hidden}
+.bar-fill{height:100%;border-radius:7px;background:var(--moss);min-width:3px}
+.bar-row .v{text-align:right;font-weight:700;color:var(--muted)}
+.trend-svg{width:100%;height:190px;margin-top:10px}
+.ledger table,.emi-table table{width:100%;border-collapse:collapse;font-size:.92rem}
+.ledger th,.emi-table th{text-align:left;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);
+  padding:8px 10px;border-bottom:1px solid var(--line)}
+.ledger td,.emi-table td{padding:9px 10px;border-bottom:1px solid var(--line-soft)}
+.ledger td.amt,.emi-table td.amt,.ledger th.amt,.emi-table th.amt{text-align:right}
+.src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
+.src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
+.src-chip.emi{background:var(--gold-wash);color:var(--gold)}
+.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:14px}
+.loan{padding:18px 20px;display:flex;flex-direction:column;gap:8px}
+.loan .head{display:flex;align-items:baseline;gap:8px}
+.loan .head .n{font-family:var(--serif);font-weight:650;font-size:1.12rem}
+.loan .head .l{color:var(--soft);font-size:.82rem}
+.loan .facts{display:flex;gap:16px;flex-wrap:wrap;font-size:.88rem;color:var(--muted)}
+.loan .facts b{color:var(--ink)}
+.loan .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.loan .badge{margin-left:auto;font-size:.72rem;font-weight:800;padding:3px 10px;border-radius:999px;
+  background:var(--danger-wash);color:var(--danger)}
+.recur-row{display:grid;grid-template-columns:1.3fr .8fr .55fr 1fr .5fr auto;gap:8px;align-items:center;margin-bottom:8px}
+.notes-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.note-card{padding:14px 18px}
+.note-card .h{display:flex;align-items:center;gap:10px;cursor:pointer}
+.note-card .h b{font-family:var(--serif);font-size:1.02rem;font-weight:650}
+.note-card .b{white-space:pre-wrap;margin-top:10px;color:var(--muted)}
+
+/* ── modal / toast / lightbox ─────────────────────────────── */
+.modal-wrap{position:fixed;inset:0;background:rgba(20,26,18,.5);backdrop-filter:blur(4px);z-index:80;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{width:min(620px,100%);max-height:88dvh;overflow:auto;padding:26px}
+.modal h4{font-family:var(--serif);font-weight:650;font-size:1.3rem;margin-bottom:14px}
+.modal .m-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.modal .frow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.modal .frow .field{flex:1;min-width:140px}
+.modal label{font-size:.8rem;font-weight:800;color:var(--soft);display:block;margin-top:12px;margin-bottom:4px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(90px);z-index:100;
+  background:var(--ink);color:var(--ground);padding:12px 24px;border-radius:999px;font-weight:700;
+  box-shadow:var(--shadow-lift);transition:transform .3s ease;max-width:90vw;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#lightbox{position:fixed;inset:0;z-index:90;background:rgba(10,14,9,.88);display:flex;align-items:center;justify-content:center;padding:26px;cursor:zoom-out}
+#lightbox img{max-width:94vw;max-height:90dvh;border-radius:12px}
+.preview-table{max-height:300px;overflow:auto;border:1px solid var(--line-soft);border-radius:12px;margin-top:12px}
+.warn-line{color:var(--terracotta);font-size:.88rem;margin-top:8px}
+
+/* ── responsive ───────────────────────────────────────────── */
+@media (max-width:860px){
+  .daily{grid-template-columns:1fr}
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .fin-grid{grid-template-columns:1fr}
+  .side-grid{grid-template-columns:1fr}
+  .recur-row{grid-template-columns:1fr .7fr .5fr;grid-auto-rows:auto}
+}
+@media (max-width:480px){
+  #home{padding:18px 12px 70px}
+  .card{padding:16px;border-radius:18px}
+  .tiles{gap:10px}
+  .tile .val{font-size:1.3rem}
+  .bar-row{grid-template-columns:96px 1fr 78px;font-size:.82rem}
+  .qc{width:74px}
+  .monthnav h3{font-size:1.2rem;min-width:150px}
+  .entry .stem{display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card card">
+    <div class="gate-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 21C12 21 4 16.5 4 9.5C4 5.9 6.9 3 10.5 3C11 3 11.5 3.06 12 3.2C12.5 3.06 13 3 13.5 3C17.1 3 20 5.9 20 9.5C20 16.5 12 21 12 21Z" stroke="var(--moss)" stroke-width="1.6"/><path d="M12 21V8M12 12L15.5 9M12 15L8.5 12" stroke="var(--moss)" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </div>
+    <h1 class="gate-title">Sanctuary</h1>
+    <p class="gate-sub" id="gate-sub">Your quiet place.</p>
+    <div id="gate-setup" class="hidden">
+      <input type="password" id="setup-pass" class="field" placeholder="Choose a special password" autocomplete="new-password">
+      <div style="height:10px"></div>
+      <input type="password" id="setup-pass2" class="field" placeholder="Whisper it once more" autocomplete="new-password">
+      <div style="height:16px"></div>
+      <button class="btn" id="setup-btn" style="width:100%;justify-content:center">Plant the garden 🌱</button>
+    </div>
+    <div id="gate-unlock" class="hidden">
+      <div class="gate-row">
+        <input type="password" id="unlock-pass" class="field" placeholder="The special password" autocomplete="current-password">
+        <button class="btn" id="unlock-btn">Enter</button>
+      </div>
+    </div>
+    <div class="gate-err" id="gate-err"></div>
+    <div class="gate-note" id="gate-note">Only you hold this key. Even signed-in viewers cannot see this place.</div>
+  </div>
+</div>
+
+<div id="home" class="hidden">
+  <div class="topbar">
+    <div class="greet">
+      <div class="eyebrow" id="greet-date"></div>
+      <h2 id="greet-line"></h2>
+    </div>
+    <div class="topbar-actions">
+      <button class="iconbtn" id="theme-btn" title="Day / night">
+        <svg id="theme-ico" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5V5M12 19v2.5M4.3 4.3L6 6M18 18l1.7 1.7M2.5 12H5M19 12h2.5M4.3 19.7L6 18M18 6l1.7-1.7"/></svg>
+      </button>
+      <button class="iconbtn" id="lock-btn" title="Lock the sanctuary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--moss)" stroke-width="1.7" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8 10.5V7.8A4 4 0 0 1 16 7.8v2.7"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="daily">
+    <div class="card verse-card">
+      <div class="eyebrow">Verse for today</div>
+      <p class="verse-text" id="verse-text">…</p>
+      <span class="verse-ref" id="verse-ref"></span><span class="verse-ver" id="verse-ver"></span>
+      <svg class="corner" viewBox="0 0 100 80" fill="none" aria-hidden="true"><path d="M96 76C70 72 48 58 38 38C50 52 72 62 96 62Z" fill="var(--gold)"/><path d="M92 74C60 66 34 44 26 12C40 40 64 60 92 66Z" fill="var(--moss)"/></svg>
+    </div>
+    <div class="card verse-card quote-card">
+      <div class="eyebrow">Thought for today</div>
+      <p class="verse-text" id="quote-text">…</p>
+      <span class="verse-ref" id="quote-author"></span>
+      <svg class="corner" viewBox="0 0 100 80" fill="none" aria-hidden="true"><circle cx="78" cy="58" r="26" fill="var(--terracotta)"/><circle cx="52" cy="66" r="14" fill="var(--gold)"/></svg>
+    </div>
+  </div>
+
+  <div class="card moodbar">
+    <span class="lbl">How is your heart today?</span>
+    <div class="mood-leaves" id="mood-leaves"></div>
+    <span class="mood-said" id="mood-said"></span>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" id="tab-journal" role="tab">🌿 Journal</button>
+    <button class="tab" id="tab-finance" role="tab">🌾 Finances</button>
+  </div>
+
+  <!-- ═════════ JOURNAL ═════════ -->
+  <div id="view-journal">
+    <div class="card composer">
+      <div class="section-title">Leave something here today</div>
+      <div class="kinds" id="kind-chips"></div>
+      <input class="field" id="c-title" placeholder="A title, if it wants one">
+      <textarea class="field" id="c-body" placeholder="What happened… what you felt… what you want to remember."></textarea>
+      <div class="row">
+        <input class="field" type="date" id="c-date" style="max-width:180px">
+        <input class="field" id="c-music" placeholder="♪ A song for this memory (name — artist, or a link)">
+      </div>
+      <div class="photo-strip" id="c-photos"></div>
+      <div class="foot">
+        <label class="btn subtle small" style="cursor:pointer">📷 Add pictures
+          <input type="file" id="c-file" accept="image/png,image/jpeg,image/webp" multiple class="hidden">
+        </label>
+        <button class="btn" id="c-save">Keep it 🌿</button>
+      </div>
+    </div>
+
+    <div class="filters">
+      <input class="field" type="month" id="f-month" style="max-width:170px">
+      <select class="field" id="f-kind" style="max-width:170px"><option value="">Everything</option></select>
+      <input class="field" id="f-q" placeholder="Search words…" style="flex:1;min-width:140px">
+    </div>
+    <div id="timeline"></div>
+
+    <hr class="divider">
+    <div class="side-grid">
+      <div class="card">
+        <div class="section-title">Mood garden</div>
+        <div class="section-sub" id="garden-month"></div>
+        <div class="garden" id="garden"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">Music I love</div>
+        <div class="section-sub">Songs that carry you.</div>
+        <div id="songs"></div>
+        <div class="row" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <input class="field" id="s-title" placeholder="Song" style="flex:1;min-width:110px">
+          <input class="field" id="s-artist" placeholder="Artist" style="flex:1;min-width:100px">
+          <input class="field" id="s-link" placeholder="Link (optional)" style="flex:1;min-width:110px">
+          <button class="btn small" id="s-add">Add ♪</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Achievements</div>
+      <div class="section-sub">Milestones worth keeping in the light. Mark an entry as 🏆 Achievement and it blooms here.</div>
+      <div class="achv" id="achv"></div>
+    </div>
+  </div>
+
+  <!-- ═════════ FINANCE ═════════ -->
+  <div id="view-finance" class="hidden">
+    <div class="alerts" id="alerts"></div>
+    <div class="monthnav">
+      <button class="iconbtn" id="m-prev" title="Previous month">‹</button>
+      <h3 id="m-label"></h3>
+      <button class="iconbtn" id="m-next" title="Next month">›</button>
+    </div>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card quick">
+      <div class="section-title">Add a spend</div>
+      <div class="section-sub">Tap what it was, type how much. Two seconds, done.</div>
+      <div class="quick-cats" id="quick-cats"></div>
+      <div class="row">
+        <input class="field num" id="q-amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₹ amount">
+        <input class="field" type="date" id="q-date" style="width:170px">
+        <input class="field" id="q-note" placeholder="Note (optional)" style="flex:1;min-width:130px">
+        <button class="btn" id="q-add">Add</button>
+        <button class="btn ghost small" id="cat-manage">Edit categories</button>
+      </div>
+    </div>
+
+    <div class="fin-grid">
+      <div class="card">
+        <div class="section-title">Where it went</div>
+        <div class="section-sub" id="bars-sub"></div>
+        <div class="bars" id="bars"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">Six months of flow</div>
+        <div class="section-sub">Total outflow month by month.</div>
+        <svg class="trend-svg" id="trend" viewBox="0 0 520 190" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+    </div>
+
+    <div class="card ledger" style="margin-bottom:24px">
+      <div class="section-title">The month's ledger</div>
+      <div class="section-sub" id="ledger-sub"></div>
+      <div style="overflow-x:auto"><table id="ledger-table"></table></div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <div class="section-title">Loans &amp; EMIs</div>
+      <div class="section-sub">Upload a bank's EMI schedule and every installment finds its month by itself. Alerts appear above when a due date comes near.</div>
+      <div class="loans" id="loans"></div>
+      <div style="margin-top:14px"><button class="btn ghost" id="loan-add">＋ Add a loan</button></div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <div class="section-title">Every month, on its own</div>
+      <div class="section-sub">NPS, PF, MF SIP, school fees, music class — set them once and they post themselves each month.</div>
+      <div id="recur-list"></div>
+      <div style="margin-top:12px"><button class="btn ghost small" id="recur-add">＋ Add recurring</button>
+        <button class="btn small" id="recur-save" style="margin-left:8px">Save</button></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Important info</div>
+      <div class="section-sub">Policy numbers, account notes, things the family should be able to find.</div>
+      <div class="notes-list" id="notes"></div>
+      <div style="margin-top:12px"><button class="btn ghost small" id="note-add">＋ Add a note</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ═══════════ tiny helpers ═══════════ */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", {maximumFractionDigits: 0});
+const inr2 = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const istNow = () => new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+const isoToday = () => { const d = istNow(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const monthKey = (d) => d.slice(0, 7);
+const niceDate = (iso) => { const [y,m,d] = iso.split("-").map(Number); return d + " " + MONTHS[m-1].slice(0,3) + " " + y; };
+const niceMonth = (key) => { const [y,m] = key.split("-").map(Number); return MONTHS[m-1] + " " + y; };
+const shiftMonth = (key, delta) => { const [y,m] = key.split("-").map(Number); const d = new Date(y, m-1+delta, 1); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); };
+
+let toastTimer = null;
+function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600); }
+
+async function api(path, opts = {}){
+  const options = {headers: {}, ...opts};
+  if (options.body && !(options.body instanceof FormData)) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(options.body);
+  }
+  const res = await fetch(path, options);
+  if (res.status === 401) { location.href = "/app"; throw new Error("Signed out"); }
+  if (res.status === 423) { showGate("unlock"); throw new Error("Locked"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || (data.error && (data.error.detail || data.error.message)) || "Something went wrong");
+  return data;
+}
+
+/* custom confirm — never the browser's */
+function confirmDialog(message, okLabel = "Yes, do it"){
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.className = "modal-wrap";
+    wrap.innerHTML = `<div class="modal card"><h4>Are you sure?</h4><p>${esc(message)}</p>
+      <div class="m-foot"><button class="btn subtle" data-x="no">Leave it</button>
+      <button class="btn warm" data-x="yes">${esc(okLabel)}</button></div></div>`;
+    wrap.addEventListener("click", (e) => {
+      const x = e.target.closest("[data-x]");
+      if (x) { wrap.remove(); resolve(x.dataset.x === "yes"); }
+      else if (e.target === wrap) { wrap.remove(); resolve(false); }
+    });
+    document.body.appendChild(wrap);
+  });
+}
+function modal(innerHtml){
+  const wrap = document.createElement("div");
+  wrap.className = "modal-wrap";
+  wrap.innerHTML = `<div class="modal card">${innerHtml}</div>`;
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.remove(); });
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+/* ═══════════ theme ═══════════ */
+function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage.setItem("sanctuary_theme", t);
+  $("theme-ico").innerHTML = t === "dark"
+    ? '<path d="M20 13.5A8 8 0 0 1 10.5 4 8 8 0 1 0 20 13.5Z" stroke="var(--gold)" stroke-width="1.7" fill="none" stroke-linecap="round"/>'
+    : '<circle cx="12" cy="12" r="4.4"/><path d="M12 2.5V5M12 19v2.5M4.3 4.3L6 6M18 18l1.7 1.7M2.5 12H5M19 12h2.5M4.3 19.7L6 18M18 6l1.7-1.7"/>'; }
+(function(){ const saved = localStorage.getItem("sanctuary_theme");
+  const t = saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = t; })();
+
+/* ═══════════ gate ═══════════ */
+const LEAF_SVGS = ["M2 14C6 4 14 2 20 2C20 10 14 18 6 18C4.5 18 3 17 2 14Z"];
+function scatterLeaves(){
+  const gate = $("gate");
+  for (let i = 0; i < 14; i++){
+    const leaf = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    leaf.setAttribute("viewBox", "0 0 22 20");
+    leaf.classList.add("leaf-float");
+    const size = 14 + Math.random() * 22;
+    leaf.style.width = size + "px";
+    leaf.style.left = Math.random() * 100 + "vw";
+    leaf.style.top = "-40px";
+    leaf.style.setProperty("--dx", (Math.random() * 16 - 8) + "vw");
+    leaf.style.setProperty("--rot", (140 + Math.random() * 240) + "deg");
+    leaf.style.animationDuration = (14 + Math.random() * 18) + "s";
+    leaf.style.animationDelay = (-Math.random() * 24) + "s";
+    const fills = ["var(--leaf-a)", "var(--leaf-b)", "var(--leaf-c)"];
+    leaf.innerHTML = `<path d="${LEAF_SVGS[0]}" fill="${fills[i % 3]}"/>`;
+    gate.appendChild(leaf);
+  }
+}
+function showGate(mode){
+  $("home").classList.add("hidden");
+  $("gate").classList.remove("hidden");
+  $("gate-setup").classList.toggle("hidden", mode !== "setup");
+  $("gate-unlock").classList.toggle("hidden", mode !== "unlock");
+  $("gate-sub").textContent = mode === "setup"
+    ? "Plant a password only you know, and this becomes your quiet place."
+    : "Your quiet place.";
+  $("gate-err").textContent = "";
+  setTimeout(() => (mode === "setup" ? $("setup-pass") : $("unlock-pass")).focus(), 60);
+}
+function gateError(msg){ $("gate-err").textContent = msg;
+  const card = document.querySelector(".gate-card"); card.classList.remove("shake");
+  void card.offsetWidth; card.classList.add("shake"); }
+
+async function doSetup(){
+  const a = $("setup-pass").value, b = $("setup-pass2").value;
+  if (a.length < 8) return gateError("Use at least 8 characters — a phrase you love works well.");
+  if (a !== b) return gateError("The two whispers don't match.");
+  try { await api("/api/sanctuary/setup", {method: "POST", body: {password: a}}); enter(); }
+  catch (e) { gateError(e.message); }
+}
+async function doUnlock(){
+  const p = $("unlock-pass").value;
+  if (!p) return;
+  try { await api("/api/sanctuary/unlock", {method: "POST", body: {password: p}}); $("unlock-pass").value = ""; enter(); }
+  catch (e) { gateError(e.message); }
+}
+
+/* ═══════════ state ═══════════ */
+const S = {
+  finMonth: monthKey(isoToday()),
+  jMonth: monthKey(isoToday()),
+  jKind: "", jQuery: "",
+  composerKind: "note",
+  composerPhotos: [],
+  entries: [], moods: {}, songs: [], daily: null,
+  fin: null, loans: [], notes: [],
+  recurringDraft: null,
+};
+const KINDS = [
+  ["event", "🎉 Life event"], ["blog", "✍️ Blog"], ["emotion", "💭 Emotion"],
+  ["family", "👨‍👩‍👧‍👦 Family"], ["friends", "🤝 Friends"], ["achievement", "🏆 Achievement"],
+  ["photo", "📷 Pictures"], ["note", "🍃 Note"],
+];
+
+/* ═══════════ enter (unlocked) ═══════════ */
+async function enter(){
+  $("gate").classList.add("hidden");
+  $("home").classList.remove("hidden");
+  const now = istNow();
+  const hour = now.getHours();
+  const word = hour < 5 ? "Rest well" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  $("greet-date").textContent = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][now.getDay()]
+    + ", " + now.getDate() + " " + MONTHS[now.getMonth()] + " " + now.getFullYear();
+  $("greet-line").textContent = word + " 🌿";
+  $("c-date").value = isoToday();
+  $("q-date").value = isoToday();
+  $("f-month").value = S.jMonth;
+  renderKindChips(); renderMoodLeaves();
+  loadDaily(); refreshJournal(); loadSongs();
+  refreshFinance(); loadLoans(); loadNotes();
+}
+
+async function loadDaily(){
+  try {
+    S.daily = await api("/api/sanctuary/daily");
+    $("verse-text").textContent = "“" + S.daily.verse.text.replace(/^[“"]|[”"]$/g, "") + "”";
+    $("verse-ref").textContent = S.daily.verse.reference;
+    $("verse-ver").textContent = S.daily.verse.fallback ? "WEB · offline today" : "NIV";
+    $("quote-text").textContent = "“" + S.daily.quote.text + "”";
+    $("quote-author").textContent = "— " + S.daily.quote.author;
+  } catch (e) { /* verse stays quiet */ }
+}
+
+/* ═══════════ mood ═══════════ */
+const MOOD_FACES = ["🥀","🍂","🌱","🌿","🌻"];
+const MOOD_WORDS = ["Wilted","Weathered","Sprouting","Growing","In full bloom"];
+function renderMoodLeaves(){
+  $("mood-leaves").innerHTML = MOOD_FACES.map((f, i) =>
+    `<button class="mood-leaf" data-m="${i+1}" title="${MOOD_WORDS[i]}">${f}</button>`).join("");
+}
+function paintMood(){
+  const today = isoToday();
+  const mood = (S.moods[today] || {}).mood;
+  document.querySelectorAll(".mood-leaf").forEach((el) =>
+    el.classList.toggle("on", Number(el.dataset.m) === mood));
+  $("mood-said").textContent = mood ? MOOD_WORDS[mood-1] : "";
+}
+
+/* ═══════════ journal ═══════════ */
+function renderKindChips(){
+  $("kind-chips").innerHTML = KINDS.map(([k, label]) =>
+    `<button class="chip ${S.composerKind === k ? "on" : ""}" data-k="${k}">${label}</button>`).join("");
+  const sel = $("f-kind");
+  if (sel.options.length === 1)
+    KINDS.forEach(([k, label]) => sel.add(new Option(label, k)));
+}
+function renderComposerPhotos(){
+  $("c-photos").innerHTML = S.composerPhotos.map((p, i) =>
+    `<div class="photo-thumb"><img src="/api/sanctuary/photos/${esc(p.file)}" alt="">
+     <button class="x" data-i="${i}" title="Remove">✕</button></div>`).join("");
+}
+async function refreshJournal(){
+  const params = new URLSearchParams();
+  if (S.jMonth) params.set("month", S.jMonth);
+  if (S.jKind) params.set("kind", S.jKind);
+  if (S.jQuery) params.set("q", S.jQuery);
+  const [j, m, all] = await Promise.all([
+    api("/api/sanctuary/journal?" + params),
+    api("/api/sanctuary/moods?month=" + (S.jMonth || monthKey(isoToday()))),
+    api("/api/sanctuary/journal?kind=achievement"),
+  ]);
+  S.entries = j.entries; S.moods = m.moods;
+  renderTimeline(); renderGarden(); renderAchievements(all.entries); paintMood();
+}
+function kindLabel(k){ const f = KINDS.find(([key]) => key === k); return f ? f[1] : k; }
+function renderTimeline(){
+  if (!S.entries.length){
+    $("timeline").innerHTML = `<div class="card" style="text-align:center;color:var(--muted);padding:34px">
+      Nothing here yet for this view. The garden grows one entry at a time. 🌱</div>`;
+    return;
+  }
+  $("timeline").innerHTML = S.entries.map((e) => `
+    <div class="entry">
+      <div class="stem"><div class="dot"></div><div class="vine"></div></div>
+      <div class="entry-card card">
+        <div class="entry-head">
+          <span class="entry-date">${niceDate(e.entry_date)}</span>
+          <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
+          ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
+          <span class="entry-actions">
+            <button class="btn subtle small" data-edit="${e.id}">Edit</button>
+            <button class="btn subtle small" data-del="${e.id}">✕</button>
+          </span>
+        </div>
+        ${e.title ? `<div class="entry-title">${esc(e.title)}</div>` : ""}
+        ${e.body ? `<div class="entry-body">${esc(e.body)}</div>` : ""}
+        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
+          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
+        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
+      </div>
+    </div>`).join("");
+}
+function renderGarden(){
+  const key = S.jMonth || monthKey(isoToday());
+  $("garden-month").textContent = niceMonth(key) + " — each day a leaf, colored by how your heart was.";
+  const [y, m] = key.split("-").map(Number);
+  const days = new Date(y, m, 0).getDate();
+  let html = ["S","M","T","W","T","F","S"].map((d) => `<div class="gd" style="background:none;border:none">${d}</div>`).join("");
+  const firstDow = new Date(y, m-1, 1).getDay();
+  for (let i = 0; i < firstDow; i++) html += `<div class="gd" style="background:none;border:none"></div>`;
+  for (let d = 1; d <= days; d++){
+    const iso = key + "-" + String(d).padStart(2, "0");
+    const mood = (S.moods[iso] || {}).mood;
+    html += `<div class="gd" ${mood ? `data-m="${mood}" title="${MOOD_WORDS[mood-1]}"` : ""}>${d}</div>`;
+  }
+  $("garden").innerHTML = html;
+}
+function renderAchievements(list){
+  $("achv").innerHTML = list.length ? list.map((e) =>
+    `<div class="achv-card"><div class="d">${niceDate(e.entry_date)}</div>
+     <div class="t">🏆 ${esc(e.title || e.body.slice(0, 60))}</div></div>`).join("")
+    : `<div style="color:var(--muted);padding:8px 2px">Your wins will gather here.</div>`;
+}
+async function saveEntry(){
+  const body = {
+    entry_date: $("c-date").value || isoToday(),
+    kind: S.composerKind,
+    title: $("c-title").value.trim(),
+    body: $("c-body").value.trim(),
+    music: $("c-music").value.trim(),
+    photos: S.composerPhotos,
+  };
+  if (!body.title && !body.body && !body.photos.length) return toast("Write a little something first 🌿");
+  const todayMood = (S.moods[isoToday()] || {}).mood;
+  if (todayMood && body.entry_date === isoToday()) body.mood = todayMood;
+  await api("/api/sanctuary/journal", {method: "POST", body});
+  $("c-title").value = ""; $("c-body").value = ""; $("c-music").value = "";
+  S.composerPhotos = []; renderComposerPhotos();
+  toast("Kept. 🌿");
+  S.jMonth = monthKey(body.entry_date); $("f-month").value = S.jMonth;
+  refreshJournal();
+}
+function editEntry(id){
+  const e = S.entries.find((x) => x.id === id); if (!e) return;
+  const wrap = modal(`<h4>Tend this entry</h4>
+    <label>Date</label><input class="field" type="date" id="e-date" value="${e.entry_date}">
+    <label>Kind</label><select class="field" id="e-kind">${KINDS.map(([k, l]) =>
+      `<option value="${k}" ${k === e.kind ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <label>Title</label><input class="field" id="e-title" value="${esc(e.title)}">
+    <label>Words</label><textarea class="field" id="e-body">${esc(e.body)}</textarea>
+    <label>Music</label><input class="field" id="e-music" value="${esc(e.music)}">
+    <div class="m-foot"><button class="btn subtle" id="e-cancel">Leave it</button>
+    <button class="btn" id="e-save">Save</button></div>`);
+  wrap.querySelector("#e-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#e-save").onclick = async () => {
+    await api("/api/sanctuary/journal/" + id, {method: "PUT", body: {
+      entry_date: wrap.querySelector("#e-date").value,
+      kind: wrap.querySelector("#e-kind").value,
+      title: wrap.querySelector("#e-title").value,
+      body: wrap.querySelector("#e-body").value,
+      music: wrap.querySelector("#e-music").value,
+    }});
+    wrap.remove(); toast("Tended. 🌿"); refreshJournal();
+  };
+}
+async function loadSongs(){
+  S.songs = (await api("/api/sanctuary/songs")).songs; renderSongs();
+}
+function renderSongs(){
+  $("songs").innerHTML = S.songs.length ? S.songs.map((s, i) => `
+    <div class="song"><span>♪</span><span class="t">${esc(s.title)}</span>
+      <span class="a">${esc(s.artist)}</span>
+      ${s.link ? `<a href="${esc(s.link)}" target="_blank" rel="noopener">listen</a>` : ""}
+      <button class="del" data-song="${i}">✕</button></div>`).join("")
+    : `<div style="color:var(--muted)">Add the songs that feel like home.</div>`;
+}
+
+/* ═══════════ finance ═══════════ */
+async function refreshFinance(){
+  S.fin = await api("/api/sanctuary/finance?month=" + S.finMonth);
+  renderFinance();
+}
+function renderFinance(){
+  const f = S.fin; if (!f) return;
+  $("m-label").textContent = niceMonth(f.month);
+  /* alerts — many overdue rows from one loan fold into a single card,
+     because a freshly uploaded old schedule should not shout twelve times */
+  const overdueByLoan = {};
+  const singles = [];
+  for (const a of f.alerts){
+    if (a.overdue) (overdueByLoan[a.loan_id] = overdueByLoan[a.loan_id] || []).push(a);
+    else singles.push(a);
+  }
+  let alertHtml = "";
+  for (const group of Object.values(overdueByLoan)){
+    if (group.length > 2){
+      const total = group.reduce((s, a) => s + a.amount, 0);
+      alertHtml += `<div class="alert overdue"><span class="ico">🍂</span>
+        <span class="msg"><b>${esc(group[0].loan_name)}</b> — ${group.length} past EMIs unpaid
+        (${inr(total)}, since ${niceDate(group[0].due_date)})</span>
+        <button class="btn small" data-settle="${group[0].loan_id}">All were paid ✓</button></div>`;
+    } else {
+      for (const a of group) alertHtml += `<div class="alert overdue"><span class="ico">🍂</span>
+        <span class="msg"><b>${esc(a.loan_name)}</b> EMI ${inr(a.amount)}
+        <span class="due">— overdue since ${niceDate(a.due_date)}</span></span>
+        <button class="btn small" data-paid="${a.id}">Mark paid</button></div>`;
+    }
+  }
+  for (const a of singles){
+    const days = Math.round((new Date(a.due_date) - new Date(f.today)) / 86400000);
+    const when = days === 0 ? "due today" : `due in ${days} day${days === 1 ? "" : "s"} · ${niceDate(a.due_date)}`;
+    alertHtml += `<div class="alert"><span class="ico">🔔</span>
+      <span class="msg"><b>${esc(a.loan_name)}</b> EMI ${inr(a.amount)} <span class="due">— ${when}</span></span>
+      <button class="btn small" data-paid="${a.id}">Mark paid</button></div>`;
+  }
+  $("alerts").innerHTML = alertHtml;
+  /* tiles */
+  const t = f.totals;
+  $("tiles").innerHTML = `
+    <div class="tile card"><div class="lbl">Salary</div>
+      <div class="val num">${inr(f.salary)}</div>
+      <div class="sub"><span class="edit" id="salary-edit">${f.salary_is_default ? "set for this month" : "change"}</span></div></div>
+    <div class="tile card"><div class="lbl">Spent</div>
+      <div class="val num">${inr(t.spent)}</div>
+      <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}</div></div>
+    <div class="tile card"><div class="lbl">Saved</div>
+      <div class="val num pos">${inr(t.saved)}</div>
+      <div class="sub">NPS · PF · SIP…</div></div>
+    <div class="tile card"><div class="lbl">Left to breathe</div>
+      <div class="val num ${t.left < 0 ? "neg" : "pos"}">${inr(t.left)}</div>
+      <div class="sub">salary − spent − saved</div></div>`;
+  /* quick cats */
+  const quick = f.categories.filter((c) => c.quick && c.kind === "expense");
+  $("quick-cats").innerHTML = quick.map((c) =>
+    `<button class="qc" data-cat="${esc(c.name)}"><em>${esc(c.emoji)}</em>${esc(c.name)}</button>`).join("")
+    + `<button class="qc" data-cat="__more"><em>🌿</em>More…</button>`;
+  /* bars */
+  const cats = Object.entries(f.by_category);
+  const max = Math.max(1, ...cats.map(([, v]) => v));
+  $("bars-sub").textContent = cats.length ? "Biggest first — EMIs counted in." : "Nothing spent yet this month.";
+  $("bars").innerHTML = cats.map(([name, v]) => `
+    <div class="bar-row"><span class="n" title="${esc(name)}">${esc(name)}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${Math.max(2, v / max * 100)}%"></div></div>
+    <span class="v num">${inr(v)}</span></div>`).join("");
+  renderTrend(f.trend);
+  /* ledger */
+  const savingNames = new Set(f.categories.filter((c) => c.kind === "saving").map((c) => c.name));
+  const rows = [
+    ...f.ledger.map((r) => ({...r, isEmi: false})),
+    ...f.emis.map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
+      note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", isEmi: true})),
+  ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+  $("ledger-sub").textContent = rows.length + " entries — savings in green, EMIs marked.";
+  $("ledger-table").innerHTML = `<tr><th>Date</th><th>What</th><th>Note</th><th class="amt">Amount</th><th></th></tr>` +
+    rows.map((r) => `<tr>
+      <td class="num">${niceDate(r.entry_date)}</td>
+      <td>${esc(r.category)} <span class="src-chip ${r.source}">${r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : "you"}</span></td>
+      <td style="color:var(--muted)">${esc(r.note)}</td>
+      <td class="amt num" style="${savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${inr2(r.amount)}</td>
+      <td>${r.source === "manual" ? `<button class="btn subtle small" data-led-del="${r.id}">✕</button>` : ""}</td>
+    </tr>`).join("");
+  renderRecurring(f.recurring);
+}
+function renderTrend(trend){
+  const svg = $("trend");
+  const w = 520, h = 190, padX = 40, padRight = 50, padTop = 26, padBot = 34;
+  const max = Math.max(1, ...trend.map((p) => p.total));
+  const x = (i) => padX + i * (w - padX - padRight) / Math.max(1, trend.length - 1);
+  const y = (v) => padTop + (1 - v / max) * (h - padTop - padBot);
+  const pts = trend.map((p, i) => [x(i), y(p.total)]);
+  const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const area = line + ` L${pts[pts.length-1][0].toFixed(1)} ${h-padBot} L${pts[0][0].toFixed(1)} ${h-padBot} Z`;
+  svg.innerHTML = `
+    <path d="${area}" fill="var(--moss-wash)"/>
+    <path d="${line}" fill="none" stroke="var(--moss)" stroke-width="2" stroke-linejoin="round"/>
+    ${pts.map((p, i) => `
+      <circle cx="${p[0]}" cy="${p[1]}" r="4" fill="var(--moss)" stroke="var(--card)" stroke-width="2"/>
+      <text x="${p[0]}" y="${p[1] - 10}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--muted)">${trend[i].total ? inr(trend[i].total) : ""}</text>
+      <text x="${p[0]}" y="${h - 12}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--soft)">${MONTHS[Number(trend[i].month.slice(5, 7)) - 1].slice(0, 3)}</text>`).join("")}`;
+}
+function renderRecurring(items){
+  S.recurringDraft = items.map((x) => ({...x}));
+  const catOpts = (sel) => S.fin.categories.map((c) =>
+    `<option ${c.name === sel ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  $("recur-list").innerHTML = S.recurringDraft.length ? S.recurringDraft.map((r, i) => `
+    <div class="recur-row">
+      <input class="field" data-ri="${i}" data-rf="name" value="${esc(r.name)}" placeholder="Name">
+      <input class="field num" data-ri="${i}" data-rf="amount" type="number" min="0" step="0.01" value="${r.amount}">
+      <input class="field num" data-ri="${i}" data-rf="day" type="number" min="1" max="28" value="${r.day}" title="Day of month">
+      <select class="field" data-ri="${i}" data-rf="category">${catOpts(r.category)}</select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted)">
+        <input type="checkbox" data-ri="${i}" data-rf="active" ${r.active ? "checked" : ""}>on</label>
+      <button class="btn subtle small" data-rdel="${i}">✕</button>
+    </div>`).join("")
+    : `<div style="color:var(--muted)">Nothing yet — add NPS, PF, MF SIP, the school fees…</div>`;
+}
+
+/* loans */
+async function loadLoans(){ S.loans = (await api("/api/sanctuary/loans")).loans; renderLoans(); }
+function renderLoans(){
+  $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `
+    <div class="loan card">
+      <div class="head"><span class="n">${esc(l.name)}</span><span class="l">${esc(l.lender)}</span>
+        ${l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}</div>
+      <div class="facts">
+        <span>EMI <b class="num">${inr(l.emi_amount)}</b></span>
+        <span>due day <b>${l.due_day}</b></span>
+        ${l.next_due ? `<span>next <b>${niceDate(l.next_due)}</b></span>` : ""}
+        ${l.schedule_count ? `<span>paid <b>${l.paid_count}/${l.schedule_count}</b></span>` : ""}
+        ${l.remaining_amount ? `<span>to go <b class="num">${inr(l.remaining_amount)}</b></span>` : ""}
+        ${l.outstanding != null ? `<span>outstanding <b class="num">${inr(l.outstanding)}</b></span>` : ""}
+      </div>
+      <div class="btns">
+        <button class="btn small" data-lup="${l.id}">📄 Upload schedule</button>
+        ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">View</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}
+        <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
+        <button class="btn subtle small" data-ldel="${l.id}">✕</button>
+      </div>
+    </div>`).join("")
+    : `<div style="color:var(--muted);padding:6px 2px">Add the HDFC loan, home loan, personal loans — then upload each one's EMI sheet.</div>`;
+}
+function loanForm(loan){
+  const wrap = modal(`<h4>${loan ? "Tend this loan" : "A new loan"}</h4>
+    <label>Name</label><input class="field" id="lf-name" value="${esc(loan?.name || "")}" placeholder="HDFC Personal Loan">
+    <label>Lender</label><input class="field" id="lf-lender" value="${esc(loan?.lender || "")}" placeholder="HDFC Bank">
+    <div class="frow"><div style="flex:1"><label>EMI amount (₹)</label>
+      <input class="field num" id="lf-emi" type="number" min="0" value="${loan?.emi_amount || ""}"></div>
+    <div style="flex:1"><label>Due day (1–28)</label>
+      <input class="field num" id="lf-day" type="number" min="1" max="28" value="${loan?.due_day || 5}"></div></div>
+    <label>Note</label><input class="field" id="lf-note" value="${esc(loan?.note || "")}">
+    <div class="m-foot"><button class="btn subtle" id="lf-cancel">Leave it</button>
+    <button class="btn" id="lf-save">Save</button></div>`);
+  wrap.querySelector("#lf-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#lf-save").onclick = async () => {
+    const body = {
+      name: wrap.querySelector("#lf-name").value.trim(),
+      lender: wrap.querySelector("#lf-lender").value.trim(),
+      emi_amount: Number(wrap.querySelector("#lf-emi").value || 0),
+      due_day: Number(wrap.querySelector("#lf-day").value || 5),
+      note: wrap.querySelector("#lf-note").value,
+    };
+    if (!body.name) return toast("Give the loan a name");
+    if (loan) await api("/api/sanctuary/loans/" + loan.id, {method: "PUT", body});
+    else await api("/api/sanctuary/loans", {method: "POST", body});
+    wrap.remove(); toast("Saved."); loadLoans(); refreshFinance();
+  };
+}
+function uploadScheduleModal(loan){
+  const wrap = modal(`<h4>📄 ${esc(loan.name)} — upload the EMI sheet</h4>
+    <p style="color:var(--muted);font-size:.92rem">CSV, Excel or the bank's PDF. Every installment will file itself under its month, and alerts will follow the due dates.</p>
+    <label>Schedule file</label><input class="field" type="file" id="up-file" accept=".csv,.xlsx,.xlsm,.pdf">
+    <div class="frow">
+      <div style="flex:1"><label>First EMI date <span style="font-weight:400">(only if the sheet numbers installments 1, 2, 3…)</span></label>
+        <input class="field" type="date" id="up-first"></div>
+      <div style="flex:1"><label>PDF password <span style="font-weight:400">(if the bank locked it)</span></label>
+        <input class="field" type="password" id="up-pass" autocomplete="off"></div>
+    </div>
+    <div id="up-result"></div>
+    <div class="m-foot"><button class="btn subtle" id="up-cancel">Leave it</button>
+    <button class="btn" id="up-parse">Read the sheet</button>
+    <button class="btn hidden" id="up-commit">Looks right — file it</button></div>`);
+  let parsedRows = [];
+  wrap.querySelector("#up-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#up-parse").onclick = async () => {
+    const file = wrap.querySelector("#up-file").files[0];
+    if (!file) return toast("Choose the schedule file first");
+    const fd = new FormData();
+    fd.append("file", file);
+    if (wrap.querySelector("#up-first").value) fd.append("first_due", wrap.querySelector("#up-first").value);
+    if (wrap.querySelector("#up-pass").value) fd.append("pdf_password", wrap.querySelector("#up-pass").value);
+    const btn = wrap.querySelector("#up-parse"); btn.disabled = true; btn.textContent = "Reading…";
+    try {
+      const r = await api(`/api/sanctuary/loans/${loan.id}/schedule/parse`, {method: "POST", body: fd});
+      parsedRows = r.rows;
+      const out = wrap.querySelector("#up-result");
+      let html = (r.warnings || []).map((warning) => `<div class="warn-line">⚠ ${esc(warning)}</div>`).join("");
+      if (r.needs_first_due) html += `<div class="warn-line">Set the <b>first EMI date</b> above and read again.</div>`;
+      if (r.rows.length){
+        html += `<p style="margin-top:12px;font-weight:700">${r.rows.length} installments, ${niceDate(r.rows[0].due_date)} → ${niceDate(r.rows[r.rows.length-1].due_date)}</p>
+        <div class="preview-table"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+        <tr><th style="text-align:left;padding:6px 10px">Due</th><th style="text-align:right;padding:6px 10px">EMI</th>
+        <th style="text-align:right;padding:6px 10px">Principal</th><th style="text-align:right;padding:6px 10px">Interest</th>
+        <th style="text-align:right;padding:6px 10px">Balance</th></tr>` +
+        r.rows.map((row) => `<tr>
+          <td style="padding:5px 10px">${niceDate(row.due_date)}</td>
+          <td style="padding:5px 10px;text-align:right" class="num">${inr2(row.amount)}</td>
+          <td style="padding:5px 10px;text-align:right" class="num">${row.principal_part != null ? inr2(row.principal_part) : "—"}</td>
+          <td style="padding:5px 10px;text-align:right" class="num">${row.interest_part != null ? inr2(row.interest_part) : "—"}</td>
+          <td style="padding:5px 10px;text-align:right" class="num">${row.outstanding != null ? inr2(row.outstanding) : "—"}</td>
+        </tr>`).join("") + `</table></div>`;
+        wrap.querySelector("#up-commit").classList.remove("hidden");
+      } else {
+        wrap.querySelector("#up-commit").classList.add("hidden");
+      }
+      out.innerHTML = html;
+    } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = "Read the sheet";
+  };
+  wrap.querySelector("#up-commit").onclick = async () => {
+    if (!parsedRows.length) return;
+    const r = await api(`/api/sanctuary/loans/${loan.id}/schedule/commit`, {method: "POST", body: {rows: parsedRows}});
+    wrap.remove(); toast(`Filed ${r.count} installments. 🍃`); loadLoans(); refreshFinance();
+  };
+}
+function generateScheduleModal(loan){
+  const wrap = modal(`<h4>Build a schedule for ${esc(loan.name)}</h4>
+    <p style="color:var(--muted);font-size:.92rem">No sheet handy? Tell it the rhythm and it lays the months out.</p>
+    <div class="frow">
+      <div style="flex:1"><label>First EMI date</label><input class="field" type="date" id="g-first"></div>
+      <div style="flex:1"><label>How many months</label><input class="field num" type="number" id="g-months" min="1" max="600" value="12"></div>
+    </div>
+    <label>EMI amount (₹)</label><input class="field num" type="number" id="g-amt" min="0" value="${loan.emi_amount || ""}">
+    <div class="m-foot"><button class="btn subtle" id="g-cancel">Leave it</button>
+    <button class="btn" id="g-go">Build it</button></div>`);
+  wrap.querySelector("#g-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#g-go").onclick = async () => {
+    try {
+      const r = await api(`/api/sanctuary/loans/${loan.id}/schedule/generate`, {method: "POST", body: {
+        first_due: wrap.querySelector("#g-first").value,
+        months: Number(wrap.querySelector("#g-months").value),
+        amount: Number(wrap.querySelector("#g-amt").value),
+      }});
+      wrap.remove(); toast(`Laid out ${r.count} months.`); loadLoans(); refreshFinance();
+    } catch (e) { toast(e.message); }
+  };
+}
+async function viewScheduleModal(loan){
+  const r = await api(`/api/sanctuary/loans/${loan.id}/schedule`);
+  const today = isoToday();
+  const wrap = modal(`<h4>${esc(loan.name)} — schedule</h4>
+    <div class="preview-table emi-table"><table>
+    <tr><th>Due</th><th class="amt">EMI</th><th class="amt">Balance</th><th></th></tr>` +
+    r.schedule.map((e) => `<tr style="${!e.paid_on && e.due_date < today ? "color:var(--danger)" : ""}">
+      <td>${niceDate(e.due_date)}</td>
+      <td class="amt num">${inr2(e.amount)}</td>
+      <td class="amt num">${e.outstanding != null ? inr(e.outstanding) : "—"}</td>
+      <td>${e.paid_on
+        ? `<button class="btn subtle small" data-unpay="${e.id}">paid ✓</button>`
+        : `<button class="btn small" data-pay="${e.id}">mark paid</button>`}</td>
+    </tr>`).join("") + `</table></div>
+    <div class="m-foot"><button class="btn subtle" id="v-close">Close</button></div>`);
+  wrap.querySelector("#v-close").onclick = () => wrap.remove();
+  wrap.addEventListener("click", async (e) => {
+    const pay = e.target.closest("[data-pay]"), unpay = e.target.closest("[data-unpay]");
+    if (pay) { await api(`/api/sanctuary/emis/${pay.dataset.pay}/paid`, {method: "POST", body: {}}); wrap.remove(); viewScheduleModal(loan); loadLoans(); refreshFinance(); }
+    if (unpay) { await api(`/api/sanctuary/emis/${unpay.dataset.unpay}/unpaid`, {method: "POST"}); wrap.remove(); viewScheduleModal(loan); loadLoans(); refreshFinance(); }
+  });
+}
+/* categories manager */
+function categoriesModal(){
+  const cats = S.fin.categories.map((c) => ({...c}));
+  const wrap = modal(`<h4>Categories</h4>
+    <p style="color:var(--muted);font-size:.9rem">Quick ones show as big buttons. Savings count as saved, not spent.</p>
+    <div id="cm-list"></div>
+    <div class="m-foot"><button class="btn ghost small" id="cm-add">＋ Add</button>
+    <button class="btn subtle" id="cm-cancel">Leave it</button><button class="btn" id="cm-save">Save</button></div>`);
+  const paint = () => {
+    wrap.querySelector("#cm-list").innerHTML = cats.map((c, i) => `
+      <div class="frow" style="align-items:center">
+        <input class="field" style="max-width:70px" data-ci="${i}" data-cf="emoji" value="${esc(c.emoji)}">
+        <input class="field" data-ci="${i}" data-cf="name" value="${esc(c.name)}">
+        <select class="field" style="max-width:120px" data-ci="${i}" data-cf="kind">
+          <option value="expense" ${c.kind === "expense" ? "selected" : ""}>expense</option>
+          <option value="saving" ${c.kind === "saving" ? "selected" : ""}>saving</option></select>
+        <label style="display:flex;gap:4px;align-items:center;font-size:.8rem">
+          <input type="checkbox" data-ci="${i}" data-cf="quick" ${c.quick ? "checked" : ""}>quick</label>
+        <button class="btn subtle small" data-cdel="${i}">✕</button>
+      </div>`).join("");
+  };
+  paint();
+  wrap.addEventListener("input", (e) => {
+    const el = e.target; if (el.dataset.ci === undefined) return;
+    const c = cats[Number(el.dataset.ci)];
+    c[el.dataset.cf] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  wrap.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-cdel]");
+    if (del) { cats.splice(Number(del.dataset.cdel), 1); paint(); }
+  });
+  wrap.querySelector("#cm-add").onclick = () => { cats.push({name: "", emoji: "🌱", kind: "expense", quick: false}); paint(); };
+  wrap.querySelector("#cm-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#cm-save").onclick = async () => {
+    await api("/api/sanctuary/finance/categories", {method: "PUT", body: {categories: cats.filter((c) => c.name.trim())}});
+    wrap.remove(); toast("Categories saved."); refreshFinance();
+  };
+}
+/* notes */
+async function loadNotes(){ S.notes = (await api("/api/sanctuary/notes")).notes; renderNotes(); }
+function renderNotes(){
+  $("notes").innerHTML = S.notes.length ? S.notes.map((n, i) => `
+    <div class="note-card card"><div class="h" data-note-open="${i}">
+      <b>${esc(n.title || "Untitled")}</b>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn subtle small" data-note-edit="${i}">Edit</button>
+        <button class="btn subtle small" data-note-del="${i}">✕</button></span></div>
+      <div class="b hidden">${esc(n.body)}</div></div>`).join("")
+    : `<div style="color:var(--muted)">Nothing kept yet.</div>`;
+}
+function noteForm(i){
+  const n = i != null ? S.notes[i] : {title: "", body: ""};
+  const wrap = modal(`<h4>${i != null ? "Tend this note" : "A new note"}</h4>
+    <label>Title</label><input class="field" id="nf-title" value="${esc(n.title)}">
+    <label>Details</label><textarea class="field" id="nf-body" style="min-height:140px">${esc(n.body)}</textarea>
+    <div class="m-foot"><button class="btn subtle" id="nf-cancel">Leave it</button>
+    <button class="btn" id="nf-save">Save</button></div>`);
+  wrap.querySelector("#nf-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#nf-save").onclick = async () => {
+    const next = S.notes.slice();
+    const item = {...n, title: wrap.querySelector("#nf-title").value, body: wrap.querySelector("#nf-body").value};
+    if (i != null) next[i] = item; else next.push(item);
+    await api("/api/sanctuary/notes", {method: "PUT", body: {notes: next}});
+    wrap.remove(); toast("Kept safe."); loadNotes();
+  };
+}
+/* salary editor */
+function salaryModal(){
+  const f = S.fin;
+  const wrap = modal(`<h4>Salary for ${niceMonth(f.month)}</h4>
+    <label>Amount (₹)</label><input class="field num" type="number" id="sa-amt" min="0" value="${f.salary || ""}">
+    <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:.9rem;color:var(--muted)">
+      <input type="checkbox" id="sa-def" checked> Use this every month from now on</label>
+    <div class="m-foot"><button class="btn subtle" id="sa-cancel">Leave it</button>
+    <button class="btn" id="sa-save">Save</button></div>`);
+  wrap.querySelector("#sa-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#sa-save").onclick = async () => {
+    await api("/api/sanctuary/finance/month", {method: "PUT", body: {
+      month: f.month, salary: Number(wrap.querySelector("#sa-amt").value || 0),
+      make_default: wrap.querySelector("#sa-def").checked,
+    }});
+    wrap.remove(); toast("Salary set."); refreshFinance();
+  };
+}
+
+/* ═══════════ wiring ═══════════ */
+let quickCat = null;
+document.addEventListener("click", async (e) => {
+  const t = e.target;
+  /* journal */
+  const kindChip = t.closest("#kind-chips .chip");
+  if (kindChip) { S.composerKind = kindChip.dataset.k; renderKindChips(); return; }
+  const px = t.closest("#c-photos .x");
+  if (px) { S.composerPhotos.splice(Number(px.dataset.i), 1); renderComposerPhotos(); return; }
+  const zoom = t.closest("[data-zoom]");
+  if (zoom) {
+    const lb = document.createElement("div"); lb.id = "lightbox";
+    lb.innerHTML = `<img src="/api/sanctuary/photos/${esc(zoom.dataset.zoom)}" alt="">`;
+    lb.onclick = () => lb.remove(); document.body.appendChild(lb); return;
+  }
+  const del = t.closest("[data-del]");
+  if (del) { if (await confirmDialog("This entry and its pictures will return to the soil.", "Let it go")) {
+    await api("/api/sanctuary/journal/" + del.dataset.del, {method: "DELETE"}); toast("Released."); refreshJournal(); } return; }
+  const edit = t.closest("[data-edit]");
+  if (edit) { editEntry(Number(edit.dataset.edit)); return; }
+  const moodLeaf = t.closest(".mood-leaf");
+  if (moodLeaf) {
+    const mood = Number(moodLeaf.dataset.m);
+    await api("/api/sanctuary/mood", {method: "POST", body: {date: isoToday(), mood}});
+    S.moods[isoToday()] = {mood}; paintMood(); renderGarden();
+    toast(MOOD_WORDS[mood-1] + " — noted gently. 🌿"); return;
+  }
+  const sdel = t.closest("[data-song]");
+  if (sdel) { S.songs.splice(Number(sdel.dataset.song), 1);
+    await api("/api/sanctuary/songs", {method: "PUT", body: {songs: S.songs}}); renderSongs(); return; }
+  /* finance */
+  const qc = t.closest(".qc");
+  if (qc) {
+    if (qc.dataset.cat === "__more") { openFullAdd(); return; }
+    quickCat = qc.dataset.cat;
+    document.querySelectorAll(".qc").forEach((el) => el.classList.toggle("on", el === qc));
+    $("q-amt").focus(); return;
+  }
+  const paid = t.closest("[data-paid]");
+  if (paid) { await api(`/api/sanctuary/emis/${paid.dataset.paid}/paid`, {method: "POST", body: {}});
+    toast("Marked paid. 🍃"); loadLoans(); refreshFinance(); return; }
+  const settle = t.closest("[data-settle]");
+  if (settle) { if (await confirmDialog("Every past installment of this loan will be marked paid on its due date.", "Yes, all were paid")) {
+    const r = await api(`/api/sanctuary/loans/${settle.dataset.settle}/schedule/settle-past`, {method: "POST", body: {}});
+    toast(`Settled ${r.count} past EMIs. 🍃`); loadLoans(); refreshFinance(); } return; }
+  const ledDel = t.closest("[data-led-del]");
+  if (ledDel) { if (await confirmDialog("Remove this ledger entry?", "Remove")) {
+    await api("/api/sanctuary/finance/entry/" + ledDel.dataset.ledDel, {method: "DELETE"}); refreshFinance(); } return; }
+  const lup = t.closest("[data-lup]");
+  if (lup) { uploadScheduleModal(S.loans.find((l) => l.id === Number(lup.dataset.lup))); return; }
+  const lview = t.closest("[data-lview]");
+  if (lview) { viewScheduleModal(S.loans.find((l) => l.id === Number(lview.dataset.lview))); return; }
+  const lgen = t.closest("[data-lgen]");
+  if (lgen) { generateScheduleModal(S.loans.find((l) => l.id === Number(lgen.dataset.lgen))); return; }
+  const ledit = t.closest("[data-ledit]");
+  if (ledit) { loanForm(S.loans.find((l) => l.id === Number(ledit.dataset.ledit))); return; }
+  const ldel = t.closest("[data-ldel]");
+  if (ldel) { const loan = S.loans.find((l) => l.id === Number(ldel.dataset.ldel));
+    if (await confirmDialog(`"${loan.name}" and its whole schedule will be removed.`, "Remove it")) {
+      await api("/api/sanctuary/loans/" + loan.id, {method: "DELETE"}); toast("Removed."); loadLoans(); refreshFinance(); } return; }
+  const rdel = t.closest("[data-rdel]");
+  if (rdel) { S.recurringDraft.splice(Number(rdel.dataset.rdel), 1); renderRecurringDraft(); return; }
+  const nOpen = t.closest("[data-note-open]");
+  if (nOpen && !t.closest("button")) { nOpen.parentElement.querySelector(".b").classList.toggle("hidden"); return; }
+  const nEdit = t.closest("[data-note-edit]");
+  if (nEdit) { noteForm(Number(nEdit.dataset.noteEdit)); return; }
+  const nDel = t.closest("[data-note-del]");
+  if (nDel) { if (await confirmDialog("Remove this note?", "Remove")) {
+    const next = S.notes.slice(); next.splice(Number(nDel.dataset.noteDel), 1);
+    await api("/api/sanctuary/notes", {method: "PUT", body: {notes: next}}); loadNotes(); } return; }
+});
+function renderRecurringDraft(){ const items = S.recurringDraft; const fin = S.fin;
+  S.fin = {...fin, recurring: items}; renderRecurring(items); }
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (el.dataset.ri !== undefined) {
+    const r = S.recurringDraft[Number(el.dataset.ri)];
+    if (r) r[el.dataset.rf] = el.type === "checkbox" ? el.checked :
+      el.dataset.rf === "amount" || el.dataset.rf === "day" ? Number(el.value) : el.value;
+  }
+});
+
+$("setup-btn").onclick = doSetup;
+$("unlock-btn").onclick = doUnlock;
+$("unlock-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") doUnlock(); });
+$("setup-pass2").addEventListener("keydown", (e) => { if (e.key === "Enter") doSetup(); });
+$("theme-btn").onclick = () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+$("lock-btn").onclick = async () => { await api("/api/sanctuary/lock", {method: "POST"}); showGate("unlock"); toast("Locked. 🌙"); };
+$("tab-journal").onclick = () => switchTab("journal");
+$("tab-finance").onclick = () => switchTab("finance");
+function switchTab(which){
+  $("tab-journal").classList.toggle("on", which === "journal");
+  $("tab-finance").classList.toggle("on", which === "finance");
+  $("view-journal").classList.toggle("hidden", which !== "journal");
+  $("view-finance").classList.toggle("hidden", which !== "finance");
+}
+$("c-save").onclick = saveEntry;
+$("c-file").addEventListener("change", async (e) => {
+  for (const file of e.target.files) {
+    const fd = new FormData(); fd.append("file", file);
+    try { const r = await api("/api/sanctuary/photos", {method: "POST", body: fd});
+      S.composerPhotos.push({file: r.file, caption: ""}); }
+    catch (err) { toast(err.message); }
+  }
+  e.target.value = ""; renderComposerPhotos();
+});
+$("f-month").addEventListener("change", () => { S.jMonth = $("f-month").value; refreshJournal(); });
+$("f-kind").addEventListener("change", () => { S.jKind = $("f-kind").value; refreshJournal(); });
+let qTimer = null;
+$("f-q").addEventListener("input", () => { clearTimeout(qTimer);
+  qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
+$("s-add").onclick = async () => {
+  const song = {title: $("s-title").value.trim(), artist: $("s-artist").value.trim(), link: $("s-link").value.trim()};
+  if (!song.title) return;
+  S.songs.push(song);
+  await api("/api/sanctuary/songs", {method: "PUT", body: {songs: S.songs}});
+  $("s-title").value = ""; $("s-artist").value = ""; $("s-link").value = "";
+  renderSongs(); toast("Added to the shelf ♪");
+};
+$("m-prev").onclick = () => { S.finMonth = shiftMonth(S.finMonth, -1); refreshFinance(); };
+$("m-next").onclick = () => { S.finMonth = shiftMonth(S.finMonth, 1); refreshFinance(); };
+$("q-add").onclick = async () => {
+  const amount = Number($("q-amt").value);
+  if (!quickCat) return toast("Tap a category first");
+  if (!amount || amount <= 0) return toast("How much was it?");
+  await api("/api/sanctuary/finance/entry", {method: "POST", body: {
+    entry_date: $("q-date").value || isoToday(), category: quickCat,
+    amount, note: $("q-note").value.trim(),
+  }});
+  $("q-amt").value = ""; $("q-note").value = "";
+  toast("Noted — " + quickCat + " " + inr(amount)); refreshFinance();
+};
+$("q-amt").addEventListener("keydown", (e) => { if (e.key === "Enter") $("q-add").click(); });
+function openFullAdd(){
+  const cats = S.fin.categories;
+  const wrap = modal(`<h4>Add to the ledger</h4>
+    <label>Category</label><select class="field" id="fa-cat">${cats.map((c) =>
+      `<option>${esc(c.name)}</option>`).join("")}</select>
+    <div class="frow"><div style="flex:1"><label>Amount (₹)</label>
+      <input class="field num" id="fa-amt" type="number" min="0" step="0.01"></div>
+    <div style="flex:1"><label>Date</label><input class="field" type="date" id="fa-date" value="${isoToday()}"></div></div>
+    <label>Note</label><input class="field" id="fa-note">
+    <div class="m-foot"><button class="btn subtle" id="fa-cancel">Leave it</button>
+    <button class="btn" id="fa-save">Add</button></div>`);
+  wrap.querySelector("#fa-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#fa-save").onclick = async () => {
+    const amount = Number(wrap.querySelector("#fa-amt").value);
+    if (!amount || amount <= 0) return toast("How much was it?");
+    await api("/api/sanctuary/finance/entry", {method: "POST", body: {
+      entry_date: wrap.querySelector("#fa-date").value, category: wrap.querySelector("#fa-cat").value,
+      amount, note: wrap.querySelector("#fa-note").value.trim(),
+    }});
+    wrap.remove(); toast("Noted."); refreshFinance();
+  };
+}
+$("cat-manage").onclick = categoriesModal;
+$("loan-add").onclick = () => loanForm(null);
+$("recur-add").onclick = () => {
+  if (!S.recurringDraft) S.recurringDraft = [];
+  S.recurringDraft.push({name: "", amount: 0, day: 1, category: "Other", active: true});
+  renderRecurringDraft();
+};
+$("recur-save").onclick = async () => {
+  const r = await api("/api/sanctuary/finance/recurring", {method: "PUT",
+    body: {recurring: S.recurringDraft || []}});
+  toast("The monthly rhythm is set. 🌿"); refreshFinance();
+};
+$("note-add").onclick = () => noteForm(null);
+document.addEventListener("click", (e) => {
+  if (e.target.id === "salary-edit") salaryModal();
+});
+
+/* ═══════════ boot ═══════════ */
+applyTheme(document.documentElement.dataset.theme);
+scatterLeaves();
+(async function boot(){
+  try {
+    const st = await api("/api/sanctuary/status");
+    if (!st.setup) showGate("setup");
+    else if (!st.unlocked) showGate("unlock");
+    else enter();
+  } catch (e) { /* api() already redirected on 401 */ }
+})();
+</script>
+</body>
+</html>

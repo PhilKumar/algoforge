@@ -126,3 +126,4 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_engine.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_paper.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_routes.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_sanctuary.py'
