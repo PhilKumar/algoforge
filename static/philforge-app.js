@@ -12301,8 +12301,10 @@ function setTickerValue(priceId, chgId, data) {
 
   if (chgEl && data.change !== undefined && data.pct !== undefined) {
     const isUp = data.change >= 0;
-    const dir = isUp ? 'UP' : 'DN';
-    chgEl.textContent = `${dir} ${isUp ? '+' : ''}${data.change.toFixed(2)} (${isUp ? '+' : ''}${data.pct.toFixed(2)}%)`;
+    // No UP/DN word: the sign and the colour already say the direction, and
+    // those three characters were the difference between the strip fitting
+    // and ATM PE being sliced off the end of the bar.
+    chgEl.textContent = `${isUp ? '+' : ''}${data.change.toFixed(2)} (${isUp ? '+' : ''}${data.pct.toFixed(2)}%)`;
     chgEl.style.color = isUp ? 'var(--success)' : 'var(--danger)';
   }
 }
