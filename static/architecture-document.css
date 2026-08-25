@@ -59,7 +59,13 @@ html[data-theme="light"] .reader-header { background: rgba(238,243,248,.9); }
 .reader-button { padding: 0 12px; }.reader-button.primary { color: #07120f; border-color: rgba(var(--accent-rgb),.6); background: var(--accent); }.icon-button { width: 34px; padding: 0; }.icon-button svg { width: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .reader-button:hover, .icon-button:hover { transform: translateY(-1px); filter: brightness(1.08); }
 
-.reader-shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; }
+.reader-shell {
+  --reader-sticky-top: 95px;
+  --reader-toolbar-height: 74px;
+  --reader-toolbar-gap: 24px;
+  width: min(1500px, calc(100% - 40px));
+  margin: 0 auto;
+}
 .document-hero { min-height: 360px; display: grid; grid-template-columns: 1fr 430px; align-items: center; gap: 48px; border-bottom: 1px solid var(--line); overflow: hidden; }
 .hero-copy { padding: 52px 0; }.eyebrow { margin: 0 0 14px; color: var(--muted); font: 600 9px var(--mono); letter-spacing: .13em; text-transform: uppercase; }.eyebrow span { color: var(--accent); margin-right: 8px; }
 h1 { max-width: 850px; margin: 0; font-size: clamp(38px, 5vw, 64px); line-height: 1; letter-spacing: -.05em; font-weight: 600; }
@@ -91,7 +97,22 @@ h1 { max-width: 850px; margin: 0; font-size: clamp(38px, 5vw, 64px); line-height
   box-shadow: 0 0 9px 1px rgba(var(--accent-rgb),.5); opacity: .92;
 }
 
-.reader-toolbar { min-height: 74px; margin: 24px 0; padding: 11px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid var(--line); border-radius: 13px; background: rgba(12,19,32,.82); }
+.reader-toolbar {
+  position: sticky;
+  top: var(--reader-sticky-top);
+  z-index: 20;
+  min-height: var(--reader-toolbar-height);
+  margin: var(--reader-toolbar-gap) 0;
+  padding: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(12,19,32,.97);
+  box-shadow: 0 10px 24px rgba(2,6,14,.24);
+}
 html[data-theme="light"] .reader-toolbar { background: rgba(250,252,254,.86); }
 .document-search { width: min(520px, 100%); min-height: 48px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
 .document-search svg { width: 18px; fill: none; stroke: var(--dim); stroke-width: 1.7; }.document-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 14px; }.document-search input::placeholder { color: var(--dim); }
@@ -99,8 +120,8 @@ kbd { padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 5px
 .search-status { padding-right: 10px; color: var(--dim); font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 
 .reader-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 30px; align-items: start; }
-.document-rail { position: sticky; top: 95px; align-self: start; min-width: 0; }
-.rail-sticky { max-height: calc(100vh - 115px); overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-width: thin; scrollbar-gutter: stable; }
+.document-rail { position: sticky; top: calc(var(--reader-sticky-top) + var(--reader-toolbar-height) + var(--reader-toolbar-gap)); align-self: start; min-width: 0; }
+.rail-sticky { max-height: calc(100vh - var(--reader-sticky-top) - var(--reader-toolbar-height) - var(--reader-toolbar-gap) - 20px); overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-width: thin; scrollbar-gutter: stable; }
 .rail-label { margin: 0 0 12px; color: var(--dim); font: 600 10px var(--mono); letter-spacing: .12em; }
 #document-toc { display: grid; gap: 3px; }
 #document-toc a { padding: 10px 11px; border-left: 1px solid var(--line); color: var(--muted); text-decoration: none; font-size: 12px; line-height: 1.45; transition: .15s; }
@@ -151,10 +172,8 @@ body.is-embedded .reader-header,
 body.is-embedded > footer,
 body.is-embedded .chapter-gate,
 body.is-embedded .skip-link { display: none !important; }
-body.is-embedded .reader-shell { width: calc(100% - 28px); }
+body.is-embedded .reader-shell { --reader-sticky-top: 14px; width: calc(100% - 28px); }
 body.is-embedded .document-hero { min-height: 320px; }
-body.is-embedded .document-rail { top: 14px; }
-body.is-embedded .rail-sticky { max-height: calc(100vh - 28px); }
 body.is-embedded .doc-section,
 body.is-embedded .doc-section h3.doc-subheading { scroll-margin-top: 18px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
