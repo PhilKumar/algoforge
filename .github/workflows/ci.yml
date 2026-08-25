@@ -121,6 +121,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_logging_safety.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_chart_integrity.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_journal_client_integrity.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_journal_charts.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_order_input_validation.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_deploy_hardening.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_engine.py'

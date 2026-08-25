@@ -8,9 +8,11 @@ from zoneinfo import ZoneInfo
 
 from journal_charts import (
     JournalCandle,
+    UpstoxIndexHistory,
     archived_dates,
     backfill_charts,
     chart_path,
+    complete_session_days,
     consolidate_generated_day_folders,
     eligible_through,
     find_gap_events,
@@ -46,6 +48,15 @@ def _series(days: list[date], base: float = 24_000.0) -> list[JournalCandle]:
                 low = min(low, previous_close - 1)
             rows.append(JournalCandle(stamp, opened, high, low, closed))
         previous_close = rows[-1].close
+    return rows
+
+
+def _minute_rows(day: date, base: float = 24_000.0) -> list[list]:
+    rows = []
+    for index in range(375):
+        stamp = datetime.combine(day, datetime.min.time()).replace(hour=9, minute=15) + timedelta(minutes=index)
+        opened = base + index * 0.1
+        rows.append([stamp.replace(tzinfo=IST).isoformat(), opened, opened + 2, opened - 2, opened + 1, 0, 0])
     return rows
 
 
@@ -247,6 +258,84 @@ class JournalChartsTest(unittest.TestCase):
             self.assertIn(("SENSEX", "2026-02-25"), created)
             self.assertNotIn(("NIFTY", "2026-02-26"), created)
             self.assertNotIn(("SENSEX", "2026-02-26"), created)
+
+    def test_current_session_merges_v3_intraday_candles_into_month_cache(self):
+        today = datetime.now(IST).date()
+        calls = []
+
+        class FakeSource:
+            def __init__(self, **_kwargs):
+                pass
+
+            def _get_v3(self, path):
+                calls.append(path)
+                rows = _minute_rows(today) if "/intraday/" in path else []
+                return {"status": "success", "data": {"candles": rows}}
+
+        with tempfile.TemporaryDirectory() as folder:
+            history = UpstoxIndexHistory(Path(folder) / "cache", token="dummy")
+            history.source_class = FakeSource
+
+            candles = history.candles("NIFTY", today, today)
+
+            self.assertEqual(len(candles), 75)
+            self.assertEqual(complete_session_days(candles), [today])
+            self.assertTrue(any("/historical-candle/intraday/" in path for path in calls))
+            self.assertTrue(any("/historical-candle/" in path and "/minutes/1/" in path for path in calls))
+
+    def test_trading_day_stays_pending_until_both_target_charts_have_data(self):
+        target = self.days[-1]
+        prior_rows = _series(self.days[:-1])
+
+        class DelayedHistory:
+            def __init__(self, _cache_root):
+                pass
+
+            def candles(self, _symbol, _start, _end):
+                return prior_rows
+
+            def is_trading_session(self, _day):
+                return True
+
+        with tempfile.TemporaryDirectory() as folder:
+            result = backfill_charts(
+                Path(folder) / "charts",
+                Path(folder) / "cache",
+                start=target,
+                now=datetime(2026, 2, 26, 16, 0, tzinfo=IST),
+                history_factory=DelayedHistory,
+            )
+
+            self.assertEqual(result["status"], "pending")
+            self.assertFalse(result["complete_through"])
+            self.assertEqual({item["symbol"] for item in result["pending"]}, {"NIFTY", "SENSEX"})
+
+    def test_market_holiday_without_candles_is_complete_not_pending(self):
+        target = self.days[-1]
+        prior_rows = _series(self.days[:-1])
+
+        class HolidayHistory:
+            def __init__(self, _cache_root):
+                pass
+
+            def candles(self, _symbol, _start, _end):
+                return prior_rows
+
+            def is_trading_session(self, _day):
+                return False
+
+        with tempfile.TemporaryDirectory() as folder:
+            result = backfill_charts(
+                Path(folder) / "charts",
+                Path(folder) / "cache",
+                start=target,
+                now=datetime(2026, 2, 26, 16, 0, tzinfo=IST),
+                history_factory=HolidayHistory,
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue(result["complete_through"])
+            self.assertEqual(result["pending"], [])
 
     def test_today_becomes_eligible_only_after_market_processing_window(self):
         day = date(2026, 8, 24)

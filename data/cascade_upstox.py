@@ -49,6 +49,7 @@ ENV_PATH = REPO_ROOT / ".env"
 CACHE_DIR = REPO_ROOT / "tools" / ".upstox_cache"
 
 BASE = "https://api.upstox.com/v2"
+BASE_V3 = "https://api.upstox.com/v3"
 NIFTY_INDEX_KEY = "NSE_INDEX|Nifty 50"
 
 
@@ -163,12 +164,12 @@ class UpstoxPremiumSource:
 
     # ── HTTP ──────────────────────────────────────────────────────
 
-    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+    def _get_from_base(self, base: str, path: str, params: Optional[dict] = None) -> dict:
         """One GET with a small retry on 429/5xx. Raises on a hard failure so a
         broken run stops loudly instead of silently pricing nothing."""
         if self._cache_only:
             raise UpstoxAccessError(f"Upstox cache has no entry for {path}; offline pricing will not fetch it.")
-        url = f"{BASE}{path}"
+        url = f"{base}{path}"
         headers = {"Accept": "application/json", "Authorization": f"Bearer {self._token}"}
         last: Optional[str] = None
         for attempt in range(4):
@@ -185,6 +186,13 @@ class UpstoxPremiumSource:
                 continue
             raise UpstoxAccessError(f"{path}: HTTP {response.status_code}: {response.text[:300]}")
         raise UpstoxAccessError(f"{path}: gave up after retries ({last})")
+
+    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+        return self._get_from_base(BASE, path, params)
+
+    def _get_v3(self, path: str, params: Optional[dict] = None) -> dict:
+        """Use Upstox V3 without changing the existing V2 option-data contract."""
+        return self._get_from_base(BASE_V3, path, params)
 
     # ── expiry coverage ───────────────────────────────────────────
 

@@ -181,8 +181,25 @@ class UpstoxIndexHistory:
 
         quoted = urllib.parse.quote(key, safe="")
         source = self.source_class(token=self.token, cache_dir=self.cache_dir / "upstox", underlying_key=key)
-        body = source._get(f"/historical-candle/{quoted}/1minute/{end.isoformat()}/{start.isoformat()}")
+        body = source._get_v3(f"/historical-candle/{quoted}/minutes/1/{end.isoformat()}/{start.isoformat()}")
         rows = (body.get("data") or {}).get("candles") or []
+        # The historical endpoint can publish the just-closed session several
+        # hours late.  Upstox exposes the current trading day separately, so an
+        # after-market run must merge that response before deciding the archive
+        # is current.  The timestamp key also prevents the same candle appearing
+        # twice when historical publication catches up during a retry.
+        if end == datetime.now(IST).date():
+            intraday = source._get_v3(f"/historical-candle/intraday/{quoted}/minutes/1")
+            intraday_rows = (intraday.get("data") or {}).get("candles") or []
+            merged: dict[datetime, Sequence] = {}
+            for row in [*rows, *intraday_rows]:
+                if not isinstance(row, (list, tuple)) or not row:
+                    continue
+                try:
+                    merged[_as_ist_naive(row[0])] = row
+                except (TypeError, ValueError):
+                    continue
+            rows = [merged[stamp] for stamp in sorted(merged)]
         temp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
         temp.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
         os.replace(temp, path)
@@ -204,6 +221,22 @@ class UpstoxIndexHistory:
                     rows[stamp] = row
             cursor = (self._month_end(cursor) + timedelta(days=1)).replace(day=1)
         return resample_minutes((rows[key] for key in sorted(rows)), 5)
+
+    def is_trading_session(self, day: date) -> bool:
+        """Ask Upstox whether NSE or BSE has a cash-market session that day."""
+        if day.weekday() >= 5:
+            return False
+        source = self.source_class(
+            token=self.token,
+            cache_dir=self.cache_dir / "upstox",
+            underlying_key=SYMBOLS["NIFTY"]["upstox_key"],
+        )
+        body = source._get(f"/market/timings/{day.isoformat()}")
+        for item in body.get("data") or []:
+            exchange = str(item.get("exchange") or "").upper()
+            if exchange.startswith("NSE") or exchange.startswith("BSE"):
+                return True
+        return False
 
 
 def session_map(candles: Iterable[JournalCandle]) -> dict[date, list[JournalCandle]]:
@@ -769,6 +802,9 @@ def backfill_charts(
     result = {
         "status": "ok",
         "through": through.isoformat(),
+        "complete_through": False,
+        "expected_session": None,
+        "pending": [],
         "created": [],
         "skipped": [],
         "consolidated": consolidate_generated_day_folders(charts_root),
@@ -792,6 +828,29 @@ def backfill_charts(
             LOG.exception("%s Journal chart history failed", symbol)
             result["errors"].append({"symbol": symbol, "error": str(exc)})
 
+    session_check = getattr(history, "is_trading_session", None)
+    if callable(session_check):
+        try:
+            result["expected_session"] = bool(session_check(through))
+        except Exception as exc:
+            LOG.exception("Journal chart market-session check failed for %s", through)
+            result["errors"].append({"scope": "market_session", "date": through.isoformat(), "error": str(exc)})
+    else:
+        # Test/offline history providers have no calendar endpoint. A complete
+        # target session from either index is sufficient evidence the market ran.
+        result["expected_session"] = any(
+            through in complete_session_days(rows, through=through) for rows in histories.values()
+        )
+
+    if result["expected_session"]:
+        for symbol in SYMBOLS:
+            has_archive = through in existing_by_symbol[symbol]
+            has_complete_data = through in complete_session_days(histories.get(symbol, []), through=through)
+            if not has_archive and not has_complete_data:
+                result["pending"].append(
+                    {"symbol": symbol, "date": through.isoformat(), "reason": "complete session data not ready"}
+                )
+
     for symbol, candles in histories.items():
         for day in complete_session_days(candles, through=through):
             if day < start or day in existing_by_symbol[symbol]:
@@ -810,4 +869,8 @@ def backfill_charts(
                 result["errors"].append({"symbol": symbol, "date": day.isoformat(), "error": str(exc)})
     if result["errors"]:
         result["status"] = "partial" if result["created"] else "error"
+    elif result["pending"]:
+        result["status"] = "pending"
+    else:
+        result["complete_through"] = True
     return result

@@ -1764,9 +1764,9 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
 
   await expect(page.locator('#oc-tab-recovery')).toBeVisible();
 
-  // Every timeframe the engine supports, with the measured one first.
+  // Every timeframe the engine supports, with the least-bad measured setting selected.
   await expect(page.locator('#recovery-timeframe option')).toHaveCount(4);
-  await expect(page.locator('#recovery-timeframe')).toHaveValue('15m');
+  await expect(page.locator('#recovery-timeframe')).toHaveValue('1h');
   await expect(page.locator('#recovery-mode option')).toHaveCount(2);
 
   // The monitor must render from a not_started payload rather than staying blank

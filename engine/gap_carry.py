@@ -58,12 +58,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 CE, PE = "CE", "PE"
 
 # The chart is only ever read at one moment a day, so the choice of candle is a
 # preference rather than a lever. These are the ones measured.
 TIMEFRAMES = ("5m", "10m", "15m", "30m")
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ist(value: datetime) -> datetime:
+    """Stamp a naive wall-clock datetime as IST; leave an aware one alone."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=IST)
+
 
 SESSION_OPEN = time(9, 15)
 SESSION_CLOSE = time(15, 30)
@@ -464,8 +473,8 @@ def replay(
             if on_skip:
                 on_skip(session, "expiry lands before the exit")
             continue
-        entry_ts = datetime.combine(session, config.entry_time)
-        exit_ts = datetime.combine(nxt, config.exit_time)
+        entry_ts = _ist(datetime.combine(session, config.entry_time))
+        exit_ts = _ist(datetime.combine(nxt, config.exit_time))
         spot_in = spot_at(entry_ts)
         if spot_in is None:
             if on_skip:

@@ -20843,6 +20843,12 @@ async def _journal_chart_backfill_once() -> dict:
         message += (
             f" {consolidated} generated image{'s' if consolidated != 1 else ''} merged into existing date folders."
         )
+    if result.get("status") == "pending":
+        pending_symbols = ", ".join(str(item.get("symbol")) for item in result.get("pending") or [])
+        message = (
+            f"Waiting for complete {result.get('through')} market data"
+            f" ({pending_symbols or 'NIFTY, SENSEX'}); the Journal job will retry automatically."
+        )
     if errors:
         message = f"Daily Journal chart run completed with {errors} data/render error{'s' if errors != 1 else ''}."
     _journal_chart_state.update(

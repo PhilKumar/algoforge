@@ -182,7 +182,7 @@ test('visual blueprint search filters sections without exposing Markdown downloa
   await expect(reader.locator('.empty-search')).toContainText('No blueprint section');
 });
 
-test('blueprint navigation stays fixed while each document scrolls', async ({ page }) => {
+test('blueprint tools and navigation stay fixed while each document scrolls', async ({ page }) => {
   await login(page);
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -191,16 +191,20 @@ test('blueprint navigation stays fixed while each document scrolls', async ({ pa
     const reader = page.locator('#architecture-reader-view');
     await expect(reader).toHaveAttribute('data-platform', platform);
     await expect(reader.locator('#document-body')).toHaveAttribute('aria-busy', 'false');
+    const toolbar = reader.locator('.reader-toolbar');
     const rail = reader.locator('.document-rail');
     await reader.locator('.reader-layout').evaluate((node) => {
       document.documentElement.style.scrollBehavior = 'auto';
       window.scrollTo(0, node.getBoundingClientRect().top + window.scrollY + 200);
     });
-    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    await expect.poll(() => toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    const railTop = await rail.evaluate((node) => Math.round(node.getBoundingClientRect().top));
+    expect(railTop).toBeGreaterThan(180);
 
     const contentBefore = await reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top);
     await page.evaluate(() => { window.scrollBy(0, 520); });
-    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    await expect.poll(() => toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(112);
+    await expect.poll(() => rail.evaluate((node) => Math.round(node.getBoundingClientRect().top))).toBe(railTop);
 
     await expect.poll(() => reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top))
       .toBeLessThan(contentBefore - 400);

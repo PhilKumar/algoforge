@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Iterable, Mapping, Optional
+from zoneinfo import ZoneInfo
 
 from engine.gap_carry import (
     CE,
@@ -45,6 +46,21 @@ try:  # pragma: no cover - the costs module is always present in the app
     from cascade_costs import calculate_nifty_option_round_costs
 except Exception:  # pragma: no cover
     calculate_nifty_option_round_costs = None  # type: ignore[assignment]
+
+# THE STAMPS THIS ENGINE HANDS OUT ARE IST-AWARE. `datetime.combine` makes a
+# NAIVE datetime, and prod runs on a UTC box: `.timestamp()` then reads a naive
+# 15:10 as 15:10 UTC, five and a half hours late. The chart plots markers on an
+# epoch axis beside timezone-AWARE candles, so the buy arrow landed 66 bars
+# past the last candle, in empty space (Phil, 2026-08-25: "The buy arrow is
+# somewhere where nothing is on the screen"). Local naive values are still fine
+# for reading a bar's date/time; anything STORED on a position is aware.
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ist(value: datetime) -> datetime:
+    """Stamp a naive wall-clock datetime as IST; leave an aware one alone."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=IST)
+
 
 WAITING, ARMED, HOLDING, CLOSED, EXPIRED, KILLED = (
     "WAITING",
@@ -70,11 +86,14 @@ def _as_date(value: Any) -> Optional[date]:
 
 
 def _as_datetime(value: Any) -> Optional[datetime]:
+    # Positions saved before the IST fix carry NAIVE stamps on disk, and an open
+    # one is restored on every boot. Re-stamp at the load boundary so the running
+    # position is repaired in place instead of needing the file rewritten.
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return _ist(value)
+    return _ist(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
 
 
 def _as_time(value: Any, fallback: time) -> time:
@@ -189,7 +208,7 @@ class GapCarryPaper:
             lot_size=lot,
             lots=int(self.config.lots),
             signal=signal,
-            entry_timestamp=entry_ts,
+            entry_timestamp=_ist(entry_ts),
             entry_spot=spot,
             entry_premium=float(premium),
         )
@@ -281,7 +300,7 @@ class GapCarryPaper:
         priced: bool,
         status: str = CLOSED,
     ) -> None:
-        pos.exit_timestamp = when
+        pos.exit_timestamp = _ist(when)
         pos.exit_spot = float(self.last_index_close or pos.entry_spot)
         pos.exit_premium = float(premium)
         pos.exit_reason = reason

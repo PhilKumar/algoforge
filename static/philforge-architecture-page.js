@@ -265,10 +265,8 @@
               --surface-3:#e5edf5; --line:rgba(38,65,93,.16); --line-strong:rgba(38,65,93,.28);
               --text:#182436; --muted:#596a7f; --dim:#596a7f;
             }
-            .reader-shell { width: calc(100% - 28px); }
+            .reader-shell { --reader-sticky-top: 112px; width: calc(100% - 28px); }
             .document-hero { min-height: 320px; }
-            .document-rail { top: 112px; }
-            .rail-sticky { max-height: calc(100vh - 132px); }
             .doc-section, .doc-section h3.doc-subheading { scroll-margin-top: 112px; }
             :host-context(html[data-theme="light"]) .reader-toolbar,
             :host-context(html[data-theme="light"]) .doc-section { background: rgba(250,252,254,.86); }
