@@ -171,6 +171,11 @@ async function openCascadePage(page: Page, backtestBody: object, paperStatus?: o
 
 async function openFibPanel(page: Page, backtestBody: object) {
   await openCascadePage(page, backtestBody);
+  // Gap Carry leads the strip now (Phil, 2026-08-25), so Fib Boundary is no
+  // longer the panel the page opens on. This used to lean on it being the
+  // default and clicked straight into a hidden panel.
+  await page.click('#oc-tabbtn-fib');
+  await expect(page.locator('#oc-tab-fib')).toBeVisible();
   // The pf-calendar overlay marks the input readonly; the backtest reads its
   // .value, so set it the way the picker would.
   await page.evaluate(() => {
