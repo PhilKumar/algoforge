@@ -650,8 +650,6 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
     <circle cx="744" cy="584" r="24" fill="rgba(255,233,163,.18)"/>
   </g>
 </svg>
-<video id="scene-video-day" class="scene-video" data-src="/static/sanctuary/shore-day.mp4" muted playsinline preload="none"></video>
-<video id="scene-video-night" class="scene-video" data-src="/static/sanctuary/shore-night.mp4" muted playsinline preload="none"></video>
 </div>
 <div id="veil"></div>
 
@@ -904,39 +902,67 @@ function modal(innerHtml){
   return wrap;
 }
 
-/* ═══ film layer: photoreal shore behind the drawn one, when the clips exist ═══ */
+/* ═══ film layer: photoreal shore behind the drawn one, when the clips exist ═══
+   Each theme has one clip. The loop is a self-crossfade: a second copy of the
+   same clip fades in over the last second of the playing one, so the seam
+   between takes dissolves instead of popping. If a clip 404s the theme is
+   marked dead and the drawn shore carries the page alone. */
+const SCENE_FILM_V = "veo-20260825";  /* bump when a clip is replaced — busts the week-long cache */
+const SCENE_FILM = {
+  light: "/static/sanctuary/shore-day.mp4?v=" + SCENE_FILM_V,
+  dark: "/static/sanctuary/shore-night.mp4?v=" + SCENE_FILM_V,
+};
+const _film = {theme: null, el: null, dead: {}};
+
+function _filmSpawn(theme){
+  const el = document.createElement("video");
+  el.muted = true; el.playsInline = true; el.preload = "auto";
+  el.className = "scene-video";
+  el.addEventListener("error", () => {
+    _film.dead[theme] = true;
+    el.remove();
+    if (_film.el === el) _film.el = null;
+  }, {once: true});
+  el.addEventListener("canplay", () => {
+    el.classList.add("live");
+    const p = el.play(); if (p && p.catch) p.catch(() => {});
+  }, {once: true});
+  el.addEventListener("timeupdate", () => {
+    if (el._reborn || !el.duration || _film.el !== el || document.hidden) return;
+    if (el.duration - el.currentTime < 1.1){ el._reborn = true; _filmRenew(theme, el); }
+  });
+  el.src = SCENE_FILM[theme];
+  document.getElementById("scene").appendChild(el);
+  return el;
+}
+function _filmRetire(old){
+  setTimeout(() => old.classList.remove("live"), 600);
+  setTimeout(() => old.remove(), 2400);
+}
+function _filmRenew(theme, old){
+  _film.el = _filmSpawn(theme);
+  _filmRetire(old);
+}
 function sceneVideoSync(){
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   if (navigator.connection && navigator.connection.saveData) return;
-  const dark = document.documentElement.dataset.theme === "dark";
-  const show = document.getElementById(dark ? "scene-video-night" : "scene-video-day");
-  const hide = document.getElementById(dark ? "scene-video-day" : "scene-video-night");
-  if (hide){ hide.classList.remove("live"); if (hide.pause) hide.pause(); }
-  if (!show) return;  /* clip missing or failed — the drawn shore carries the day */
-  if (!show.dataset.tried){
-    show.dataset.tried = "1";
-    show.addEventListener("canplay", () => {
-      show.classList.add("live");
-      const p = show.play(); if (p && p.catch) p.catch(() => {});
-    }, {once: true});
-    show.addEventListener("error", () => show.remove(), {once: true});
-    show.addEventListener("ended", () => {  /* loop attr needs seekable ranges; this doesn't */
-      show.currentTime = 0;
-      const p = show.play(); if (p && p.catch) p.catch(() => {});
-    });
-    show.src = show.dataset.src;
-  } else if (show.readyState >= 3) {
-    show.classList.add("live");
+  const theme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  if (_film.theme === theme && _film.el){
+    if (_film.el.ended){ const old = _film.el; old._reborn = true; _filmRenew(theme, old); }
+    else { const p = _film.el.play(); if (p && p.catch) p.catch(() => {}); }
+    return;
   }
-  const played = show.play();
-  if (played && played.catch) played.catch(() => {});
-  if (!window._sceneVideoKick){
-    window._sceneVideoKick = true;  /* strict autoplay engines wait for one touch */
-    document.addEventListener("pointerdown", () => sceneVideoSync(), {once: true});
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) sceneVideoSync();  /* resume when the tab returns */
-    });
-  }
+  _film.theme = theme;
+  if (_film.el){ _filmRetire(_film.el); _film.el = null; }
+  if (_film.dead[theme]) return;
+  _film.el = _filmSpawn(theme);
+}
+if (!window._sceneVideoKick){
+  window._sceneVideoKick = true;  /* strict autoplay engines wait for one touch */
+  document.addEventListener("pointerdown", () => sceneVideoSync(), {once: true});
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) sceneVideoSync();  /* resume when the tab returns */
+  });
 }
 
 /* ═══════════ theme ═══════════ */
