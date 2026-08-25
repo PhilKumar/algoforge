@@ -2504,7 +2504,13 @@ function _renderCandleEntryStatus(payload) {
   const endedAt = campaign.exit && campaign.exit.timestamp ? new Date(campaign.exit.timestamp) : null;
   const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const endedToday = endedAt && endedAt.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayIST;
-  const showMonitor = running || endedToday;
+  // A CAMPAIGN THAT SETTLED ON AN EARLIER DAY STILL HAS MONEY TO SHOW. Gating
+  // on `endedToday` alone hid the whole monitor the next morning, taking the
+  // closed rounds with it, so a finished paper trade was only ever visible on
+  // the day it closed (Phil, 2026-08-25: "The closed paper trades are not
+  // displayed"). Gap Carry already keeps its table up on `history.length`.
+  const closedRounds = Array.isArray(campaign.rounds) ? campaign.rounds : [];
+  const showMonitor = running || endedToday || closedRounds.length > 0;
   if (summary) {
     const c = campaign.contract || {};
     // The dead signal-only engine left campaigns with no prices; they say so
@@ -2676,6 +2682,7 @@ function _renderCandleEntryMonitor(campaign) {
   // "refreshed" clock said the same minute as "marked" nearly always, and the
   // date repeats the kicker -- both dropped.
   if (updated) updated.textContent = `${_cascadeOptionsTimestamp(latest.timestamp).slice(11, 16)} · ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''}`;
+  _renderCandleEntryClosedRounds(campaign);
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
@@ -2799,6 +2806,32 @@ async function setCandleEntryAuto(_event, button) {
   } finally {
     _candleEntryAutoPosting = false;
   }
+}
+
+function _renderCandleEntryClosedRounds(campaign) {
+  const wrap = _cascadeOptionsEl('candle-entry-closed-wrap');
+  const body = _cascadeOptionsEl('candle-entry-closed-rounds');
+  const count = _cascadeOptionsEl('candle-entry-closed-count');
+  if (!wrap || !body) return;
+  const rounds = Array.isArray(campaign && campaign.rounds) ? campaign.rounds : [];
+  wrap.hidden = !rounds.length;
+  if (!rounds.length) { body.innerHTML = ''; return; }
+  if (count) count.textContent = `· ${rounds.length}`;
+  body.innerHTML = rounds.slice().reverse().map(round => {
+    const net = round.net_pnl == null ? null : Number(round.net_pnl);
+    const tone = net == null ? 'var(--muted)' : _candleEntryPnlTone(net);
+    const costs = round.costs && round.costs.total != null ? `₹${_cascadeNumber(round.costs.total)}` : '—';
+    return `<tr>`
+      + `<td>${escapeHtml(String(round.round_id ?? round.round ?? ''))}</td>`
+      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.opened_at).slice(5, 16))}</td>`
+      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.closed_at).slice(5, 16))}</td>`
+      + `<td>${round.exit_index_price == null ? '—' : escapeHtml(_cascadeNumber(round.exit_index_price))}</td>`
+      + `<td>${round.exit_option_premium == null ? '—' : `₹${escapeHtml(_cascadeNumber(round.exit_option_premium))}`}</td>`
+      + `<td class="candle-entry-muted">${escapeHtml(String(round.exit_reason || '—'))}</td>`
+      + `<td class="candle-entry-muted">${costs}</td>`
+      + `<td style="color:${tone};">${net == null ? 'unpriced' : escapeHtml(_candleEntrySigned(net))}</td>`
+      + `</tr>`;
+  }).join('');
 }
 
 function _renderCandleEntryAuto(auto) {
@@ -4063,7 +4096,7 @@ async function refreshGapCarryStatus() {
   }
 }
 
-const _OC_TABS = ['fib', 'candle', 'recovery', 'gapcarry', 'bench'];
+const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'bench'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -4111,8 +4144,8 @@ function initInsightsPage() {
 }
 
 function showOptionsCascadeTab(event, el) {
-  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
-  const tab = _OC_TABS.includes(requested) ? requested : 'fib';
+  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'gapcarry';
+  const tab = _OC_TABS.includes(requested) ? requested : 'gapcarry';
   _setLocalState(PF_VIEW_STATE.optionsCascadeTab, tab);
   document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-oc-tab') === tab;
@@ -4327,7 +4360,7 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'fib');
+  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'gapcarry');
   showOptionsCascadeTab(null, {
     getAttribute: (name) => (name === 'data-oc-tab' ? rememberedTab : null),
   });
@@ -20058,15 +20091,18 @@ function renderRecovery(data) {
   if (startBtn) startBtn.style.display = running ? 'none' : '';
   if (stopBtn) stopBtn.style.display = running ? '' : 'none';
 
-  if (!running) {
+  // A STOPPED RUN STILL HAS A BOOK. Returning here threw the campaigns and
+  // every closed trade off the screen the moment Stop was pressed, so settled
+  // paper money was only ever visible while the loop happened to be running
+  // (Phil, 2026-08-25: "The closed paper trades are not displayed").
+  const book = (data && data.book) || {};
+  const campaigns = book.campaigns || [];
+  if (!running && !campaigns.length) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
     return;
   }
-
-  const book = data.book || {};
-  const campaigns = book.campaigns || [];
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
   const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
   const tile = (label, value, colour) =>

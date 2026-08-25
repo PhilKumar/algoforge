@@ -32,7 +32,7 @@ def test_top_level_page_and_nested_views_use_ui_only_local_state():
 
 
 def test_options_insights_assets_and_journal_restore_validated_choices():
-    assert "_storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'fib')" in APP_JS
+    assert "_storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'gapcarry')" in APP_JS
     assert "_storedView(PF_VIEW_STATE.insightsTab, _INSIGHTS_TABS, 'heatmap')" in APP_JS
     assert "_storedView(PF_VIEW_STATE.architectureView" in APP_JS
     assert "_storedView(PF_VIEW_STATE.journalPanel, ['journal', 'plan'], 'journal')" in APP_JS
@@ -54,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260824-blueprint-current-1" in MANIFEST
+    assert "20260825-strategy-order-closed-rounds-1" in MANIFEST
