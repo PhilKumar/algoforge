@@ -390,6 +390,51 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .preview-table{max-height:300px;overflow:auto;border:1px solid var(--line-soft);border-radius:12px;margin-top:12px}
 .warn-line{color:var(--terracotta);font-size:.88rem;margin-top:8px}
 
+
+/* ── dates: our own calendar, never the browser's ─────────── */
+.cal-native{display:none!important}
+.cal-face{display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;font-weight:600}
+.cal-face:hover{border-color:var(--moss)}
+.cal-face .cal-ico{margin-left:auto;flex:none;opacity:.55}
+.cal-face:hover .cal-ico{opacity:1;color:var(--moss)}
+.cal-face.empty .cal-txt{color:var(--soft);font-weight:500}
+.cal-pop{position:fixed;z-index:120;width:300px;padding:16px;border-radius:20px;
+  background:var(--card);border:1px solid var(--line-soft);box-shadow:var(--shadow-lift);
+  backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3)}
+.cal-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.cal-title{flex:1;text-align:center;font-family:var(--serif);font-weight:650;font-size:1.05rem;
+  padding:5px 8px;border-radius:10px}
+button.cal-title:hover{background:var(--moss-wash);color:var(--moss)}
+.cal-nav{width:32px;height:32px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--moss);border:1px solid var(--line-soft);font-size:1.1rem;line-height:1}
+.cal-nav:hover{background:var(--moss-wash)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-dow{font-size:.68rem;font-weight:800;letter-spacing:.06em;color:var(--soft);text-align:center;padding:4px 0}
+.cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:11px;
+  font-size:.86rem;font-weight:700;color:var(--ink);transition:background .12s ease}
+.cal-day:hover{background:var(--moss-wash);color:var(--moss)}
+.cal-day.out{color:var(--soft);opacity:.5;font-weight:600}
+.cal-day.today{box-shadow:inset 0 0 0 1.5px var(--moss);color:var(--moss)}
+.cal-day.sel,.cal-mon.sel{background:var(--moss);color:#f8fbf7}
+.cal-day.sel:hover,.cal-mon.sel:hover{background:var(--moss);color:#f8fbf7}
+html[data-theme="dark"] .cal-day.sel,html[data-theme="dark"] .cal-mon.sel{color:#0c1524}
+html[data-theme="dark"] .cal-day.sel:hover,html[data-theme="dark"] .cal-mon.sel:hover{color:#0c1524}
+.cal-months{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.cal-mon{padding:12px 0;border-radius:12px;font-weight:700;font-size:.86rem;text-align:center;color:var(--ink)}
+.cal-mon:hover{background:var(--moss-wash);color:var(--moss)}
+.cal-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;
+  border-top:1px solid var(--line-soft)}
+.cal-link{font-weight:800;font-size:.84rem;color:var(--moss);padding:5px 10px;border-radius:9px}
+.cal-link:hover{background:var(--moss-wash)}
+
+/* native controls that remain (selects, scrollbars, file pickers) follow the theme */
+:root{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
+.field[type="file"]{padding:8px 10px;cursor:pointer}
+.field[type="file"]::file-selector-button{font:inherit;font-weight:700;margin-right:12px;padding:7px 15px;
+  border-radius:999px;border:1px solid var(--line-soft);background:var(--card-2);color:var(--ink);cursor:pointer}
+.field[type="file"]::file-selector-button:hover{border-color:var(--moss);color:var(--moss)}
+
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width:860px){
   .daily{grid-template-columns:1fr}
@@ -904,6 +949,169 @@ function modal(innerHtml){
   document.body.appendChild(wrap);
   return wrap;
 }
+
+/* ═══ dates: our own calendar, never the browser's ═══
+   Every date/month field keeps its original input as the value store — so
+   every `.value` read and write elsewhere still speaks ISO — and wears a
+   styled face that opens this picker. The value property is redefined on
+   the element so a programmatic set repaints the face too. */
+const CAL_DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const CAL_ICON = '<svg class="cal-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="5.5" width="17" height="15" rx="3"/><path d="M8 3.2v4.6M16 3.2v4.6M3.5 10.5h17" stroke-linecap="round"/></svg>';
+let _calPop = null;
+
+function calIso(y, m, d){
+  const dt = new Date(y, m, d);  /* Date normalises month/day overflow for us */
+  return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+}
+
+function calAttach(input){
+  if (input.dataset.calOn) return;
+  const type = input.getAttribute("type") === "month" ? "month" : "date";
+  const initial = input.value || "";
+  input.dataset.calOn = "1";
+  input.dataset.calType = type;
+
+  const face = document.createElement("button");
+  face.type = "button";
+  face.className = input.className + " cal-face";
+  face.style.cssText = input.style.cssText;
+  face.innerHTML = '<span class="cal-txt"></span>' + CAL_ICON;
+  input.classList.add("cal-native");
+  input.parentNode.insertBefore(face, input.nextSibling);
+
+  const paint = () => {
+    const v = input.dataset.calVal || "";
+    face.querySelector(".cal-txt").textContent = v
+      ? (type === "month" ? niceMonth(v) : niceDate(v))
+      : (type === "month" ? "Pick a month" : "Pick a date");
+    face.classList.toggle("empty", !v);
+  };
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get(){ return input.dataset.calVal || ""; },
+    set(v){ input.dataset.calVal = v || ""; paint(); },
+  });
+  input.value = initial;
+  face.addEventListener("click", (e) => { e.stopPropagation(); calOpen(input, face); });
+}
+
+function calScan(root){
+  (root || document).querySelectorAll('input[type="date"],input[type="month"]').forEach(calAttach);
+}
+
+function calClose(){
+  if (_calPop){ _calPop.remove(); _calPop = null; }
+}
+
+function calPlace(pop, face){
+  const r = face.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(Math.max(8, r.left), Math.max(8, innerWidth - w - 8));
+  let top = r.bottom + 8;
+  if (top + h > innerHeight - 8) top = r.top - h - 8;   /* no room below — sit above */
+  top = Math.min(Math.max(8, top), Math.max(8, innerHeight - h - 8));  /* never off-screen */
+  pop.style.left = left + "px";
+  pop.style.top = top + "px";
+}
+
+function calOpen(input, face){
+  const wasMine = _calPop && _calPop._face === face;
+  calClose();
+  if (wasMine) return;  /* second click on the same field closes it */
+
+  const type = input.dataset.calType;
+  const pop = document.createElement("div");
+  pop.className = "cal-pop";
+  pop._face = face;
+  const sel = input.value;
+  const anchor = sel ? new Date(sel.length === 7 ? sel + "-01" : sel) : istNow();
+  const state = {y: anchor.getFullYear(), m: anchor.getMonth(), mode: type === "month" ? "months" : "days"};
+
+  const commit = (v) => {
+    input.value = v;
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+    input.dispatchEvent(new Event("change", {bubbles: true}));
+    calClose();
+  };
+
+  const render = () => {
+    const today = isoToday();
+    const now = input.value;
+    let html = "";
+    if (state.mode === "days"){
+      const first = new Date(state.y, state.m, 1).getDay();
+      const dim = new Date(state.y, state.m + 1, 0).getDate();
+      const dimPrev = new Date(state.y, state.m, 0).getDate();
+      html += '<div class="cal-head"><button class="cal-nav" data-cal-nav="-1">‹</button>' +
+        '<button class="cal-title" data-cal-mode="months">' + MONTHS[state.m] + " " + state.y + "</button>" +
+        '<button class="cal-nav" data-cal-nav="1">›</button></div><div class="cal-grid">' +
+        CAL_DOW.map((d) => '<div class="cal-dow">' + d + "</div>").join("");
+      for (let i = first - 1; i >= 0; i--)
+        html += '<button class="cal-day out" data-cal-pick="' + calIso(state.y, state.m - 1, dimPrev - i) + '">' + (dimPrev - i) + "</button>";
+      for (let d = 1; d <= dim; d++){
+        const iso = calIso(state.y, state.m, d);
+        const cls = iso === now ? " sel" : (iso === today ? " today" : "");
+        html += '<button class="cal-day' + cls + '" data-cal-pick="' + iso + '">' + d + "</button>";
+      }
+      const tail = (7 - ((first + dim) % 7)) % 7;
+      for (let d = 1; d <= tail; d++)
+        html += '<button class="cal-day out" data-cal-pick="' + calIso(state.y, state.m + 1, d) + '">' + d + "</button>";
+      html += '</div><div class="cal-foot"><button class="cal-link" data-cal-clear>Clear</button>' +
+        '<button class="cal-link" data-cal-pick="' + today + '">Today</button></div>';
+    } else {
+      html += '<div class="cal-head"><button class="cal-nav" data-cal-nav="-1">‹</button>' +
+        '<div class="cal-title">' + state.y + "</div>" +
+        '<button class="cal-nav" data-cal-nav="1">›</button></div><div class="cal-months">';
+      for (let i = 0; i < 12; i++){
+        const key = state.y + "-" + String(i + 1).padStart(2, "0");
+        const isSel = type === "month" ? now === key : now.slice(0, 7) === key;
+        html += '<button class="cal-mon' + (isSel ? " sel" : "") + '" data-cal-month="' + i + '">' + MONTHS[i].slice(0, 3) + "</button>";
+      }
+      html += '</div><div class="cal-foot"><button class="cal-link" data-cal-clear>Clear</button>' +
+        '<button class="cal-link" data-cal-today>This month</button></div>';
+    }
+    pop.innerHTML = html;
+    calPlace(pop, face);
+  };
+
+  pop.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const nav = e.target.closest("[data-cal-nav]");
+    if (nav){
+      const step = Number(nav.dataset.calNav);
+      if (state.mode === "months") state.y += step;
+      else { const d = new Date(state.y, state.m + step, 1); state.y = d.getFullYear(); state.m = d.getMonth(); }
+      return render();
+    }
+    if (e.target.closest("[data-cal-mode]")){ state.mode = "months"; return render(); }
+    const mon = e.target.closest("[data-cal-month]");
+    if (mon){
+      const i = Number(mon.dataset.calMonth);
+      if (type === "month") return commit(state.y + "-" + String(i + 1).padStart(2, "0"));
+      state.m = i; state.mode = "days"; return render();
+    }
+    if (e.target.closest("[data-cal-today]")) return commit(isoToday().slice(0, 7));
+    if (e.target.closest("[data-cal-clear]")) return commit("");
+    const pick = e.target.closest("[data-cal-pick]");
+    if (pick) return commit(pick.dataset.calPick);
+  });
+
+  document.body.appendChild(pop);
+  _calPop = pop;
+  render();
+}
+
+document.addEventListener("pointerdown", (e) => { if (_calPop && !_calPop.contains(e.target)) calClose(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") calClose(); });
+addEventListener("scroll", () => { if (_calPop) calPlace(_calPop, _calPop._face); }, true);
+addEventListener("resize", () => { if (_calPop) calPlace(_calPop, _calPop._face); });
+/* modals and cards are built on the fly — catch their date fields as they land */
+new MutationObserver((records) => {
+  for (const rec of records)
+    for (const node of rec.addedNodes)
+      if (node.nodeType === 1) calScan(node.matches && node.matches("input") ? node.parentNode : node);
+}).observe(document.documentElement, {childList: true, subtree: true});
+calScan();
 
 /* ═══ film layer: photoreal shore behind the drawn one, when the clips exist ═══
    Each theme has one clip. The loop is a self-crossfade: a second copy of the
