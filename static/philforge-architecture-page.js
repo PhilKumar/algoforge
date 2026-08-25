@@ -268,8 +268,10 @@
             .reader-shell { --reader-sticky-top: 112px; width: calc(100% - 28px); }
             .document-hero { min-height: 320px; }
             .doc-section, .doc-section h3.doc-subheading { scroll-margin-top: 112px; }
-            :host-context(html[data-theme="light"]) .reader-toolbar,
             :host-context(html[data-theme="light"]) .doc-section { background: rgba(250,252,254,.86); }
+            /* The toolbar is the frozen bar the document slides under, so it is
+               opaque in both themes; the sections behind it stay translucent. */
+            :host-context(html[data-theme="light"]) .reader-toolbar { background: #fafcfe; }
             @media (max-width:760px) { .reader-shell { width: calc(100% - 18px); } }
           </style>
           ${readerMarkup}`;

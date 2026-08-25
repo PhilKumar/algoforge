@@ -2706,6 +2706,21 @@
     z-index: 40;
     overflow: visible;
   }
+
+  /* THE BLUEPRINT'S FROZEN TOP. Phil, 2026-08-25: "The scroll is going under
+     the search bar... I want everything above search bar including the search
+     bar to be freeze while scrolling down". Only the blueprint reader asks for
+     a pinned header -- every other page keeps its 156px of header scrolling
+     away -- so this is scoped to the class the reader turns on. The background
+     must be OPAQUE: the document passes directly beneath it. */
+  body.pf-blueprint-open .header-shell {
+    position: sticky;
+    top: 0;
+    margin-bottom: 0;
+    padding-bottom: 12px;
+    background: var(--bg);
+    box-shadow: 0 10px 24px rgba(2, 6, 14, 0.28);
+  }
   .header-brand-panel {
     position: absolute;
     top: 0;

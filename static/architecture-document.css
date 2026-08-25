@@ -110,10 +110,12 @@ h1 { max-width: 850px; margin: 0; font-size: clamp(38px, 5vw, 64px); line-height
   gap: 20px;
   border: 1px solid var(--line);
   border-radius: 13px;
-  background: rgba(12,19,32,.97);
+  /* OPAQUE, not nearly-opaque: the document scrolls directly under this bar,
+     and at .97 its text was still legible through it (Phil, 2026-08-25). */
+  background: #0c1320;
   box-shadow: 0 10px 24px rgba(2,6,14,.24);
 }
-html[data-theme="light"] .reader-toolbar { background: rgba(250,252,254,.86); }
+html[data-theme="light"] .reader-toolbar { background: #fafcfe; }
 .document-search { width: min(520px, 100%); min-height: 48px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
 .document-search svg { width: 18px; fill: none; stroke: var(--dim); stroke-width: 1.7; }.document-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 14px; }.document-search input::placeholder { color: var(--dim); }
 kbd { padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--muted); background: var(--surface); font: 500 10px var(--mono); }

@@ -1651,6 +1651,49 @@ let _architectureView = _storedView(
   'overview'
 );
 
+let _blueprintHeaderResize = null;
+
+// THE BLUEPRINT'S FROZEN TOP. Phil, 2026-08-25: "The scroll is going under the
+// search bar... I want everything above search bar including the search bar to
+// be freeze while scrolling down". The reader's toolbar already pinned itself
+// 112px down the viewport, as though a frozen header stood there -- but the app
+// header scrolled away, so that band was empty and the document scrolled
+// through it in plain sight. The header is now frozen for the blueprint alone,
+// and the bar is pinned to the header's MEASURED height instead of a guess.
+function _syncBlueprintStickyOffset() {
+  const header = document.querySelector('.header-shell');
+  const reader = document.getElementById('architecture-reader-view');
+  const shell = reader?.shadowRoot?.querySelector('.reader-shell');
+  if (!header || !reader || !shell) return;
+  const rect = header.getBoundingClientRect();
+  const below = parseFloat(window.getComputedStyle(header).marginBottom) || 0;
+  // CEIL, not round: the header's height is fractional, and rounding DOWN
+  // leaves the bar a pixel below the header's edge -- a hairline seam the
+  // document can be seen sliding through.
+  const offset = Math.max(0, Math.ceil(rect.height + below));
+  // Inline, and on the shell INSIDE the shadow root: the shadow stylesheet sets
+  // --reader-sticky-top on .reader-shell itself, so a value merely inherited
+  // from the host would lose to it. An inline property wins.
+  shell.style.setProperty('--reader-sticky-top', `${offset}px`);
+  reader.style.setProperty('--reader-sticky-top', `${offset}px`);
+}
+
+function _setBlueprintFrozenHeader(on) {
+  document.body.classList.toggle('pf-blueprint-open', !!on);
+  if (!on) {
+    if (_blueprintHeaderResize) {
+      window.removeEventListener('resize', _blueprintHeaderResize);
+      _blueprintHeaderResize = null;
+    }
+    return;
+  }
+  _syncBlueprintStickyOffset();
+  if (!_blueprintHeaderResize) {
+    _blueprintHeaderResize = () => _syncBlueprintStickyOffset();
+    window.addEventListener('resize', _blueprintHeaderResize);
+  }
+}
+
 function initArchitecturePage(requestedView = null) {
   const storedView = _storedView(PF_VIEW_STATE.architectureView, Array.from(ARCHITECTURE_VIEWS), 'overview');
   const view = ARCHITECTURE_VIEWS.has(requestedView) ? requestedView : storedView;
@@ -1694,6 +1737,8 @@ function initArchitecturePage(requestedView = null) {
     _watchAssetsTearsheetTheme();
   }
 
+  _setBlueprintFrozenHeader(isBlueprint);
+
   if (isBlueprint) {
     if (readerStatus) readerStatus.textContent = `Loading ${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint…`;
     documentReader.addEventListener('architecture-document-ready', () => {
@@ -1701,6 +1746,8 @@ function initArchitecturePage(requestedView = null) {
     }, { once: true });
     documentReader.load?.(view).then?.(() => {
       if (readerStatus) readerStatus.textContent = `${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint ready.`;
+      // The shell is re-rendered per platform, so re-apply the measured offset.
+      _syncBlueprintStickyOffset();
     });
   }
 }
@@ -2129,6 +2176,9 @@ async function applyNavState(state) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
   if (page === 'assets-page') initArchitecturePage(state?.architectureView || null);
+  // Leaving the blueprint by any other route must give the header back: the
+  // frozen top belongs to that one page, and nothing else re-runs the init.
+  else _setBlueprintFrozenHeader(false);
 }
 
 document.addEventListener('architecture-view-change', (event) => {
@@ -2226,6 +2276,7 @@ function showPage(id, btn, options = {}) {
     ensurePortfolioLoaded();
   }
   if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || null);
+  else _setBlueprintFrozenHeader(false);
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();
