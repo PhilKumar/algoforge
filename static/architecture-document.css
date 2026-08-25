@@ -71,6 +71,25 @@ h1 { max-width: 850px; margin: 0; font-size: clamp(38px, 5vw, 64px); line-height
 .sigil-ring { position: absolute; border: 1px solid var(--line); border-radius: 50%; }.ring-one { width: 250px; height: 250px; }.ring-two { width: 205px; height: 120px; transform: rotate(-24deg); border-color: rgba(var(--accent-rgb),.26); }.ring-three { width: 138px; height: 138px; border-color: rgba(var(--accent-rgb),.34); }
 .sigil-core { width: 82px; height: 82px; display: grid; place-items: center; border: 1px solid rgba(var(--accent-rgb),.42); border-radius: 50%; background: rgba(var(--accent-rgb),.1); color: var(--accent); font: 600 15px var(--mono); box-shadow: 0 0 50px rgba(var(--accent-rgb),.09); }
 .sigil-label { position: absolute; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font: 500 7px var(--mono); letter-spacing: .12em; }.label-one { right: 4px; top: 56px; }.label-two { left: 12px; bottom: 52px; }
+/* Three bodies, three distinct orbits. The circular rings can rotate as a
+   whole; the elliptical body's motion path lives inside the deliberately
+   tilted middle ring, so that ring keeps its -24 degree geometry. */
+@keyframes sigil-orbit-cw { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes sigil-orbit-ccw { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes sigil-orbit-ellipse { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+.ring-one { animation: sigil-orbit-cw 32s linear infinite; }
+.ring-three { animation: sigil-orbit-ccw 17s linear infinite; }
+.ring-one::after, .ring-two::after, .ring-three::after {
+  content: ''; position: absolute; left: 50%; border-radius: 50%; background: var(--accent);
+}
+.ring-one::after { width: 7px; height: 7px; top: -4px; margin-left: -3.5px; box-shadow: 0 0 10px 2px rgba(var(--accent-rgb),.45); opacity: .85; }
+.ring-three::after { width: 5px; height: 5px; top: -3px; margin-left: -2.5px; box-shadow: 0 0 8px 1px rgba(var(--accent-rgb),.55); }
+.ring-two::after {
+  width: 6px; height: 6px; left: 0; top: 0;
+  offset-path: ellipse(50% 50% at 50% 50%); offset-distance: 0%; offset-rotate: 0deg;
+  animation: sigil-orbit-ellipse 24s linear infinite;
+  box-shadow: 0 0 9px 1px rgba(var(--accent-rgb),.5); opacity: .92;
+}
 
 .reader-toolbar { min-height: 74px; margin: 24px 0; padding: 11px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid var(--line); border-radius: 13px; background: rgba(12,19,32,.82); }
 html[data-theme="light"] .reader-toolbar { background: rgba(250,252,254,.86); }
@@ -160,4 +179,4 @@ body.is-embedded .doc-section h3.doc-subheading { scroll-margin-top: 18px; }
   :root { --bg:#fff;--surface:#fff;--surface-2:#f3f5f8;--text:#172033;--muted:#4b596d;--line:#d5dbe4; }
   body { background:#fff; }.reader-header,.reader-toolbar,.document-rail,.reading-progress,.chapter-gate,footer,.system-sigil{display:none!important}.reader-shell{width:100%;}.document-hero{min-height:auto;grid-template-columns:1fr}.hero-copy{padding:24px 0}.reader-layout{display:block}.document-body{display:block}.doc-section{break-inside:avoid;margin:0 0 14px;background:#fff;box-shadow:none}.doc-table-wrap{break-inside:avoid}.doc-section a{color:#172033;text-decoration:none}
 }
-@media (prefers-reduced-motion: reduce) { html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important} }
+@media (prefers-reduced-motion: reduce) { html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.ring-one,.ring-three,.ring-two::after{animation:none!important} }

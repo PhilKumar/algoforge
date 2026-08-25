@@ -1,8 +1,10 @@
 # PhilForge Product Architecture and System Blueprint
 
 **Document status:** Complete production architecture reference
-**Architecture snapshot date:** 14 August 2026
-**Source baseline:** PhilForge `4507357`
+**Architecture snapshot date:** 24 August 2026
+**Original blueprint date:** 14 August 2026
+**Source baseline:** PhilForge `29c94c5`
+**Revision scope:** Production changes since the original blueprint
 **Audience:** Product owners, developers, operators, security reviewers, support staff, and future architects
 
 This is the independent architecture document for PhilForge. It describes only the Indian equities and options platform. Shared hosting comparisons belong in the separate [estate overview](./cryptoforge-philforge-product-architecture-system-blueprint.md).
@@ -13,7 +15,7 @@ This is the independent architecture document for PhilForge. It describes only t
 
 ## 1.1 Product mission
 
-PhilForge is an Indian-market research, backtesting, paper-trading, selected live-trading, and portfolio platform. It supports NSE indices, cash equities, ETFs, index options, and stock options. Its strategy families include the visual Strategy Builder, Scalp, options and cash Cascade, Candle Entry recovery, Fib Boundary, Fib Space, Two Red equity, backtests, journals, and portfolio analytics.
+PhilForge is an Indian-market research, backtesting, paper-trading, selected live-trading, and portfolio platform. It supports NSE indices, cash equities, ETFs, index options, and stock options. Its strategy families include the visual Strategy Builder, Scalp, options and cash Cascade, Fib Boundary, Candle Entry, Gap Carry, Fib Space, Recovery, Two Red equity, backtests, journals, and portfolio analytics.
 
 The platform is multi-user. Each user has an account, strategies, run history, journals, selected broker credentials, and user-owned runtime state. Admin users can manage accounts and inspect engine summaries, but normal database and WebSocket paths remain scoped to the owning user.
 
@@ -119,7 +121,8 @@ The platform must not replace a missing premium with zero or infer it from the i
 | Scalp | Fast option entry, target, stop, and exit monitor | Paper and selected live paths |
 | Options Cascade | Mother-candle and fib campaign using a fixed option contract | Paper first; live gates remain explicit |
 | Cash Cascade | Trade equity/ETF ladders from cash-market geometry | Paper workflow in the current terminal path |
-| Candle Entry Recovery | Re-enter after defined stop behavior and carry recovery debt | Paper-only paths described by the engine |
+| Candle Entry | Operate the two-red box ladder from a manual or automatic mother | Backtest and paper; automatic market-session host |
+| Gap Carry | Enter the measured late-session option campaign and exit in the next session | Backtest and paper; manual or automatic host |
 | Fib Boundary | Build and monitor multi-symbol fib touch ladders | Paper by default; live exit safety is separately gated |
 | Fib Space | Monitor structured fib-space campaigns | Paper |
 | Two Red Equity | Find mothers and operate equity campaign ladders | Paper |
@@ -178,7 +181,7 @@ The protected request sends that token once. SQLite consumes it atomically, so r
 | Standby start | Start new code on the unused port with engine restore disabled |
 | Standby health | Verify imports, database, and `/api/health` before ownership moves |
 | State save | Ask the old active worker to persist engine state |
-| Ownership handover | Stop the old worker, mark the new port active, then restore engines on the new worker |
+| Ownership handover | Stop the old worker, mark the new port active, restore engines, start automatic strategy mothers, and wake the Journal chart job on the new worker |
 | Traffic cutover | Validate Nginx and move public traffic only after engine ownership is live |
 | Boot ownership | Enable the active systemd instance and disable the old port |
 | Post-cutover | Re-run migration checks, health check, and verified backup job |
@@ -196,6 +199,8 @@ The PhilForge systemd service binds to loopback, starts memory pressure at 300 M
 7. Off-session loops reduce unnecessary broker calls and rate-limit pressure.
 8. Engine recovery skips stale or unsafe live state that requires manual broker reconciliation.
 9. systemd restarts the failed PhilForge service without deliberately restarting CryptoForge.
+10. The deploy gate refuses a normal cutover during the NSE session while a current strategy engine is running.
+11. Expired local backup archives are pruned before the free-space reserve is enforced, so stale backups cannot prevent their own replacement.
 
 ## 1.10 Architecture invariants
 
@@ -225,6 +230,23 @@ The PhilForge systemd service binds to loopback, starts memory pressure at 300 M
 | Front end | `strategy.html`, standalone HTML pages, and `static/` |
 | Deployment and backup | `deploy/`, `scripts/backup_philforge.py`, `.github/workflows/` |
 
+## 1.12 Production changes since the original blueprint
+
+The 14 August document was the first complete architecture snapshot. This revision folds in the production work completed after that document was created; the table is an architecture change register, not a substitute for the detailed chapters that follow.
+
+| Area | Production change now reflected | Primary evidence |
+|---|---|---|
+| Trading workspace | Cascade is the first/default desk; Scalp, Cascade, and Equity retain the last selected page and subview; Scalp uses compact panels with exit rules under Advanced | `static/philforge-app.js`, `static/philforge-app.css`, `strategy.html` |
+| Workspace appearance | PhilForge skins now share CryptoForge's palette discipline across panels, text, headings, navigation, semantic values, light mode, and PWA layouts without recolouring the logo | `static/philforge-theme.js`, `static/philforge-app.css` |
+| Fib Boundary | Manual and 09:15 automatic mothers share the measured ladder, persisted settings, charts, saved replay, and a current repository-generated tearsheet | `engine/fib_touch_ladder.py`, Fib Boundary routes in `app.py`, `docs/assets/fib-boundary-tearsheet.html` |
+| Candle Entry | Manual and automatic box mothers use the same backtest/paper engine, current-session monitor, restart-safe state, campaign chart, saved replay, and tearsheet evidence | `engine/candle_ladder.py`, `engine/candle_entry_offline.py`, Candle Entry routes in `app.py`, `docs/assets/candle-entry-tearsheet.html` |
+| Gap Carry | The late-session-to-next-session campaign now has manual/auto controls, paper lifecycle, backtest, campaign chart, exports, and a full tearsheet | `engine/gap_carry.py`, Gap Carry routes in `app.py`, `docs/assets/gap-carry-tearsheet.html` |
+| Chart interaction | Specialist charts use native OHLC, consistent full-chart dialogs, stable polling refresh, and phone-safe pan, pinch, zoom, and reset controls | chart renderers in `static/philforge-app.js`, chart UI tests |
+| Evidence library | Assets now opens the five-year, Fib Boundary, Candle Entry, and Gap Carry tearsheets beside both repository-backed architecture blueprints | `static/philforge-architecture-page.js`, `docs/assets/`, `tools/tearsheet/` |
+| Journal automation | After market hours the system creates missing three-session NIFTY and SENSEX 5-minute charts with CPR, EMA20, and gap completion; both indices are stored in the existing date folder and generated duplicate folders are consolidated safely | `journal_charts.py`, Journal chart scheduler and routes in `app.py` |
+| Deployment continuity | Blue-green cutover is session guarded; the active handover restarts automatic strategy mothers and wakes Journal consolidation immediately; backups prune expired archives before disk checks | `deploy/cd-deploy.sh`, `/api/restore-engines`, `scripts/backup_philforge.py` |
+| View continuity | Refresh restores the last page, Trading desk, strategy subview, Assets view, tearsheet, Journal panel, Live engine, and Fib Boundary mother mode | `PF_VIEW_STATE` in `static/philforge-app.js` |
+
 ---
 
 **PhilForge Chapter 1 is complete.**
@@ -241,7 +263,7 @@ PhilForge has public story pages, a private single-page terminal, private standa
 - Private terminal → `/app` → Dashboard, Portfolio, Insights, Live, Equity, Scalp, Cascade, Builder, Journal, Results, and Architecture.
 - Insights → Heatmap and Study Lounge tabs.
 - Equity → Cash Cascade scanner/campaign, Two Red equity, manual order, GTT, and Forever-order views.
-- Cascade → Fib Boundary, Candle Entry, Fib Space, Recovery, and Test Bench.
+- Cascade → Fib Boundary, Candle Entry, Gap Carry, Fib Space, Recovery, and Test Bench.
 - Journal → chart library, dated journal, and financial plan.
 - Standalone private tools → `/charts-viewer`, `/market-movers`, `/study-lounge`, and `/architecture`.
 - Architecture → `/architecture/cryptoforge` and `/architecture/philforge`; trusted content comes from `/architecture/content/{platform}`.
@@ -260,7 +282,7 @@ PhilForge has public story pages, a private single-page terminal, private standa
 | `/app` → Live | Authenticated | Standard live and paper engine monitors |
 | `/app` → Equity | Authenticated | Cash-market terminal, Cascade, Two Red, manual order, GTT, and Forever orders |
 | `/app` → Scalp | Authenticated | Option scalp setup, active trades, charts, exits, and history |
-| `/app` → Cascade | Authenticated | Fib Boundary, Candle Entry, Fib Space, Recovery, and Test Bench workspaces |
+| `/app` → Cascade | Authenticated | Fib Boundary, Candle Entry, Gap Carry, Fib Space, Recovery, and Test Bench workspaces |
 | `/app` → Builder | Authenticated | Strategy construction, validation, backtest, save, and deployment |
 | `/app` → Journal | Authenticated | Chart library, daily journal, and financial plan |
 | `/app` → Results | Authenticated | Saved run archive, analytics, comparison, export, and cleanup |
@@ -277,7 +299,7 @@ PhilForge has public story pages, a private single-page terminal, private standa
 |---|---|---|
 | Static identity | `GET /logo.jpg`; `GET /logo.png`; `GET /favicon.ico`; `GET /apple-touch-icon.png`; `GET /manifest.webmanifest`; `GET /site.webmanifest`; `GET /sw.js` | Serve the product identity and PWA shell |
 | Search policy | `GET /robots.txt`; `GET /sitemap.xml` | Allow public story discovery while excluding private terminal routes |
-| Study and charts | `GET /study-assets/{asset_path:path}`; `GET /api/study-library`; `GET /api/charts/tree`; `GET /api/charts/images/{year}/{month}/{day}`; `GET /charts-static/{year}/{month}/{day}/{filename}`; `POST /api/upload-chart`; `DELETE /api/charts/delete/{year}/{month}/{day}/{filename}`; `PATCH /api/charts/rename/{year}/{month}/{day}/{filename}`; `PATCH /api/charts/rename-folder`; `POST /api/charts/create-folder`; `POST /api/charts/reorder` | Read and manage the user chart/study library |
+| Study and charts | `GET /study-assets/{asset_path:path}`; `GET /api/study-library`; `GET /api/charts/tree`; `GET /api/charts/daily-status`; `GET /api/charts/images/{year}/{month}/{day}`; `GET /charts-static/{year}/{month}/{day}/{filename}`; `POST /api/upload-chart`; `DELETE /api/charts/delete/{year}/{month}/{day}/{filename}`; `PATCH /api/charts/rename/{year}/{month}/{day}/{filename}`; `PATCH /api/charts/rename-folder`; `POST /api/charts/create-folder`; `POST /api/charts/reorder` | Read and manage the user chart/study library and report the after-market chart job |
 | Journal and plan | `GET /api/journal/list`; `GET /api/journal/{date_str}`; `PUT /api/journal/{date_str}`; `DELETE /api/journal/{date_str}`; `GET /api/financial-plan`; `PUT /api/financial-plan` | Store dated reflection and one user-owned financial plan |
 | Architecture | `GET /architecture`; `GET /architecture/docs/{platform}`; `GET /architecture/content/{platform}`; `GET /architecture/{platform}` | Render private, repository-backed visual architecture pages |
 | Authentication | `POST /api/auth/login`; `GET /api/auth/status`; `POST /api/auth/logout`; `POST /api/auth/mfa/enroll/start`; `POST /api/auth/mfa/enroll/verify`; `DELETE /api/auth/mfa`; `POST /api/auth/action-token` | Login, MFA lifecycle, logout, and one-use sensitive-action approval |
@@ -308,7 +330,8 @@ PhilForge has public story pages, a private single-page terminal, private standa
 |---|---|---|
 | Cascade backtest and replay | `POST /api/replay/export-ohlcv`; `POST /api/cascade/backtest` | Export normalized candles and replay Cascade with option-data integrity |
 | Options Cascade paper | `GET /api/cascade/paper/status`; `GET /api/cascade/paper/chart`; `POST /api/cascade/paper/start`; `POST /api/cascade/paper/stop`; `POST /api/cascade/paper/kill`; `DELETE /api/cascade/paper`; `GET /api/cascade/live-gate` | Own the fixed-contract paper campaign and expose the explicit live-readiness gate |
-| Candle Entry | `GET /api/candle-entry/paper/status`; `POST /api/candle-entry/paper/start`; `POST /api/candle-entry/paper/kill` | Run and close the candle-entry recovery ladder |
+| Candle Entry | `GET /api/candle-entry/paper/status`; `POST /api/candle-entry/paper/start`; `POST /api/candle-entry/paper/kill`; `GET /api/candle-entry/paper/chart`; `POST /api/candle-entry/backtest`; `GET /api/candle-entry/backtests/latest`; `POST /api/candle-entry/auto` | Backtest, run, chart, close, and automate the two-red box ladder |
+| Gap Carry | `GET /api/gap-carry/paper/status`; `POST /api/gap-carry/paper/start`; `POST /api/gap-carry/paper/kill`; `GET /api/gap-carry/paper/chart`; `POST /api/gap-carry/backtest`; `GET /api/gap-carry/backtests/latest`; `POST /api/gap-carry/auto` | Backtest, run, chart, close, and automate the late-session carry campaign |
 | Fib Boundary | `GET /api/fib-boundary/symbols`; `GET /api/fib-boundary/paper/status`; `POST /api/fib-boundary/paper/start`; `POST /api/fib-boundary/paper/arm`; `POST /api/fib-boundary/paper/kill`; `GET /api/fib-boundary/paper/chart`; `POST /api/fib-boundary/live/{symbol}/arm`; `POST /api/fib-boundary/live/{symbol}/kill`; `POST /api/fib-boundary/backtest`; `GET /api/fib-boundary/backtests`; `GET /api/fib-boundary/backtests/{run_id}/export.json`; `GET /api/fib-boundary/backtests/{run_id}/export.csv` | Build, test, monitor, arm, and close multi-symbol fib touch ladders |
 | Option archive | `GET /api/options/archive`; `GET /api/options/archive/export.csv` | Expose exact contract coverage and export its audit catalog |
 | Test Bench | `POST /api/test-bench/run`; `GET /api/test-bench/results`; `GET /api/test-bench/results/{run_id}`; `DELETE /api/test-bench/results/{run_id}` | Save repeatable historical mother-candle experiments |
@@ -570,7 +593,30 @@ Candle Entry routes own a user-scoped paper host. Historical replay can warm the
 3. Review each rung's timeframe, lots, stop, and fill state.
 4. Kill and close through the explicit route when required.
 
-## 4.12 Options Cascade — Fib Space
+## 4.12 Options Cascade — Gap Carry
+
+### Intent and wire
+
+Run the measured late-session option campaign from its afternoon signal into a controlled next-session exit without turning it into an unrelated intraday rule.
+
+### Layout components
+
+Manual/automatic mode, underlying and contract controls, entry and exit windows, strategy variants, paper start/kill, live campaign monitor, campaign chart, backtest, saved result, export, and in-place tearsheet link.
+
+### Wiring and data patterns
+
+Gap Carry routes call `engine/gap_carry.py` for both historical and paper lifecycles. Signal candles and exact option premiums stay distinct, the campaign persists restart-safe state, and the chart renders the campaign window and trade evidence from the same result contract.
+
+### Interactive workflow
+
+1. Select the underlying, measured variant, contract rule, and paper mode.
+2. Start manually or enable the automatic session host.
+3. Confirm the afternoon entry and next-session exit windows before activation.
+4. Monitor the running campaign, option marks, chart, and event evidence.
+5. Kill only through the named campaign control and retain its result for review.
+6. Compare the stored backtest and full tearsheet before changing a production setting.
+
+## 4.13 Options Cascade — Fib Space
 
 ### Intent and wire
 
@@ -591,7 +637,7 @@ Host start, mother selection, campaign summary, chart, fills/rounds, stop, and d
 3. Start/observe the paper campaign.
 4. Stop monitoring or delete only after the campaign is no longer needed.
 
-## 4.13 Options Cascade — Recovery
+## 4.14 Options Cascade — Recovery
 
 ### Intent and wire
 
@@ -612,7 +658,7 @@ Recovery routes call the user-scoped recovery host. The engine's ledger records 
 3. Observe the recovery entry and stop logic.
 4. Stop the host and retain its ledger for review.
 
-## 4.14 Options Cascade — Test Bench
+## 4.15 Options Cascade — Test Bench
 
 ### Intent and wire
 
@@ -633,7 +679,7 @@ Test Bench routes store repeatable inputs and outputs. Historical sources are re
 3. Inspect source coverage, trades, costs, and warnings.
 4. Save or delete the named result.
 
-## 4.15 Strategy Builder
+## 4.16 Strategy Builder
 
 ### Intent and wire
 
@@ -656,7 +702,7 @@ Strategy validation uses `engine/strategy_contract.py`. CRUD stores versions. Ba
 5. Validate, save, and backtest.
 6. Deploy paper first and promote only after evidence review.
 
-## 4.16 Journal workspace
+## 4.17 Journal workspace
 
 ### Intent and wire
 
@@ -664,21 +710,22 @@ Combine visual chart evidence, daily reflection, and financial planning in one r
 
 ### Layout components
 
-Chart folder tree, upload/rename/delete/reorder tools, image viewer, dated journal editor, journal list, financial-plan tab, and structured planning table.
+Chart folder tree, upload/rename/delete/reorder tools, image viewer, automated NIFTY/SENSEX evidence, daily-job status, dated journal editor, journal list, financial-plan tab, and structured planning table.
 
 ### Wiring and data patterns
 
-Chart routes use the protected chart directory. Journal and plan routes use user-owned database records. Uploaded filenames and paths are validated before filesystem access.
+Chart routes use the protected chart directory. The after-market job renders missing three-session NIFTY and SENSEX 5-minute charts with CPR, EMA20, and gap-completion evidence. It reuses the owner's existing date folder, adds the second index beside the first, and consolidates only exact generated files from legacy duplicate folders without overwriting manual charts. Journal and plan routes use user-owned database records. Uploaded filenames and paths are validated before filesystem access.
 
 ### Interactive workflow
 
-1. Choose or create a chart folder.
-2. Upload and organize evidence.
-3. Open a trading date and write the review.
-4. Save or deliberately delete that date.
-5. Update the financial plan separately from the daily journal.
+1. Choose an existing trading date or create a folder for genuinely new manual evidence.
+2. Review the NIFTY and SENSEX charts stored together for that date.
+3. Upload and organize any additional evidence without duplicating the date folder.
+4. Open the trading date and write the review.
+5. Save or deliberately delete that date.
+6. Update the financial plan separately from the daily journal.
 
-## 4.17 Results workspace
+## 4.18 Results workspace
 
 ### Intent and wire
 
@@ -699,7 +746,7 @@ Run routes return user-owned records and assumptions. Charts and tables are rend
 3. Review drawdown, costs, trades, monthly behavior, and heatmaps.
 4. Export, annotate, compare, or delete selected local results.
 
-## 4.18 Standalone chart, market, study, and architecture pages
+## 4.19 Standalone chart, market, study, and architecture pages
 
 ### Intent and wire
 
@@ -719,7 +766,7 @@ All four pages require a valid session and call the same protected APIs used by 
 2. Use its scoped filters, navigation, or preview controls.
 3. Return to `/app` without changing active engine ownership.
 
-## 4.19 Admin and account portals
+## 4.20 Admin and account portals
 
 ### Intent and wire
 
@@ -802,7 +849,8 @@ Normal account routes are current-user scoped. Admin routes require role checks.
 | Options Cascade | Anchors index structure and keeps the chosen option contract fixed for the campaign | Paper-first; live gate explicit |
 | Cash Cascade | Applies mother/fib ladder concepts to NSE equity or ETF shares | Terminal paper campaign in the current baseline |
 | Fib Boundary | Finds a swing boundary and buys one-lot touches through configured deeper levels; closes the basket on explicit risk/time rules | Backtest, paper, and narrowly gated live controls |
-| Candle Entry | Uses a two-red recovery structure and a 1m→1H rung ladder with configured lot progression | Paper |
+| Candle Entry | Uses the selected two-red box mother, climbs its measured rung ladder, and can start from a manual or automatic market-session mother | Backtest and paper |
+| Gap Carry | Opens the measured late-session option campaign and closes it in the configured next-session window, with explicit strategy variants | Backtest and paper |
 | Fib Space | Draws mother-origin trendlines and fibs and acts where qualified structures overlap | Paper and historical simulation |
 | Recovery | Carries visible recovery debt after a stopped trade and uses a defined later setup to recover it | Paper |
 | Two Red Equity | Finds cash-market mother/two-red patterns and runs a share-based campaign | Paper |
@@ -926,4 +974,4 @@ These are planning references as of the snapshot date, not invoices. Brokerage a
 | 6 | Integrations, specialist strategies, and backtesting | Dhan/Upstox adapters, strategy contract, backtest and specialist engines |
 | 7 | Costs, scaling, and automated risk controls | provider references, fee models, deployment/backup gates, and safety tests |
 
-**The PhilForge blueprint is complete across Chapters 1, 2, 4, 5, 6, and 7 for the 14 August 2026 repository snapshot. Chapter 3 belongs to the separate CryptoForge blueprint. Runtime configuration, broker records, exchange rules, and later code changes remain authoritative.**
+**The PhilForge blueprint is complete across Chapters 1, 2, 4, 5, 6, and 7 for the 24 August 2026 production baseline, including the changes made after the original 14 August document. Chapter 3 belongs to the separate CryptoForge blueprint. Runtime configuration, broker records, exchange rules, and later code changes remain authoritative.**

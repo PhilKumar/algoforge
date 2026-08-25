@@ -59,6 +59,20 @@ test('Assets stays private and opens inside the normal application shell', async
     expect(renderedChapterLabels.map((label) => label.match(/^Chapter \d+ ·/)?.[0])).toEqual(chapterLabels[platform]);
     await expect(reader.locator('.rail-card')).toContainText('Full blueprint complete');
     await expect(reader.locator('.reader-header')).toHaveCount(0);
+    const orbitBodies = await reader.locator('.system-sigil').evaluate((sigil) => {
+      return ['.ring-one', '.ring-two', '.ring-three'].map((selector) => {
+        const ring = sigil.querySelector(selector)!;
+        const pseudo = getComputedStyle(ring, '::after');
+        return {
+          content: pseudo.content,
+          animationName: pseudo.animationName,
+          offsetPath: pseudo.offsetPath,
+        };
+      });
+    });
+    expect(orbitBodies.every((body) => body.content !== 'none')).toBe(true);
+    expect(orbitBodies[1].animationName).toContain('sigil-orbit-ellipse');
+    expect(orbitBodies[1].offsetPath).not.toBe('none');
     const ids = await reader.locator('.doc-section').evaluateAll((sections) => sections.map((section) => section.id));
     expect(new Set(ids).size).toBe(ids.length);
     await expect(reader.locator('.empty-search')).toHaveCount(0);
@@ -66,6 +80,12 @@ test('Assets stays private and opens inside the normal application shell', async
       const publicOriginRow = reader.locator('.doc-table tr').filter({ hasText: 'Public origins' });
       await expect(publicOriginRow).toContainText('philforge.in/crypto');
       await expect(publicOriginRow).toContainText('crypto.philforge.in');
+    } else {
+      await expect(reader.locator('#document-meta')).toContainText('24 August 2026');
+      await expect(reader.locator('#document-meta')).toContainText('29c94c5');
+      const changeRegister = reader.locator('.doc-section').filter({ hasText: 'Production changes since the original blueprint' });
+      await expect(changeRegister).toContainText('Gap Carry');
+      await expect(changeRegister).toContainText('Journal automation');
     }
   }
 });
