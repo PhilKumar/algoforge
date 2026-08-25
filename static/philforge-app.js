@@ -165,6 +165,7 @@ const ICO = {
   cross:    (s) => ICO._s('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', s),
   check:    (s) => ICO._s('<polyline points="20 6 9 17 4 12"/>', s),
   trash:    (s) => ICO._s('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', s),
+  sanctuary:(s) => ICO._s('<path d="M12 21C12 21 4 16.5 4 9.5C4 5.9 6.9 3 10.5 3C11 3 11.5 3.06 12 3.2C12.5 3.06 13 3 13.5 3C17.1 3 20 5.9 20 9.5C20 16.5 12 21 12 21Z"/><path d="M12 21V8M12 12L15.5 9M12 15L8.5 12"/>', s),
   shield:   (s) => ICO._s('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', s),
   crosshair:(s) => ICO._s('<circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>', s),
   zap:      (s) => ICO._s('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor" stroke="none"/>', s),
@@ -366,6 +367,7 @@ const ICO = {
 
 (function initShellIcons() {
   const iconMap = {
+    'sanctuary-btn': ICO.sanctuary(16),
     'admin-btn': ICO.shield(16),
     'account-modal-ico': ICO.gear(18),
     'account-summary-ico': ICO.clip(16),
@@ -616,6 +618,11 @@ async function loadAuthContext() {
     document.getElementById('topbar-user-role').textContent = String(data.role || 'user').toUpperCase();
     const adminBtn = document.getElementById('admin-btn');
     if (adminBtn) adminBtn.style.display = data.role === 'admin' ? '' : 'none';
+    // The Sanctuary is the owner's private page. The server already answers
+    // everyone else with a 404, so this only stops the door from being drawn
+    // for accounts that could never open it.
+    const sanctuaryBtn = document.getElementById('sanctuary-btn');
+    if (sanctuaryBtn) sanctuaryBtn.style.display = data.role === 'admin' ? '' : 'none';
     // A viewer keeps every page and every number; only the controls that would
     // change something are taken away. The server refuses them regardless —
     // this is so nothing on screen looks clickable when it is not.
