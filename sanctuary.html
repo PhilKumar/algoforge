@@ -37,6 +37,7 @@
   --stone:#c9c4b4; --stone-2:#b0aa97;
   --skin:#e8b48f; --him:#3f5878; --her:#c05f63; --kidA:#e2854f; --kidB:#4f7fb5;
   --kite-1:#e26a4f; --kite-2:#f5c052;
+  --dog:#c08a52; --dog-2:#8a5f36; --rope:#9c8a68; --swingkid:#7c5aa8;
   --serif:"Fraunces",Georgia,"Times New Roman",serif;
   --sans:"Nunito Sans","Avenir Next",system-ui,-apple-system,sans-serif;
 }
@@ -63,6 +64,7 @@ html[data-theme="dark"]{
   --stone:#5d6376; --stone-2:#494e60;
   --skin:#caa183; --him:#5a6f92; --her:#b76d72; --kidA:#c98a5e; --kidB:#6f95c2;
   --kite-1:#d3745c; --kite-2:#dcb662;
+  --dog:#8a6a48; --dog-2:#5c452c; --rope:#5c5240; --swingkid:#6a5296;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
@@ -136,6 +138,15 @@ html[data-theme="dark"] #veil{background:linear-gradient(180deg, rgba(0,0,0,0) 0
 #sunhalo{animation:sunBreathe ease-in-out 7s infinite}
 .grass{animation:grassSway ease-in-out 4.5s infinite;transform-origin:bottom center;transform-box:fill-box}
 .g2{animation-duration:5.6s;animation-delay:-1.2s}.g3{animation-duration:3.9s;animation-delay:-2s}
+
+@keyframes swingSway{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6.5deg)}}
+@keyframes dogChase{0%,100%{transform:translate(0,0)}12%{transform:translate(-8px,-7px)}25%{transform:translate(-16px,0)}37%{transform:translate(-24px,-6px)}50%{transform:translate(-30px,0)}70%{transform:translate(-14px,-4px)}}
+@keyframes tailWag{0%,100%{transform:rotate(-16deg)}50%{transform:rotate(18deg)}}
+@keyframes earFlop{0%,100%{transform:rotate(0deg)}50%{transform:rotate(9deg)}}
+#swing{animation:swingSway ease-in-out 4.6s infinite;transform-origin:406px 540px}
+#dog{animation:dogChase ease-in-out 3.2s infinite}
+#dog .dogtail{animation:tailWag ease-in-out .45s infinite;transform-box:fill-box;transform-origin:left center}
+#dog .dogear{animation:earFlop ease-in-out .9s infinite;transform-box:fill-box;transform-origin:top center}
 
 @media (prefers-reduced-motion: reduce){
   #scene *,.leaf-float,.gate-mark{animation:none!important}
@@ -233,7 +244,7 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 .mood-said{color:var(--moss);font-weight:700;font-size:.9rem}
 
 /* the open view of the shore — let the scene breathe */
-.vista-space{height:clamp(190px, 34vh, 430px)}
+.vista-space{height:max(clamp(190px, 34vh, 430px), min(calc(100dvh - 480px), 58vh))}
 @media (max-width:600px){.vista-space{height:clamp(150px, 27vh, 300px)}}
 
 /* tabs */
@@ -525,6 +536,18 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
     </g>
   </g>
 
+  <!-- rope swing on the tree, a little one aboard -->
+  <g id="swing">
+    <path d="M388,542 L390,648 M424,542 L422,648" stroke="var(--rope)" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M399,622 L396,646 M413,622 L417,646" stroke="#5a4470" stroke-width="6" stroke-linecap="round"/>
+    <path d="M398,596 C400,588 412,588 414,596 L416,628 L396,628 Z" fill="var(--swingkid)"/>
+    <path d="M398,600 L390,610 M414,600 L422,610" stroke="var(--swingkid)" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="406" cy="584" r="8.5" fill="var(--skin)"/>
+    <path d="M397.5,584 A8.5,8.5 0 0 1 414.5,584 Z" fill="#3a2a1a"/>
+    <circle cx="415" cy="577" r="3.6" fill="#3a2a1a"/>
+    <rect x="384" y="646" width="44" height="7" rx="3.5" fill="#7a5a3e"/>
+  </g>
+
   <!-- stone bench + couple, truly seated -->
   <g>
     <path d="M616,652 L613,680 M632,652 L635,680" stroke="#33415c" stroke-width="7" stroke-linecap="round" fill="none"/>
@@ -571,6 +594,17 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
     <path d="M866,656 L862,676 M876,656 L882,676" stroke="#2e4b73" stroke-width="6" stroke-linecap="round"/>
   </g>
   <circle id="ball" cx="928" cy="678" r="10" fill="var(--kite-1)"/>
+  <g id="dog">
+    <path class="dogtail" d="M1006,664 C1014,656 1016,648 1013,640" stroke="var(--dog)" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <ellipse cx="984" cy="670" rx="24" ry="13" fill="var(--dog)"/>
+    <path d="M968,684 L964,694 M978,684 L976,695 M992,684 L996,694 M1002,682 L1007,692" stroke="var(--dog-2)" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="957" cy="658" r="11" fill="var(--dog)"/>
+    <ellipse cx="946" cy="661" rx="7.5" ry="5.5" fill="var(--dog)"/>
+    <circle cx="940" cy="660" r="2.6" fill="#3a2a1a"/>
+    <circle cx="954" cy="654" r="2" fill="#2a1e12"/>
+    <ellipse cx="948" cy="668" rx="3" ry="4.4" fill="#e08a92"/>
+    <path class="dogear" d="M958,648 C964,646 968,650 967,658 C964,664 958,662 956,656 Z" fill="var(--dog-2)"/>
+  </g>
 
   <!-- flowers and grass -->
   <g stroke-linecap="round">
