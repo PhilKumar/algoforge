@@ -367,7 +367,7 @@ const ICO = {
 
 (function initShellIcons() {
   const iconMap = {
-    'sanctuary-btn-ico': ICO.sanctuary(16),
+    'sanctuary-btn': ICO.sanctuary(16),
     'admin-btn': ICO.shield(16),
     'account-modal-ico': ICO.gear(18),
     'account-summary-ico': ICO.clip(16),
