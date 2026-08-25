@@ -3829,6 +3829,10 @@ async def privacy_headers_middleware(request: Request, call_next):
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet, noimageindex"
     if request.url.path == "/robots.txt":
         response.headers["Cache-Control"] = "public, max-age=3600"
+    elif request.url.path.startswith("/static/sanctuary/"):
+        # Scenery film clips — generic art, several MB each; without this the
+        # global no-store makes every visit re-download the whole shore.
+        response.headers["Cache-Control"] = "private, max-age=604800"
     elif request.url.path == "/api/health":
         response.headers.setdefault("Cache-Control", "no-store")
     else:
