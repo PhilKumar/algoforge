@@ -6189,107 +6189,107 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .oc-tab { border-color: rgba(15,23,42,.16); background: rgba(248,250,252,.9); color: #475569; }
 [data-theme="light"] .oc-tab.is-active { border-color: rgba(2,132,199,.5); color: #075985; background: linear-gradient(180deg, #e0f2fe, #bae6fd); box-shadow: 0 3px 8px rgba(2,132,199,.16), inset 0 1px 0 rgba(255,255,255,.8); }
 [data-theme="light"] #options-cascade-page > .card-glass:first-child { border-color: rgba(2,132,199,.24) !important; background: linear-gradient(110deg, rgba(240,249,255,.95), rgba(248,250,252,.96)) !important; }
-[data-theme="light"] #fibx-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
+[data-theme="light"] #oc-fib-events > div { border-bottom-color: rgba(15,23,42,.08) !important; }
 /* The Start / Backtest / Kill row under the Candle Entry form: one flex row,
    the same buttons the Fib Boundary form uses, wrapping on a phone. */
-.candle-entry-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:12px; }
-.candle-entry-actions .btn { min-height:38px; margin:0 !important; }
-.candle-entry-backtest-window { margin-top:14px; }
+.ocp-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:12px; }
+.ocp-actions .btn { min-height:38px; margin:0 !important; }
+.ocp-backtest-window { margin-top:14px; }
 /* A restored replay is a STORED result: it keeps the rule it ran under, and
    one saved before the ladder changed shape reads exactly like today's. */
-.candle-entry-stale-note { margin:0 0 12px; padding:9px 11px; border:1px solid rgba(251,191,36,.32); border-radius:8px;
+.ocp-stale-note { margin:0 0 12px; padding:9px 11px; border:1px solid rgba(251,191,36,.32); border-radius:8px;
   background:rgba(251,191,36,.07); color:#fde68a; font:10.5px/1.6 var(--font-mono); }
-[data-theme="light"] .candle-entry-stale-note { border-color:rgba(180,83,9,.28); background:rgba(251,191,36,.12); color:#92400e; }
+[data-theme="light"] .ocp-stale-note { border-color:rgba(180,83,9,.28); background:rgba(251,191,36,.12); color:#92400e; }
 /* The rule switches sit two a row (Box · Exit / Target · Expiry / Session ·
-   Strike), one on a phone -- the .fibx-switch-grid rule below carries both
+   Strike), one on a phone -- the .ocp-switch-grid rule below carries both
    breakpoints, and this form deliberately shares it with Fib Boundary
    (Phil, 2026-08-18: "Make 2 in a row"). Nothing to override here. */
 /* The box field is a number and a two-way switch side by side; the number
    stays narrow so the switch keeps its room, and both stack on a phone. */
-.candle-entry-box-fields { display:flex; gap:8px; align-items:stretch; }
-.candle-entry-box-fields input[type="number"] { width:86px; flex:0 0 86px; padding:9px 10px; font:13px 'JetBrains Mono',monospace; text-align:right; min-width:0; }
-.candle-entry-box-fields .scalp-toggle { flex:1 1 auto; min-width:0; }
+.ocp-box-fields { display:flex; gap:8px; align-items:stretch; }
+.ocp-box-fields input[type="number"] { width:86px; flex:0 0 86px; padding:9px 10px; font:13px 'JetBrains Mono',monospace; text-align:right; min-width:0; }
+.ocp-box-fields .scalp-toggle { flex:1 1 auto; min-width:0; }
 /* A phone keeps the number and the switch on one line -- 86px and the rest. */
 /* THE ESSENTIALS ROW: mode, chart, when, and the buttons -- one line on a
    desk, stacking on a phone. Everything else is behind the Advanced fold. */
-.candle-entry-essentials { display:grid; grid-template-columns: 170px 150px 190px minmax(200px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
-.candle-entry-essentials .candle-entry-field { min-width:0; }
-.candle-entry-essentials .candle-entry-field-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:0; }
-@media (max-width: 1180px) { .candle-entry-essentials { grid-template-columns: 160px 140px 170px minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; } }
-@media (max-width: 900px) { .candle-entry-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); } .candle-entry-essentials .candle-entry-field-when { grid-column: 1 / -1; } }
-@media (max-width: 640px) { .candle-entry-essentials { grid-template-columns: minmax(0,1fr); } .candle-entry-essentials .candle-entry-field-actions .btn { flex: 1 1 100%; } }
+.ocp-essentials { display:grid; grid-template-columns: 170px 150px 190px minmax(200px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
+.ocp-essentials .ocp-field { min-width:0; }
+.ocp-essentials .ocp-field-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:0; }
+@media (max-width: 1180px) { .ocp-essentials { grid-template-columns: 160px 140px 170px minmax(0,1fr); } .ocp-essentials .ocp-field-actions { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .ocp-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); } .ocp-essentials .ocp-field-when { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .ocp-essentials { grid-template-columns: minmax(0,1fr); } .ocp-essentials .ocp-field-actions .btn { flex: 1 1 100%; } }
 /* The Advanced fold: the measured rule, collapsed; its summary says whether
    anything on the form differs from it. */
-.candle-entry-advanced { margin-top:10px; border:1px solid rgba(148,163,184,.16); border-radius:10px; background: rgba(7,16,29,.28); }
-.candle-entry-advanced > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:9px 12px; font:700 11px 'JetBrains Mono',monospace; color:var(--muted); letter-spacing:.3px; user-select:none; }
-.candle-entry-advanced > summary::-webkit-details-marker { display:none; }
-.candle-entry-advanced > summary::before { content:"▸"; color:var(--muted); font-size:10px; transition: transform .15s ease; }
-.candle-entry-advanced[open] > summary::before { transform: rotate(90deg); }
-.candle-entry-advanced-title { color:var(--text); text-transform:uppercase; letter-spacing:.7px; font-size:10px; }
-.candle-entry-advanced-state { font-weight:600; }
-.candle-entry-advanced-state.is-changed { color:#fde68a; }
-.candle-entry-advanced.is-changed { border-color: rgba(253,230,138,.38); }
-.candle-entry-advanced-body { padding: 2px 12px 12px; }
-.candle-entry-advanced-body .candle-entry-switch-grid { margin-top:4px; }
-[data-theme="light"] .candle-entry-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
+.ocp-advanced { margin-top:10px; border:1px solid rgba(148,163,184,.16); border-radius:10px; background: rgba(7,16,29,.28); }
+.ocp-advanced > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:9px 12px; font:700 11px 'JetBrains Mono',monospace; color:var(--muted); letter-spacing:.3px; user-select:none; }
+.ocp-advanced > summary::-webkit-details-marker { display:none; }
+.ocp-advanced > summary::before { content:"▸"; color:var(--muted); font-size:10px; transition: transform .15s ease; }
+.ocp-advanced[open] > summary::before { transform: rotate(90deg); }
+.ocp-advanced-title { color:var(--text); text-transform:uppercase; letter-spacing:.7px; font-size:10px; }
+.ocp-advanced-state { font-weight:600; }
+.ocp-advanced-state.is-changed { color:#fde68a; }
+.ocp-advanced.is-changed { border-color: rgba(253,230,138,.38); }
+.ocp-advanced-body { padding: 2px 12px 12px; }
+.ocp-advanced-body .ocp-switch-grid { margin-top:4px; }
+[data-theme="light"] .ocp-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
 /* The auto mother's card: on/off, what it is waiting for, the recent chain. */
-.candle-entry-auto-card { margin-top:10px; border:1px solid rgba(148,163,184,.18); border-radius:10px; padding:9px 12px; background: rgba(7,16,29,.45); font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
-.candle-entry-auto-card.is-on { border-color: rgba(52,211,153,.42); }
-.candle-entry-auto-card[hidden] { display:none; }
-.candle-entry-auto-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--text); }
-.candle-entry-auto-head > span { color:var(--muted); flex:1 1 auto; }
-.candle-entry-auto-alert { margin-top:5px; color:#f59e0b; }
-.candle-entry-auto-chain { width:100%; border-collapse:collapse; margin-top:6px; }
-.candle-entry-auto-chain th, .candle-entry-auto-chain td { padding:3px 6px; text-align:right; border-bottom:1px solid rgba(148,163,184,.12); white-space:nowrap; }
-.candle-entry-auto-chain th:nth-child(-n+3), .candle-entry-auto-chain td:nth-child(-n+3) { text-align:left; }
-.candle-entry-auto-chain td.pos { color:#6ee7b7; } .candle-entry-auto-chain td.neg { color:#fca5a5; }
-.candle-entry-auto-chain-wrap { overflow-x:auto; }
-[data-theme="light"] .candle-entry-auto-card { background: rgba(248,250,252,.9); border-color: rgba(15,23,42,.14); }
+.ocp-auto-card { margin-top:10px; border:1px solid rgba(148,163,184,.18); border-radius:10px; padding:9px 12px; background: rgba(7,16,29,.45); font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
+.ocp-auto-card.is-on { border-color: rgba(52,211,153,.42); }
+.ocp-auto-card[hidden] { display:none; }
+.ocp-auto-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--text); }
+.ocp-auto-head > span { color:var(--muted); flex:1 1 auto; }
+.ocp-auto-alert { margin-top:5px; color:#f59e0b; }
+.ocp-auto-chain { width:100%; border-collapse:collapse; margin-top:6px; }
+.ocp-auto-chain th, .ocp-auto-chain td { padding:3px 6px; text-align:right; border-bottom:1px solid rgba(148,163,184,.12); white-space:nowrap; }
+.ocp-auto-chain th:nth-child(-n+3), .ocp-auto-chain td:nth-child(-n+3) { text-align:left; }
+.ocp-auto-chain td.pos { color:#6ee7b7; } .ocp-auto-chain td.neg { color:#fca5a5; }
+.ocp-auto-chain-wrap { overflow-x:auto; }
+[data-theme="light"] .ocp-auto-card { background: rgba(248,250,252,.9); border-color: rgba(15,23,42,.14); }
 /* The one-line summary of an older campaign, under the buttons. */
-.candle-entry-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
-.candle-entry-summary:empty { display:none; }
+.ocp-summary { margin-top:10px; font:11px/1.5 'JetBrains Mono',monospace; color:var(--muted); }
+.ocp-summary:empty { display:none; }
 /* TWO PANELS ON A DESK (Phil, 2026-08-20: "Move it one side and let monitor
    placed on the right with chart button and live updates.. Like 2 panels").
    The form is a fixed, readable column on the left and stays in place while
    the live column scrolls; the monitor, its Chart button and the backtest
    own the right. Below 1280px nothing changes: one column, form first. */
-.candle-entry-panes { display:block; }
-.candle-entry-pane { min-width:0; }
+.ocp-panes { display:block; }
+.ocp-pane { min-width:0; }
 @media (min-width: 1280px) {
   /* The live column decides the split: the ladder needs ~745px for its nine
      columns, so between 1280 and 1440 the form gives up width rather than
      pushing the money behind a sideways scroll. */
-  .candle-entry-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
+  .ocp-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
-  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields,
-  .candle-entry-pane-form #gap-carry-advanced .candle-entry-switch-grid > div:has(#gap-carry-lots-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
-  .candle-entry-pane-form #candle-entry-strike-at-toggle { flex:1 1 100%; }
+  .ocp-pane-form #oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields,
+  .ocp-pane-form #oc-gap-advanced .ocp-switch-grid > div:has(#oc-gap-lots-toggle) .ocp-box-fields { flex-wrap:wrap; }
+  .ocp-pane-form #oc-candle-strike-at-toggle { flex:1 1 100%; }
   /* The form is short: it rides along rather than scrolling away. */
-  .candle-entry-pane-form { position:sticky; top:8px; }
-  .candle-entry-pane-live { min-height:1px; }
+  .ocp-pane-form { position:sticky; top:8px; }
+  .ocp-pane-live { min-height:1px; }
   /* The essentials row was cut for the full page width; in a 540px column it
      is two fields to a line, the look-back and the buttons taking their own. */
-  .candle-entry-pane-form .candle-entry-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-when { grid-column: auto; }
-  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-actions { grid-column: 1 / -1; }
-  .candle-entry-pane-form .candle-entry-essentials .candle-entry-field-actions .btn { flex:1 1 auto; }
+  .ocp-pane-form .ocp-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .ocp-pane-form .ocp-essentials .ocp-field-when { grid-column: auto; }
+  .ocp-pane-form .ocp-essentials .ocp-field-actions { grid-column: 1 / -1; }
+  .ocp-pane-form .ocp-essentials .ocp-field-actions .btn { flex:1 1 auto; }
   /* One setting per line in the fold -- two columns of hairline rows need
      more room than this pane has. */
-  .candle-entry-pane-form #candle-entry-advanced .candle-entry-switch-grid,
-  .candle-entry-pane-form #gap-carry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
-  .candle-entry-pane-live > .candle-entry-monitor:first-child,
-  .candle-entry-pane-live > .candle-entry-auto-card:first-child { margin-top:0; }
+  .ocp-pane-form #oc-candle-advanced .ocp-switch-grid,
+  .ocp-pane-form #oc-gap-advanced .ocp-switch-grid { grid-template-columns: minmax(0,1fr); }
+  .ocp-pane-live > .ocp-monitor:first-child,
+  .ocp-pane-live > .ocp-auto-card:first-child { margin-top:0; }
 }
 
 @media (min-width: 1440px) {
-  .candle-entry-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
+  .ocp-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
 }
 
 /* The ladder's Now cell carries two numbers -- the mark and the move. Side
    by side they made the column 166px and pushed the money off the right
    pane; stacked, they fit without touching the standard table's padding. */
-.candle-entry-now-move { display:block; font-size:10px; margin-top:2px; }
+.ocp-now-move { display:block; font-size:10px; margin-top:2px; }
 
 /* THE ADVANCED FOLD READS AS A SETTINGS LIST, NOT A WALL OF PILLS. Phil,
    2026-08-20: "Please make this little but clean and tidy... It seems
@@ -6299,103 +6299,103 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    the right -- and the chosen option is a flat tint rather than a lit
    gradient. Scoped to this fold: the Fib Boundary form keeps the ember
    switches Phil asked for. */
-#candle-entry-advanced .candle-entry-switch-grid,
-#gap-carry-advanced .candle-entry-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
+#oc-candle-advanced .ocp-switch-grid,
+#oc-gap-advanced .ocp-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
 /* The three-choice groups would render 2+1 in a two-column grid. */
-#gap-carry-rsi-toggle, #gap-carry-offset-toggle, #gap-carry-lots-toggle { grid-template-columns: repeat(3, minmax(0,1fr)); }
-#candle-entry-advanced .candle-entry-switch-grid > div {
+#oc-gap-rsi-toggle, #oc-gap-offset-toggle, #oc-gap-lots-toggle { grid-template-columns: repeat(3, minmax(0,1fr)); }
+#oc-candle-advanced .ocp-switch-grid > div {
   display:grid; grid-template-columns: minmax(0,1fr) auto; align-items:center; gap:10px;
   min-height:38px; padding:5px 0; border-bottom:1px solid rgba(148,163,184,.10);
 }
-#candle-entry-advanced .candle-entry-switch-grid > div > label {
+#oc-candle-advanced .ocp-switch-grid > div > label {
   margin:0 !important; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px;
 }
-#candle-entry-advanced .scalp-toggle { width:auto; grid-template-columns:repeat(2,auto); justify-self:end; gap:2px; padding:2px; }
-#candle-entry-advanced .scalp-toggle-btn { padding:5px 11px; min-height:26px; border-radius:6px; }
-#candle-entry-advanced .scalp-toggle.compact .scalp-toggle-btn span { font-size:10.5px; }
+#oc-candle-advanced .scalp-toggle { width:auto; grid-template-columns:repeat(2,auto); justify-self:end; gap:2px; padding:2px; }
+#oc-candle-advanced .scalp-toggle-btn { padding:5px 11px; min-height:26px; border-radius:6px; }
+#oc-candle-advanced .scalp-toggle.compact .scalp-toggle-btn span { font-size:10.5px; }
 /* A chosen option is stated, not spotlit. */
-#candle-entry-advanced .scalp-toggle-btn.active[data-tone="ember"] {
+#oc-candle-advanced .scalp-toggle-btn.active[data-tone="ember"] {
   background: rgba(251,146,60,.13); border-color: rgba(251,146,60,.34); color:#fdba74; box-shadow:none;
 }
-[data-theme="light"] #candle-entry-advanced .scalp-toggle-btn.active[data-tone="ember"] {
+[data-theme="light"] #oc-candle-advanced .scalp-toggle-btn.active[data-tone="ember"] {
   background: rgba(251,146,60,.16); border-color: rgba(194,65,12,.38); color:#9a3412;
 }
-#candle-entry-advanced .candle-entry-box-fields { justify-self:end; gap:6px; }
-#candle-entry-advanced .candle-entry-box-fields input[type="number"] { width:64px; flex:0 0 64px; padding:5px 8px; font-size:11.5px; }
-#candle-entry-advanced .candle-entry-box-fields .scalp-toggle { flex:0 0 auto; }
-#candle-entry-advanced #candle-entry-itm { min-height:28px; padding:4px 8px; font-size:11.5px; }
+#oc-candle-advanced .ocp-box-fields { justify-self:end; gap:6px; }
+#oc-candle-advanced .ocp-box-fields input[type="number"] { width:64px; flex:0 0 64px; padding:5px 8px; font-size:11.5px; }
+#oc-candle-advanced .ocp-box-fields .scalp-toggle { flex:0 0 auto; }
+#oc-candle-advanced #oc-candle-itm { min-height:28px; padding:4px 8px; font-size:11.5px; }
 /* The strike row is the widest: it keeps the full width and its three-way. */
-#candle-entry-advanced .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) { border-bottom:0; }
-#candle-entry-advanced #candle-entry-strike-at-toggle { grid-template-columns:repeat(3,auto); }
-#candle-entry-advanced .candle-entry-strike-fields { display:flex; gap:6px; align-items:center; justify-self:end; }
+#oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) { border-bottom:0; }
+#oc-candle-advanced #oc-candle-strike-at-toggle { grid-template-columns:repeat(3,auto); }
+#oc-candle-advanced .ocp-strike-fields { display:flex; gap:6px; align-items:center; justify-self:end; }
 @media (max-width: 900px) {
-  #candle-entry-advanced .candle-entry-switch-grid { grid-template-columns: minmax(0,1fr); }
+  #oc-candle-advanced .ocp-switch-grid { grid-template-columns: minmax(0,1fr); }
 }
 @media (max-width: 560px) {
-  #candle-entry-advanced .candle-entry-switch-grid > div { grid-template-columns: minmax(0,1fr); align-items:start; gap:4px; }
-  #candle-entry-advanced .scalp-toggle, #candle-entry-advanced .candle-entry-box-fields,
-  #candle-entry-advanced .candle-entry-strike-fields { justify-self:stretch; }
-  #candle-entry-advanced .scalp-toggle { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  #candle-entry-advanced #candle-entry-strike-at-toggle { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #oc-candle-advanced .ocp-switch-grid > div { grid-template-columns: minmax(0,1fr); align-items:start; gap:4px; }
+  #oc-candle-advanced .scalp-toggle, #oc-candle-advanced .ocp-box-fields,
+  #oc-candle-advanced .ocp-strike-fields { justify-self:stretch; }
+  #oc-candle-advanced .scalp-toggle { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #oc-candle-advanced #oc-candle-strike-at-toggle { grid-template-columns:repeat(3,minmax(0,1fr)); }
   /* The strike row carries a select AND three choices: on a phone the three
      take their own line rather than running off the edge. */
-  #candle-entry-advanced > .candle-entry-advanced-body .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) .candle-entry-box-fields { flex-wrap:wrap; }
-  #candle-entry-advanced #candle-entry-strike-at-toggle { flex:1 1 100%; }
+  #oc-candle-advanced > .ocp-advanced-body .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields { flex-wrap:wrap; }
+  #oc-candle-advanced #oc-candle-strike-at-toggle { flex:1 1 100%; }
 }
 
 /* The strike cell holds a select and a three-way switch: give it the whole
    row so the three never wrap into a tall pill. */
-#options-cascade-page .candle-entry-switch-grid > div:has(#candle-entry-strike-at-toggle) { grid-column: 1 / -1; }
+#options-cascade-page .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) { grid-column: 1 / -1; }
 /* .scalp-toggle is a two-column grid; this one has three choices. */
-#candle-entry-strike-at-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#oc-candle-strike-at-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /* The monitor's six tiles. */
 /* MONEY HAS TWO COLOURS AND TWO THEMES. The dark mints read as haze on a
    light ground, and the open P&L is the number on this panel that has to be
    read at a glance, so the tone is a token rather than a literal. */
 :root { --pf-pnl-up:#6ee7b7; --pf-pnl-down:#fca5a5; }
 [data-theme="light"] { --pf-pnl-up:#047857; --pf-pnl-down:#b91c1c; }
-.candle-entry-tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:8px; padding:12px 16px 4px; }
-@media (max-width: 1100px) { .candle-entry-tiles { grid-template-columns: repeat(3, minmax(0,1fr)); } }
-@media (max-width: 560px) { .candle-entry-tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-.candle-entry-activity > summary { list-style:none; cursor:pointer; }
-.candle-entry-activity > summary::-webkit-details-marker { display:none; }
+.ocp-tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:8px; padding:12px 16px 4px; }
+@media (max-width: 1100px) { .ocp-tiles { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 560px) { .ocp-tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+.ocp-activity > summary { list-style:none; cursor:pointer; }
+.ocp-activity > summary::-webkit-details-marker { display:none; }
 /* One line that reads the form back in plain words: what will run, and how. */
-.candle-entry-recipe { margin-top:10px; padding:8px 11px; border:1px dashed rgba(96,165,250,.34); border-radius:8px; font:600 11px/1.5 'JetBrains Mono',monospace; color:#93c5fd; letter-spacing:.1px; }
-.candle-entry-recipe:empty { display:none; }
-[data-theme="light"] .candle-entry-recipe { border-color: rgba(2,132,199,.36); color:#075985; background: rgba(224,242,254,.45); }
-.candle-entry-monitor { margin-top:14px; overflow:hidden; border:1px solid rgba(96,165,250,.26); border-radius:12px; background:linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
-.candle-entry-monitor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.14); }
-.candle-entry-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
-.candle-entry-monitor h4 { margin:3px 0 0; font-size:14px; }
-.candle-entry-monitor-updated { color:var(--muted); font-size:11px; text-align:right; }
-.candle-entry-monitor-body { display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
-.candle-entry-monitor-section { min-width:0; padding:14px 16px; }
-.candle-entry-monitor-section + .candle-entry-monitor-section { border-left:1px solid rgba(148,163,184,.14); }
-.candle-entry-section-title { color:var(--muted); font:800 10px var(--font-mono); letter-spacing:.07em; text-transform:uppercase; }
-.candle-entry-overview { border-top:1px solid rgba(148,163,184,.12); }
-.candle-entry-overview-row { display:grid; grid-template-columns:132px minmax(0,1fr); gap:14px; padding:9px 0; border-bottom:1px solid rgba(148,163,184,.10); }
-.candle-entry-overview-label { color:var(--muted); font-size:11px; }
-.candle-entry-overview-value { color:var(--text); font-weight:700; font-size:12px; overflow-wrap:anywhere; }
-.candle-entry-overview-value.is-info { color:#93c5fd; }.candle-entry-overview-value.is-positive { color:#6ee7b7; }.candle-entry-overview-value.is-warning { color:#fde68a; }
-.candle-entry-overview-detail { grid-column:2; margin-top:-8px; color:var(--muted); font-size:10px; line-height:1.4; }
-.candle-entry-table-wrap, .candle-entry-events { overflow:auto; }
-.candle-entry-table { width:100%; min-width:480px; border-collapse:collapse; font-size:11px; }
-.candle-entry-table th { padding:8px; border-bottom:1px solid var(--border-hi); color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.55px; text-align:right; text-transform:uppercase; white-space:nowrap; }
-.candle-entry-table th:first-child, .candle-entry-table th:nth-child(2), .candle-entry-table td:first-child, .candle-entry-table td:nth-child(2) { text-align:left; }
-.candle-entry-table td { padding:9px 8px; border-bottom:1px solid rgba(148,163,184,.10); color:var(--text); text-align:right; white-space:nowrap; }
-.candle-entry-table tbody tr:nth-child(even) td { background:rgba(255,255,255,.015); }
-.candle-entry-table tbody tr:hover td { background:rgba(56,189,248,.045); }
-.candle-entry-table td.candle-entry-muted { color:var(--muted); }.candle-entry-table td.candle-entry-strong { font-weight:700; }.candle-entry-empty { padding:14px 8px !important; color:var(--muted) !important; text-align:left !important; white-space:normal !important; }
-.candle-entry-activity { border-top:1px solid rgba(148,163,184,.14); }
-.candle-entry-activity-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; }
-.candle-entry-activity-head h4 { margin:0; font-size:14px; }.candle-entry-activity-head span { color:var(--muted); font-size:11px; }
-.candle-entry-events { max-height:240px; padding:0 16px 8px; }
-.candle-entry-events-table { min-width:600px; }.candle-entry-events-table td { white-space:normal; vertical-align:top; }.candle-entry-events-table td:first-child { color:var(--muted); white-space:nowrap; }.candle-entry-events-table td:nth-child(2) { font-weight:700; text-transform:capitalize; }
-[data-theme="light"] .candle-entry-monitor { border-color: rgba(37,99,235,.23); background: linear-gradient(145deg, rgba(239,246,255,.92), rgba(248,250,252,.94)); }
-[data-theme="light"] .candle-entry-monitor-section + .candle-entry-monitor-section, [data-theme="light"] .candle-entry-monitor-head, [data-theme="light"] .candle-entry-activity { border-color:rgba(15,23,42,.10); }
-[data-theme="light"] .candle-entry-table tbody tr:nth-child(even) td { background:rgba(248,250,252,.58); }
-@media (max-width:900px) { .candle-entry-monitor-body { grid-template-columns:1fr; }.candle-entry-monitor-section + .candle-entry-monitor-section { border-top:1px solid rgba(148,163,184,.14); border-left:0; } }
-@media (max-width:560px) { .candle-entry-monitor-head { flex-direction:column; }.candle-entry-monitor-updated { text-align:left; }.candle-entry-monitor-section { padding:13px; }.candle-entry-events { padding:0 13px 8px; }.candle-entry-overview-row { grid-template-columns:116px minmax(0,1fr); gap:10px; } }
+.ocp-recipe { margin-top:10px; padding:8px 11px; border:1px dashed rgba(96,165,250,.34); border-radius:8px; font:600 11px/1.5 'JetBrains Mono',monospace; color:#93c5fd; letter-spacing:.1px; }
+.ocp-recipe:empty { display:none; }
+[data-theme="light"] .ocp-recipe { border-color: rgba(2,132,199,.36); color:#075985; background: rgba(224,242,254,.45); }
+.ocp-monitor { margin-top:14px; overflow:hidden; border:1px solid rgba(96,165,250,.26); border-radius:12px; background:linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
+.ocp-monitor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.14); }
+.ocp-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
+.ocp-monitor h4 { margin:3px 0 0; font-size:14px; }
+.ocp-monitor-updated { color:var(--muted); font-size:11px; text-align:right; }
+.ocp-monitor-body { display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
+.ocp-monitor-section { min-width:0; padding:14px 16px; }
+.ocp-monitor-section + .ocp-monitor-section { border-left:1px solid rgba(148,163,184,.14); }
+.ocp-section-title { color:var(--muted); font:800 10px var(--font-mono); letter-spacing:.07em; text-transform:uppercase; }
+.ocp-overview { border-top:1px solid rgba(148,163,184,.12); }
+.ocp-overview-row { display:grid; grid-template-columns:132px minmax(0,1fr); gap:14px; padding:9px 0; border-bottom:1px solid rgba(148,163,184,.10); }
+.ocp-overview-label { color:var(--muted); font-size:11px; }
+.ocp-overview-value { color:var(--text); font-weight:700; font-size:12px; overflow-wrap:anywhere; }
+.ocp-overview-value.is-info { color:#93c5fd; }.ocp-overview-value.is-positive { color:#6ee7b7; }.ocp-overview-value.is-warning { color:#fde68a; }
+.ocp-overview-detail { grid-column:2; margin-top:-8px; color:var(--muted); font-size:10px; line-height:1.4; }
+.ocp-table-wrap, .ocp-events { overflow:auto; }
+.ocp-table { width:100%; min-width:480px; border-collapse:collapse; font-size:11px; }
+.ocp-table th { padding:8px; border-bottom:1px solid var(--border-hi); color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.55px; text-align:right; text-transform:uppercase; white-space:nowrap; }
+.ocp-table th:first-child, .ocp-table th:nth-child(2), .ocp-table td:first-child, .ocp-table td:nth-child(2) { text-align:left; }
+.ocp-table td { padding:9px 8px; border-bottom:1px solid rgba(148,163,184,.10); color:var(--text); text-align:right; white-space:nowrap; }
+.ocp-table tbody tr:nth-child(even) td { background:rgba(255,255,255,.015); }
+.ocp-table tbody tr:hover td { background:rgba(56,189,248,.045); }
+.ocp-table td.ocp-muted { color:var(--muted); }.ocp-table td.ocp-strong { font-weight:700; }.ocp-empty { padding:14px 8px !important; color:var(--muted) !important; text-align:left !important; white-space:normal !important; }
+.ocp-activity { border-top:1px solid rgba(148,163,184,.14); }
+.ocp-activity-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; }
+.ocp-activity-head h4 { margin:0; font-size:14px; }.ocp-activity-head span { color:var(--muted); font-size:11px; }
+.ocp-events { max-height:240px; padding:0 16px 8px; }
+.ocp-events-table { min-width:600px; }.ocp-events-table td { white-space:normal; vertical-align:top; }.ocp-events-table td:first-child { color:var(--muted); white-space:nowrap; }.ocp-events-table td:nth-child(2) { font-weight:700; text-transform:capitalize; }
+[data-theme="light"] .ocp-monitor { border-color: rgba(37,99,235,.23); background: linear-gradient(145deg, rgba(239,246,255,.92), rgba(248,250,252,.94)); }
+[data-theme="light"] .ocp-monitor-section + .ocp-monitor-section, [data-theme="light"] .ocp-monitor-head, [data-theme="light"] .ocp-activity { border-color:rgba(15,23,42,.10); }
+[data-theme="light"] .ocp-table tbody tr:nth-child(even) td { background:rgba(248,250,252,.58); }
+@media (max-width:900px) { .ocp-monitor-body { grid-template-columns:1fr; }.ocp-monitor-section + .ocp-monitor-section { border-top:1px solid rgba(148,163,184,.14); border-left:0; } }
+@media (max-width:560px) { .ocp-monitor-head { flex-direction:column; }.ocp-monitor-updated { text-align:left; }.ocp-monitor-section { padding:13px; }.ocp-events { padding:0 13px 8px; }.ocp-overview-row { grid-template-columns:116px minmax(0,1fr); gap:10px; } }
 .terminal-cascade-chart-dialog.is-fullscreen { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-toolbar { position: sticky; top: 0; z-index: 3; background: #0b1220; }
 .terminal-cascade-chart-dialog.is-fullscreen .terminal-cascade-chart-body { padding: 0; display: grid; place-items: center; touch-action: none; user-select: none; }
@@ -6557,7 +6557,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 }
 /* The COLUMN holds the grid slot now, not one panel: a user can run one ladder
    per instrument, and each gets its own monitor stacked inside that slot. */
-#options-cascade-page .fibx-monitors {
+#options-cascade-page .oc-fib-monitors {
   grid-column: 2;
   grid-row: 1;
   display: flex;
@@ -6575,7 +6575,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   overflow: hidden;
 }
 #options-cascade-page .oc-fib-setup-card { margin-bottom: 0; }  /* bottoms flush with the monitors */
-#options-cascade-page .fibx-monitor-window {
+#options-cascade-page .oc-fib-monitor-window {
   position: relative;
   border-color: rgba(56,189,248,.27);
   display: flex;
@@ -6583,32 +6583,32 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   flex: 0 1 auto;
   min-height: 0;
 }
-#options-cascade-page .fibx-monitor-window > .cascade-options-window-head { flex: 0 0 auto; }
+#options-cascade-page .oc-fib-monitor-window > .cascade-options-window-head { flex: 0 0 auto; }
 /* Chromium/WebKit wrap a details element's content in ::details-content; it
    is that box, not the body, that is the flex item -- so it must be the one
    allowed to shrink, and pass the height down to the body. */
-#options-cascade-page .fibx-monitor-window::details-content {
+#options-cascade-page .oc-fib-monitor-window::details-content {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
 }
-#options-cascade-page .fibx-monitor-window > .cascade-options-window-head {
+#options-cascade-page .oc-fib-monitor-window > .cascade-options-window-head {
   padding-right: 300px;
 }
 /* The four rule switches, two to a row: What it buys · Session / Deep ladder ·
    Target. One switch per row made the form a column of four identical pills. */
-#options-cascade-page .fibx-switch-grid {
+#options-cascade-page .ocp-switch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 14px;
   margin-top: 10px;
 }
-#options-cascade-page .fibx-switch-grid .scalp-toggle-btn span { white-space: nowrap; }
+#options-cascade-page .ocp-switch-grid .scalp-toggle-btn span { white-space: nowrap; }
 @media (max-width: 560px) {
-  #options-cascade-page .fibx-switch-grid { grid-template-columns: minmax(0, 1fr); }
+  #options-cascade-page .ocp-switch-grid { grid-template-columns: minmax(0, 1fr); }
 }
-#options-cascade-page .fibx-monitor-strip-actions {
+#options-cascade-page .oc-fib-monitor-strip-actions {
   position: absolute;
   z-index: 2;
   top: 13px;
@@ -6618,7 +6618,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    display:none close so the monitor can fold up and flow down smoothly. The
    inner min-height is what lets a CSS grid row animate all the way to zero
    even when the campaign contains wide tables and a full fib ladder. */
-#options-cascade-page .fibx-monitor-window > .cascade-options-window-body {
+#options-cascade-page .oc-fib-monitor-window > .cascade-options-window-body {
   display: grid;
   grid-template-rows: 0fr;
   overflow: hidden;
@@ -6628,17 +6628,17 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   opacity: 0;
   transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1), padding .28s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
 }
-#options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body {
+#options-cascade-page .oc-fib-monitor-window[open] > .cascade-options-window-body {
   grid-template-rows: 1fr;
   padding: 13px 15px 15px;
   opacity: 1;
 }
-#options-cascade-page .fibx-monitor-body-inner {
+#options-cascade-page .oc-fib-monitor-body-inner {
   min-height: 0;
   overflow: hidden;
 }
 /* Open: the body is the scroll region, so the bar sits inside the card. */
-#options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body > .fibx-monitor-body-inner {
+#options-cascade-page .oc-fib-monitor-window[open] > .cascade-options-window-body > .oc-fib-monitor-body-inner {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
@@ -6648,16 +6648,16 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* Each ladder gets its own results + events pair, so the pairs stack too. No
    gap here: .oc-fib-lower-grid already carries margin-top:14px, and both would
    double the space between pairs. */
-#options-cascade-page #fibx-lower { display: grid; gap: 0; }
-#options-cascade-page .fibx-monitor-window.is-active {
+#options-cascade-page #oc-fib-lower { display: grid; gap: 0; }
+#options-cascade-page .oc-fib-monitor-window.is-active {
   border-color: rgba(52,211,153,.52);
   box-shadow: 0 0 0 1px rgba(52,211,153,.12), 0 12px 30px -23px rgba(52,211,153,.55);
 }
-#options-cascade-page .fibx-backtest-window {
+#options-cascade-page .ocp-backtest-window {
   grid-column: 1 / -1;
   border-color: rgba(167,139,250,.34);
 }
-#options-cascade-page .fibx-backtest-window .cascade-options-window-head::before { color: #c4b5fd; }
+#options-cascade-page .ocp-backtest-window .cascade-options-window-head::before { color: #c4b5fd; }
 #options-cascade-page .cascade-options-window-head { min-height: 58px; }
 #options-cascade-page .cascade-options-state { border-radius: 999px; }
 #options-cascade-page .cascade-options-strip-actions { gap: 7px; }
@@ -6675,67 +6675,67 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* "Latest confirmed backtest" -- a quiet line inside the ⓘ doc, not a card on
    the page. Phil, 2026-08-20: the page carried too much text; the numbers are
    already in section 1, so this is only the way through to the sheet. */
-#options-cascade-page .fibx-confirmed-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid rgba(52,211,153,.34); border-radius: 999px; font: 10.5px 'JetBrains Mono', monospace; color: #6ee7b7; text-decoration: none; }
-#options-cascade-page .fibx-confirmed-link:hover { border-color: rgba(52,211,153,.65); background: rgba(6,32,26,.55); }
-[data-theme="light"] #options-cascade-page .fibx-confirmed-link { color: #047857; border-color: rgba(5,150,105,.42); }
-[data-theme="light"] #options-cascade-page .fibx-confirmed-link:hover { background: rgba(236,253,245,.9); }
+#options-cascade-page .ocp-confirmed-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid rgba(52,211,153,.34); border-radius: 999px; font: 10.5px 'JetBrains Mono', monospace; color: #6ee7b7; text-decoration: none; }
+#options-cascade-page .ocp-confirmed-link:hover { border-color: rgba(52,211,153,.65); background: rgba(6,32,26,.55); }
+[data-theme="light"] #options-cascade-page .ocp-confirmed-link { color: #047857; border-color: rgba(5,150,105,.42); }
+[data-theme="light"] #options-cascade-page .ocp-confirmed-link:hover { background: rgba(236,253,245,.9); }
 
 /* The auto-mother watch card. It sits at the TOP OF THE MONITOR COLUMN, not
    under the form: between campaigns it is what there is to watch. */
-#options-cascade-page .fibx-auto-panel { display: grid; gap: 8px; }
-#options-cascade-page .fibx-auto-panel:empty { display: none; }
-#options-cascade-page .fibx-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
-#options-cascade-page .fibx-auto-card.is-on { border-color: rgba(52,211,153,.42); }
-#options-cascade-page .fibx-auto-head { display: flex; align-items: center; gap: 10px; }
-#options-cascade-page .fibx-auto-head .cascade-options-control { margin-left: auto; min-height: 26px; padding: 3px 11px; font-size: 10.5px; }
-#options-cascade-page .fibx-auto-head > strong { font-size: 13px; color: var(--text); letter-spacing: .3px; }
-#options-cascade-page .fibx-auto-badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 9.5px; letter-spacing: .7px; color: var(--muted); }
-#options-cascade-page .fibx-auto-badge.is-live { color: #6ee7b7; border-color: rgba(52,211,153,.5); }
-#options-cascade-page .fibx-auto-badge.is-wait { color: #7dd3fc; border-color: rgba(56,189,248,.45); }
-#options-cascade-page .fibx-auto-badge.is-warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+#options-cascade-page .oc-fib-auto-panel { display: grid; gap: 8px; }
+#options-cascade-page .oc-fib-auto-panel:empty { display: none; }
+#options-cascade-page .ocp-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
+#options-cascade-page .ocp-auto-card.is-on { border-color: rgba(52,211,153,.42); }
+#options-cascade-page .ocp-auto-head { display: flex; align-items: center; gap: 10px; }
+#options-cascade-page .ocp-auto-head .cascade-options-control { margin-left: auto; min-height: 26px; padding: 3px 11px; font-size: 10.5px; }
+#options-cascade-page .ocp-auto-head > strong { font-size: 13px; color: var(--text); letter-spacing: .3px; }
+#options-cascade-page .ocp-auto-badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 9.5px; letter-spacing: .7px; color: var(--muted); }
+#options-cascade-page .ocp-auto-badge.is-live { color: #6ee7b7; border-color: rgba(52,211,153,.5); }
+#options-cascade-page .ocp-auto-badge.is-wait { color: #7dd3fc; border-color: rgba(56,189,248,.45); }
+#options-cascade-page .ocp-auto-badge.is-warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
 /* The live line: what auto is waiting for, and the minute it last looked. */
-#options-cascade-page .fibx-auto-state { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(148,163,184,.08); color: var(--text); }
-#options-cascade-page .fibx-auto-state > span { color: var(--muted); font-size: 10px; flex: none; }
-#options-cascade-page .fibx-auto-state.is-live { background: rgba(52,211,153,.10); color: #6ee7b7; }
-#options-cascade-page .fibx-auto-state.is-warn { background: rgba(245,158,11,.12); color: #fbbf24; }
-#options-cascade-page .fibx-auto-alert { margin-top: 6px; color: #f59e0b; }
-#options-cascade-page .fibx-auto-today { margin-top: 8px; color: var(--text); }
-#options-cascade-page .fibx-auto-note { margin-top: 4px; }
-#options-cascade-page .fibx-auto-chain { width: 100%; border-collapse: collapse; margin-top: 6px; }
-#options-cascade-page .fibx-auto-chain th, #options-cascade-page .fibx-auto-chain td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(148,163,184,.12); }
-#options-cascade-page .fibx-auto-chain th:nth-child(-n+4), #options-cascade-page .fibx-auto-chain td:nth-child(-n+4) { text-align: left; }
-#options-cascade-page .fibx-auto-chain td.pos { color: #6ee7b7; }
-#options-cascade-page .fibx-auto-chain td.neg { color: #fca5a5; }
-[data-theme="light"] #options-cascade-page .fibx-auto-card { background: rgba(248,250,252,.9); }
-#options-cascade-page .fibx-form-actions {
+#options-cascade-page .ocp-auto-state { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(148,163,184,.08); color: var(--text); }
+#options-cascade-page .ocp-auto-state > span { color: var(--muted); font-size: 10px; flex: none; }
+#options-cascade-page .ocp-auto-state.is-live { background: rgba(52,211,153,.10); color: #6ee7b7; }
+#options-cascade-page .ocp-auto-state.is-warn { background: rgba(245,158,11,.12); color: #fbbf24; }
+#options-cascade-page .ocp-auto-alert { margin-top: 6px; color: #f59e0b; }
+#options-cascade-page .ocp-auto-today { margin-top: 8px; color: var(--text); }
+#options-cascade-page .oc-fib-auto-note { margin-top: 4px; }
+#options-cascade-page .ocp-auto-chain { width: 100%; border-collapse: collapse; margin-top: 6px; }
+#options-cascade-page .ocp-auto-chain th, #options-cascade-page .ocp-auto-chain td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(148,163,184,.12); }
+#options-cascade-page .ocp-auto-chain th:nth-child(-n+4), #options-cascade-page .ocp-auto-chain td:nth-child(-n+4) { text-align: left; }
+#options-cascade-page .ocp-auto-chain td.pos { color: #6ee7b7; }
+#options-cascade-page .ocp-auto-chain td.neg { color: #fca5a5; }
+[data-theme="light"] #options-cascade-page .ocp-auto-card { background: rgba(248,250,252,.9); }
+#options-cascade-page .ocp-form-actions {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   margin-top: 14px;
 }
-#options-cascade-page #fibx-backtest-btn {
+#options-cascade-page #oc-fib-backtest-btn {
   min-width: 188px;
   border-color: rgba(125,211,252,.54);
   background: linear-gradient(180deg, rgba(14,165,233,.30), rgba(3,105,161,.47));
   color: #e0f2fe;
 }
-#options-cascade-page #fibx-mode-hint {
+#options-cascade-page #oc-fib-mode-hint {
   min-height: 20px !important;
   padding: 9px 10px 0 !important;
   line-height: 1.45;
 }
-#options-cascade-page #fibx-mode-hint:not(:empty) {
+#options-cascade-page #oc-fib-mode-hint:not(:empty) {
   padding: 9px 10px !important;
   border: 1px solid rgba(56,189,248,.24);
   border-radius: 7px;
   background: rgba(8,47,73,.28);
 }
-#options-cascade-page #fibx-mode-hint.is-live {
+#options-cascade-page #oc-fib-mode-hint.is-live {
   color: #6ee7b7 !important;
   border-color: rgba(52,211,153,.34) !important;
   background: rgba(6,78,59,.22) !important;
 }
-#options-cascade-page #fibx-mode-hint.is-replay {
+#options-cascade-page #oc-fib-mode-hint.is-replay {
   color: #fde68a !important;
   border-color: rgba(251,191,36,.32) !important;
   background: rgba(120,53,15,.20) !important;
@@ -6766,7 +6766,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   background: linear-gradient(180deg, rgba(15,23,42,.62), rgba(8,18,30,.52));
 }
 #options-cascade-page .oc-fib-events-card { border-top-color: rgba(56,189,248,.34); }
-#options-cascade-page #fibx-events { scrollbar-gutter: stable; }
+#options-cascade-page #oc-fib-events { scrollbar-gutter: stable; }
 
 [data-theme="light"] #options-cascade-page .oc-hero,
 [data-theme="light"] #results-page .oc-hero {
@@ -6800,10 +6800,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   border-color: rgba(15,23,42,.14);
   background: linear-gradient(180deg, #fff, #f8fafc);
 }
-[data-theme="light"] #options-cascade-page .fibx-monitor-window { border-color: rgba(2,132,199,.26); }
-[data-theme="light"] #options-cascade-page .fibx-backtest-window { border-color: rgba(109,40,217,.24); }
-[data-theme="light"] #options-cascade-page #fibx-backtest-btn,
-[data-theme="light"] #options-cascade-page #fibx-backtest-btn:hover {
+[data-theme="light"] #options-cascade-page .oc-fib-monitor-window { border-color: rgba(2,132,199,.26); }
+[data-theme="light"] #options-cascade-page .ocp-backtest-window { border-color: rgba(109,40,217,.24); }
+[data-theme="light"] #options-cascade-page #oc-fib-backtest-btn,
+[data-theme="light"] #options-cascade-page #oc-fib-backtest-btn:hover {
   border-color: #60a5fa;
   background: linear-gradient(180deg, #dbeafe, #bfdbfe);
   color: #172554 !important;
@@ -6812,56 +6812,56 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] #options-cascade-page .cascade-options-control::before,
 [data-theme="light"] #options-cascade-page .cascade-options-primary-btn::before { opacity: .22; }
 [data-theme="light"] #options-cascade-page .cascade-options-summary > div { background: #f8fafc; }
-[data-theme="light"] #options-cascade-page #fibx-mode-hint:not(:empty) { background: #eff6ff; }
-[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-live { color: #047857 !important; background: #ecfdf5 !important; }
-[data-theme="light"] #options-cascade-page #fibx-mode-hint.is-replay { color: #92400e !important; background: #fffbeb !important; }
+[data-theme="light"] #options-cascade-page #oc-fib-mode-hint:not(:empty) { background: #eff6ff; }
+[data-theme="light"] #options-cascade-page #oc-fib-mode-hint.is-live { color: #047857 !important; background: #ecfdf5 !important; }
+[data-theme="light"] #options-cascade-page #oc-fib-mode-hint.is-replay { color: #92400e !important; background: #fffbeb !important; }
 
 /* Dynamic campaign data is rendered with semantic classes.  Inline dark-mode
    accent values must not leak pale yellow or mint text into the light theme. */
 [data-theme="light"] #options-cascade-page .is-positive,
-[data-theme="light"] #options-cascade-page .fibx-positive-value,
-[data-theme="light"] #options-cascade-page .fibx-boundary.is-positive .fibx-boundary-state,
+[data-theme="light"] #options-cascade-page .oc-fib-positive-value,
+[data-theme="light"] #options-cascade-page .oc-fib-boundary.is-positive .oc-fib-boundary-state,
 [data-theme="light"] #options-cascade-page .cascade-options-metric.is-positive .cascade-options-metric-value {
   color: #047857 !important;
 }
 [data-theme="light"] #options-cascade-page .is-warning,
-[data-theme="light"] #options-cascade-page .fibx-warning-value,
-[data-theme="light"] #options-cascade-page .fibx-boundary.is-warning .fibx-boundary-state,
-[data-theme="light"] #options-cascade-page .fibx-pricing-warning,
-[data-theme="light"] #options-cascade-page .fibx-premium-gaps > summary,
+[data-theme="light"] #options-cascade-page .oc-fib-warning-value,
+[data-theme="light"] #options-cascade-page .oc-fib-boundary.is-warning .oc-fib-boundary-state,
+[data-theme="light"] #options-cascade-page .oc-fib-pricing-warning,
+[data-theme="light"] #options-cascade-page .oc-fib-premium-gaps > summary,
 [data-theme="light"] #options-cascade-page .cascade-options-metric.is-warning .cascade-options-metric-value {
   color: #92400e !important;
 }
-[data-theme="light"] #options-cascade-page #fibx-form-status.is-positive,
-[data-theme="light"] #options-cascade-page #fibx-form-status.is-warning,
-[data-theme="light"] #options-cascade-page #fibx-form-status.is-negative { font-weight: 700; }
-[data-theme="light"] #options-cascade-page #fibx-form-status.is-negative { color: #b91c1c !important; }
+[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-positive,
+[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-warning,
+[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-negative { font-weight: 700; }
+[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-negative { color: #b91c1c !important; }
 [data-theme="light"] #options-cascade-page .cascade-options-state.is-positive { border-color: #059669 !important; }
 [data-theme="light"] #options-cascade-page .cascade-options-state.is-warning { border-color: #d97706 !important; }
-[data-theme="light"] #options-cascade-page .fibx-pricing-warning,
-[data-theme="light"] #options-cascade-page .fibx-premium-gaps { border-color: #f59e0b !important; background: #fffbeb; }
+[data-theme="light"] #options-cascade-page .oc-fib-pricing-warning,
+[data-theme="light"] #options-cascade-page .oc-fib-premium-gaps { border-color: #f59e0b !important; background: #fffbeb; }
 
 @media (max-width: 1180px) {
   #options-cascade-page .oc-fib-workspace { grid-template-columns: 1fr; }
-  #options-cascade-page .fibx-monitors,
-  #options-cascade-page .fibx-backtest-window { grid-column: auto; grid-row: auto; }
+  #options-cascade-page .oc-fib-monitors,
+  #options-cascade-page .ocp-backtest-window { grid-column: auto; grid-row: auto; }
   /* One column: nothing to match heights with, so the stack flows normally. */
-  #options-cascade-page .fibx-monitors {
+  #options-cascade-page .oc-fib-monitors {
     align-self: auto;
     contain: none;
     min-height: 0;
     overflow: visible;
   }
-  #options-cascade-page .fibx-monitor-window { flex: none; }
-  #options-cascade-page .fibx-monitor-window[open] > .cascade-options-window-body > .fibx-monitor-body-inner { overflow-y: visible; padding-right: 0; }
+  #options-cascade-page .oc-fib-monitor-window { flex: none; }
+  #options-cascade-page .oc-fib-monitor-window[open] > .cascade-options-window-body > .oc-fib-monitor-body-inner { overflow-y: visible; padding-right: 0; }
 }
 @media (max-width: 760px) {
   #options-cascade-page .oc-hero,
   #results-page .oc-hero { padding: 17px; }
   #options-cascade-page .oc-hero-content,
   #results-page .oc-hero-content { flex-direction: column; gap: 14px; }
-  #options-cascade-page .fibx-monitor-window > .cascade-options-window-head { padding-right: 13px; }
-  #options-cascade-page .fibx-monitor-strip-actions {
+  #options-cascade-page .oc-fib-monitor-window > .cascade-options-window-head { padding-right: 13px; }
+  #options-cascade-page .oc-fib-monitor-strip-actions {
     position: static;
     justify-content: flex-end;
     width: auto;
@@ -6876,8 +6876,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      was written for the old row layout and never re-checked after the stack
      landed. Height is content-driven now; only the inline padding is set. */
   #options-cascade-page .oc-tab { padding-inline: 12px; }
-  #options-cascade-page .fibx-form-actions { grid-template-columns: 1fr; }
-  #options-cascade-page #fibx-backtest-btn { min-width: 0; }
+  #options-cascade-page .ocp-form-actions { grid-template-columns: 1fr; }
+  #options-cascade-page #oc-fib-backtest-btn { min-width: 0; }
   #options-cascade-page .oc-fib-lower-grid { grid-template-columns: 1fr; }
   #options-cascade-page .oc-fib-setup-card > div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
   #options-cascade-page .cascade-options-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -7362,22 +7362,22 @@ body::before {
 }
 
 /* Tables: the ledger look — machined header, striped body, lit hover. */
-.candle-entry-table th, .tb-table th, .scalp-active-table th, .trade-table th,
-.fibx-rounds-table th {
+.ocp-table th, .tb-table th, .scalp-active-table th, .trade-table th,
+.oc-fib-rounds-table th {
   background: linear-gradient(180deg, rgba(78,90,120,0.50) 0%, rgba(38,48,72,0.94) 40%, rgba(16,23,42,0.98) 100%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.30);
 }
-.candle-entry-table tbody tr:nth-child(even) td,
+.ocp-table tbody tr:nth-child(even) td,
 .tb-table tbody tr:nth-child(even) td,
 .scalp-active-table tbody tr:nth-child(even) td {
   background: rgba(255,255,255,0.020);
 }
-.candle-entry-table tbody tr:hover td,
+.ocp-table tbody tr:hover td,
 .tb-table tbody tr:hover td,
 .scalp-active-table tbody tr:hover td {
   background: rgba(var(--pf-tint-primary-rgb, 0,191,165), 0.07);
 }
-[data-theme="light"] .candle-entry-table th,
+[data-theme="light"] .ocp-table th,
 [data-theme="light"] .tb-table th,
 [data-theme="light"] .scalp-active-table th,
 [data-theme="light"] .trade-table th {
@@ -8401,8 +8401,8 @@ body :is(
   .live-data-window,
   .admin-table-wrap,
   .cascade-scan-table-wrap,
-  .candle-entry-table-wrap,
-  .candle-entry-events,
+  .ocp-table-wrap,
+  .ocp-events,
   .cj-plan-table-wrap,
   .tb-table-scroll,
   .terminal-cascade-table-scroll,
@@ -8423,8 +8423,8 @@ body :is(
   .live-data-window,
   .admin-table-wrap,
   .cascade-scan-table-wrap,
-  .candle-entry-table-wrap,
-  .candle-entry-events,
+  .ocp-table-wrap,
+  .ocp-events,
   .cj-plan-table-wrap,
   .tb-table-scroll,
   .terminal-cascade-table-scroll,
@@ -8441,8 +8441,8 @@ body :is(
   .live-data-window,
   .admin-table-wrap,
   .cascade-scan-table-wrap,
-  .candle-entry-table-wrap,
-  .candle-entry-events,
+  .ocp-table-wrap,
+  .ocp-events,
   .cj-plan-table-wrap,
   .tb-table-scroll,
   .terminal-cascade-table-scroll,
@@ -9284,24 +9284,7 @@ body :is(
 
 /* The Fib Boundary head: the name, the ⓘ, and the way to the confirmed sheet.
    Phil, 2026-08-20: only the link outside, nothing else. */
-#options-cascade-page .fibx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#options-cascade-page .ocp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 /* One button carries auto: green to switch it on, amber to switch it off, so
    the colour never says "start" while the label says "stop". */
-#options-cascade-page #fibx-start.is-danger { --btn-bg: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.50)); --btn-color: #fde68a; border-color: rgba(245,158,11,.55); background: var(--btn-bg); color: var(--btn-color); }
-
-
-/* HIGH ENTRY -- the form and its monitor read side by side.
-   The console is a control panel and a book at once; stacked, naming a mother
-   pushed the ledger a screen away, so the two are one row on a wide desk and
-   fall back to stacked when the column would be too narrow to hold a table. */
-.he-panes {
-  display: grid;
-  grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.he-panes > .card { margin-bottom: 0; }
-.he-panes > .candle-entry-monitor { margin-top: 0; }
-@media (max-width: 1180px) {
-  .he-panes { grid-template-columns: 1fr; }
-}
+#options-cascade-page #oc-fib-start.is-danger { --btn-bg: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.50)); --btn-color: #fde68a; border-color: rgba(245,158,11,.55); background: var(--btn-bg); color: var(--btn-color); }

@@ -32,22 +32,22 @@
   .insights-strip-note { font:10.5px 'JetBrains Mono',monospace; color:var(--muted); }
   .oc-hero-title-row { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
   .oc-hero-title-row .oc-hero-steps { margin:0; }
-  .fibx-anchor-table { width:100%; border-collapse:collapse; font:11px 'JetBrains Mono',monospace; }
-  .fibx-anchor-table th { text-align:left; padding:4px 8px 4px 0; color:var(--muted); font-weight:500;
+  .oc-fib-anchor-table { width:100%; border-collapse:collapse; font:11px 'JetBrains Mono',monospace; }
+  .oc-fib-anchor-table th { text-align:left; padding:4px 8px 4px 0; color:var(--muted); font-weight:500;
     text-transform:uppercase; letter-spacing:.5px; font-size:9px; width:90px; }
-  .fibx-anchor-table td { padding:4px 8px 4px 0; color:var(--text); }
-  .fibx-anchor-table .fibx-when { color:var(--muted); }
-  .fibx-tf-row { display:flex; gap:5px; }
-  .fibx-tf { flex:1; padding:8px 4px; border:1px solid var(--border); border-radius:8px;
+  .oc-fib-anchor-table td { padding:4px 8px 4px 0; color:var(--text); }
+  .oc-fib-anchor-table .oc-fib-when { color:var(--muted); }
+  .oc-fib-tf-row { display:flex; gap:5px; }
+  .oc-fib-tf { flex:1; padding:8px 4px; border:1px solid var(--border); border-radius:8px;
     background:rgba(255,255,255,.04); color:var(--muted); cursor:pointer;
     font:600 11px 'JetBrains Mono',monospace; transition:all .15s; }
-  .fibx-tf:hover { border-color:var(--border-hi); color:var(--text); }
-  .fibx-tf.is-active { background:rgba(56,189,248,.16); border-color:#38bdf8; color:#38bdf8; }
+  .oc-fib-tf:hover { border-color:var(--border-hi); color:var(--text); }
+  .oc-fib-tf.is-active { background:rgba(56,189,248,.16); border-color:#38bdf8; color:#38bdf8; }
   /* The blocked-start table, in place of a sentence that read as a riddle. */
-  .fibx-blocked { width:100%; border-collapse:collapse; font:11px 'JetBrains Mono',monospace; margin-top:10px; }
-  .fibx-blocked th { text-align:left; padding:5px 8px; color:var(--muted); font-weight:500;
+  .oc-fib-blocked { width:100%; border-collapse:collapse; font:11px 'JetBrains Mono',monospace; margin-top:10px; }
+  .oc-fib-blocked th { text-align:left; padding:5px 8px; color:var(--muted); font-weight:500;
     text-transform:uppercase; letter-spacing:.5px; font-size:9px; width:38%; }
-  .fibx-blocked td { padding:5px 8px; color:var(--text); }
+  .oc-fib-blocked td { padding:5px 8px; color:var(--text); }
   /* Both panels' actions are anchors, and the panels' own sheets underline
      anchors. Wearing the app's .btn should look like a button, not a link. */
   #insights-page a.btn, #insights-page a.btn:hover { text-decoration: none; }
@@ -2456,15 +2456,15 @@
   <!-- ── TAB · Fib-boundary ── -->
   <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
-      <div class="fibx-head">
-        <h3 style="margin:0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="fibx-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
-        <a class="fibx-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a>
+      <div class="ocp-head">
+        <h3 style="margin:0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
+        <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a>
       </div>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
            the code's own numbers, and the losing measurement stated as
            plainly as the design. One doc, two languages. -->
-      <div id="fibx-info" class="pf-info-pop pf-info-doc">
+      <div id="oc-fib-info" class="pf-info-pop pf-info-doc">
         <div class="pf-doc-langs" role="tablist" aria-label="Language">
           <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
           <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -2589,40 +2589,40 @@
       <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
           <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
-          <span id="fibx-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
+          <span id="oc-fib-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
         </div>
         <!-- THE AUTO MOTHER (Phil, 2026-08-19): the 09:15 5m candle is the
              mother every session; a broken mother is replaced by the breakout
              candle the same day; tomorrow starts itself. Measured 23 months
              before it was built -- see the ⓘ. -->
         <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother</label>
-        <input type="hidden" id="fibx-mother-mode" value="manual">
-        <div id="fibx-mother-mode-toggle" class="scalp-toggle compact" style="width:100%;margin-bottom:10px;" role="radiogroup" aria-label="How the mother is chosen">
+        <input type="hidden" id="oc-fib-mother-mode" value="manual">
+        <div id="oc-fib-mother-mode-toggle" class="scalp-toggle compact" style="width:100%;margin-bottom:10px;" role="radiogroup" aria-label="How the mother is chosen">
           <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="manual" data-pf-action="setFibBoundaryMotherMode" role="radio" title="You pick the mother candle" aria-checked="true"><span>✎ Manual</span></button>
           <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="auto" data-pf-action="setFibBoundaryMotherMode" role="radio" title="Every session: the 09:15 5m candle is the mother; a broken mother is replaced by the breakout candle; out by 15:15; tomorrow starts itself" aria-checked="false"><span>⟳ Auto · 09:15 daily</span></button>
         </div>
-        <div id="fibx-mother-manual-row">
-        <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother timestamp · IST</label>
+        <div id="oc-fib-mother-manual-row">
+        <label for="oc-fib-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->
-        <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+        <input id="oc-fib-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label for="fibx-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div class="fibx-rule-only"><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option><option value="-1">ATM + 1 (OTM)</option><option value="-2">ATM + 2 (OTM)</option></select></div>
+          <div><label for="oc-fib-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="oc-fib-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div class="oc-fib-rule-only"><label for="oc-fib-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="oc-fib-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option><option value="-1">ATM + 1 (OTM)</option><option value="-2">ATM + 2 (OTM)</option></select></div>
         </div>
         <!-- Phil, 2026-08-18: mother timestamp, ladder cap and ITM steps first -- they are what he types; the switches below are settings. -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-          <div class="fibx-rule-only">
-            <label for="fibx-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
-            <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+          <div class="oc-fib-rule-only">
+            <label for="oc-fib-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
+            <select id="oc-fib-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="CE" selected>Buy CE</option>
               <option value="PE">Buy PE</option>
             </select>
           </div>
           <div>
-            <label for="fibx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
-            <select id="fibx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+            <label for="oc-fib-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
+            <select id="oc-fib-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="NIFTY" selected>NIFTY · 65/lot</option>
               <option value="BANKNIFTY">BANKNIFTY · 30/lot</option>
               <option value="FINNIFTY">FINNIFTY · 60/lot</option>
@@ -2631,15 +2631,15 @@
             </select>
           </div>
         </div>
-        <div id="fibx-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
+        <div id="oc-fib-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div class="fibx-rule-only">
+          <div class="oc-fib-rule-only">
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother chart</label>
-            <div id="fibx-timeframe" class="fibx-tf-row" role="group" aria-label="Mother chart" data-value="1m" title="The chart the mother candle is read on. Touches are always watched on 1m.">
-              <button type="button" class="fibx-tf is-active" data-pf-action="pickFibTimeframe" data-tf="1m">1m</button>
-              <button type="button" class="fibx-tf" data-pf-action="pickFibTimeframe" data-tf="5m">5m</button>
-              <button type="button" class="fibx-tf" data-pf-action="pickFibTimeframe" data-tf="15m">15m</button>
-              <button type="button" class="fibx-tf" data-pf-action="pickFibTimeframe" data-tf="1h">1H</button>
+            <div id="oc-fib-timeframe" class="oc-fib-tf-row" role="group" aria-label="Mother chart" data-value="1m" title="The chart the mother candle is read on. Touches are always watched on 1m.">
+              <button type="button" class="oc-fib-tf is-active" data-pf-action="pickFibTimeframe" data-tf="1m">1m</button>
+              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="5m">5m</button>
+              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="15m">15m</button>
+              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="1h">1H</button>
             </div>
           </div>
           <div>
@@ -2647,15 +2647,15 @@
             <!-- The Scalp page's toggle, which is what Phil asked for on
                  2026-08-15: paper to live and back, no separate arming step and
                  no password + authenticator challenge. -->
-            <input type="hidden" id="fibx-mode" value="paper">
-            <div id="fibx-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+            <input type="hidden" id="oc-fib-mode" value="paper">
+            <div id="oc-fib-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
               <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
               <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
             </div>
           </div>
         </div>
         <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
-        <div class="fibx-switch-grid fibx-rule-only">
+        <div class="ocp-switch-grid oc-fib-rule-only">
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
           <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
@@ -2663,8 +2663,8 @@
                whether every level of every fib is a rung, or only the places
                where two fibs' levels meet. The engine has taken it since
                fcdfb34 and nothing outside a test could reach it until now. -->
-          <input type="hidden" id="fibx-buy-mode" value="levels">
-          <div id="fibx-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
+          <input type="hidden" id="oc-fib-buy-mode" value="levels">
+          <div id="oc-fib-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
           </div>
@@ -2673,20 +2673,20 @@
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
           <!-- Phil, 2026-08-16: "I need intraday close at 3:15 and normal
                option to be selected from console UI." -->
-          <input type="hidden" id="fibx-session" value="intraday">
-          <div id="fibx-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
+          <input type="hidden" id="oc-fib-session" value="intraday">
+          <div id="oc-fib-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
           </div>
         </div>
-        <div id="fibx-deep-carry-row">
+        <div id="oc-fib-deep-carry-row">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Intraday only. A ladder that has bought MORE than 4 rungs by 15:15 without reaching its target can be held to the next day's 15:15. Off by default: measured Oct 2024–Aug 2026 it lost more on every chart and both sides. Try it per campaign if you want.">Deep ladder · &gt;4 rungs at 3:15</label>
           <!-- Phil, 2026-08-18: "Make it permanent and if I wanted to close it as
                an intraday, allow me to close it." Built, then measured again
                without the look-ahead the first replay had: it loses. Default is
                close; the switch is his. -->
-          <input type="hidden" id="fibx-deep-carry" value="close">
-          <div id="fibx-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
+          <input type="hidden" id="oc-fib-deep-carry" value="close">
+          <div id="oc-fib-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="Sell at 15:15 whatever the depth" aria-checked="true"><span>⏱ Close 3:15</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="A basket with more than 4 rungs bought is held to the next day's 15:15" aria-checked="false"><span>⇢ Hold a day</span></button>
           </div>
@@ -2694,73 +2694,73 @@
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Fixed: the basket is sold when the index reaches the target (a quarter of the way back to the mother; half once L4 or deeper has filled). Trailing: reaching the target only ARMS a trail — the basket rides on and is sold when a 1m candle CLOSES one fib span below the best price seen since. Trailing is the running rule: 5m CE, Oct 2024–Aug 2026, out at 15:15, at most 4 buys — NIFTY +₹92,658, SENSEX +₹1,19,063; fixed lost.">Target</label>
           <!-- Phil, 2026-08-18: "add the trailing target option to the form". -->
-          <input type="hidden" id="fibx-target-mode" value="fixed">
-          <div id="fibx-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
+          <input type="hidden" id="oc-fib-target-mode" value="fixed">
+          <div id="oc-fib-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" title="Sell the basket when the index reaches the target" aria-checked="true"><span>◎ Fixed</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" title="Reaching the target arms a trail; sold when a 1m close gives back one fib span from the best" aria-checked="false"><span>↗ Trailing</span></button>
           </div>
         </div>
-        <div class="fibx-rule-only">
+        <div class="oc-fib-rule-only">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Same: every buy is one lot. Ramp: the first buy takes 1 lot, the second 2, the third 3 — the deeper, cheaper turns carry more of the basket. Measured 18 Aug 2026 at ₹75,000 with at most 3 buys: NIFTY +₹1,24,315 against a deeper drawdown of −₹77,748; SENSEX gained nothing. The running rule is Same.">Lots per buy</label>
           <!-- Phil, 2026-08-18: "incrementing 1 lot on each level with max 3"; put
                on the form 2026-08-20. The engine has carried `lot_ramp` since the
                measurement; nothing but this control is new. -->
-          <input type="hidden" id="fibx-lot-ramp" value="same">
-          <div id="fibx-lot-ramp-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots per buy">
+          <input type="hidden" id="oc-fib-lot-ramp" value="same">
+          <div id="oc-fib-lot-ramp-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots per buy">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="same" data-pf-action="setFibBoundaryLotRamp" role="radio" title="Every buy is one lot — the measured rule" aria-checked="true"><span>≡ Same</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="ramp" data-pf-action="setFibBoundaryLotRamp" role="radio" title="1 lot, then 2, then 3 — deeper buys carry more" aria-checked="false"><span>▲ 1·2·3</span></button>
           </div>
         </div>
         </div>
-        <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
-        <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
-        <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
-        <div id="fibx-blocked"></div>
-        <div id="fibx-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div id="oc-fib-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div class="pf-cascade-campaign-actions ocp-form-actions"><button id="oc-fib-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="oc-fib-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
+        <div id="oc-fib-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
+        <div id="oc-fib-blocked"></div>
+        <div id="oc-fib-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
-      <details id="fibx-backtest" class="cascade-options-window fibx-backtest-window" style="display:none;" open>
+      <details id="oc-fib-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="fibx-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="fibx-backtest-contract" class="cascade-options-contract">Real fixed-strike premiums · CE and PE</div></div>
-          <div id="fibx-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
-          <div class="cascade-options-strip-actions"><a id="fibx-backtest-csv" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="fibx-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="fibx-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-fib-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-fib-backtest-contract" class="cascade-options-contract">Real fixed-strike premiums · CE and PE</div></div>
+          <div id="oc-fib-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
+          <div class="cascade-options-strip-actions"><a id="oc-fib-backtest-csv" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-fib-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-fib-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
         </summary>
         <div class="cascade-options-window-body">
-          <div id="fibx-backtest-stale" class="candle-entry-stale-note" style="display:none;"></div>
-          <div id="fibx-backtest-summary" class="cascade-options-summary"></div>
-          <div id="fibx-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
-          <div id="fibx-backtest-gaps" style="margin-top:10px;"></div>
-          <div id="fibx-backtest-chart" style="display:none;margin-top:12px;overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div>
+          <div id="oc-fib-backtest-stale" class="ocp-stale-note" style="display:none;"></div>
+          <div id="oc-fib-backtest-summary" class="cascade-options-summary"></div>
+          <div id="oc-fib-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
+          <div id="oc-fib-backtest-gaps" style="margin-top:10px;"></div>
+          <div id="oc-fib-backtest-chart" style="display:none;margin-top:12px;overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Priced legs</div>
-          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Level</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="fibx-backtest-legs"></tbody></table></div>
+          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Level</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="oc-fib-backtest-legs"></tbody></table></div>
         </div>
       </details>
 
       <!-- One monitor PER LADDER. The panel below is a template cloned per
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
-      <div id="fibx-monitors" class="fibx-monitors"><div id="fibx-auto-panel" class="fibx-auto-panel"></div></div>
-      <div class="candle-entry-monitor-section" id="fibx-closed-wrap" hidden>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="fibx-closed-count"></span></div>
-        <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="fibx-closed-rounds"></tbody></table></div>
+      <div id="oc-fib-monitors" class="oc-fib-monitors"><div id="oc-fib-auto-panel" class="oc-fib-auto-panel"></div></div>
+      <div class="ocp-monitor-section" id="oc-fib-closed-wrap" hidden>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
+        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-fib-closed-rounds"></tbody></table></div>
       </div>
     </div>
 
     <!-- And one results+events pair per ladder, for the same reason: a single
          "Campaign events" card cannot serve four instruments. -->
-    <div id="fibx-lower"></div>
+    <div id="oc-fib-lower"></div>
 
-    <template id="fibx-monitor-tpl">
+    <template id="oc-fib-monitor-tpl">
       <!-- Collapsed by default (Phil, 2026-08-13): the summary row already says
            instrument, state and contract; the body is on demand. -->
-      <details class="cascade-options-window fibx-monitor-window">
+      <details class="cascade-options-window oc-fib-monitor-window">
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
         </summary>
-        <div class="cascade-options-strip-actions fibx-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
+        <div class="cascade-options-strip-actions oc-fib-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
         <div class="cascade-options-window-body">
-          <div class="fibx-monitor-body-inner">
+          <div class="oc-fib-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>
           <div data-fx="empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
           <div data-fx="active" style="display:none;margin-top:16px;">
@@ -2777,7 +2777,7 @@
       </details>
     </template>
 
-    <template id="fibx-lower-tpl">
+    <template id="oc-fib-lower-tpl">
       <div class="oc-fib-lower-grid">
         <div class="card oc-fib-results-card" style="padding:20px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 data-fx="rounds-title" style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
@@ -2787,17 +2787,17 @@
       </div>
     </template>
 
-    <div id="fibx-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
+    <div id="oc-fib-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <!-- The one site toolbar: title block left, legend + timeframes +
              refresh + close at the top right, exactly like every other chart
              dialog. The strip renders its OWN close, so the toolbar must not
              carry a second one. -->
         <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title"><h3 id="fibx-chart-title">Swing ladder chart</h3><div id="fibx-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="fibx-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-title"><h3 id="oc-fib-chart-title">Swing ladder chart</h3><div id="oc-fib-chart-meta">Loading chart…</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-fib-chart-strip"></div></div>
         </div>
-        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="fibx-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-fib-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div></div>
       </div>
     </div>
   </div>
@@ -2805,7 +2805,7 @@
   <!-- ── TAB · Candle-entry ── -->
   <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">TWO-RED LADDER · BOX MOTHER · 5m → 15m</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop pf-info-doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">TWO-RED LADDER · BOX MOTHER · 5m → 15m</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="oc-candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="oc-candle-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -2866,8 +2866,8 @@
             </section>
             <p class="pf-info-warn"><strong>அளவீடு</strong>, 1 அக் 2024 &ndash; 17 ஆக 2026, 5m chart-இல் ஒவ்வொரு box high-உம், ஒரு நேரத்தில் ஒரு campaign, உண்மையான premium-கள்: <strong>&frac14; இலக்கு + 30% trail +&#8377;2,23,305</strong>, 34 campaign-கள், 82% லாபம், அதிகபட்ச drawdown &minus;&#8377;7,453, உச்ச மூலதனம் &#8377;1,69,991; fixed &frac14; +&#8377;2,18,286. சிறந்த ஐந்தை நீக்கியும் +&#8377;75,406. பதினொரு வழி சரிபார்ப்பு, 0 தோல்வி. <strong>PE எல்லா அமைப்பிலும் நஷ்டம்</strong>, வர்த்தகம் இல்லை; <strong>weekly expiry நஷ்டம்</strong> (campaign ஒப்பந்தத்தை விட நீளம்); 1m நஷ்டம்; பெரிய இலக்கு நஷ்டம். முழு அறிக்கை Assets &rarr; Candle Entry tearsheet.</p>
             </div><!-- /ta -->
-          </div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="fibx-confirmed-link" href="/assets/tearsheet?doc=candle#curve-trail" data-pf-action="openCandleTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div></div>
-      <div id="candle-entry-recipe" class="candle-entry-recipe" aria-live="polite"></div>
+          </div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="ocp-confirmed-link" href="/assets/tearsheet?doc=candle#curve-trail" data-pf-action="openCandleTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a><span id="oc-candle-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div></div>
+      <div id="oc-candle-recipe" class="ocp-recipe" aria-live="polite"></div>
       <!-- THE FORM IS THREE DECISIONS. Paper or live, which chart, and (for a
            backtest, or to start from a past box high) the moment to look back
            from. Everything else is the measured rule and lives behind
@@ -2880,55 +2880,55 @@
            Right: everything that is LIVE -- the auto chain, the campaign
            monitor with its Chart button, and a backtest when you run one.
            One column again below 1280px, exactly as it was. -->
-      <div class="candle-entry-panes">
-      <div class="candle-entry-pane candle-entry-pane-form">
-      <div class="candle-entry-essentials">
-        <div class="candle-entry-field candle-entry-field-mode">
+      <div class="ocp-panes">
+      <div class="ocp-pane ocp-pane-form">
+      <div class="ocp-essentials">
+        <div class="ocp-field ocp-field-mode">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-          <input type="hidden" id="candle-entry-mode" value="paper">
-          <div id="candle-entry-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+          <input type="hidden" id="oc-candle-mode" value="paper">
+          <div id="oc-candle-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
             <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setCandleEntryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setCandleEntryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
           </div>
         </div>
-        <div class="candle-entry-field candle-entry-field-auto">
+        <div class="ocp-field ocp-field-auto">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Auto mother</label>
           <!-- Phil, 2026-08-20: "Can this be automated like the Fib Boundary
                strategy? ... match the backtest, new box high only, market
                hours only." On: the first 5m bar to make a new 278-bar high
                since the last campaign ended starts the measured rule, 09:20
                to 15:10 on weekdays; never on top of a running campaign. -->
-          <input type="hidden" id="candle-entry-auto" value="off">
-          <div id="candle-entry-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto mother">
+          <input type="hidden" id="oc-candle-auto" value="off">
+          <div id="oc-candle-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto mother">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="off" data-pf-action="setCandleEntryAuto" role="radio" aria-checked="true"><span>○ Off</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="on" data-pf-action="setCandleEntryAuto" role="radio" title="Starts the measured rule on each new 278-bar high, market hours only" aria-checked="false"><span>◉ On</span></button>
           </div>
         </div>
-        <div class="candle-entry-field candle-entry-field-chart"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
-        <div class="candle-entry-field candle-entry-field-when"><label id="candle-entry-timestamp-label" for="candle-entry-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div class="candle-entry-field candle-entry-field-actions candle-entry-actions"><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+        <div class="ocp-field ocp-field-chart"><label for="oc-candle-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="oc-candle-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
+        <div class="ocp-field ocp-field-when"><label id="oc-candle-timestamp-label" for="oc-candle-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="oc-candle-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
+        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       </div>
-      <details id="candle-entry-advanced" class="candle-entry-advanced">
-        <summary><span class="candle-entry-advanced-title">Advanced</span><span id="candle-entry-advanced-state" class="candle-entry-advanced-state">rule as measured</span></summary>
-        <div class="candle-entry-advanced-body">
-        <div class="fibx-switch-grid candle-entry-switch-grid">
+      <details id="oc-candle-advanced" class="ocp-advanced">
+        <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-candle-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
+        <div class="ocp-advanced-body">
+        <div class="ocp-switch-grid ocp-switch-grid">
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother</label>
           <!-- Phil, 2026-08-19: "The mother has to be the high from the
                measurement we made" -- the bar that makes the 278-bar high.
                Manual is the old way: name the candle. -->
-          <input type="hidden" id="candle-entry-mother-mode" value="box">
-          <div id="candle-entry-mother-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which mother">
+          <input type="hidden" id="oc-candle-mother-mode" value="box">
+          <div id="oc-candle-mother-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which mother">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="box" data-pf-action="setCandleEntryMother" role="radio" title="The bar that made the box high — found for you" aria-checked="true"><span>⊓ Box high</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="manual" data-pf-action="setCandleEntryMother" role="radio" title="Name the mother candle yourself" aria-checked="false"><span>✎ Manual</span></button>
           </div>
         </div>
-        <div id="candle-entry-box-row">
+        <div id="oc-candle-box-row">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Box · bars &amp; buy zone</label>
-          <div class="candle-entry-box-fields">
-            <input id="candle-entry-box-bars" type="number" min="20" max="2000" step="1" value="278" inputmode="numeric" aria-label="Bars in the box" title="How many bars of the starting chart make the box (278 is the measured setting)">
-            <input type="hidden" id="candle-entry-box-position" value="0.25">
-            <div id="candle-entry-box-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Where in the box the ladder may buy">
+          <div class="ocp-box-fields">
+            <input id="oc-candle-box-bars" type="number" min="20" max="2000" step="1" value="278" inputmode="numeric" aria-label="Bars in the box" title="How many bars of the starting chart make the box (278 is the measured setting)">
+            <input type="hidden" id="oc-candle-box-position" value="0.25">
+            <div id="oc-candle-box-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Where in the box the ladder may buy">
               <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryBox" role="radio" title="Buy only in the bottom quarter of the box" aria-checked="true"><span>▁ Bottom ¼</span></button>
               <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryBox" role="radio" title="Buy anywhere in the bottom half" aria-checked="false"><span>▃ Bottom ½</span></button>
             </div>
@@ -2936,47 +2936,47 @@
         </div>
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Exit</label>
-          <input type="hidden" id="candle-entry-exit-mode" value="trailing">
-          <div id="candle-entry-exit-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Fixed target or trailing">
+          <input type="hidden" id="oc-candle-exit-mode" value="trailing">
+          <div id="oc-candle-exit-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Fixed target or trailing">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="trailing" data-pf-action="setCandleEntryExit" role="radio" title="Touching the target arms a trail: sell on a close giving back 30% of the gain" aria-checked="true"><span>↝ Trailing</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="fixed" data-pf-action="setCandleEntryExit" role="radio" title="The target is the sale" aria-checked="false"><span>▮ Fixed</span></button>
           </div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Target</label>
-          <input type="hidden" id="candle-entry-target" value="0.25">
-          <div id="candle-entry-target-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How far back to the mother high">
+          <input type="hidden" id="oc-candle-target" value="0.25">
+          <div id="oc-candle-target-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How far back to the mother high">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="0.25" data-pf-action="setCandleEntryTarget" role="radio" title="A quarter of the way from the average entry back to the mother high" aria-checked="true"><span>¼ back</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="0.5" data-pf-action="setCandleEntryTarget" role="radio" title="Halfway from the average entry back to the mother high" aria-checked="false"><span>½ back</span></button>
           </div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Expiry</label>
-          <input type="hidden" id="candle-entry-expiry-rule" value="monthly">
-          <div id="candle-entry-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which contract">
+          <input type="hidden" id="oc-candle-expiry-rule" value="monthly">
+          <div id="oc-candle-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which contract">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="monthly" data-pf-action="setCandleEntryExpiry" role="radio" title="The monthly 15–45 days out (else the closest)" aria-checked="true"><span>▦ Monthly</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="weekly4" data-pf-action="setCandleEntryExpiry" role="radio" title="The first weekly expiry at least 4 days after the mother — measured red: the campaign outlives the contract" aria-checked="false"><span>▤ Weekly ≥4d</span></button>
           </div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
-          <input type="hidden" id="candle-entry-session" value="hold">
-          <div id="candle-entry-session-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Session rule">
+          <input type="hidden" id="oc-candle-session" value="hold">
+          <div id="oc-candle-session-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Session rule">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="hold" data-pf-action="setCandleEntrySession" role="radio" title="Runs to its target or the option's expiry" aria-checked="true"><span>↗ Hold</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="intraday" data-pf-action="setCandleEntrySession" role="radio" title="Out at 15:15 and the campaign ends that day" aria-checked="false"><span>⏱ Close 3:15</span></button>
           </div>
         </div>
         <div>
-          <label for="candle-entry-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike</label>
+          <label for="oc-candle-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike</label>
           <!-- Measured 2026-08-19: the mother's ATM-2 sat ABOVE the ladder's
                target on half the box-mother campaigns (the call was out of
                the money at the price it was sold at). Phil: "for the second
                buy and 3rd buy also we need to select the current strike" --
                each rung its own ATM-2 is +Rs 2.83L against +Rs 2.02L. -->
-          <div class="candle-entry-box-fields">
-            <select id="candle-entry-itm" style="flex:0 0 auto;width:auto;" title="How far in the money the one CE sits: ATM − 2 is two strikes (100 points) below the index at the moment it is chosen."><option value="-2" selected>ATM − 2</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
-            <input type="hidden" id="candle-entry-strike-at" value="each_buy">
-            <div id="candle-entry-strike-at-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="When the strike is chosen">
+          <div class="ocp-box-fields">
+            <select id="oc-candle-itm" style="flex:0 0 auto;width:auto;" title="How far in the money the one CE sits: ATM − 2 is two strikes (100 points) below the index at the moment it is chosen."><option value="-2" selected>ATM − 2</option><option value="-1">ATM − 1</option><option value="0">ATM</option><option value="-3">ATM − 3</option><option value="-4">ATM − 4</option></select>
+            <input type="hidden" id="oc-candle-strike-at" value="each_buy">
+            <div id="oc-candle-strike-at-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="When the strike is chosen">
               <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="each_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="Every rung takes ATM − 2 of the index where it fills; up to two contracts, each sold at its own price — the measured rule" aria-checked="true"><span>⊙ Each buy</span></button>
               <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="first_buy" data-pf-action="setCandleEntryStrikeAt" role="radio" title="One contract for the ladder: ATM − 2 of the index where the first rung fills" aria-checked="false"><span>① First buy</span></button>
               <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="mother" data-pf-action="setCandleEntryStrikeAt" role="radio" title="ATM − 2 of the mother's close — the oldest rule" aria-checked="false"><span>⊓ Mother</span></button>
@@ -2986,59 +2986,59 @@
         </div>
         </div>
       </details>
-      <div id="candle-entry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      <div id="oc-candle-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
-      <div class="candle-entry-pane candle-entry-pane-live">
-      <div id="candle-entry-auto-card" class="candle-entry-auto-card" hidden></div>
-      <div id="candle-entry-summary" class="candle-entry-summary">No active Candle Entry campaign.</div>
+      <div class="ocp-pane ocp-pane-live">
+      <div id="oc-candle-auto-card" class="ocp-auto-card" hidden></div>
+      <div id="oc-candle-summary" class="ocp-summary">No active Candle Entry campaign.</div>
       <!-- THE MONITOR: the running campaign, and nothing older. A campaign
            that ended on a previous day is one line under the form, not a
            panel (Phil, 2026-08-20, on a stale 10 Aug replay filling the
            screen: "Is this really needed?"). Six tiles, the ladder, and the
            activity folded away. -->
-      <section id="candle-entry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
-        <div class="candle-entry-monitor-head">
-          <div><div class="candle-entry-monitor-kicker" id="candle-entry-monitor-kicker">Paper campaign</div><h4 id="candle-entry-monitor-title">Running</h4></div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="candle-entry-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadCandleEntryChart" aria-label="Open campaign chart">↗ Chart</button><div id="candle-entry-monitor-updated" class="candle-entry-monitor-updated"></div></div>
+      <section id="oc-candle-monitor" class="ocp-monitor" aria-live="polite" aria-label="Candle Entry paper campaign monitor" hidden>
+        <div class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker" id="oc-candle-monitor-kicker">Paper campaign</div><h4 id="oc-candle-monitor-title">Running</h4></div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="oc-candle-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadCandleEntryChart" aria-label="Open campaign chart">↗ Chart</button><div id="oc-candle-monitor-updated" class="ocp-monitor-updated"></div></div>
         </div>
-        <div id="candle-entry-monitor-tiles" class="candle-entry-tiles"></div>
-        <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="candle-entry-monitor-rungs"></tbody></table></div></div>
-        <div class="candle-entry-monitor-section" id="candle-entry-closed-wrap" hidden>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="candle-entry-closed-count"></span></div>
-          <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="candle-entry-closed-rounds"></tbody></table></div>
+        <div id="oc-candle-monitor-tiles" class="ocp-tiles"></div>
+        <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-monitor-rungs"></tbody></table></div></div>
+        <div class="ocp-monitor-section" id="oc-candle-closed-wrap" hidden>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-candle-closed-rounds"></tbody></table></div>
         </div>
-        <details class="candle-entry-activity">
-          <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="candle-entry-event-count">0 updates</span></summary>
-          <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="candle-entry-events"><tr><td colspan="3" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
+        <details class="ocp-activity">
+          <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-candle-event-count">0 updates</span></summary>
+          <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="oc-candle-events"><tr><td colspan="3" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </details>
       </section>
-      <details id="candle-entry-backtest" class="cascade-options-window candle-entry-backtest-window" style="display:none;" open>
+      <details id="oc-candle-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="candle-entry-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="candle-entry-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
-          <div id="candle-entry-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
-          <div class="cascade-options-strip-actions"><a id="candle-entry-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="candle-entry-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="candle-entry-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteCandleEntryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-candle-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-candle-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
+          <div id="oc-candle-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
+          <div class="cascade-options-strip-actions"><a id="oc-candle-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-candle-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-candle-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteCandleEntryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
         </summary>
         <div class="cascade-options-window-body">
-          <div id="candle-entry-backtest-stale" class="candle-entry-stale-note" style="display:none;"></div>
-          <div id="candle-entry-backtest-summary" class="cascade-options-summary"></div>
-          <div id="candle-entry-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
-          <div id="candle-entry-backtest-gaps" style="margin-top:10px;"></div>
-          <div id="candle-entry-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="candle-entry-backtest-chart-strip" style="display:flex;justify-content:flex-end;margin-bottom:6px;"></div><div id="candle-entry-backtest-chart" style="overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div></div>
+          <div id="oc-candle-backtest-stale" class="ocp-stale-note" style="display:none;"></div>
+          <div id="oc-candle-backtest-summary" class="cascade-options-summary"></div>
+          <div id="oc-candle-backtest-note" style="margin-top:10px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;"></div>
+          <div id="oc-candle-backtest-gaps" style="margin-top:10px;"></div>
+          <div id="oc-candle-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="oc-candle-backtest-chart-strip" style="display:flex;justify-content:flex-end;margin-bottom:6px;"></div><div id="oc-candle-backtest-chart" style="overflow-x:auto;border:1px solid var(--border);border-radius:9px;"></div></div>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Every buy, in order</div>
-          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Rung</th><th style="padding:7px 8px;text-align:left;">Chart</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="candle-entry-backtest-legs"></tbody></table></div>
+          <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:7px 8px;text-align:left;">Rung</th><th style="padding:7px 8px;text-align:left;">Chart</th><th style="padding:7px 8px;text-align:left;">Time</th><th style="padding:7px 8px;text-align:right;">Index</th><th style="padding:7px 8px;text-align:right;">Strike</th><th style="padding:7px 8px;text-align:right;">Premium</th><th style="padding:7px 8px;text-align:right;">Lots</th><th style="padding:7px 8px;text-align:right;">Qty</th><th style="padding:7px 8px;text-align:right;">Sold</th><th style="padding:7px 8px;text-align:right;">P&amp;L</th></tr></thead><tbody id="oc-candle-backtest-legs"></tbody></table></div>
         </div>
       </details>
       </div>
       </div>
     </div>
 
-    <div id="candle-entry-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Candle Entry ladder chart">
+    <div id="oc-candle-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Candle Entry ladder chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title"><h3 id="candle-entry-chart-title">Two-red ladder chart</h3><div id="candle-entry-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="candle-entry-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-title"><h3 id="oc-candle-chart-title">Two-red ladder chart</h3><div id="oc-candle-chart-meta">Loading chart…</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-candle-chart-strip"></div></div>
         </div>
-        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="candle-entry-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles on the chart you pick, with every rung the ladder bought, an armed stop, the target and the exit drawn on top.</div></div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-candle-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles on the chart you pick, with every rung the ladder bought, an armed stop, the target and the exit drawn on top.</div></div></div>
       </div>
     </div>
   </div>
@@ -3047,7 +3047,7 @@
   <!-- ── TAB · Gap Carry ── -->
   <div id="oc-tab-gapcarry" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-gapcarry">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(251,191,36,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;">EMA20 + RSI &middot; ONE NIGHT &middot; 15:10 IN &middot; 09:20 OUT</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Gap Carry <button type="button" class="pf-info-btn" data-pf-info="gapcarry-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="gapcarry-info" class="pf-info-pop pf-info-doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;">EMA20 + RSI &middot; ONE NIGHT &middot; 15:10 IN &middot; 09:20 OUT</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Gap Carry <button type="button" class="pf-info-btn" data-pf-info="oc-gap-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="oc-gap-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -3100,49 +3100,49 @@
             </section>
             <p class="pf-info-warn"><strong>இரண்டு விஷயங்கள் இன்னும் உறுதி செய்யப்படவில்லை; அவற்றை முன்னோக்கி நிரூபிக்கவே இந்த tab உள்ளது.</strong> <strong>வெள்ளிக்கிழமை மட்டும் புத்தகத்தின் 46%</strong> (10m பதிப்பில் 67%) — வெள்ளியன்று வாங்கியது வார இறுதி முழுவதும் வைக்கப்படுகிறது, எனவே இதில் ஒரு பகுதி மூன்று நாள் gap. <strong>வியாழன் இரண்டிலும் நஷ்டம்.</strong> RSI 70 என்பது 65&ndash;76 band-இன் உச்சம், ஒரு பீடபூமி அல்ல; அந்த band முழுவதும் நேர்மறை, இரு பாதிகளும் பச்சை — எனவே வலிமையை 1.86 அல்ல, <strong>PF ~1.35&ndash;1.40</strong> எனப் படியுங்கள். 179-இல் 4 exits archive-இன் strike வரம்பைத் தாண்டிச் சென்றவை; அவை intrinsic மதிப்பில் கணக்கிடப்பட்டு, தனியாகக் காட்டப்படுகின்றன.</p>
             </div>
-          </div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="fibx-confirmed-link" href="/assets/tearsheet?doc=gapcarry#curve-gapcarry" data-pf-action="openGapCarryTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a><span id="gap-carry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div></div>
-      <div id="gap-carry-recipe" class="candle-entry-recipe" aria-live="polite"></div>
+          </div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="ocp-confirmed-link" href="/assets/tearsheet?doc=gapcarry#curve-gapcarry" data-pf-action="openGapCarryTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a><span id="oc-gap-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div></div>
+      <div id="oc-gap-recipe" class="ocp-recipe" aria-live="polite"></div>
 
-      <div class="candle-entry-panes">
-      <div class="candle-entry-pane candle-entry-pane-form">
-        <div class="candle-entry-essentials">
-          <div class="candle-entry-field candle-entry-field-mode">
+      <div class="ocp-panes">
+      <div class="ocp-pane ocp-pane-form">
+        <div class="ocp-essentials">
+          <div class="ocp-field ocp-field-mode">
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-            <input type="hidden" id="gap-carry-mode" value="paper">
-            <div id="gap-carry-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+            <input type="hidden" id="oc-gap-mode" value="paper">
+            <div id="oc-gap-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
               <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setGapCarryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
               <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setGapCarryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
             </div>
           </div>
-          <div class="candle-entry-field candle-entry-field-auto">
+          <div class="ocp-field ocp-field-auto">
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Auto</label>
-            <input type="hidden" id="gap-carry-auto" value="off">
-            <div id="gap-carry-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto carry">
+            <input type="hidden" id="oc-gap-auto" value="off">
+            <div id="oc-gap-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto carry">
               <button type="button" class="scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setGapCarryAuto" role="radio" aria-checked="true"><span>○ Manual</span></button>
               <button type="button" class="scalp-toggle-btn" data-value="on" data-tone="bull" data-pf-action="setGapCarryAuto" role="radio" title="Every session: read the candle at 15:10, buy if it qualifies, sell at 09:20. Pinned to the measured settings." aria-checked="false"><span>◉ Auto</span></button>
             </div>
           </div>
-          <div class="candle-entry-field candle-entry-field-chart">
-            <label for="gap-carry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
-            <select id="gap-carry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="The candle read at 15:10. Only the charts the broker can serve are offered.">
+          <div class="ocp-field ocp-field-chart">
+            <label for="oc-gap-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
+            <select id="oc-gap-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="The candle read at 15:10. Only the charts the broker can serve are offered.">
               <option value="5m" selected>5m &middot; measured</option>
               <option value="15m">15m</option>
             </select>
           </div>
-          <div class="candle-entry-field candle-entry-field-actions candle-entry-actions">
-            <button id="gap-carry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
-            <button id="gap-carry-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
-            <button id="gap-carry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
+          <div class="ocp-field ocp-field-actions ocp-actions">
+            <button id="oc-gap-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
+            <button id="oc-gap-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
+            <button id="oc-gap-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
           </div>
         </div>
-        <details id="gap-carry-advanced" class="candle-entry-advanced">
-          <summary><span class="candle-entry-advanced-title">Advanced</span><span id="gap-carry-advanced-state" class="candle-entry-advanced-state">rule as measured</span></summary>
-          <div class="candle-entry-advanced-body">
-            <div class="fibx-switch-grid candle-entry-switch-grid">
+        <details id="oc-gap-advanced" class="ocp-advanced">
+          <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-gap-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
+          <div class="ocp-advanced-body">
+            <div class="ocp-switch-grid ocp-switch-grid">
               <div>
                 <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Momentum</label>
-                <input type="hidden" id="gap-carry-rsi" value="70">
-                <div id="gap-carry-rsi-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="RSI threshold">
+                <input type="hidden" id="oc-gap-rsi" value="70">
+                <div id="oc-gap-rsi-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="RSI threshold">
                   <button type="button" class="scalp-toggle-btn" data-value="68" data-tone="ember" data-pf-action="setGapCarryRsi" role="radio" aria-checked="false" title="68+ for a call, 32− for a put"><span>68</span></button>
                   <button type="button" class="scalp-toggle-btn active" data-value="70" data-tone="ember" data-pf-action="setGapCarryRsi" role="radio" aria-checked="true" title="70+ for a call, 30− for a put — the measured setting"><span>70</span></button>
                   <button type="button" class="scalp-toggle-btn" data-value="72" data-tone="ember" data-pf-action="setGapCarryRsi" role="radio" aria-checked="false" title="72+ for a call, 28− for a put"><span>72</span></button>
@@ -3150,8 +3150,8 @@
               </div>
               <div>
                 <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strike</label>
-                <input type="hidden" id="gap-carry-offset" value="4">
-                <div id="gap-carry-offset-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How far in the money">
+                <input type="hidden" id="oc-gap-offset" value="4">
+                <div id="oc-gap-offset-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How far in the money">
                   <button type="button" class="scalp-toggle-btn" data-value="2" data-tone="ember" data-pf-action="setGapCarryOffset" role="radio" aria-checked="false" title="100 points in the money"><span>ATM+2</span></button>
                   <button type="button" class="scalp-toggle-btn active" data-value="4" data-tone="ember" data-pf-action="setGapCarryOffset" role="radio" aria-checked="true" title="200 points in the money — the measured setting"><span>ATM+4</span></button>
                   <button type="button" class="scalp-toggle-btn" data-value="6" data-tone="ember" data-pf-action="setGapCarryOffset" role="radio" aria-checked="false" title="300 points in the money"><span>ATM+6</span></button>
@@ -3159,8 +3159,8 @@
               </div>
               <div>
                 <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots</label>
-                <input type="hidden" id="gap-carry-lots" value="1">
-                <div id="gap-carry-lots-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How many lots">
+                <input type="hidden" id="oc-gap-lots" value="1">
+                <div id="oc-gap-lots-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="How many lots">
                   <button type="button" class="scalp-toggle-btn active" data-value="1" data-tone="ember" data-pf-action="setGapCarryLots" role="radio" aria-checked="true"><span>1 lot</span></button>
                   <button type="button" class="scalp-toggle-btn" data-value="2" data-tone="ember" data-pf-action="setGapCarryLots" role="radio" aria-checked="false"><span>2</span></button>
                   <button type="button" class="scalp-toggle-btn" data-value="3" data-tone="ember" data-pf-action="setGapCarryLots" role="radio" aria-checked="false"><span>3</span></button>
@@ -3168,23 +3168,23 @@
               </div>
               <div>
                 <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Contract</label>
-                <input type="hidden" id="gap-carry-expiry-rule" value="weekly">
-                <div id="gap-carry-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which expiry">
+                <input type="hidden" id="oc-gap-expiry-rule" value="weekly">
+                <div id="oc-gap-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which expiry">
                   <button type="button" class="scalp-toggle-btn active" data-value="weekly" data-tone="ember" data-pf-action="setGapCarryExpiry" role="radio" aria-checked="true"><span>Weekly</span></button>
                   <button type="button" class="scalp-toggle-btn" data-value="monthly" data-tone="ember" data-pf-action="setGapCarryExpiry" role="radio" aria-checked="false"><span>Monthly</span></button>
                 </div>
               </div>
               <div>
-                <label for="gap-carry-entry-time" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Buy at</label>
-                <select id="gap-carry-entry-time" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="The candle read is the last one closed at or before this time.">
+                <label for="oc-gap-entry-time" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Buy at</label>
+                <select id="oc-gap-entry-time" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="The candle read is the last one closed at or before this time.">
                   <option value="15:00">15:00</option>
                   <option value="15:10" selected>15:10 &middot; measured</option>
                   <option value="15:20">15:20</option>
                 </select>
               </div>
               <div>
-                <label for="gap-carry-exit-time" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Sell at</label>
-                <select id="gap-carry-exit-time" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Next session. 09:20 beat 09:45 in every configuration measured — the gap is the payoff.">
+                <label for="oc-gap-exit-time" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Sell at</label>
+                <select id="oc-gap-exit-time" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Next session. 09:20 beat 09:45 in every configuration measured — the gap is the payoff.">
                   <option value="09:20" selected>09:20 &middot; measured</option>
                   <option value="09:30">09:30</option>
                   <option value="09:45">09:45</option>
@@ -3193,56 +3193,56 @@
             </div>
           </div>
         </details>
-        <div id="gap-carry-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div id="oc-gap-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
-      <div class="candle-entry-pane candle-entry-pane-live">
-        <div id="gap-carry-auto-card" class="candle-entry-auto-card" hidden></div>
-        <div id="gap-carry-summary" class="candle-entry-summary">No active Gap Carry campaign.</div>
-        <section id="gap-carry-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="Gap Carry paper campaign monitor" hidden>
-          <div class="candle-entry-monitor-head">
-            <div><div class="candle-entry-monitor-kicker" id="gap-carry-monitor-kicker">Paper carry</div><h4 id="gap-carry-monitor-title">Running</h4></div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="gap-carry-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadGapCarryChart" aria-label="Open the carry chart">↗ Chart</button><div id="gap-carry-monitor-updated" class="candle-entry-monitor-updated"></div></div>
+      <div class="ocp-pane ocp-pane-live">
+        <div id="oc-gap-auto-card" class="ocp-auto-card" hidden></div>
+        <div id="oc-gap-summary" class="ocp-summary">No active Gap Carry campaign.</div>
+        <section id="oc-gap-monitor" class="ocp-monitor" aria-live="polite" aria-label="Gap Carry paper campaign monitor" hidden>
+          <div class="ocp-monitor-head">
+            <div><div class="ocp-monitor-kicker" id="oc-gap-monitor-kicker">Paper carry</div><h4 id="oc-gap-monitor-title">Running</h4></div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="oc-gap-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadGapCarryChart" aria-label="Open the carry chart">↗ Chart</button><div id="oc-gap-monitor-updated" class="ocp-monitor-updated"></div></div>
           </div>
-          <div id="gap-carry-monitor-tiles" class="candle-entry-tiles"></div>
-          <div id="gap-carry-monitor-rule" class="candle-entry-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
-          <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="gap-carry-monitor-rows"></tbody></table></div></div>
-          <div class="candle-entry-monitor-section" id="gap-carry-closed-wrap" hidden>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="gap-carry-closed-count"></span></div>
-            <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="gap-carry-closed-rounds"></tbody></table></div>
+          <div id="oc-gap-monitor-tiles" class="ocp-tiles"></div>
+          <div id="oc-gap-monitor-rule" class="ocp-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
+          <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-monitor-rows"></tbody></table></div></div>
+          <div class="ocp-monitor-section" id="oc-gap-closed-wrap" hidden>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
+            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-gap-closed-rounds"></tbody></table></div>
           </div>
-          <details class="candle-entry-activity">
-            <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="gap-carry-event-count">0 updates</span></summary>
-            <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="gap-carry-events"><tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
+          <details class="ocp-activity">
+            <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-gap-event-count">0 updates</span></summary>
+            <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="oc-gap-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
           </details>
         </section>
-        <section id="gap-carry-backtest" class="candle-entry-monitor" hidden>
-          <div class="candle-entry-monitor-head"><span class="candle-entry-monitor-kicker">Replay on recorded prices</span><span id="gap-carry-backtest-updated" class="candle-entry-monitor-updated"></span></div>
-          <div id="gap-carry-backtest-tiles" class="candle-entry-tiles"></div>
-          <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table" id="gap-carry-backtest-table"></table></div></div>
-          <div class="cascade-options-strip-actions"><a id="gap-carry-backtest-csv" class="cascade-options-control" href="/api/gap-carry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="gap-carry-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleGapCarryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="gap-carry-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteGapCarryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result &mdash; an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
-          <div id="gap-carry-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="gap-carry-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
+        <section id="oc-gap-backtest" class="ocp-monitor" hidden>
+          <div class="ocp-monitor-head"><span class="ocp-monitor-kicker">Replay on recorded prices</span><span id="oc-gap-backtest-updated" class="ocp-monitor-updated"></span></div>
+          <div id="oc-gap-backtest-tiles" class="ocp-tiles"></div>
+          <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table" id="oc-gap-backtest-table"></table></div></div>
+          <div class="cascade-options-strip-actions"><a id="oc-gap-backtest-csv" class="cascade-options-control" href="/api/gap-carry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-gap-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleGapCarryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-gap-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteGapCarryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result &mdash; an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div id="oc-gap-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="oc-gap-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
         </section>
       </div>
       </div>
     </div>
-    <div id="gap-carry-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Gap Carry chart">
+    <div id="oc-gap-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Gap Carry chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title"><h3 id="gap-carry-chart-title">Gap Carry chart</h3><div id="gap-carry-chart-meta">Loading chart&hellip;</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#fb923c;">▬ EMA20</span><span style="color:#c084fc;">▬ RSI</span><span style="color:#fff;">▲ buy</span><span style="color:#fde68a;">▼ sell</span></div><div id="gap-carry-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-title"><h3 id="oc-gap-chart-title">Gap Carry chart</h3><div id="oc-gap-chart-meta">Loading chart&hellip;</div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#fb923c;">▬ EMA20</span><span style="color:#c084fc;">▬ RSI</span><span style="color:#fff;">▲ buy</span><span style="color:#fde68a;">▼ sell</span></div><div id="oc-gap-chart-strip"></div></div>
         </div>
-        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="gap-carry-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles with the EMA20 the rule reads, the RSI underneath it, and the night&rsquo;s buy and sell drawn on top.</div></div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-gap-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles with the EMA20 the rule reads, the RSI underneath it, and the night&rsquo;s buy and sell drawn on top.</div></div></div>
       </div>
     </div>
   </div>
 
   <div id="oc-tab-recovery" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-recovery" aria-hidden="true" style="display:none;">
-    <div class="he-panes">
-    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
+    <div class="ocp-panes">
+    <div class="ocp-pane ocp-pane-form card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
-          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="recovery-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
-          <div id="recovery-info" class="pf-info-pop pf-info-doc">
+          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <div id="oc-high-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -3314,68 +3314,68 @@
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
-          <a class="fibx-confirmed-link" href="/assets/tearsheet?doc=recovery#curve-trail" data-pf-action="openRecoveryTearsheet">Five-year audit &middot; P&amp;L &rarr;</a>
-          <span id="recovery-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+          <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=recovery#curve-trail" data-pf-action="openRecoveryTearsheet">Five-year audit &middot; P&amp;L &rarr;</a>
+          <span id="oc-high-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
         </div>
       </div>
-      <div id="recovery-recipe" class="candle-entry-recipe" aria-live="polite"></div>
-      <div class="candle-entry-grid" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
-        <div class="candle-entry-field">
+      <div id="oc-high-recipe" class="ocp-recipe" aria-live="polite"></div>
+      <div class="ocp-grid" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
+        <div class="ocp-field">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-          <input type="hidden" id="recovery-run-mode" value="paper">
-          <div id="recovery-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+          <input type="hidden" id="oc-high-run-mode" value="paper">
+          <div id="oc-high-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
             <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setRecoveryRunMode" role="radio" aria-checked="true"><span>&#9635; Paper</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setRecoveryRunMode" role="radio" title="Live is refused by the server until the Dhan order path is verified &mdash; same gate as Fib Boundary" aria-checked="false"><span>&#9673; Live</span></button>
           </div>
         </div>
-        <div class="candle-entry-field">
+        <div class="ocp-field">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
-          <input type="hidden" id="recovery-side" value="CE">
-          <div id="recovery-side-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which side">
+          <input type="hidden" id="oc-high-side" value="CE">
+          <div id="oc-high-side-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which side">
             <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="CE" data-pf-action="setRecoverySide" role="radio" title="Calls &mdash; the only side the five-year audit found green" aria-checked="true"><span>&#9650; CE</span></button>
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="PE" data-pf-action="setRecoverySide" role="radio" title="Puts &mdash; the mirror loses over the same five years" aria-checked="false"><span>&#9660; PE</span></button>
           </div>
         </div>
-        <div class="candle-entry-field">
-          <label for="recovery-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
-          <select id="recovery-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select>
+        <div class="ocp-field">
+          <label for="oc-high-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
+          <select id="oc-high-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select>
         </div>
-        <div class="candle-entry-field">
-          <label for="recovery-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
-          <select id="recovery-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="5m is the only chart the five-year audit found green; 15m loses on both sides and 1H is thin."><option value="5m" selected>5m &middot; measured</option><option value="15m">15m &middot; loses</option><option value="1h">1H &middot; thin</option><option value="1m">1m</option></select>
+        <div class="ocp-field">
+          <label for="oc-high-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
+          <select id="oc-high-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="5m is the only chart the five-year audit found green; 15m loses on both sides and 1H is thin."><option value="5m" selected>5m &middot; measured</option><option value="15m">15m &middot; loses</option><option value="1h">1H &middot; thin</option><option value="1m">1m</option></select>
         </div>
-        <div class="candle-entry-field">
-          <label for="recovery-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strikes in the money</label>
-          <select id="recovery-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Four strikes in the money is where the five-year audit put the only surviving book — deeper carries less time value to lose."><option value="2">ATM&minus;2</option><option value="4" selected>ATM&minus;4 &middot; measured</option><option value="6">ATM&minus;6</option></select>
+        <div class="ocp-field">
+          <label for="oc-high-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strikes in the money</label>
+          <select id="oc-high-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Four strikes in the money is where the five-year audit put the only surviving book — deeper carries less time value to lose."><option value="2">ATM&minus;2</option><option value="4" selected>ATM&minus;4 &middot; measured</option><option value="6">ATM&minus;6</option></select>
         </div>
-        <div class="candle-entry-field candle-entry-field-actions candle-entry-actions">
-          <button id="recovery-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
-          <button id="recovery-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
+        <div class="ocp-field ocp-field-actions ocp-actions">
+          <button id="oc-high-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
+          <button id="oc-high-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
         </div>
       </div>
 
-      <details id="recovery-advanced" class="candle-entry-advanced">
-        <summary><span class="candle-entry-advanced-title">Advanced</span><span id="recovery-advanced-state" class="candle-entry-advanced-state">rule as measured</span></summary>
-        <div class="candle-entry-grid" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
-          <div class="candle-entry-field">
-            <label for="recovery-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Ladder shape</label>
-            <select id="recovery-mode" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="ladder">Ladder &mdash; re-arm after every stop</option><option value="fib-zone">Fib zones &mdash; 2-2 and 4-4 only</option></select>
+      <details id="oc-high-advanced" class="ocp-advanced">
+        <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-high-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
+        <div class="ocp-grid" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
+          <div class="ocp-field">
+            <label for="oc-high-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Ladder shape</label>
+            <select id="oc-high-mode" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="ladder">Ladder &mdash; re-arm after every stop</option><option value="fib-zone">Fib zones &mdash; 2-2 and 4-4 only</option></select>
           </div>
-          <div class="candle-entry-field">
-            <label for="recovery-sl-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Stop sits on</label>
-            <select id="recovery-sl-source" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="entry" selected>Entry candle low</option><option value="previous">Previous candle low</option><option value="ultimate">Lowest low since the mother</option></select>
+          <div class="ocp-field">
+            <label for="oc-high-sl-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Stop sits on</label>
+            <select id="oc-high-sl-source" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="entry" selected>Entry candle low</option><option value="previous">Previous candle low</option><option value="ultimate">Lowest low since the mother</option></select>
           </div>
-          <div class="candle-entry-field">
-            <label for="recovery-lots" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots per rung</label>
-            <select id="recovery-lots" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="1,2" selected>1 then 2</option><option value="1,1">1 flat</option><option value="1,2,3">1, 2, 3</option></select>
+          <div class="ocp-field">
+            <label for="oc-high-lots" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots per rung</label>
+            <select id="oc-high-lots" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="1,2" selected>1 then 2</option><option value="1,1">1 flat</option><option value="1,2,3">1, 2, 3</option></select>
           </div>
-          <div class="candle-entry-field">
-            <label for="recovery-horizon" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Horizon (sessions)</label>
-            <input id="recovery-horizon" type="number" min="1" max="30" value="10" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          <div class="ocp-field">
+            <label for="oc-high-horizon" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Horizon (sessions)</label>
+            <input id="oc-high-horizon" type="number" min="1" max="30" value="10" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
           </div>
-          <div class="candle-entry-field">
-            <label for="recovery-margin" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Margin over losses &#8377;</label>
-            <input id="recovery-margin" type="number" min="0" step="100" value="500" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          <div class="ocp-field">
+            <label for="oc-high-margin" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Margin over losses &#8377;</label>
+            <input id="oc-high-margin" type="number" min="0" step="100" value="500" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
           </div>
         </div>
       </details>
@@ -3383,52 +3383,52 @@
       <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
         <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--muted);">GIVE IT A MOTHER CANDLE</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
-          <label class="sr-only" for="recovery-mother">High Entry mother candle timestamp</label>
-          <input id="recovery-mother" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="flex:1;min-width:220px;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
-          <button id="recovery-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
+          <label class="sr-only" for="oc-high-mother">High Entry mother candle timestamp</label>
+          <input id="oc-high-mother" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="flex:1;min-width:220px;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          <button id="oc-high-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
         </div>
         <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
           A completed candle open on the chosen chart &mdash; and it must still be the highest of the last few sessions. Its high and low come from Dhan; nothing is typed. Add as many as you like &mdash; each runs as its own campaign with its own ledger.
         </div>
       </div>
-      <div id="recovery-error" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
+      <div id="oc-high-error" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
     </div>
-    <section id="recovery-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="High Entry paper campaign monitor">
-      <div class="candle-entry-monitor-head">
+    <section id="oc-high-monitor" class="ocp-pane ocp-pane-live ocp-monitor" aria-live="polite" aria-label="High Entry paper campaign monitor">
+      <div class="ocp-monitor-head">
         <div>
-          <div class="candle-entry-monitor-kicker" id="recovery-monitor-kicker">Paper campaigns</div>
-          <h4 id="recovery-monitor-title">Book monitor</h4>
+          <div class="ocp-monitor-kicker" id="oc-high-monitor-kicker">Paper campaigns</div>
+          <h4 id="oc-high-monitor-title">Book monitor</h4>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
-          <button id="recovery-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" aria-label="Open campaign chart">&#8599; Chart</button>
-          <div id="recovery-poll" class="candle-entry-monitor-updated">not started</div>
+          <button id="oc-high-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" aria-label="Open campaign chart">&#8599; Chart</button>
+          <div id="oc-high-poll" class="ocp-monitor-updated">not started</div>
         </div>
       </div>
-      <div id="recovery-tiles" class="candle-entry-tiles"></div>
-      <div class="candle-entry-monitor-section">
-        <div id="recovery-campaigns"></div>
+      <div id="oc-high-tiles" class="ocp-tiles"></div>
+      <div class="ocp-monitor-section">
+        <div id="oc-high-campaigns"></div>
       </div>
-      <div class="candle-entry-monitor-section" id="recovery-closed-wrap" hidden>
-        <div class="candle-entry-monitor-kicker">Closed trades <span id="recovery-closed-count"></span></div>
-        <div class="candle-entry-table-wrap"><table class="candle-entry-table">
+      <div class="ocp-monitor-section" id="oc-high-closed-wrap" hidden>
+        <div class="ocp-monitor-kicker">Closed trades <span id="oc-high-closed-count"></span></div>
+        <div class="ocp-table-wrap"><table class="ocp-table">
           <thead><tr><th>Campaign</th><th>Rung</th><th>Lots</th><th>Strike</th><th>In</th><th>Out</th><th>Why</th><th>Net</th></tr></thead>
-          <tbody id="recovery-closed-rows"></tbody>
+          <tbody id="oc-high-closed-rows"></tbody>
         </table></div>
       </div>
     </section>
-    </div><!-- /he-panes -->
+    </div><!-- /ocp-panes -->
 
-    <div id="recovery-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="High Entry campaign chart">
+    <div id="oc-high-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="High Entry campaign chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
-          <div class="terminal-cascade-chart-title"><h3 id="recovery-chart-title">High Entry campaign chart</h3><div id="recovery-chart-meta">Loading chart&hellip;</div></div>
+          <div class="terminal-cascade-chart-title"><h3 id="oc-high-chart-title">High Entry campaign chart</h3><div id="oc-high-chart-meta">Loading chart&hellip;</div></div>
           <div class="terminal-cascade-chart-actions">
             <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">&#9644; buy-stop</span><span style="color:#fff;">&#9650; fill</span><span style="color:#fbbf24;">&#9660; exit</span><span style="color:#a78bfa;">&#9635; mother</span></div>
-            <div id="recovery-chart-strip"></div>
+            <div id="oc-high-chart-strip"></div>
             <button type="button" class="cascade-options-control" data-pf-action="closeRecoveryChart" aria-label="Close chart">&#10005;</button>
           </div>
         </div>
-        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="recovery-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-high-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>
       </div>
     </div>
   </div>
