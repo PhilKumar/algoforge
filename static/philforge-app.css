@@ -6557,7 +6557,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 }
 /* The COLUMN holds the grid slot now, not one panel: a user can run one ladder
    per instrument, and each gets its own monitor stacked inside that slot. */
-#options-cascade-page .oc-fib-monitors {
+#options-cascade-page .oc-fib-rows {
   grid-column: 2;
   grid-row: 1;
   display: flex;
@@ -6682,8 +6682,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 
 /* The auto-mother watch card. It sits at the TOP OF THE MONITOR COLUMN, not
    under the form: between campaigns it is what there is to watch. */
-#options-cascade-page .oc-fib-auto-panel { display: grid; gap: 8px; }
-#options-cascade-page .oc-fib-auto-panel:empty { display: none; }
+#options-cascade-page .oc-fib-auto-card { display: grid; gap: 8px; }
+#options-cascade-page .oc-fib-auto-card:empty { display: none; }
 #options-cascade-page .ocp-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
 #options-cascade-page .ocp-auto-card.is-on { border-color: rgba(52,211,153,.42); }
 #options-cascade-page .ocp-auto-head { display: flex; align-items: center; gap: 10px; }
@@ -6832,10 +6832,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] #options-cascade-page .cascade-options-metric.is-warning .cascade-options-metric-value {
   color: #92400e !important;
 }
-[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-positive,
-[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-warning,
-[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-negative { font-weight: 700; }
-[data-theme="light"] #options-cascade-page #oc-fib-form-status.is-negative { color: #b91c1c !important; }
+[data-theme="light"] #options-cascade-page #oc-fib-status.is-positive,
+[data-theme="light"] #options-cascade-page #oc-fib-status.is-warning,
+[data-theme="light"] #options-cascade-page #oc-fib-status.is-negative { font-weight: 700; }
+[data-theme="light"] #options-cascade-page #oc-fib-status.is-negative { color: #b91c1c !important; }
 [data-theme="light"] #options-cascade-page .cascade-options-state.is-positive { border-color: #059669 !important; }
 [data-theme="light"] #options-cascade-page .cascade-options-state.is-warning { border-color: #d97706 !important; }
 [data-theme="light"] #options-cascade-page .oc-fib-pricing-warning,
@@ -6843,10 +6843,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 
 @media (max-width: 1180px) {
   #options-cascade-page .oc-fib-workspace { grid-template-columns: 1fr; }
-  #options-cascade-page .oc-fib-monitors,
+  #options-cascade-page .oc-fib-rows,
   #options-cascade-page .ocp-backtest-window { grid-column: auto; grid-row: auto; }
   /* One column: nothing to match heights with, so the stack flows normally. */
-  #options-cascade-page .oc-fib-monitors {
+  #options-cascade-page .oc-fib-rows {
     align-self: auto;
     contain: none;
     min-height: 0;

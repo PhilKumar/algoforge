@@ -2540,7 +2540,7 @@ function _renderCandleEntryStatus(payload) {
   const badge = _cascadeOptionsEl('oc-candle-badge');
   const summary = _cascadeOptionsEl('ocp-summary');
   const start = _cascadeOptionsEl('oc-candle-start');
-  const kill = _cascadeOptionsEl('oc-candle-kill');
+  const kill = _cascadeOptionsEl('oc-candle-stop');
   const monitor = _cascadeOptionsEl('ocp-monitor');
   _lastCandleEntryStatus = campaign || null;
   if (!campaign) {
@@ -2660,8 +2660,8 @@ function _ocpTile(label, value, accent = 'var(--text)') {
 
 function _renderCandleEntryMonitor(campaign) {
   const monitor = _cascadeOptionsEl('ocp-monitor');
-  const tiles = _cascadeOptionsEl('oc-candle-monitor-tiles');
-  const rungsEl = _cascadeOptionsEl('oc-candle-monitor-rungs');
+  const tiles = _cascadeOptionsEl('oc-candle-tiles');
+  const rungsEl = _cascadeOptionsEl('oc-candle-rows');
   const updated = _cascadeOptionsEl('ocp-monitor-updated');
   const eventsEl = _cascadeOptionsEl('ocp-events');
   const eventCount = _cascadeOptionsEl('oc-candle-event-count');
@@ -2761,7 +2761,7 @@ async function refreshCandleEntryStatus() {
 }
 
 function _setCandleEntryFormStatus(message, tone = 'muted') {
-  const el = _cascadeOptionsEl('oc-candle-form-status');
+  const el = _cascadeOptionsEl('oc-candle-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -2869,9 +2869,9 @@ async function setCandleEntryAuto(_event, button) {
 // only until its successor started. These rows come from the archive instead,
 // which is written the moment a campaign reads terminal.
 const _PAPER_LEDGER_UI = {
-  candle_entry: { wrap: 'oc-candle-closed-wrap', body: 'oc-candle-closed-rounds', count: 'oc-candle-closed-count' },
-  fib_boundary: { wrap: 'oc-fib-closed-wrap', body: 'oc-fib-closed-rounds', count: 'oc-fib-closed-count' },
-  gap_carry: { wrap: 'oc-gap-closed-wrap', body: 'oc-gap-closed-rounds', count: 'oc-gap-closed-count' },
+  candle_entry: { wrap: 'oc-candle-closed', body: 'oc-candle-closed-rows', count: 'oc-candle-closed-count' },
+  fib_boundary: { wrap: 'oc-fib-closed', body: 'oc-fib-closed-rows', count: 'oc-fib-closed-count' },
+  gap_carry: { wrap: 'oc-gap-closed', body: 'oc-gap-closed-rows', count: 'oc-gap-closed-count' },
 };
 
 function _paperLedgerMoney(value) {
@@ -3674,7 +3674,7 @@ let _lastGapCarryTimeframes = ['5m', '15m'];
 const _GC_MONEY = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
 
 function _setGapCarryFormStatus(message, tone = 'muted') {
-  const el = _cascadeOptionsEl('oc-gap-form-status');
+  const el = _cascadeOptionsEl('oc-gap-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -3877,7 +3877,7 @@ function _renderGapCarryStatus(campaign, running) {
   const badge = _cascadeOptionsEl('oc-gap-badge');
   const summary = _cascadeOptionsEl('oc-gap-summary');
   const monitor = _cascadeOptionsEl('oc-gap-monitor');
-  const kill = _cascadeOptionsEl('oc-gap-kill');
+  const kill = _cascadeOptionsEl('oc-gap-stop');
   const startBtn = document.getElementById('oc-gap-start');
   const live = document.getElementById('oc-gap-mode')?.value === 'live';
   // THE BUTTON MUST SAY WHICH STATE IT IS IN. Phil, 2026-08-24: it sat on
@@ -3934,7 +3934,7 @@ function _renderGapCarryStatus(campaign, running) {
       : (isRunning ? `Waiting for ${entryAt}` : `Ended · ${status.toLowerCase()}`);
   }
 
-  const tiles = _cascadeOptionsEl('oc-gap-monitor-tiles');
+  const tiles = _cascadeOptionsEl('oc-gap-tiles');
   if (tiles) {
     const rows = [];
     const sig = campaign.signal;
@@ -3963,7 +3963,7 @@ function _renderGapCarryStatus(campaign, running) {
       `ATM+${rule.strike_offset_steps ?? 4} ITM · ${rule.lots ?? 1} lot${(rule.lots ?? 1) > 1 ? 's' : ''}`;
   }
 
-  const body = _cascadeOptionsEl('oc-gap-monitor-rows');
+  const body = _cascadeOptionsEl('oc-gap-rows');
   if (body) {
     // The open leg first, then the nights already settled, newest first.
     const seen = [];
@@ -4488,7 +4488,7 @@ async function initOptionsCascadePage() {
 }
 
 function _fibSetFormStatus(message, tone = 'muted') {
-  const el = document.getElementById('oc-fib-form-status');
+  const el = document.getElementById('oc-fib-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -4515,9 +4515,9 @@ function _fibxLevelTone(status) {
 // a rebuild would drop the <details> open state and the events scroll position
 // on every tick.
 function _fibxPanelRoots(symbols) {
-  const monitors = document.getElementById('oc-fib-monitors');
+  const monitors = document.getElementById('oc-fib-rows');
   const lower = document.getElementById('oc-fib-lower');
-  const monitorTpl = document.getElementById('oc-fib-monitor-tpl');
+  const monitorTpl = document.getElementById('oc-fib-rows-tpl');
   const lowerTpl = document.getElementById('oc-fib-lower-tpl');
   if (!monitors || !lower || !monitorTpl || !lowerTpl) return new Map();
   const roots = new Map();
@@ -4542,7 +4542,7 @@ function _fibxPanelRoots(symbols) {
   [monitors, lower].forEach(host => {
     Array.from(host.children).forEach(node => {
       // The auto watch card lives in this column too and belongs to no symbol.
-      if (node.id === 'oc-fib-auto-panel') return;
+      if (node.id === 'oc-fib-auto-card') return;
       if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
     });
   });
@@ -4550,7 +4550,7 @@ function _fibxPanelRoots(symbols) {
   // user is scrolling costs them their place.
   [[monitors, 'monitor'], [lower, 'pair']].forEach(([host, which]) => {
     const desired = wanted.map(symbol => roots.get(String(symbol))[which]);
-    const offset = host.querySelector(':scope > #oc-fib-auto-panel') ? 1 : 0;
+    const offset = host.querySelector(':scope > #oc-fib-auto-card') ? 1 : 0;
     if (desired.some((node, i) => host.children[i + offset] !== node)) desired.forEach(node => host.appendChild(node));
   });
   return roots;
@@ -4956,7 +4956,7 @@ async function refreshFibBoundaryStatus() {
     if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load fib-boundary campaigns'));
     _renderFibBoundaryStatus(data);
   } catch (error) {
-    const summary = document.querySelector('#oc-fib-monitors [data-fx="summary"]');
+    const summary = document.querySelector('#oc-fib-rows [data-fx="summary"]');
     if (summary && !summary.innerHTML) summary.textContent = error.message || 'Unable to load fib-boundary campaigns.';
   }
 }
@@ -5568,7 +5568,7 @@ function _fibAutoState(s, today) {
 
 function _renderFibBoundaryAuto(auto) {
   _lastFibBoundaryAuto = auto && typeof auto === 'object' ? auto : {};
-  const panel = document.getElementById('oc-fib-auto-panel');
+  const panel = document.getElementById('oc-fib-auto-card');
   if (!panel) return;
   const rows = Object.entries(_lastFibBoundaryAuto).filter(([, s]) => s && (s.enabled || (s.log || []).length));
   if (!rows.length) { panel.innerHTML = ''; return; }
@@ -20054,7 +20054,7 @@ function _recTime(iso) {
 }
 
 function _recoveryError(msg) {
-  const box = document.getElementById('oc-high-error');
+  const box = document.getElementById('oc-high-status');
   if (!box) return;
   box.textContent = msg || '';
   box.style.display = msg ? '' : 'none';
@@ -20280,9 +20280,9 @@ function renderRecovery(data) {
   const badge = document.getElementById('oc-high-badge');
   const startBtn = document.getElementById('oc-high-start');
   const stopBtn = document.getElementById('oc-high-stop');
-  const poll = document.getElementById('oc-high-poll');
+  const poll = document.getElementById('oc-high-monitor-updated');
   const tiles = document.getElementById('oc-high-tiles');
-  const list = document.getElementById('oc-high-campaigns');
+  const list = document.getElementById('oc-high-rows');
   if (!badge || !tiles || !list) return;
 
   _recoveryRecipe();
@@ -20303,7 +20303,7 @@ function renderRecovery(data) {
   if (!running && !campaigns.length) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
-    const emptyWrap = document.getElementById('oc-high-closed-wrap');
+    const emptyWrap = document.getElementById('oc-high-closed');
     if (emptyWrap) emptyWrap.hidden = true;
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
     return;
@@ -20327,7 +20327,7 @@ function renderRecovery(data) {
 
   // CLOSED TRADES GET THEIR OWN TABLE. Settled paper money was only ever
   // readable by expanding each campaign; the book deserves one flat ledger.
-  const closedWrap = document.getElementById('oc-high-closed-wrap');
+  const closedWrap = document.getElementById('oc-high-closed');
   const closedRows = document.getElementById('oc-high-closed-rows');
   const closedCount = document.getElementById('oc-high-closed-count');
   if (closedWrap && closedRows) {

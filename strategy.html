@@ -2716,7 +2716,7 @@
         <div class="pf-cascade-campaign-actions ocp-form-actions"><button id="oc-fib-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="oc-fib-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="oc-fib-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="oc-fib-blocked"></div>
-        <div id="oc-fib-form-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div id="oc-fib-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
       <details id="oc-fib-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
@@ -2739,10 +2739,10 @@
       <!-- One monitor PER LADDER. The panel below is a template cloned per
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
-      <div id="oc-fib-monitors" class="oc-fib-monitors"><div id="oc-fib-auto-panel" class="oc-fib-auto-panel"></div></div>
-      <div class="ocp-monitor-section" id="oc-fib-closed-wrap" hidden>
+      <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="oc-fib-auto-card"></div></div>
+      <div class="ocp-monitor-section" id="oc-fib-closed" hidden>
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
-        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-fib-closed-rounds"></tbody></table></div>
+        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
       </div>
     </div>
 
@@ -2750,7 +2750,7 @@
          "Campaign events" card cannot serve four instruments. -->
     <div id="oc-fib-lower"></div>
 
-    <template id="oc-fib-monitor-tpl">
+    <template id="oc-fib-rows-tpl">
       <!-- Collapsed by default (Phil, 2026-08-13): the summary row already says
            instrument, state and contract; the body is on demand. -->
       <details class="cascade-options-window oc-fib-monitor-window">
@@ -2906,7 +2906,7 @@
         </div>
         <div class="ocp-field ocp-field-chart"><label for="oc-candle-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="oc-candle-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
         <div class="ocp-field ocp-field-when"><label id="oc-candle-timestamp-label" for="oc-candle-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="oc-candle-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       </div>
       <details id="oc-candle-advanced" class="ocp-advanced">
         <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-candle-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
@@ -2986,7 +2986,7 @@
         </div>
         </div>
       </details>
-      <div id="oc-candle-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+      <div id="oc-candle-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
       <div class="ocp-pane ocp-pane-live">
       <div id="oc-candle-auto-card" class="ocp-auto-card" hidden></div>
@@ -3001,11 +3001,11 @@
           <div><div class="ocp-monitor-kicker" id="oc-candle-monitor-kicker">Paper campaign</div><h4 id="oc-candle-monitor-title">Running</h4></div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="oc-candle-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadCandleEntryChart" aria-label="Open campaign chart">↗ Chart</button><div id="oc-candle-monitor-updated" class="ocp-monitor-updated"></div></div>
         </div>
-        <div id="oc-candle-monitor-tiles" class="ocp-tiles"></div>
-        <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-monitor-rungs"></tbody></table></div></div>
-        <div class="ocp-monitor-section" id="oc-candle-closed-wrap" hidden>
+        <div id="oc-candle-tiles" class="ocp-tiles"></div>
+        <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-rows"></tbody></table></div></div>
+        <div class="ocp-monitor-section" id="oc-candle-closed" hidden>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
-          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-candle-closed-rounds"></tbody></table></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
         </div>
         <details class="ocp-activity">
           <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-candle-event-count">0 updates</span></summary>
@@ -3132,7 +3132,7 @@
           <div class="ocp-field ocp-field-actions ocp-actions">
             <button id="oc-gap-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
             <button id="oc-gap-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
-            <button id="oc-gap-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
+            <button id="oc-gap-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
           </div>
         </div>
         <details id="oc-gap-advanced" class="ocp-advanced">
@@ -3193,7 +3193,7 @@
             </div>
           </div>
         </details>
-        <div id="oc-gap-form-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        <div id="oc-gap-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
       <div class="ocp-pane ocp-pane-live">
         <div id="oc-gap-auto-card" class="ocp-auto-card" hidden></div>
@@ -3203,12 +3203,12 @@
             <div><div class="ocp-monitor-kicker" id="oc-gap-monitor-kicker">Paper carry</div><h4 id="oc-gap-monitor-title">Running</h4></div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><button id="oc-gap-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadGapCarryChart" aria-label="Open the carry chart">↗ Chart</button><div id="oc-gap-monitor-updated" class="ocp-monitor-updated"></div></div>
           </div>
-          <div id="oc-gap-monitor-tiles" class="ocp-tiles"></div>
+          <div id="oc-gap-tiles" class="ocp-tiles"></div>
           <div id="oc-gap-monitor-rule" class="ocp-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
-          <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-monitor-rows"></tbody></table></div></div>
-          <div class="ocp-monitor-section" id="oc-gap-closed-wrap" hidden>
+          <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-rows"></tbody></table></div></div>
+          <div class="ocp-monitor-section" id="oc-gap-closed" hidden>
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
-            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-gap-closed-rounds"></tbody></table></div>
+            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
           </div>
           <details class="ocp-activity">
             <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-gap-event-count">0 updates</span></summary>
@@ -3391,7 +3391,7 @@
           A completed candle open on the chosen chart &mdash; and it must still be the highest of the last few sessions. Its high and low come from Dhan; nothing is typed. Add as many as you like &mdash; each runs as its own campaign with its own ledger.
         </div>
       </div>
-      <div id="oc-high-error" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
+      <div id="oc-high-status" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
     </div>
     <section id="oc-high-monitor" class="ocp-pane ocp-pane-live ocp-monitor" aria-live="polite" aria-label="High Entry paper campaign monitor">
       <div class="ocp-monitor-head">
@@ -3401,14 +3401,14 @@
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
           <button id="oc-high-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" aria-label="Open campaign chart">&#8599; Chart</button>
-          <div id="oc-high-poll" class="ocp-monitor-updated">not started</div>
+          <div id="oc-high-monitor-updated" class="ocp-monitor-updated">not started</div>
         </div>
       </div>
       <div id="oc-high-tiles" class="ocp-tiles"></div>
       <div class="ocp-monitor-section">
-        <div id="oc-high-campaigns"></div>
+        <div id="oc-high-rows"></div>
       </div>
-      <div class="ocp-monitor-section" id="oc-high-closed-wrap" hidden>
+      <div class="ocp-monitor-section" id="oc-high-closed" hidden>
         <div class="ocp-monitor-kicker">Closed trades <span id="oc-high-closed-count"></span></div>
         <div class="ocp-table-wrap"><table class="ocp-table">
           <thead><tr><th>Campaign</th><th>Rung</th><th>Lots</th><th>Strike</th><th>In</th><th>Out</th><th>Why</th><th>Net</th></tr></thead>
