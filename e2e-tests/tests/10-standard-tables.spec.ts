@@ -30,13 +30,10 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
 
   const tableClasses = [
     'admin-table',
-    'candle-entry-table',
+    'ocp-table',
     'cascade-scan-table',
     'cj-plan-table',
     'dash-table',
-    'fibx-anchor-table',
-    'fibx-blocked',
-    'fibx-rounds-table',
     'portfolio-monthly-trades-table',
     'portfolio-ytd-table',
     'scalp-active-table',

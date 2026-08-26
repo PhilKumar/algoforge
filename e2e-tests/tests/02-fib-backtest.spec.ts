@@ -182,13 +182,13 @@ async function openFibPanel(page: Page, backtestBody: object) {
   // The pf-calendar overlay marks the input readonly; the backtest reads its
   // .value, so set it the way the picker would.
   await page.evaluate(() => {
-    const input = document.getElementById('fibx-mother-timestamp') as HTMLInputElement;
+    const input = document.getElementById('oc-fib-mother-timestamp') as HTMLInputElement;
     input.value = '2026-07-17T14:15';
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await page.click('#fibx-backtest-btn');
-  await expect(page.locator('#fibx-backtest')).toBeVisible();
-  if (process.env.E2E_SHOT) await page.locator('#fibx-backtest').screenshot({ path: process.env.E2E_SHOT });
+  await page.click('#oc-fib-backtest-btn');
+  await expect(page.locator('#oc-fib-backtest')).toBeVisible();
+  if (process.env.E2E_SHOT) await page.locator('#oc-fib-backtest').screenshot({ path: process.env.E2E_SHOT });
 }
 
 // A closed round on the swing ladder, shaped exactly like the route returns.
@@ -221,15 +221,15 @@ test('Backtest replays the ladder Start trades and shows its rupee P&L', async (
   page.on('pageerror', (e) => jsErrors.push(String(e)));
   await openFibPanel(page, ladderBacktest);
 
-  await expect(page.locator('#fibx-backtest-badge')).toHaveText('REAL PREMIUMS');
-  await expect(page.locator('#fibx-backtest-summary')).toContainText('TARGET');
-  await expect(page.locator('#fibx-backtest-summary')).toContainText('₹3,771.60');
+  await expect(page.locator('#oc-fib-backtest-badge')).toHaveText('REAL PREMIUMS');
+  await expect(page.locator('#oc-fib-backtest-summary')).toContainText('TARGET');
+  await expect(page.locator('#oc-fib-backtest-summary')).toContainText('₹3,771.60');
   // The header names the same geometry the Start button runs.
-  await expect(page.locator('#fibx-backtest-contract')).toContainText('15M mother, 1m entries');
+  await expect(page.locator('#oc-fib-backtest-contract')).toContainText('15M mother, 1m entries');
   // One priced leg, entry AND exit premium on it.
-  await expect(page.locator('#fibx-backtest-legs tr')).toHaveCount(1);
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹200.00');
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹260.00');
+  await expect(page.locator('#oc-fib-backtest-legs tr')).toHaveCount(1);
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('₹200.00');
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('₹260.00');
   expect(jsErrors).toEqual([]);
 });
 
@@ -256,13 +256,13 @@ test('A banked round still lists its priced legs', async ({ page }) => {
   };
   await openFibPanel(page, parked);
 
-  await expect(page.locator('#fibx-backtest-legs')).not.toContainText('No level was touched');
-  await expect(page.locator('#fibx-backtest-legs tr')).toHaveCount(1);
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹200.00');   // paid
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('₹260.00');   // sold
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('R1');        // which round
+  await expect(page.locator('#oc-fib-backtest-legs')).not.toContainText('No level was touched');
+  await expect(page.locator('#oc-fib-backtest-legs tr')).toHaveCount(1);
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('₹200.00');   // paid
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('₹260.00');   // sold
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('R1');        // which round
   // And the tile stops saying "0 buys" over a round that traded.
-  await expect(page.locator('#fibx-backtest-summary')).toContainText('1 buys');
+  await expect(page.locator('#oc-fib-backtest-summary')).toContainText('1 buys');
   expect(jsErrors).toEqual([]);
 });
 
@@ -275,14 +275,14 @@ test('A replay with no recorded prices says so instead of showing zeros', async 
   };
   await openFibPanel(page, unpriced);
 
-  await expect(page.locator('#fibx-backtest-badge')).toHaveText('GEOMETRY ONLY');
+  await expect(page.locator('#oc-fib-backtest-badge')).toHaveText('GEOMETRY ONLY');
   // A dash, never a zero: an absent P&L must not read as a break-even trade.
   // Asserting the dash alone is too weak -- Gross and Costs show one too, so
   // it passes even when Net renders ₹0.00. Assert the LIE is absent.
-  await expect(page.locator('#fibx-backtest-summary')).not.toContainText('₹0.00');
-  await expect(page.locator('#fibx-backtest-summary')).toContainText('—');
-  await expect(page.locator('#fibx-backtest-gist')).toContainText('geometry only');
-  await expect(page.locator('#fibx-backtest-legs')).toContainText('No level was touched');
+  await expect(page.locator('#oc-fib-backtest-summary')).not.toContainText('₹0.00');
+  await expect(page.locator('#oc-fib-backtest-summary')).toContainText('—');
+  await expect(page.locator('#oc-fib-backtest-gist')).toContainText('geometry only');
+  await expect(page.locator('#oc-fib-backtest-legs')).toContainText('No level was touched');
 });
 
 test('Pricing gaps are disclosed on the badge and listed, not buried', async ({ page }) => {
@@ -292,6 +292,6 @@ test('Pricing gaps are disclosed on the badge and listed, not buried', async ({ 
   };
   await openFibPanel(page, gappy);
 
-  await expect(page.locator('#fibx-backtest-badge')).toHaveText('PRICED · 1 GAP');
-  await expect(page.locator('#fibx-backtest-gaps')).toContainText('no NIFTY 24300CE');
+  await expect(page.locator('#oc-fib-backtest-badge')).toHaveText('PRICED · 1 GAP');
+  await expect(page.locator('#oc-fib-backtest-gaps')).toContainText('no NIFTY 24300CE');
 });

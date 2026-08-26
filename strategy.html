@@ -87,7 +87,11 @@
   <div class="header-main">
     <div class="app-topbar">
       <!-- Center: Ticker Strip -->
-      <div class="topbar-ticker">
+      <!-- The strip scrolls sideways when the window cannot hold all five cells,
+           and a scrollable region a keyboard cannot reach is an accessibility
+           failure (axe scrollable-region-focusable). Nothing inside is focusable,
+           so the strip itself takes the tab stop. -->
+      <div class="topbar-ticker" tabindex="0" role="group" aria-label="Market ticker">
     <div class="ticker-cell">
       <div class="tc-label">NIFTY 50</div>
       <div class="tc-price" id="ticker-nifty">--</div>

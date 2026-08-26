@@ -108,11 +108,11 @@ async function login(page: Page, campaigns: () => unknown[]) {
 async function openFibTab(page: Page) {
   await openCascade(page);
   await page.click('#oc-tabbtn-fib');
-  await page.waitForFunction(() => document.querySelectorAll('#fibx-monitors > *').length > 0, null, { timeout: 10_000 });
+  await page.waitForFunction(() => document.querySelectorAll('#oc-fib-rows > *').length > 0, null, { timeout: 10_000 });
   // Monitors are COLLAPSED by default now (Phil, 2026-08-13); these tests
   // exercise the body, so unfold them the way a reader would.
   await page.evaluate(() => {
-    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
 }
 
@@ -121,7 +121,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await login(page, () => [campaign('NIFTY'), campaign('SENSEX')]);
     await openFibTab(page);
 
-    const monitors = page.locator('#fibx-monitors > [data-fx-symbol]');
+    const monitors = page.locator('#oc-fib-rows > [data-fx-symbol]');
     await expect(monitors).toHaveCount(2);
     await expect(monitors.nth(0)).toHaveAttribute('data-fx-symbol', 'NIFTY');
     await expect(monitors.nth(1)).toHaveAttribute('data-fx-symbol', 'SENSEX');
@@ -136,7 +136,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await expect(monitors.nth(1).locator('[data-fx="gist"]')).toContainText('5M mother');
 
     // And one results + events pair per ladder, with that ladder's events.
-    const pairs = page.locator('#fibx-lower > [data-fx-symbol]');
+    const pairs = page.locator('#oc-fib-lower > [data-fx-symbol]');
     await expect(pairs).toHaveCount(2);
     await expect(pairs.nth(0).locator('[data-fx="events"]')).toContainText('NIFTY RUNG FILLED');
     await expect(pairs.nth(1).locator('[data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
@@ -146,7 +146,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await login(page, () => [campaign('BANKNIFTY')]);
     await openFibTab(page);
 
-    const monitor = page.locator('#fibx-monitors > [data-fx-symbol="BANKNIFTY"]');
+    const monitor = page.locator('#oc-fib-rows > [data-fx-symbol="BANKNIFTY"]');
     const summary = monitor.locator('summary');
     const body = monitor.locator('.cascade-options-window-body');
     await expect(summary.locator('button')).toHaveCount(0);
@@ -186,17 +186,17 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     // The route was told WHICH ladder -- without the symbol the server would
     // have killed whatever it found first.
     await expect.poll(() => killed).toBe('SENSEX');
-    const monitors = page.locator('#fibx-monitors > [data-fx-symbol]');
+    const monitors = page.locator('#oc-fib-rows > [data-fx-symbol]');
     await expect(monitors).toHaveCount(1);
     await expect(monitors.first()).toHaveAttribute('data-fx-symbol', 'NIFTY');
-    await expect(page.locator('#fibx-lower > [data-fx-symbol]')).toHaveCount(1);
+    await expect(page.locator('#oc-fib-lower > [data-fx-symbol]')).toHaveCount(1);
   });
 
   test('a safety-locked live ladder cannot be armed from the UI', async ({ page }) => {
     await login(page, () => ['NIFTY', 'SENSEX'].map(s => campaign(s, { mode: 'live', is_live: true, armed: false })));
     await openFibTab(page);
 
-    await expect(page.locator('#fibx-monitors [data-fx="arm"]:visible')).toHaveCount(0);
+    await expect(page.locator('#oc-fib-rows [data-fx="arm"]:visible')).toHaveCount(0);
     await expect(page.locator('#options-cascade-live-gate')).toContainText('LIVE SAFETY LOCKED');
   });
 
@@ -205,8 +205,8 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await openFibTab(page);
 
     await page.locator('[data-fx-symbol="SENSEX"] [data-fx="kill"]').first().click();
-    await expect(page.locator('#fibx-form-status')).toContainText('manage any real position in Dhan');
-    await expect(page.locator('#fibx-monitors > [data-fx-symbol]')).toHaveCount(2);
+    await expect(page.locator('#oc-fib-status')).toContainText('manage any real position in Dhan');
+    await expect(page.locator('#oc-fib-rows > [data-fx-symbol]')).toHaveCount(2);
   });
 
   test('a running ladder blocks Start only on its own instrument', async ({ page }) => {
@@ -214,23 +214,23 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await openFibTab(page);
 
     // NIFTY is the default selection and it IS running.
-    await expect(page.locator('#fibx-start')).toHaveText(/Kill the NIFTY ladder first/);
-    await page.selectOption('#fibx-symbol', 'SENSEX');
+    await expect(page.locator('#oc-fib-start')).toHaveText(/Kill the NIFTY ladder first/);
+    await page.selectOption('#oc-fib-symbol', 'SENSEX');
     // A different instrument never blocked anything technically; now it does
     // not say it does either.
-    await expect(page.locator('#fibx-start')).toHaveText(/Start fib-boundary paper/);
-    await expect(page.locator('#fibx-blocked')).toContainText('Free — Start runs it alongside the others.');
-    await expect(page.locator('#fibx-start')).toBeEnabled();
+    await expect(page.locator('#oc-fib-start')).toHaveText(/Start fib-boundary paper/);
+    await expect(page.locator('#oc-fib-blocked')).toContainText('Free — Start runs it alongside the others.');
+    await expect(page.locator('#oc-fib-start')).toBeEnabled();
   });
 
   test('with nothing running the panel is a single IDLE monitor', async ({ page }) => {
     await login(page, () => []);
     await openFibTab(page);
-    const monitors = page.locator('#fibx-monitors > [data-fx-symbol]');
+    const monitors = page.locator('#oc-fib-rows > [data-fx-symbol]');
     await expect(monitors).toHaveCount(1);
     await expect(monitors.first()).toHaveAttribute('data-fx-symbol', '');
     await expect(monitors.first().locator('[data-fx="badge"]')).toHaveText('IDLE');
     await expect(monitors.first().locator('[data-fx="kill"]')).toBeHidden();
-    await expect(page.locator('#fibx-blocked')).toBeEmpty();
+    await expect(page.locator('#oc-fib-blocked')).toBeEmpty();
   });
 });

@@ -540,10 +540,10 @@ test('Cascade generated statuses remain legible in light mode', async ({ page })
       return getComputedStyle(element).color;
     };
     return {
-      candleReplay: color('#candle-entry-form-status'),
-      candleBadge: color('#candle-entry-badge'),
-      candleWarning: color('#candle-entry-summary .is-warning'),
-      fibBoundary: color('#fibx-form-status'),
+      candleReplay: color('#oc-candle-status'),
+      candleBadge: color('#oc-candle-badge'),
+      candleWarning: color('#oc-candle-summary .is-warning'),
+      fibBoundary: color('#oc-fib-status'),
     };
   });
 
@@ -786,20 +786,20 @@ test('Candle Entry tab offers the full ladder of starting charts', async ({ page
   await page.click('#oc-tabbtn-candle');
 
   // The four ladders, each named by the charts it climbs through.
-  await expect(page.locator('#candle-entry-timeframe option')).toHaveCount(4);
+  await expect(page.locator('#oc-candle-timeframe option')).toHaveCount(4);
   // Two rungs: the starting chart and the one above it.
-  await expect(page.locator('#candle-entry-timeframe option[value="1m"]')).toHaveText(/^1m · 1m → 5m$/);
-  await expect(page.locator('#candle-entry-timeframe option[value="15m"]')).toHaveText(/^15m · 15m → 1H$/);
-  await expect(page.locator('#candle-entry-timeframe option[value="1h"]')).toHaveText(/^1H · 1H → 1D$/);
+  await expect(page.locator('#oc-candle-timeframe option[value="1m"]')).toHaveText(/^1m · 1m → 5m$/);
+  await expect(page.locator('#oc-candle-timeframe option[value="15m"]')).toHaveText(/^15m · 15m → 1H$/);
+  await expect(page.locator('#oc-candle-timeframe option[value="1h"]')).toHaveText(/^1H · 1H → 1D$/);
 
   // Switching the chart retunes the mother calendar's minutes.
-  await page.selectOption('#candle-entry-timeframe', '1h');
-  await expect(page.locator('#candle-entry-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '15');
-  await page.selectOption('#candle-entry-timeframe', '15m');
-  await expect(page.locator('#candle-entry-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '0,15,30,45');
+  await page.selectOption('#oc-candle-timeframe', '1h');
+  await expect(page.locator('#oc-candle-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '15');
+  await page.selectOption('#oc-candle-timeframe', '15m');
+  await expect(page.locator('#oc-candle-mother-timestamp')).toHaveAttribute('data-pf-calendar-minutes', '0,15,30,45');
 
   // The copy sells the ladder, not the old single 1H buy.
-  await expect(page.locator('#candle-entry-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
+  await expect(page.locator('#oc-candle-page-kicker, #options-cascade-page')).toContainText('TWO-RED LADDER');
 });
 
 // Phil, 2026-08-20, looking at a fully-bought paper basket: "Now I don't know
@@ -816,7 +816,7 @@ test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) =>
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-candle');
 
-  const chip = page.locator('#oc-tab-candle .fibx-confirmed-link');
+  const chip = page.locator('#oc-tab-candle .ocp-confirmed-link');
   await expect(chip).toBeVisible();
   await expect(chip).toHaveAttribute('href', '/assets/tearsheet?doc=candle#curve-trail');
 
@@ -834,7 +834,7 @@ test('The Candle Entry card links to its own tearsheet P&L', async ({ page }) =>
   // its own document, at its own section.
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
-  await page.locator('#oc-tab-fib .fibx-confirmed-link').click();
+  await page.locator('#oc-tab-fib .ocp-confirmed-link').click();
   await expect.poll(async () => page.locator('.pf-tearsheet-doc[data-doc="fib"]').getAttribute('class'))
     .toContain('is-active');
   await expect.poll(async () => page.locator('#assets-tearsheet-frame').getAttribute('src'))
@@ -882,31 +882,31 @@ test('A restored Candle Entry replay says it is saved, and can be thrown away', 
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-candle');
 
-  const panel = page.locator('#candle-entry-backtest');
+  const panel = page.locator('#oc-candle-backtest');
   await expect(panel).toBeVisible();
   // It is labelled a stored result, with the minute it was stored.
-  await expect(page.locator('#candle-entry-backtest-badge')).toContainText('SAVED');
-  await expect(page.locator('#candle-entry-backtest-stale')).toContainText('Saved replay');
-  await expect(page.locator('#candle-entry-backtest-stale')).toContainText('a ladder the page no longer trades');
-  await expect(page.locator('#candle-entry-backtest-note')).toContainText('saved run from');
+  await expect(page.locator('#oc-candle-backtest-badge')).toContainText('SAVED');
+  await expect(page.locator('#oc-candle-backtest-stale')).toContainText('Saved replay');
+  await expect(page.locator('#oc-candle-backtest-stale')).toContainText('a ladder the page no longer trades');
+  await expect(page.locator('#oc-candle-backtest-note')).toContainText('saved run from');
 
   // It reads BELOW the live monitor, not above it.
   const order = await page.evaluate(() => {
-    const live = document.getElementById('candle-entry-monitor');
-    const back = document.getElementById('candle-entry-backtest');
+    const live = document.getElementById('oc-candle-monitor');
+    const back = document.getElementById('oc-candle-backtest');
     return live.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING ? 'after' : 'before';
   });
   expect(order).toBe('after');
 
   // CSV survives; the JSON download is gone.
-  await expect(page.locator('#candle-entry-backtest-csv')).toBeVisible();
-  await expect(page.locator('#candle-entry-backtest-json')).toHaveCount(0);
+  await expect(page.locator('#oc-candle-backtest-csv')).toBeVisible();
+  await expect(page.locator('#oc-candle-backtest-json')).toHaveCount(0);
 
   // And it can be removed.
-  await page.click('#candle-entry-backtest-delete');
+  await page.click('#oc-candle-backtest-delete');
   await page.click('#confirm-ok-btn');
   await expect(panel).toBeHidden();
-  await expect(page.locator('#candle-entry-form-status')).toContainText('Saved replay deleted');
+  await expect(page.locator('#oc-candle-status')).toContainText('Saved replay deleted');
 });
 
 // The auto row is drawn from the auto SETTING, which can still carry the
@@ -936,7 +936,7 @@ test('The auto row does not call a running campaign "waiting"', async ({ page })
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-candle');
 
-  const card = page.locator('#candle-entry-auto-card');
+  const card = page.locator('#oc-candle-auto-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('mother 3 Aug 15:25 · running');
   await expect(card).not.toContainText('waiting for the next new');
@@ -976,18 +976,18 @@ test('A held Candle Entry basket shows what it is worth right now', async ({ pag
   // It says, in words, that a paper campaign is RUNNING and since when.
   // One line, and only what the heading and the recipe strip do not already
   // say (Phil, 2026-08-21: "Decrease the texts here... simple and crisp").
-  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('Paper · NIFTY 24400 CE · 25 Aug');
-  await expect(page.locator('#candle-entry-monitor-kicker')).toContainText('from 11 Aug 09:25');
+  await expect(page.locator('#oc-candle-monitor-kicker')).toContainText('Paper · NIFTY 24400 CE · 25 Aug');
+  await expect(page.locator('#oc-candle-monitor-kicker')).toContainText('from 11 Aug 09:25');
 
   // The money tile: net if sold now, its return, and the minute it was marked.
-  const tiles = page.locator('#candle-entry-monitor-tiles');
+  const tiles = page.locator('#oc-candle-tiles');
   await expect(tiles).toContainText('Open P&L · if sold');
   await expect(tiles).toContainText('+₹4,500.00');
   await expect(tiles).toContainText('7.9%');
-  await expect(page.locator('#candle-entry-monitor-updated')).toContainText('marked 09:51');
+  await expect(page.locator('#oc-candle-monitor-updated')).toContainText('marked 09:51');
 
   // Each rung priced on ITS OWN contract, with the move on its own quantity.
-  const rows = page.locator('#candle-entry-monitor-rungs tr');
+  const rows = page.locator('#oc-candle-rows tr');
   await expect(rows.nth(0)).toContainText('₹329.00');
   await expect(rows.nth(0)).toContainText('+₹1,300.00');
   await expect(rows.nth(1)).toContainText('₹311.10');
@@ -1027,25 +1027,25 @@ test('A started Gap Carry says so on the button and fills the right pane', async
   await page.click('#oc-tabbtn-gapcarry');
 
   // THE BUTTON. It must not still be inviting a start that already happened.
-  const start = page.locator('#gap-carry-start');
+  const start = page.locator('#oc-gap-start');
   await expect(start).toContainText('Carrying');
   await expect(start).toBeDisabled();
   // And Kill must be reachable while it merely WAITS -- a campaign waiting for
   // 15:10 is still a campaign, and used to have no way to be stopped.
-  await expect(page.locator('#gap-carry-kill')).toBeVisible();
-  await expect(page.locator('#gap-carry-badge')).toContainText('WAITING');
+  await expect(page.locator('#oc-gap-stop')).toBeVisible();
+  await expect(page.locator('#oc-gap-badge')).toContainText('WAITING');
 
   // THE RIGHT PANE. It used to stay hidden until something was bought, so a
   // carry started in the morning showed nothing at all until 15:10.
-  const monitor = page.locator('#gap-carry-monitor');
+  const monitor = page.locator('#oc-gap-monitor');
   await expect(monitor).toBeVisible();
-  await expect(page.locator('#gap-carry-monitor-title')).toContainText('Waiting for 15:10');
-  await expect(page.locator('#gap-carry-monitor-tiles')).toContainText('RSI 64.2');
-  await expect(page.locator('#gap-carry-monitor-rule')).toContainText('ATM+4 ITM');
-  await expect(page.locator('#gap-carry-monitor-rows')).toContainText('Nothing bought yet');
-  await expect(page.locator('#gap-carry-event-count')).toContainText('1 update');
+  await expect(page.locator('#oc-gap-monitor-title')).toContainText('Waiting for 15:10');
+  await expect(page.locator('#oc-gap-tiles')).toContainText('RSI 64.2');
+  await expect(page.locator('#oc-gap-monitor-rule')).toContainText('ATM+4 ITM');
+  await expect(page.locator('#oc-gap-rows')).toContainText('Nothing bought yet');
+  await expect(page.locator('#oc-gap-event-count')).toContainText('1 update');
   // The tiles must use the styled class, not the two that never existed.
-  await expect(page.locator('#gap-carry-monitor-tiles .candle-entry-tile').first()).toBeVisible();
+  await expect(page.locator('#oc-gap-tiles .ocp-tile').first()).toBeVisible();
 
   // A phone reads it without the page itself scrolling sideways.
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1102,11 +1102,11 @@ test('The Gap Carry chart draws the EMA and the RSI that are its rule', async ({
   await page.click('#oc-tabbtn-gapcarry');
 
   // The button only exists while there is a campaign to draw.
-  const chartBtn = page.locator('#gap-carry-chart-btn');
+  const chartBtn = page.locator('#oc-gap-chart-btn');
   await expect(chartBtn).toBeVisible();
   await chartBtn.click();
-  await expect(page.locator('#gap-carry-chart-overlay')).toHaveClass(/is-open/);
-  await expect(page.locator('#gap-carry-chart #pf-bench-canvas-host')).toBeVisible();
+  await expect(page.locator('#oc-gap-chart-overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('#oc-gap-chart #pf-bench-canvas-host')).toBeVisible();
 
   // THE PAINT SEAM. Pixels alone cannot tell a missing EMA from a flat one.
   const paint = await page.evaluate(() => {
@@ -1121,7 +1121,7 @@ test('The Gap Carry chart draws the EMA and the RSI that are its rule', async ({
   // The sub-pane is a SHARE of the height, and the price keeps the majority.
   expect(paint.rsiH).toBeGreaterThan(40);
   expect(paint.plotH).toBeGreaterThan(paint.rsiH * 2);
-  await expect(page.locator('#gap-carry-chart-meta')).toContainText('EMA20 and RSI14');
+  await expect(page.locator('#oc-gap-chart-meta')).toContainText('EMA20 and RSI14');
 
   // A payload WITHOUT indicators must reserve no pane at all -- that is the
   // whole reason the other four charts on this page are unaffected.
@@ -1158,10 +1158,10 @@ test('Every cascade ⓘ reads as the Cash Cascade document', async ({ page }) =>
 
   await openTradingSection(page, 'cascade');
   for (const [tab, id] of [
-    ['#oc-tabbtn-fib', 'fibx-info'],
-    ['#oc-tabbtn-candle', 'candle-info'],
-    ['#oc-tabbtn-recovery', 'recovery-info'],
-    ['#oc-tabbtn-gapcarry', 'gapcarry-info'],
+    ['#oc-tabbtn-fib', 'oc-fib-info'],
+    ['#oc-tabbtn-candle', 'oc-candle-info'],
+    ['#oc-tabbtn-recovery', 'oc-high-info'],
+    ['#oc-tabbtn-gapcarry', 'oc-gap-info'],
     ['#oc-tabbtn-bench', 'bench-info'],
   ]) {
     await page.click(tab);
@@ -1180,7 +1180,7 @@ test('Every cascade ⓘ reads as the Cash Cascade document', async ({ page }) =>
   // One column on a phone, and never a sideways scroll.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.click('#oc-tabbtn-fib');
-  const phone = await docShape(page, 'fibx-info');
+  const phone = await docShape(page, 'oc-fib-info');
   expect(phone.columns, 'a phone gets one column').toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 
@@ -1212,65 +1212,65 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
   // Monitors are collapsed by default (Phil, 2026-08-13); unfold to inspect.
-  await page.waitForSelector('#fibx-monitors details');
+  await page.waitForSelector('#oc-fib-rows details');
   await page.evaluate(() => {
-    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
 
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
 
   // All five instruments Phil asked for, NIFTY first.
-  await expect(page.locator('#fibx-symbol option')).toHaveCount(5);
-  await expect(page.locator('#fibx-symbol')).toHaveValue('NIFTY');
-  await expect(page.locator('#fibx-side option')).toHaveCount(2);
-  await expect(page.locator('#fibx-side')).toContainText('Buy CE');
-  await expect(page.locator('#fibx-side')).toContainText('Buy PE');
+  await expect(page.locator('#oc-fib-symbol option')).toHaveCount(5);
+  await expect(page.locator('#oc-fib-symbol')).toHaveValue('NIFTY');
+  await expect(page.locator('#oc-fib-side option')).toHaveCount(2);
+  await expect(page.locator('#oc-fib-side')).toContainText('Buy CE');
+  await expect(page.locator('#oc-fib-side')).toContainText('Buy PE');
 
   // The old per-rung budget is gone; the ladder cap replaces it.
-  await expect(page.locator('#fibx-capital-cap')).toHaveValue('75000');
-  await expect(page.locator('#fibx-rung-inr')).toHaveCount(0);
-  await expect(page.locator('#fibx-levels-hint')).toContainText('L16');
+  await expect(page.locator('#oc-fib-capital-cap')).toHaveValue('75000');
+  await expect(page.locator('#oc-fib-rung-inr')).toHaveCount(0);
+  await expect(page.locator('#oc-fib-levels-hint')).toContainText('L16');
 
   // The session rule, and it is what gets SENT. Phil, 2026-08-16: intraday
   // close at 3:15, with the carry-on rule still available beside it.
-  await expect(page.locator('#fibx-session')).toHaveValue('intraday');
-  await expect(page.locator('#fibx-levels-hint')).toContainText('OUT 3:15');
-  await page.click('#fibx-session-toggle [data-value="normal"]');
-  await expect(page.locator('#fibx-session')).toHaveValue('normal');
-  await expect(page.locator('#fibx-levels-hint')).toContainText('CARRIES');
-  await page.click('#fibx-session-toggle [data-value="intraday"]');
+  await expect(page.locator('#oc-fib-session')).toHaveValue('intraday');
+  await expect(page.locator('#oc-fib-levels-hint')).toContainText('OUT 3:15');
+  await page.click('#oc-fib-session-toggle [data-value="normal"]');
+  await expect(page.locator('#oc-fib-session')).toHaveValue('normal');
+  await expect(page.locator('#oc-fib-levels-hint')).toContainText('CARRIES');
+  await page.click('#oc-fib-session-toggle [data-value="intraday"]');
 
   // Every chart a mother may be read on. Entries stay 1m whichever is picked.
   // A button row, not a dropdown -- all four charts visible at once.
-  await expect(page.locator('#fibx-timeframe .fibx-tf')).toHaveCount(4);
-  await expect(page.locator('#fibx-timeframe')).toHaveAttribute('data-value', '1m');
-  await page.click('#fibx-timeframe .fibx-tf[data-tf="15m"]');
-  await expect(page.locator('#fibx-timeframe')).toHaveAttribute('data-value', '15m');
-  await expect(page.locator('#fibx-timeframe .fibx-tf[data-tf="15m"]')).toHaveClass(/is-active/);
-  await page.click('#fibx-timeframe .fibx-tf[data-tf="1m"]');
+  await expect(page.locator('#oc-fib-timeframe .oc-fib-tf')).toHaveCount(4);
+  await expect(page.locator('#oc-fib-timeframe')).toHaveAttribute('data-value', '1m');
+  await page.click('#oc-fib-timeframe .oc-fib-tf[data-tf="15m"]');
+  await expect(page.locator('#oc-fib-timeframe')).toHaveAttribute('data-value', '15m');
+  await expect(page.locator('#oc-fib-timeframe .oc-fib-tf[data-tf="15m"]')).toHaveClass(/is-active/);
+  await page.click('#oc-fib-timeframe .oc-fib-tf[data-tf="1m"]');
 
   // Paper is what you get by default, and Mode is now the Scalp page's plain
   // toggle -- Phil asked for that on 2026-08-15, with no arming step and no
   // password + authenticator behind it. The server still refuses real orders
   // until its broker lifecycle is verified; that gate is not this control.
-  await expect(page.locator('#fibx-mode')).toHaveValue('paper');
-  await expect(page.locator('#fibx-mode-note')).toContainText('sends nothing');
-  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="paper"]')).toHaveClass(/active/);
-  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]')).not.toHaveClass(/active/);
+  await expect(page.locator('#oc-fib-mode')).toHaveValue('paper');
+  await expect(page.locator('#oc-fib-mode-note')).toContainText('sends nothing');
+  await expect(page.locator('#oc-fib-mode-toggle .scalp-toggle-btn[data-value="paper"]')).toHaveClass(/active/);
+  await expect(page.locator('#oc-fib-mode-toggle .scalp-toggle-btn[data-value="live"]')).not.toHaveClass(/active/);
   // It really toggles, both ways, and the hidden field follows it.
-  await page.click('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]');
-  await expect(page.locator('#fibx-mode')).toHaveValue('live');
-  await expect(page.locator('#fibx-mode-toggle .scalp-toggle-btn[data-value="live"]')).toHaveClass(/active/);
-  await page.click('#fibx-mode-toggle .scalp-toggle-btn[data-value="paper"]');
-  await expect(page.locator('#fibx-mode')).toHaveValue('paper');
+  await page.click('#oc-fib-mode-toggle .scalp-toggle-btn[data-value="live"]');
+  await expect(page.locator('#oc-fib-mode')).toHaveValue('live');
+  await expect(page.locator('#oc-fib-mode-toggle .scalp-toggle-btn[data-value="live"]')).toHaveClass(/active/);
+  await page.click('#oc-fib-mode-toggle .scalp-toggle-btn[data-value="paper"]');
+  await expect(page.locator('#oc-fib-mode')).toHaveValue('paper');
   // The separate "Arm live" control is gone with the gate it existed for.
   await expect(page.locator('[data-fx="arm"]')).toHaveCount(0);
 
   // THE NOTES. This doc is the only place the rules are written down for Phil,
   // so it has to describe the strategy that is actually running -- it spent a
   // day describing the swing ladder the merge replaced.
-  await page.click('[data-pf-info="fibx-info"]');
-  const doc = page.locator('#fibx-info .pf-doc-lang[data-pf-lang="en"]');
+  await page.click('[data-pf-info="oc-fib-info"]');
+  const doc = page.locator('#oc-fib-info .pf-doc-lang[data-pf-lang="en"]');
   await expect(doc).toBeVisible();
   await expect(doc).toContainText('one strategy now');
   await expect(doc).toContainText('It never moves');            // the mother is not rebased
@@ -1286,33 +1286,33 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(doc).not.toContainText('first involvement');
   await expect(doc).not.toContainText('authenticator code');
   // Both languages, and the Tamil half is a real translation, not a stub.
-  await page.click('#fibx-info [data-pf-doc-lang="ta"]');
-  const ta = page.locator('#fibx-info .pf-doc-lang[data-pf-lang="ta"]');
+  await page.click('#oc-fib-info [data-pf-doc-lang="ta"]');
+  const ta = page.locator('#oc-fib-info .pf-doc-lang[data-pf-lang="ta"]');
   await expect(ta).toBeVisible();
   await expect(ta).toContainText('ஒரே strategy');
   await expect(ta).toContainText('broker-இல் தங்கும்');
   expect((await ta.innerText()).length).toBeGreaterThan(1500);
-  await page.click('#fibx-info [data-pf-doc-lang="en"]');
-  await page.click('[data-pf-info="fibx-info"]');
+  await page.click('#oc-fib-info [data-pf-doc-lang="en"]');
+  await page.click('[data-pf-info="oc-fib-info"]');
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
   // they are getting a weekly contract that does not exist.
-  await page.selectOption('#fibx-symbol', 'BANKNIFTY');
-  await expect(page.locator('#fibx-symbol-note')).toContainText('Monthly expiries only');
-  await page.selectOption('#fibx-symbol', 'SENSEX');
-  await expect(page.locator('#fibx-symbol-note')).toContainText('Thin book');
-  await page.selectOption('#fibx-symbol', 'NIFTY');
+  await page.selectOption('#oc-fib-symbol', 'BANKNIFTY');
+  await expect(page.locator('#oc-fib-symbol-note')).toContainText('Monthly expiries only');
+  await page.selectOption('#oc-fib-symbol', 'SENSEX');
+  await expect(page.locator('#oc-fib-symbol-note')).toContainText('Thin book');
+  await page.selectOption('#oc-fib-symbol', 'NIFTY');
 
   // The monitor renders from a not_started payload rather than staying blank.
-  await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('IDLE');
-  await expect(page.locator('#fibx-start')).toBeVisible();
-  await expect(page.locator('#fibx-monitors [data-fx="kill"]')).toBeHidden();
+  await expect(page.locator('#oc-fib-rows [data-fx="badge"]')).toHaveText('IDLE');
+  await expect(page.locator('#oc-fib-start')).toBeVisible();
+  await expect(page.locator('#oc-fib-rows [data-fx="kill"]')).toBeHidden();
 
   // Nothing is parked any more: the Backtest replays the SAME ladder Start
   // trades, so both are live and the parked note is gone.
-  await expect(page.locator('#fibx-monitors [data-fx="chart"]')).toBeVisible();
-  await expect(page.locator('#fibx-backtest-btn')).toBeVisible();
-  await expect(page.locator('#fibx-parked-note')).toHaveCount(0);
+  await expect(page.locator('#oc-fib-rows [data-fx="chart"]')).toBeVisible();
+  await expect(page.locator('#oc-fib-backtest-btn')).toBeVisible();
+  await expect(page.locator('#oc-fib-parked-note')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
 });
@@ -1322,23 +1322,23 @@ test('Fib Boundary remembers Auto mother mode after a page refresh', async ({ pa
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
 
-  const auto = page.locator('#fibx-mother-mode-toggle [data-value="auto"]');
-  const manual = page.locator('#fibx-mother-mode-toggle [data-value="manual"]');
+  const auto = page.locator('#oc-fib-mother-mode-toggle [data-value="auto"]');
+  const manual = page.locator('#oc-fib-mother-mode-toggle [data-value="manual"]');
   await auto.click();
-  await expect(page.locator('#fibx-mother-mode')).toHaveValue('auto');
+  await expect(page.locator('#oc-fib-mother-mode')).toHaveValue('auto');
   await expect(auto).toHaveAttribute('aria-checked', 'true');
   await expect(manual).toHaveAttribute('aria-checked', 'false');
-  await expect(page.locator('#fibx-mother-manual-row')).toBeHidden();
+  await expect(page.locator('#oc-fib-mother-manual-row')).toBeHidden();
   expect(await page.evaluate(() => localStorage.getItem('philforge_fib_boundary_mother_mode_v1'))).toBe('auto');
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.getAttribute('data-nav-ready') === '1');
   await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
-  await expect(page.locator('#fibx-mother-mode')).toHaveValue('auto');
+  await expect(page.locator('#oc-fib-mother-mode')).toHaveValue('auto');
   await expect(auto).toHaveAttribute('aria-checked', 'true');
   await expect(manual).toHaveAttribute('aria-checked', 'false');
-  await expect(page.locator('#fibx-mother-manual-row')).toBeHidden();
+  await expect(page.locator('#oc-fib-mother-manual-row')).toBeHidden();
 });
 
 // A running ladder, shaped exactly like FibTouchLadder.get_status().
@@ -1441,36 +1441,36 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
   // Monitors are collapsed by default (Phil, 2026-08-13); unfold to inspect.
-  await page.waitForSelector('#fibx-monitors details');
+  await page.waitForSelector('#oc-fib-rows details');
   await page.evaluate(() => {
-    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
 
   // The monitor renders the running ladder before the chart is even opened.
-  await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('OPEN');
-  await expect(page.locator('#fibx-monitors [data-fx="fills"] tr')).toHaveCount(2);
+  await expect(page.locator('#oc-fib-rows [data-fx="badge"]')).toHaveText('OPEN');
+  await expect(page.locator('#oc-fib-rows [data-fx="fills"] tr')).toHaveCount(2);
   // Start is fail-closed for the selected instrument while its ladder runs,
   // and the button names exactly what must happen first.
-  await expect(page.locator('#fibx-start')).toBeDisabled();
-  await expect(page.locator('#fibx-start')).toContainText('Kill the NIFTY ladder first');
+  await expect(page.locator('#oc-fib-start')).toBeDisabled();
+  await expect(page.locator('#oc-fib-start')).toContainText('Kill the NIFTY ladder first');
   // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
-  await expect(page.locator('#fibx-blocked table')).toBeVisible();
-  await expect(page.locator('#fibx-blocked')).toContainText('NIFTY');
-  await expect(page.locator('#fibx-blocked')).toContainText('CE · 15M mother');
-  await expect(page.locator('#fibx-blocked')).toContainText('1 ladder · one per instrument');
+  await expect(page.locator('#oc-fib-blocked table')).toBeVisible();
+  await expect(page.locator('#oc-fib-blocked')).toContainText('NIFTY');
+  await expect(page.locator('#oc-fib-blocked')).toContainText('CE · 15M mother');
+  await expect(page.locator('#oc-fib-blocked')).toContainText('1 ladder · one per instrument');
   // The anchor block is a table now, labelled fib high/low, and it no longer
   // spells out the involvement rule.
-  await expect(page.locator('#fibx-monitors [data-fx="anchor"] table')).toBeVisible();
-  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('Fib high');
-  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('Fib low');
-  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).toContainText('24,700');
-  await expect(page.locator('#fibx-monitors [data-fx="anchor"]')).not.toContainText('consecutive candles');
-  await expect(page.locator('#fibx-monitors [data-fx="summary"]')).toContainText('₹24,700');
+  await expect(page.locator('#oc-fib-rows [data-fx="anchor"] table')).toBeVisible();
+  await expect(page.locator('#oc-fib-rows [data-fx="anchor"]')).toContainText('Fib high');
+  await expect(page.locator('#oc-fib-rows [data-fx="anchor"]')).toContainText('Fib low');
+  await expect(page.locator('#oc-fib-rows [data-fx="anchor"]')).toContainText('24,700');
+  await expect(page.locator('#oc-fib-rows [data-fx="anchor"]')).not.toContainText('consecutive candles');
+  await expect(page.locator('#oc-fib-rows [data-fx="summary"]')).toContainText('₹24,700');
   // The strip names the mother's chart and the mode it is running in.
-  await expect(page.locator('#fibx-monitors [data-fx="gist"]')).toContainText('15M mother, 1m entries');
-  await expect(page.locator('#fibx-monitors [data-fx="gist"]')).toContainText('PAPER');
+  await expect(page.locator('#oc-fib-rows [data-fx="gist"]')).toContainText('15M mother, 1m entries');
+  await expect(page.locator('#oc-fib-rows [data-fx="gist"]')).toContainText('PAPER');
 
-  await page.click('#fibx-monitors [data-fx="chart"]');
+  await page.click('#oc-fib-rows [data-fx="chart"]');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
 
   const paint = await page.evaluate(() => {
@@ -1524,7 +1524,7 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   expect(dashes.avg).toBeNull();
 
   // Close moved into the site strip (top-right ✕), like every other chart.
-  await page.click('#fibx-chart-strip [data-strip-close]');
+  await page.click('#oc-fib-chart-strip [data-strip-close]');
   await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
@@ -1574,23 +1574,23 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
 
   await openTradingSection(page, 'cascade');
   await page.click('#oc-tabbtn-fib');
-  await page.waitForSelector('#fibx-monitors details');
+  await page.waitForSelector('#oc-fib-rows details');
   await page.evaluate(() => {
-    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
 
   // Every buy the mother made, still listed, tagged with the round that sold it
   // and showing what each leg went out at.
-  await expect(page.locator('#fibx-monitors [data-fx="fills"] tr')).toHaveCount(2);
-  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).toContainText('F1L2');
-  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).toContainText('₹93.45 → ₹199.95');
-  await expect(page.locator('#fibx-monitors [data-fx="fills"]')).not.toContainText('No buy yet');
-  await expect(page.locator('#fibx-monitors [data-fx="fill-summary"]')).toContainText('1 round banked');
-  await expect(page.locator('#fibx-monitors [data-fx="fill-summary"]')).toContainText('60,413');
+  await expect(page.locator('#oc-fib-rows [data-fx="fills"] tr')).toHaveCount(2);
+  await expect(page.locator('#oc-fib-rows [data-fx="fills"]')).toContainText('F1L2');
+  await expect(page.locator('#oc-fib-rows [data-fx="fills"]')).toContainText('₹93.45 → ₹199.95');
+  await expect(page.locator('#oc-fib-rows [data-fx="fills"]')).not.toContainText('No buy yet');
+  await expect(page.locator('#oc-fib-rows [data-fx="fill-summary"]')).toContainText('1 round banked');
+  await expect(page.locator('#oc-fib-rows [data-fx="fill-summary"]')).toContainText('60,413');
 
   // A flat basket has no target and no average; the tiles say what it made and
   // what it is waiting for instead of printing 0.00 three times.
-  const summary = page.locator('#fibx-monitors [data-fx="summary"]');
+  const summary = page.locator('#oc-fib-rows [data-fx="summary"]');
   await expect(summary).toContainText('Banked');
   await expect(summary).toContainText('60,413');
   await expect(summary).toContainText('Re-arms below');
@@ -1599,7 +1599,7 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
 
   // And on the chart: the money that was sold is NOT still sitting on a rung
   // that is waiting to be bought again.
-  await page.click('#fibx-monitors [data-fx="chart"]');
+  await page.click('#oc-fib-rows [data-fx="chart"]');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
   const labels = await page.evaluate(() => {
     const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
@@ -1610,7 +1610,7 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
   // What the round made is on its own sell mark, and the low that wakes the
   // mother is drawn.
   expect(labels.some((t) => t.includes('RE-ARM LOW'))).toBe(true);
-  await page.click('#fibx-chart-strip [data-strip-close]');
+  await page.click('#oc-fib-chart-strip [data-strip-close]');
 
   expect(jsErrors).toEqual([]);
 });
@@ -1652,18 +1652,18 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // Fib Boundary and Fib Space became ONE engine on 2026-08-15. The switch was
   // built into it and wired to nothing -- the page could only ever start one of
   // the two halves.
-  await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
-  await expect(page.locator('#fibx-levels-hint')).toContainText('L2·L3·L4·L6·L8·L12·L16');
-  await page.click('#fibx-buy-mode-toggle [data-value="convergence"]');
-  await expect(page.locator('#fibx-buy-mode')).toHaveValue('convergence');
+  await expect(page.locator('#oc-fib-buy-mode')).toHaveValue('levels');
+  await expect(page.locator('#oc-fib-levels-hint')).toContainText('L2·L3·L4·L6·L8·L12·L16');
+  await page.click('#oc-fib-buy-mode-toggle [data-value="convergence"]');
+  await expect(page.locator('#oc-fib-buy-mode')).toHaveValue('convergence');
   // A hidden input fires no change event, so the hint proves the handler ran.
-  await expect(page.locator('#fibx-levels-hint')).toContainText('ZONES · L1·L2·L4·L8');
-  await page.click('#fibx-buy-mode-toggle [data-value="levels"]');
-  await expect(page.locator('#fibx-buy-mode')).toHaveValue('levels');
+  await expect(page.locator('#oc-fib-levels-hint')).toContainText('ZONES · L1·L2·L4·L8');
+  await page.click('#oc-fib-buy-mode-toggle [data-value="levels"]');
+  await expect(page.locator('#oc-fib-buy-mode')).toHaveValue('levels');
 
   // And it is what gets SENT -- a switch the server never hears about is a
   // switch that does nothing.
-  await page.click('#fibx-buy-mode-toggle [data-value="convergence"]');
+  await page.click('#oc-fib-buy-mode-toggle [data-value="convergence"]');
   let sent: Record<string, unknown> | null = null;
   await page.route('**/api/fib-boundary/paper/start', async (route) => {
     sent = route.request().postDataJSON();
@@ -1672,11 +1672,11 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // The field is readonly by design -- it is driven by the site's own calendar
   // popup -- so the value is set the way that popup sets it.
   await page.evaluate(() => {
-    const input = document.getElementById('fibx-mother-timestamp') as HTMLInputElement;
+    const input = document.getElementById('oc-fib-mother-timestamp') as HTMLInputElement;
     input.value = '2026-08-06T09:21';
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await page.click('#fibx-start');
+  await page.click('#oc-fib-start');
   await expect.poll(() => sent && sent.buy_mode).toBe('convergence');
 
   // The chart: a space is two lines, the price it fills at and how deep it may
@@ -1684,11 +1684,11 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   await page.route('**/api/fib-boundary/paper/status**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', mode: 'paper', campaigns: [fibConvergenceCampaign] }) }));
   await page.evaluate(() => (window as typeof window & { refreshFibBoundaryStatus: () => Promise<void> }).refreshFibBoundaryStatus());
-  await page.waitForSelector('#fibx-monitors details');
+  await page.waitForSelector('#oc-fib-rows details');
   await page.evaluate(() => {
-    document.querySelectorAll('#fibx-monitors details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
-  await page.click('#fibx-monitors [data-fx="chart"]');
+  await page.click('#oc-fib-rows [data-fx="chart"]');
   await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
   const labels = await page.evaluate(() => {
     const app = window as typeof window & { _pfChartCanvas?: { paint?: { labelTexts?: string[] } } };
@@ -1710,7 +1710,7 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // and no "L4" spelling survives -- levels are numbers here
   expect(labels.some((t) => /\bL\d/.test(t))).toBe(false);
 
-  await page.click('#fibx-chart-strip [data-strip-close]');
+  await page.click('#oc-fib-chart-strip [data-strip-close]');
   expect(jsErrors).toEqual([]);
 });
 
@@ -1769,17 +1769,19 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
 
   await expect(page.locator('#oc-tab-recovery')).toBeVisible();
 
-  // Every timeframe the engine supports, with the least-bad measured setting selected.
-  await expect(page.locator('#recovery-timeframe option')).toHaveCount(4);
-  await expect(page.locator('#recovery-timeframe')).toHaveValue('1h');
-  await expect(page.locator('#recovery-mode option')).toHaveCount(2);
+  // Every timeframe the engine supports, with the measured setting selected. 5m
+  // replaced 1H as the default in 63fbd23: the five-year audit found it the only
+  // chart that comes out green, and the option labels say so.
+  await expect(page.locator('#oc-high-timeframe option')).toHaveCount(4);
+  await expect(page.locator('#oc-high-timeframe')).toHaveValue('5m');
+  await expect(page.locator('#oc-high-mode option')).toHaveCount(2);
 
   // The monitor must render from a not_started payload rather than staying blank
   // -- a JS typo here leaves an empty panel that a green Python run never catches.
-  await expect(page.locator('#recovery-badge')).toHaveText('IDLE');
-  await expect(page.locator('#recovery-campaigns')).toContainText('Nothing running');
-  await expect(page.locator('#recovery-start')).toBeVisible();
-  await expect(page.locator('#recovery-stop')).toBeHidden();
+  await expect(page.locator('#oc-high-badge')).toHaveText('IDLE');
+  await expect(page.locator('#oc-high-rows')).toContainText('Nothing running');
+  await expect(page.locator('#oc-high-start')).toBeVisible();
+  await expect(page.locator('#oc-high-stop')).toBeHidden();
 
   // The paper-only promise is still stated where the trader can read it. The
   // slogan banner came off the tab on 2026-08-20 ("Still more texts"); the

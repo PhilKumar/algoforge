@@ -2545,10 +2545,10 @@ async function initCascadeOptionsPage() {
 function _renderCandleEntryStatus(payload) {
   const campaign = payload?.campaign;
   const badge = _cascadeOptionsEl('oc-candle-badge');
-  const summary = _cascadeOptionsEl('ocp-summary');
+  const summary = _cascadeOptionsEl('oc-candle-summary');
   const start = _cascadeOptionsEl('oc-candle-start');
   const kill = _cascadeOptionsEl('oc-candle-stop');
-  const monitor = _cascadeOptionsEl('ocp-monitor');
+  const monitor = _cascadeOptionsEl('oc-candle-monitor');
   _lastCandleEntryStatus = campaign || null;
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
@@ -2666,14 +2666,14 @@ function _ocpTile(label, value, accent = 'var(--text)') {
 }
 
 function _renderCandleEntryMonitor(campaign) {
-  const monitor = _cascadeOptionsEl('ocp-monitor');
+  const monitor = _cascadeOptionsEl('oc-candle-monitor');
   const tiles = _cascadeOptionsEl('oc-candle-tiles');
   const rungsEl = _cascadeOptionsEl('oc-candle-rows');
-  const updated = _cascadeOptionsEl('ocp-monitor-updated');
-  const eventsEl = _cascadeOptionsEl('ocp-events');
+  const updated = _cascadeOptionsEl('oc-candle-monitor-updated');
+  const eventsEl = _cascadeOptionsEl('oc-candle-events');
   const eventCount = _cascadeOptionsEl('oc-candle-event-count');
   const title = _cascadeOptionsEl('oc-candle-monitor-title');
-  const kicker = _cascadeOptionsEl('ocp-monitor-kicker');
+  const kicker = _cascadeOptionsEl('oc-candle-monitor-kicker');
   if (!monitor || !tiles || !rungsEl || !eventsEl) return;
   monitor.hidden = false;
   const mother = campaign.mother || {};
@@ -2762,7 +2762,7 @@ async function refreshCandleEntryStatus() {
     _renderCandleEntryStatus(data);
     _renderCandleEntryAuto(data.auto);
   } catch (error) {
-    const summary = _cascadeOptionsEl('ocp-summary');
+    const summary = _cascadeOptionsEl('oc-candle-summary');
     if (summary) summary.textContent = error.message || 'Unable to load Candle Entry campaign.';
   }
 }
@@ -2930,7 +2930,7 @@ async function _refreshPaperLedger(strategy) {
 
 
 function _renderCandleEntryAuto(auto) {
-  const card = document.getElementById('ocp-auto-card');
+  const card = document.getElementById('oc-candle-auto-card');
   const input = document.getElementById('oc-candle-auto');
   const on = !!(auto && auto.enabled);
   if (input && !_candleEntryAutoPosting) _ocpSetSwitch('oc-candle-auto', 'oc-candle-auto-toggle', on ? 'on' : 'off');
@@ -2986,8 +2986,8 @@ function _syncCandleEntryMotherMode() {
 // variation of it.
 const _CANDLE_ENTRY_MEASURED = { 'oc-candle-mother-mode': 'box', 'oc-candle-box-bars': '278', 'oc-candle-box-position': '0.25', 'oc-candle-exit-mode': 'trailing', 'oc-candle-target': '0.25', 'oc-candle-expiry-rule': 'monthly', 'oc-candle-session': 'hold', 'oc-candle-itm': '-2', 'oc-candle-strike-at': 'each_buy' };
 function _syncCandleEntryAdvancedState() {
-  const el = document.getElementById('ocp-advanced-state');
-  const fold = document.getElementById('ocp-advanced');
+  const el = document.getElementById('oc-candle-advanced-state');
+  const fold = document.getElementById('oc-candle-advanced');
   if (!el) return;
   const changed = Object.entries(_CANDLE_ENTRY_MEASURED).filter(([id, want]) => String(document.getElementById(id)?.value ?? want) !== want).length;
   el.textContent = changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the measured rule` : 'rule as measured';
@@ -2999,7 +2999,7 @@ function _syncCandleEntryAdvancedState() {
 // It replaces a paragraph of explanation: read it and you know the rule.
 function _syncCandleEntryRecipe() {
   _syncCandleEntryAdvancedState();
-  const el = document.getElementById('ocp-recipe');
+  const el = document.getElementById('oc-candle-recipe');
   if (!el) return;
   const tf = _TB_TF_LABEL[_cascadeOptionsEl('oc-candle-timeframe')?.value || '5m'] || '5m';
   const box = _candleEntryMotherMode() === 'box';
