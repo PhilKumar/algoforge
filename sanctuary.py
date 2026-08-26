@@ -613,7 +613,33 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
             }
         )
     added = await sanctuary_db.add_ledger_many(user_id, cleaned)
+    account = re.sub(r"\D", "", str(payload.get("account") or ""))
+    if added and 9 <= len(account) <= 18:
+        await _remember_account_number(user_id, account, str(payload.get("bank") or ""))
     return {"added": added, "skipped": len(cleaned) - added}
+
+
+async def _remember_account_number(user_id: int, account: str, bank: str) -> None:
+    """File the statement's account number under Important info, once."""
+    notes = await sanctuary_db.get_json_state(user_id, "notes", [])
+    title = f"Bank account ··{account[-4:]}"
+    if any(n.get("title") == title or account in str(n.get("body", "")) for n in notes):
+        return
+    if len(notes) >= 200:
+        return
+    body = f"Account number: {account}"
+    if bank.strip():
+        body += f"\nBank: {bank.strip()[:80]}"
+    body += f"\nFiled from a statement upload on {_today_ist().isoformat()}."
+    notes.append(
+        {
+            "id": secrets.token_hex(4),
+            "title": title,
+            "body": body,
+            "updated_at": _today_ist().isoformat(),
+        }
+    )
+    await sanctuary_db.set_json_state(user_id, "notes", notes)
 
 
 @router.get("/api/sanctuary/statements/review")

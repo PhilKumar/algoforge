@@ -362,6 +362,12 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-review-row .who{flex:1;min-width:180px}
 .stmt-review-row .who small{display:block;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
 .stmt-review-row select{max-width:190px}
+.ledger-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
+.ledger-toolbar #led-search{flex:2;min-width:180px}
+.ledger-toolbar select{flex:1;min-width:130px;max-width:220px}
+.ledger-pager{display:flex;gap:12px;align-items:center;justify-content:center;padding-top:12px}
+.ledger-pager span{color:var(--soft);font-size:.85rem}
+.led-acct-chip{font-size:.72rem;color:var(--soft);white-space:nowrap}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
@@ -917,7 +923,18 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card ledger" style="margin-bottom:24px">
       <div class="section-title">The month's ledger</div>
       <div class="section-sub" id="ledger-sub"></div>
+      <div class="ledger-toolbar">
+        <input class="field" id="led-search" type="search" placeholder="Search notes, categories…">
+        <select class="field" id="led-cat"></select>
+        <select class="field" id="led-acct"></select>
+        <button class="btn ghost" id="led-csv" title="Download what the filters show">⬇ CSV</button>
+      </div>
       <div style="overflow-x:auto"><table id="ledger-table"></table></div>
+      <div class="ledger-pager">
+        <button class="btn subtle small" id="led-prev">‹ Newer</button>
+        <span id="led-page" class="num"></span>
+        <button class="btn subtle small" id="led-next">Older ›</button>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:24px">
@@ -1673,23 +1690,78 @@ function renderFinance(){
     <span class="v num">${inr(v)}</span></div>`).join("");
   renderTrend(f.trend);
   /* ledger */
-  const savingNames = new Set(f.categories.filter((c) => c.kind === "saving").map((c) => c.name));
-  const rows = [
-    ...f.ledger.map((r) => ({...r, isEmi: false})),
+  S.savingNames = new Set(f.categories.filter((c) => c.kind === "saving").map((c) => c.name));
+  S.ledgerRows = [
+    ...f.ledger.map((r) => ({...r,
+      acct: r.ref_id && r.ref_id.startsWith("stmt:") ? "··" + r.ref_id.split(":")[1].slice(-4) : ""})),
     ...f.emis.map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
-      note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", isEmi: true})),
+      note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", acct: ""})),
   ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
-  $("ledger-sub").textContent = rows.length + " entries — savings in green, EMIs marked.";
-  $("ledger-table").innerHTML = `<tr><th>Date</th><th>What</th><th>Note</th><th class="amt">Amount</th><th></th></tr>` +
-    rows.map((r) => `<tr>
-      <td class="num">${niceDate(r.entry_date)}</td>
-      <td>${esc(r.category)} <span class="src-chip ${r.source}">${r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : "you"}</span></td>
-      <td style="color:var(--muted)">${esc(r.note)}</td>
-      <td class="amt num" style="${savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${inr2(r.amount)}</td>
-      <td>${r.source === "manual" ? `<button class="btn subtle small" data-led-del="${r.id}">✕</button>` : ""}</td>
-    </tr>`).join("");
+  S.led = S.led || {q: "", cat: "", acct: "", page: 1};
+  S.led.page = 1;
+  const monthCats = [...new Set(S.ledgerRows.map((r) => r.category))].sort();
+  $("led-cat").innerHTML = `<option value="">Every category</option>` +
+    monthCats.map((c) => `<option ${c === S.led.cat ? "selected" : ""}>${esc(c)}</option>`).join("");
+  const accts = [...new Set(S.ledgerRows.map((r) => r.acct).filter(Boolean))].sort();
+  $("led-acct").innerHTML = `<option value="">Every account</option>` +
+    accts.map((a) => `<option ${a === S.led.acct ? "selected" : ""}>${esc(a)}</option>`).join("");
+  $("led-acct").style.display = accts.length ? "" : "none";
+  renderLedgerTable();
   renderRecurring(f.recurring);
 }
+const LED_PAGE = 10;
+function ledgerFiltered(){
+  const {q, cat, acct} = S.led;
+  const needle = q.trim().toLowerCase();
+  return (S.ledgerRows || []).filter((r) =>
+    (!cat || r.category === cat) &&
+    (!acct || r.acct === acct) &&
+    (!needle || (r.note + " " + r.category + " " + r.acct).toLowerCase().includes(needle)));
+}
+function renderLedgerTable(){
+  const rows = ledgerFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / LED_PAGE));
+  S.led.page = Math.min(Math.max(1, S.led.page), pages);
+  const slice = rows.slice((S.led.page - 1) * LED_PAGE, S.led.page * LED_PAGE);
+  const total = rows.reduce((a, r) => a + r.amount, 0);
+  const filtered = rows.length !== (S.ledgerRows || []).length;
+  $("ledger-sub").textContent = filtered
+    ? rows.length + " of " + S.ledgerRows.length + " entries match — together " + inr2(total)
+    : rows.length + " entries — savings in green, EMIs marked.";
+  $("ledger-table").innerHTML =
+    `<tr><th>Date</th><th>Category</th><th>Note</th><th>A/c</th><th class="amt">Amount</th><th></th></tr>` +
+    (slice.length ? slice.map((r) => `<tr>
+      <td class="num">${niceDate(r.entry_date)}</td>
+      <td>${esc(r.category)} <span class="src-chip ${r.source}">${
+        r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source === "statement" ? "bank" : "you"}</span></td>
+      <td style="color:var(--muted)">${esc(r.note)}</td>
+      <td class="led-acct-chip num">${esc(r.acct)}</td>
+      <td class="amt num" style="${S.savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${inr2(r.amount)}</td>
+      <td>${r.source === "manual" ? `<button class="btn subtle small" data-led-del="${r.id}">✕</button>` : ""}</td>
+    </tr>`).join("")
+    : `<tr><td colspan="6" style="color:var(--muted);padding:18px 10px">Nothing matches. Loosen the search.</td></tr>`);
+  $("led-page").textContent = S.led.page + " / " + pages;
+  $("led-prev").disabled = S.led.page <= 1;
+  $("led-next").disabled = S.led.page >= pages;
+}
+$("led-search").oninput = () => { S.led.q = $("led-search").value; S.led.page = 1; renderLedgerTable(); };
+$("led-cat").onchange = () => { S.led.cat = $("led-cat").value; S.led.page = 1; renderLedgerTable(); };
+$("led-acct").onchange = () => { S.led.acct = $("led-acct").value; S.led.page = 1; renderLedgerTable(); };
+$("led-prev").onclick = () => { S.led.page--; renderLedgerTable(); };
+$("led-next").onclick = () => { S.led.page++; renderLedgerTable(); };
+$("led-csv").onclick = () => {
+  const rows = ledgerFiltered();
+  if (!rows.length) return toast("Nothing to download");
+  const cell = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const csv = "Date,Category,Note,Account,Amount,Source\n" + rows.map((r) =>
+    [r.entry_date, r.category, r.note, r.acct, r.amount.toFixed(2), r.source].map(cell).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"}));
+  a.download = "ledger-" + S.finMonth + ".csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("The month is in your hands. 🌿");
+};
 function renderTrend(trend){
   const svg = $("trend");
   const w = 520, h = 190, padX = 40, padRight = 50, padTop = 26, padBot = 34;
@@ -2231,7 +2303,7 @@ document.addEventListener("click", async (e) => {
     let added = 0;
     for (let at = 0; at < rows.length; at += 800) {
       const r = await api("/api/sanctuary/statements/commit", {method: "POST",
-        body: {rows: rows.slice(at, at + 800)}});
+        body: {rows: rows.slice(at, at + 800), account: pv.account || ""}});
       added += r.added;
     }
     toast(added + " entries took their places. 🌿");
