@@ -285,6 +285,31 @@ async def recategorise_matching(user_id: int, match: str, category: str, from_ca
         return cursor.rowcount
 
 
+async def search_ledger(user_id: int, query: str, limit: int = 400) -> list[dict]:
+    """Every year at once: rows whose note or category carries the query."""
+    needle = f"%{query.strip()}%"
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT id, entry_date, category, amount, note, source, ref_id
+               FROM sanctuary_ledger
+               WHERE user_id = ? AND (note LIKE ? OR category LIKE ?)
+               ORDER BY entry_date DESC, id DESC LIMIT ?""",
+            (int(user_id), needle, needle, max(1, min(int(limit), 1000))),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def set_ledger_category(user_id: int, row_id: int, category: str) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE sanctuary_ledger SET category = ? WHERE user_id = ? AND id = ?",
+            (category, int(user_id), int(row_id)),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def uncategorised_ledger(user_id: int) -> list[dict]:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row

@@ -370,6 +370,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-acct-chip{font-size:.72rem;color:var(--soft);white-space:nowrap}
 .led-in{color:var(--moss);font-weight:700}
 .led-out{color:var(--danger)}
+.led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
+.led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
+.led-cat-edit:hover{color:var(--moss)}
 .loan-closed{opacity:.62}
 .loan-closed .loan-grid b{color:var(--muted)!important}
 .badge.closed{background:transparent;border:1px solid var(--line);color:var(--muted)}
@@ -930,6 +933,7 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-sub" id="ledger-sub"></div>
       <div class="ledger-toolbar">
         <input class="field" id="led-search" type="search" placeholder="Search notes, categories…">
+        <label class="led-scope"><input type="checkbox" id="led-alltime"> every year</label>
         <select class="field" id="led-cat"></select>
         <select class="field" id="led-acct"></select>
         <select class="field" id="led-flow">
@@ -1764,8 +1768,8 @@ function renderLedgerTable(){
     `<tr><th>Date</th><th>Category</th><th>Note</th><th>A/c</th><th class="amt">Amount</th><th></th></tr>` +
     (slice.length ? slice.map((r) => `<tr>
       <td class="num">${niceDate(r.entry_date)}</td>
-      <td>${esc(r.category)} <span class="src-chip ${r.source}">${
-        r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source === "statement" ? "bank" : "you"}</span></td>
+      <td>${r.source === "emi" ? esc(r.category) : `<span class="led-cat-edit" data-led-cat="${r.id}" title="Change this entry's category">${esc(r.category)} ✎</span>`} <span class="src-chip ${r.source}">${
+        r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source.startsWith("statement") ? "bank" : "you"}</span></td>
       <td style="color:var(--muted)">${esc(r.note)}</td>
       <td class="led-acct-chip num">${esc(r.acct)}</td>
       <td class="amt num ${r.dir === "in" ? "led-in" : "led-out"}" style="${S.savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${r.dir === "in" ? "+" : "−"}${inr2(r.amount)}</td>
@@ -1776,10 +1780,64 @@ function renderLedgerTable(){
   $("led-prev").disabled = S.led.page <= 1;
   $("led-next").disabled = S.led.page >= pages;
 }
-$("led-search").oninput = () => { S.led.q = $("led-search").value; S.led.page = 1; renderLedgerTable(); };
+$("led-search").oninput = () => { S.led.q = $("led-search").value; S.led.page = 1;
+  if ($("led-alltime").checked) { ledgerAllTime(); } else renderLedgerTable(); };
+$("led-alltime").onchange = () => {
+  if ($("led-alltime").checked) ledgerAllTime();
+  else { S.ledgerAll = null; refreshFinance(); }
+};
+let _alltimeTimer = null;
+async function ledgerAllTime(){
+  const q = $("led-search").value.trim();
+  if (q.length < 2) { $("ledger-sub").textContent = "Type at least two characters, then every year answers."; return; }
+  clearTimeout(_alltimeTimer);
+  _alltimeTimer = setTimeout(async () => {
+    try {
+      const r = await api("/api/sanctuary/finance/search?q=" + encodeURIComponent(q));
+      S.ledgerRows = r.rows.map((x) => ({...x,
+        dir: x.source === "statement-in" ? "in" : "out",
+        acct: x.ref_id && x.ref_id.startsWith("stmt:") ? "··" + x.ref_id.split(":")[1].slice(-4) : ""}));
+      S.led.page = 1;
+      S.ledgerAll = {capped: r.capped};
+      renderLedgerTable();
+      const span = S.ledgerRows.length
+        ? ` · ${S.ledgerRows[S.ledgerRows.length - 1].entry_date.slice(0, 4)} → ${S.ledgerRows[0].entry_date.slice(0, 4)}`
+        : "";
+      $("ledger-sub").textContent = S.ledgerRows.length + " entries across the years" + span
+        + (r.capped ? " — showing the newest 400, narrow the words for older ones" : "");
+    } catch (e) { toast(e.message || "Search failed"); }
+  }, 350);
+}
 $("led-cat").onchange = () => { S.led.cat = $("led-cat").value; S.led.page = 1; renderLedgerTable(); };
 $("led-acct").onchange = () => { S.led.acct = $("led-acct").value; S.led.page = 1; renderLedgerTable(); };
 $("led-flow").onchange = () => { S.led.flow = $("led-flow").value; S.led.page = 1; renderLedgerTable(); };
+document.addEventListener("click", (e) => {
+  const cat = e.target.closest("[data-led-cat]");
+  if (!cat) return;
+  const row = (S.ledgerRows || []).find((x) => String(x.id) === cat.dataset.ledCat);
+  if (!row) return;
+  const wrap = modal(`<h4>Where does this belong?</h4>
+    <div class="section-sub" style="margin-bottom:10px">${esc(row.note || "").slice(0, 120)}</div>
+    <label>Category</label><select class="field" id="lc-cat">${stmtCatOpts(row.category)}</select>
+    <div class="m-foot"><button class="btn subtle" id="lc-cancel">Leave it</button>
+    <button class="btn" id="lc-save">Move it</button></div>`);
+  const sel = wrap.querySelector("#lc-cat");
+  sel.addEventListener("change", () => {
+    if (sel.value !== "__new__") return;
+    const input = document.createElement("input");
+    input.className = "field"; input.id = "lc-cat"; input.placeholder = "Name the category"; input.maxLength = 60;
+    sel.replaceWith(input); input.focus();
+  });
+  wrap.querySelector("#lc-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#lc-save").onclick = async () => {
+    const field = wrap.querySelector("#lc-cat");
+    const category = (field.tagName === "INPUT" ? field.value.trim() : field.value).slice(0, 60);
+    if (!category || category === "__new__" || category === "Uncategorised" && row.category === "Uncategorised") return toast("Pick a category first");
+    await api("/api/sanctuary/finance/entry/" + row.id, {method: "PUT", body: {category}});
+    row.category = category;
+    wrap.remove(); toast("Moved."); renderLedgerTable(); if (!$("led-alltime").checked) refreshFinance();
+  };
+});
 $("led-prev").onclick = () => { S.led.page--; renderLedgerTable(); };
 $("led-next").onclick = () => { S.led.page++; renderLedgerTable(); };
 $("led-csv").onclick = () => {

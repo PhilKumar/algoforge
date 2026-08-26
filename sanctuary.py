@@ -817,6 +817,27 @@ async def ledger_add(request: Request, user: dict = Depends(_unlocked_user)):
     return {"id": row_id}
 
 
+@router.put("/api/sanctuary/finance/entry/{row_id}")
+async def ledger_recategorise_row(row_id: int, request: Request, user: dict = Depends(_unlocked_user)):
+    """One row, one correction — a rule is for a payee, this is for an oddity."""
+    payload = await request.json()
+    category = str(payload.get("category") or "").strip()[:60]
+    if not category:
+        raise HTTPException(status_code=400, detail="Name the category")
+    if not await sanctuary_db.set_ledger_category(int(user["id"]), row_id, category):
+        raise HTTPException(status_code=404, detail="No such entry")
+    return {"ok": True}
+
+
+@router.get("/api/sanctuary/finance/search")
+async def ledger_search(q: str = "", user: dict = Depends(_unlocked_user)):
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="Give the search two characters or more")
+    rows = await sanctuary_db.search_ledger(int(user["id"]), query)
+    return {"rows": rows, "capped": len(rows) >= 400}
+
+
 @router.delete("/api/sanctuary/finance/entry/{row_id}")
 async def ledger_delete(row_id: int, user: dict = Depends(_unlocked_user)):
     if not await sanctuary_db.delete_ledger_row(int(user["id"]), row_id):
