@@ -2033,6 +2033,11 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryStop',
   'recoveryAddMother',
   'recoveryDrop',
+  'setRecoveryRunMode',
+  'setRecoverySide',
+  'loadRecoveryChart',
+  'closeRecoveryChart',
+  'openRecoveryTearsheet',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
   'deleteFibBoundaryPaper',
@@ -20057,10 +20062,16 @@ function _recoveryError(msg) {
 
 async function recoveryStart() {
   _recoveryError('');
+  const lots = String(document.getElementById('recovery-lots')?.value || '1,2')
+    .split(',').map(x => Number(x.trim())).filter(x => x > 0);
   const body = {
     symbol: document.getElementById('recovery-symbol')?.value || 'nifty',
-    timeframe: document.getElementById('recovery-timeframe')?.value || '15m',
+    timeframe: document.getElementById('recovery-timeframe')?.value || '5m',
     mode: document.getElementById('recovery-mode')?.value || 'ladder',
+    side: document.getElementById('recovery-side')?.value || 'CE',
+    itm_steps: Number(document.getElementById('recovery-itm')?.value || 4),
+    sl_source: document.getElementById('recovery-sl-source')?.value || 'entry',
+    lots_schedule: lots.length ? lots : [1, 2],
     horizon_sessions: Number(document.getElementById('recovery-horizon')?.value || 10),
     min_profit_inr: Number(document.getElementById('recovery-margin')?.value || 500),
   };
@@ -20149,7 +20160,10 @@ function _recoveryCampaign(c) {
         <span style="color:${statusColour};margin-left:10px;">${c.status}</span>
         ${c.end_reason ? `<span style="color:var(--muted);"> (${c.end_reason})</span>` : ''}
       </div>
-      <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;" aria-label="Chart this campaign">&#8599; Chart</button>
+        <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+      </div>
     </div>
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
       ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>
@@ -20161,6 +20175,107 @@ function _recoveryCampaign(c) {
   </div>`;
 }
 
+// THE TOGGLES. Same switch helper the other consoles use, so a High Entry
+// button behaves exactly like a Candle Entry one.
+function setRecoveryRunMode(_event, button) {
+  _candleEntrySetSwitch('recovery-run-mode', 'recovery-mode-toggle', button?.dataset?.value || 'paper');
+  _recoveryRecipe();
+}
+
+function setRecoverySide(_event, button) {
+  _candleEntrySetSwitch('recovery-side', 'recovery-side-toggle', button?.dataset?.value || 'CE');
+  _recoveryRecipe();
+}
+
+function openRecoveryTearsheet(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  window.open('/assets/tearsheet?doc=recovery#curve-trail', '_blank', 'noopener');
+}
+
+// THE RECIPE STRIP. One sentence saying what pressing Start would actually do,
+// rebuilt whenever a control moves -- the settings live in six places and the
+// only honest summary is a computed one.
+function _recoveryRecipe() {
+  const host = document.getElementById('recovery-recipe');
+  if (!host) return;
+  const val = (id, fallback) => document.getElementById(id)?.value || fallback;
+  const side = val('recovery-side', 'CE');
+  const itm = Number(val('recovery-itm', 4));
+  const tf = String(val('recovery-timeframe', '5m')).toUpperCase();
+  const lots = val('recovery-lots', '1,2').split(',').join(' then ');
+  const sl = { entry: 'the entry candle low', previous: 'the previous candle low', ultimate: 'the lowest low since the mother' }[val('recovery-sl-source', 'entry')];
+  const margin = Number(val('recovery-margin', 500));
+  const shape = val('recovery-mode', 'ladder') === 'ladder' ? 're-arming after every stop' : 'fib zones 2-2 and 4-4 only';
+  const mode = val('recovery-run-mode', 'paper') === 'live' ? 'LIVE' : 'Paper';
+  const audit = (tf === '5M' && side === 'CE' && itm === 4)
+    ? '<strong style="color:#6ee7b7;">the one book the five-year audit found green</strong>'
+    : '<strong style="color:#fbbf24;">not the measured configuration</strong>';
+  const state = document.getElementById('recovery-advanced-state');
+  if (state) {
+    const stock = val('recovery-mode', 'ladder') === 'ladder' && val('recovery-sl-source', 'entry') === 'entry'
+      && val('recovery-lots', '1,2') === '1,2' && margin === 500 && Number(val('recovery-horizon', 10)) === 10;
+    state.textContent = stock ? 'rule as measured' : 'changed from the measured rule';
+    state.style.color = stock ? '' : '#fbbf24';
+  }
+  host.innerHTML = `${escapeHtml(mode)} · <strong>${escapeHtml(tf)}</strong> chart · two reds, then a buy-stop at the second red's high ·
+    <strong>ATM&minus;${itm} ${escapeHtml(side)}</strong>, re-picked at every fill · ${escapeHtml(lots)} lots ·
+    stop on ${escapeHtml(sl)} · sell when the ledger is repaid plus &#8377;${margin.toLocaleString('en-IN')} ·
+    ${escapeHtml(shape)} &mdash; ${audit}`;
+}
+
+// THE CHART. Same overlay and same payload the other consoles draw, asked for
+// one campaign at a time.
+let _recoveryChartTf = '';
+let _recoveryChartCampaign = '';
+
+function closeRecoveryChart() {
+  const overlay = document.getElementById('recovery-chart-overlay');
+  if (overlay && typeof pfSetCascadeChartOverlayOpen === 'function') pfSetCascadeChartOverlayOpen(overlay, false);
+}
+
+async function loadRecoveryChart(_event, el) {
+  const byId = id => document.getElementById(id);
+  const overlay = byId('recovery-chart-overlay');
+  const chart = byId('recovery-chart');
+  const meta = byId('recovery-chart-meta');
+  const title = byId('recovery-chart-title');
+  const wanted = el?.dataset?.recCampaign || _recoveryChartCampaign || '';
+  if (overlay && typeof pfSetCascadeChartOverlayOpen === 'function') pfSetCascadeChartOverlayOpen(overlay, true);
+  if (meta) meta.textContent = 'Loading chart…';
+  try {
+    const qs = new URLSearchParams();
+    if (wanted) qs.set('campaign_id', wanted);
+    if (_recoveryChartTf) qs.set('timeframe', _recoveryChartTf);
+    const res = await fetch(`/api/recovery/paper/chart?${qs.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Chart unavailable.');
+    _recoveryChartCampaign = data.campaign_id || wanted;
+    _recoveryChartTf = data.timeframe;
+    if (title) title.textContent = `High Entry · ${String(data.side || 'CE')} · ${String(data.timeframe).toUpperCase()} chart`;
+    if (meta) meta.textContent = `Mother ${_recTime(data.mother_timestamp)} IST · ${String(data.campaign_status || '').toUpperCase()}`;
+    const strip = byId('recovery-chart-strip');
+    if (strip && typeof pfChartStrip === 'function') {
+      pfChartStrip(strip, {
+        timeframes: data.stages || [],
+        active: data.timeframe,
+        onTimeframe: tf => { _recoveryChartTf = tf; loadRecoveryChart(); },
+        onRefresh: () => loadRecoveryChart(),
+        onClose: () => closeRecoveryChart(),
+      });
+    }
+    // pfBenchDrawChart is THE renderer -- the same one the Test Bench, Candle
+    // Entry and Fib Boundary draw with. It needs the overlay laid out first or
+    // it measures a zero-width host and paints nothing.
+    if (chart && typeof pfBenchDrawChart === 'function') {
+      await pfWaitForCascadeChartLayout();
+      pfBenchDrawChart(chart, data.chart || {});
+    }
+  } catch (err) {
+    if (meta) meta.textContent = String(err.message || err);
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(String(err.message || err))}</div>`;
+  }
+}
+
 function renderRecovery(data) {
   const badge = document.getElementById('recovery-badge');
   const startBtn = document.getElementById('recovery-start');
@@ -20170,7 +20285,10 @@ function renderRecovery(data) {
   const list = document.getElementById('recovery-campaigns');
   if (!badge || !tiles || !list) return;
 
+  _recoveryRecipe();
   const running = data && data.status === 'ok' && data.running;
+  const kicker = document.getElementById('recovery-monitor-kicker');
+  if (kicker) kicker.textContent = running ? 'Paper campaigns · live' : 'Paper campaigns';
   badge.textContent = running ? 'RUNNING' : 'IDLE';
   badge.style.color = running ? '#34d399' : 'var(--muted)';
   if (startBtn) startBtn.style.display = running ? 'none' : '';
@@ -20185,22 +20303,52 @@ function renderRecovery(data) {
   if (!running && !campaigns.length) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
+    const emptyWrap = document.getElementById('recovery-closed-wrap');
+    if (emptyWrap) emptyWrap.hidden = true;
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
     return;
   }
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
   const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
-  const tile = (label, value, colour) =>
-    `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
-      <div style="font:800 9px 'JetBrains Mono',monospace;letter-spacing:.6px;color:var(--muted);">${label}</div>
-      <div style="margin-top:4px;font:600 17px 'JetBrains Mono',monospace;${colour ? `color:${colour};` : ''}">${value}</div>
-    </div>`;
+  // _candleEntryTile is the shared tile. Rolling our own reached for
+  // .candle-entry-tile-label / -value, which the stylesheet has never defined
+  // -- the same bug that once rendered every Gap Carry tile as bare text.
+  const ledger = Number(book.booked_net || 0);
+  const need = campaigns.reduce((a, c) => a + Number(c.required_recovery || 0), 0);
   tiles.innerHTML = [
-    tile('CAMPAIGNS', campaigns.length),
-    tile('OPEN TRADES', openTrades),
-    tile('CLOSED TRADES', closed),
-    tile('LEDGER', _recInr(book.booked_net), (book.booked_net || 0) >= 0 ? '#34d399' : '#f87171'),
+    // FOUR tiles, not five: the grid lays out four to a row, and a fifth
+    // orphaned itself under three empty cells. The closed count already
+    // titles its own table.
+    _candleEntryTile('Campaigns', `${campaigns.length} · ${closed} closed`, 'var(--text)'),
+    _candleEntryTile('Open trades', String(openTrades), openTrades ? '#38bdf8' : 'var(--text)'),
+    _candleEntryTile('To recover', need ? `₹${Math.round(need).toLocaleString('en-IN')}` : '—', need ? '#fbbf24' : 'var(--text)'),
+    _candleEntryTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
   ].join('');
+
+  // CLOSED TRADES GET THEIR OWN TABLE. Settled paper money was only ever
+  // readable by expanding each campaign; the book deserves one flat ledger.
+  const closedWrap = document.getElementById('recovery-closed-wrap');
+  const closedRows = document.getElementById('recovery-closed-rows');
+  const closedCount = document.getElementById('recovery-closed-count');
+  if (closedWrap && closedRows) {
+    const settled = [];
+    campaigns.forEach(c => (c.trades || []).filter(t => t.exit_time).forEach(t => settled.push([c, t])));
+    closedWrap.hidden = settled.length === 0;
+    if (closedCount) closedCount.textContent = settled.length ? `· ${settled.length}` : '';
+    closedRows.innerHTML = settled.map(([c, t]) => {
+      const net = Number(t.net_pnl || 0);
+      return `<tr>
+        <td>${escapeHtml(_recTime(c.mother && c.mother.timestamp))}</td>
+        <td>${t.trade_no}</td>
+        <td>${t.lots || '—'}</td>
+        <td>${t.strike ? escapeHtml(String(t.strike)) : '—'}</td>
+        <td>${escapeHtml(_recTime(t.entry_time))}</td>
+        <td>${escapeHtml(_recTime(t.exit_time))}</td>
+        <td>${escapeHtml(String(t.exit_reason || '—'))}</td>
+        <td style="color:${net >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(_recInr(t.net_pnl))}</td>
+      </tr>`;
+    }).join('');
+  }
 
   if (poll) {
     const skipped = book.last_report && book.last_report.skipped;
@@ -20213,6 +20361,11 @@ function renderRecovery(data) {
     ? campaigns.map(_recoveryCampaign).join('')
     : '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Running, but no mother named yet. Pick a completed candle open above.</div>';
 }
+
+// The recipe is only honest if it moves with the controls.
+document.addEventListener('change', event => {
+  if (event.target && /^recovery-(timeframe|itm|mode|sl-source|lots|margin|horizon|symbol)$/.test(event.target.id)) _recoveryRecipe();
+});
 
 async function refreshRecoveryStatus() {
   try {

@@ -2214,6 +2214,8 @@ def _build_recovery_host(
     *,
     timeframe: str,
     mode: str,
+    side: str = "CE",
+    itm_steps: int | None = None,
     config_overrides: dict | None = None,
 ) -> CandleRecoveryHost:
     """Wire the measured rules to the broker's real chain.
@@ -2225,30 +2227,37 @@ def _build_recovery_host(
     """
     terms = RECOVERY_SYMBOLS[symbol]
     quote = _cascade_premium_lookup(broker)
+    side = str(side).upper()
+    # Depth and side are per-run choices, not properties of the index. The
+    # five-year audit put the only surviving book four strikes in the money,
+    # so the console has to be able to ask for it.
+    depth = int(terms["itm_steps"] if itm_steps is None else itm_steps)
+    # In the money is BELOW spot for a call and ABOVE it for a put.
+    offset_steps = -depth if side == "CE" else depth
 
     def select_contract(when: datetime, index_price: float):
         return adapter.select_campaign_contract(
             mother_spot=float(index_price),
             selected_at=when,
-            ce_offset_steps=-int(terms["itm_steps"]),
+            ce_offset_steps=offset_steps,
             strike_step=int(terms["strike_step"]),
-            option_type="CE",
+            option_type=side,
             symbol=terms["dhan_symbol"],
         )
 
     def premium_lookup(when: datetime, strike: int, expiry) -> float | None:
         # the lookup keys on .underlying, not .symbol
         return quote(
-            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type="CE")
+            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type=side)
         )
 
     lot_size = int(
         adapter.select_campaign_contract(
             mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
             selected_at=datetime.now(IST),
-            ce_offset_steps=-int(terms["itm_steps"]),
+            ce_offset_steps=offset_steps,
             strike_step=int(terms["strike_step"]),
-            option_type="CE",
+            option_type=side,
             symbol=terms["dhan_symbol"],
         ).lot_size
     )
@@ -2259,7 +2268,7 @@ def _build_recovery_host(
         lots_schedule=tuple(overrides.get("lots_schedule") or (1, 2)),
         min_profit_inr=float(overrides.get("min_profit_inr", 500.0)),
         sl_source=str(overrides.get("sl_source", "entry")),
-        itm_steps=int(terms["itm_steps"]),
+        itm_steps=depth,
         min_dte=int(terms["min_dte"]),
         max_dte=int(terms["max_dte"]),
         horizon_sessions=int(overrides.get("horizon_sessions", 10)),
@@ -2271,6 +2280,7 @@ def _build_recovery_host(
         select_contract=select_contract,
         config=config,
         mode=mode,
+        side=side,
         lot_size=lot_size,
         dhan_symbol=terms["dhan_symbol"],
     )
@@ -15695,6 +15705,15 @@ async def recovery_paper_start(request: Request):
     symbol = str(body.get("symbol") or "nifty").strip().lower()
     timeframe = str(body.get("timeframe") or "15m").strip().lower()
     mode = str(body.get("mode") or "ladder").strip().lower()
+    side = str(body.get("side") or "CE").strip().upper()
+    if side not in ("CE", "PE"):
+        raise HTTPException(status_code=400, detail="Side must be CE or PE.")
+    try:
+        itm_steps = int(body.get("itm_steps", 2))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Strikes in the money must be a whole number.") from None
+    if not 0 <= itm_steps <= 10:
+        raise HTTPException(status_code=400, detail="Strikes in the money must be between 0 and 10.")
     if symbol not in RECOVERY_SYMBOLS:
         raise HTTPException(status_code=400, detail=f"Measured symbols: {', '.join(sorted(RECOVERY_SYMBOLS))}.")
     if timeframe not in RECOVERY_TIMEFRAMES:
@@ -15725,7 +15744,14 @@ async def recovery_paper_start(request: Request):
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     try:
         host = _build_recovery_host(
-            symbol, adapter, broker_client, timeframe=timeframe, mode=mode, config_overrides=overrides
+            symbol,
+            adapter,
+            broker_client,
+            timeframe=timeframe,
+            mode=mode,
+            side=side,
+            itm_steps=itm_steps,
+            config_overrides=overrides,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -15835,6 +15861,109 @@ async def recovery_paper_stop(request: Request):
         runtime.task.cancel()
     await _save_recovery_state(user_id, runtime)
     return {"status": "stopped", "mode": "paper", "symbol": runtime.symbol}
+
+
+def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
+    """One campaign drawn in the payload the standard chart already reads.
+
+    Deliberately NOT a second renderer: `ladder_chart` speaks a shape the
+    front end knows, and this emits that same shape from the recovery
+    engine's own trades. A filled rung is a solid line carrying what it
+    cost, an armed-but-unfilled buy-stop is faint, and each stop is drawn
+    where it actually sat.
+    """
+    mother_ts = row["mother"]["timestamp"][:19]
+    rows = [
+        {
+            "t": int(c.timestamp.timestamp()),
+            "o": c.open,
+            "h": c.high,
+            "l": c.low,
+            "c": c.close,
+            "is_mother": c.timestamp.isoformat()[:19] == mother_ts,
+        }
+        for c in candles
+    ]
+    lines, entries, exits = [], [], []
+    for t in row.get("trades") or []:
+        if t.get("entry_index") is not None and t.get("entry_time"):
+            spent = float(t.get("entry_premium") or 0) * int(t.get("quantity") or 0)
+            lines.append(
+                {
+                    "price": t["entry_index"],
+                    "label": f"BUY {t['trade_no']} · {t.get('lots') or 1} lot",
+                    "inr_notional": round(spent, 2),
+                    "filled": True,
+                }
+            )
+            entries.append({"t": int(datetime.fromisoformat(t["entry_time"]).timestamp()), "price": t["entry_index"]})
+        elif t.get("trigger") is not None:
+            # armed and never bought: the setup was there, the recovery was not
+            lines.append({"price": t["trigger"], "label": f"ARMED {t['trade_no']}", "inr_notional": 0, "filled": False})
+        if t.get("sl_level") is not None and t.get("entry_time"):
+            lines.append({"price": t["sl_level"], "label": f"STOP {t['trade_no']}", "inr_notional": 0, "filled": False})
+        if t.get("exit_time"):
+            exits.append(
+                {
+                    "t": int(datetime.fromisoformat(t["exit_time"]).timestamp()),
+                    "price": t.get("entry_index"),
+                    "pnl": t.get("net_pnl") or 0,
+                }
+            )
+    need = row.get("required_recovery")
+    return {
+        "timeframe": timeframe,
+        "candles": rows,
+        "mother": {"high": row["mother"]["high"], "low": row["mother"]["low"]},
+        "trendlines": [],
+        "legs": [],
+        "lines": lines,
+        "entries": entries,
+        "exits": exits,
+        "avg_entry_price": None,
+        # The target is a RUPEE threshold on the ledger, never a price, so
+        # there is no line to draw -- the label carries it instead.
+        "tp_price": None,
+        "tp_label": (f"RECOVER ₹{round(float(need)):,} to close green" if need else "LEDGER CLEAR"),
+    }
+
+
+@app.get("/api/recovery/paper/chart")
+async def recovery_paper_chart(request: Request, campaign_id: str = "", timeframe: str = ""):
+    """A named campaign drawn on its own chart, from the engine's own state."""
+    runtime = _recovery_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No High Entry run to draw. Start one and name a mother.")
+    host = runtime.host
+    snap = host.snapshot()
+    rows = snap.get("campaigns") or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="No campaign yet. Name a mother candle first.")
+    wanted = str(campaign_id or "").strip()
+    row = next((r for r in rows if r["campaign_id"] == wanted), rows[0])
+    key = str(timeframe or host.config.timeframe).strip().lower()
+    if key not in RECOVERY_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Charts are {', '.join(RECOVERY_TIMEFRAMES)}.")
+    start = datetime.fromisoformat(row["mother"]["timestamp"]).date()
+    try:
+        candles = await runtime.adapter.async_get_candles(
+            host.dhan_symbol, key, from_date=start, to_date=datetime.now(IST).date()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load {host.dhan_symbol} {key} candles: {exc}") from exc
+    return {
+        "status": "ok",
+        "timeframe": key,
+        "stages": list(RECOVERY_TIMEFRAMES),
+        "campaign_id": row["campaign_id"],
+        "campaigns": [
+            {"id": r["campaign_id"], "mother": r["mother"]["timestamp"], "status": r["status"]} for r in rows
+        ],
+        "mother_timestamp": row["mother"]["timestamp"],
+        "campaign_status": row["status"],
+        "side": row.get("side"),
+        "chart": _recovery_chart(row, candles, key),
+    }
 
 
 @app.get("/api/recovery/paper/status")

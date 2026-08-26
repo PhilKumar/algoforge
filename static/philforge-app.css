@@ -9288,3 +9288,20 @@ body :is(
 /* One button carries auto: green to switch it on, amber to switch it off, so
    the colour never says "start" while the label says "stop". */
 #options-cascade-page #fibx-start.is-danger { --btn-bg: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.50)); --btn-color: #fde68a; border-color: rgba(245,158,11,.55); background: var(--btn-bg); color: var(--btn-color); }
+
+
+/* HIGH ENTRY -- the form and its monitor read side by side.
+   The console is a control panel and a book at once; stacked, naming a mother
+   pushed the ledger a screen away, so the two are one row on a wide desk and
+   fall back to stacked when the column would be too narrow to hold a table. */
+.he-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.he-panes > .card { margin-bottom: 0; }
+.he-panes > .candle-entry-monitor { margin-top: 0; }
+@media (max-width: 1180px) {
+  .he-panes { grid-template-columns: 1fr; }
+}

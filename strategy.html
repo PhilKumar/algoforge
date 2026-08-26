@@ -3237,6 +3237,7 @@
   </div>
 
   <div id="oc-tab-recovery" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-recovery" aria-hidden="true" style="display:none;">
+    <div class="he-panes">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
@@ -3312,48 +3313,123 @@
             </div><!-- /ta -->
           </div>
         </div>
-        <span id="recovery-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+          <a class="fibx-confirmed-link" href="/assets/tearsheet?doc=recovery#curve-trail" data-pf-action="openRecoveryTearsheet">Five-year audit &middot; P&amp;L &rarr;</a>
+          <span id="recovery-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+        </div>
       </div>
-      <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
-        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">UNDERLYING
-          <select id="recovery-symbol" class="pf-input" style="width:100%;margin-top:4px;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select></label>
-        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">TIMEFRAME
-          <select id="recovery-timeframe" class="pf-input" style="width:100%;margin-top:4px;"><option value="15m">15m — loses over 22 months</option><option value="5m">5m</option><option value="1h" selected>1H — least bad measured</option><option value="1m">1m</option></select></label>
-        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">MODE
-          <select id="recovery-mode" class="pf-input" style="width:100%;margin-top:4px;"><option value="ladder">Ladder — re-arm after every stop</option><option value="fib-zone">Fib zones — 2-2 and 4-4 only</option></select></label>
-        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">HORIZON (SESSIONS)
-          <input id="recovery-horizon" class="pf-input" type="number" min="1" max="30" value="10" style="width:100%;margin-top:4px;"></label>
-        <label style="font:600 10px 'JetBrains Mono',monospace;color:var(--muted);">MARGIN OVER LOSSES ₹
-          <input id="recovery-margin" class="pf-input" type="number" min="0" step="100" value="500" style="width:100%;margin-top:4px;"></label>
+      <div id="recovery-recipe" class="candle-entry-recipe" aria-live="polite"></div>
+      <div class="candle-entry-grid" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
+        <div class="candle-entry-field">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+          <input type="hidden" id="recovery-run-mode" value="paper">
+          <div id="recovery-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+            <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setRecoveryRunMode" role="radio" aria-checked="true"><span>&#9635; Paper</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setRecoveryRunMode" role="radio" title="Live is refused by the server until the Dhan order path is verified &mdash; same gate as Fib Boundary" aria-checked="false"><span>&#9673; Live</span></button>
+          </div>
+        </div>
+        <div class="candle-entry-field">
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
+          <input type="hidden" id="recovery-side" value="CE">
+          <div id="recovery-side-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Which side">
+            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="CE" data-pf-action="setRecoverySide" role="radio" title="Calls &mdash; the only side the five-year audit found green" aria-checked="true"><span>&#9650; CE</span></button>
+            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="PE" data-pf-action="setRecoverySide" role="radio" title="Puts &mdash; the mirror loses over the same five years" aria-checked="false"><span>&#9660; PE</span></button>
+          </div>
+        </div>
+        <div class="candle-entry-field">
+          <label for="recovery-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
+          <select id="recovery-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select>
+        </div>
+        <div class="candle-entry-field">
+          <label for="recovery-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
+          <select id="recovery-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="5m is the only chart the five-year audit found green; 15m loses on both sides and 1H is thin."><option value="5m" selected>5m &middot; measured</option><option value="15m">15m &middot; loses</option><option value="1h">1H &middot; thin</option><option value="1m">1m</option></select>
+        </div>
+        <div class="candle-entry-field">
+          <label for="recovery-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strikes in the money</label>
+          <select id="recovery-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Four strikes in the money is where the five-year audit put the only surviving book — deeper carries less time value to lose."><option value="2">ATM&minus;2</option><option value="4" selected>ATM&minus;4 &middot; measured</option><option value="6">ATM&minus;6</option></select>
+        </div>
+        <div class="candle-entry-field candle-entry-field-actions candle-entry-actions">
+          <button id="recovery-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
+          <button id="recovery-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
+        </div>
       </div>
-      <div style="margin-top:10px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
-        Lots 1 then 2 · stop on the entry candle low · ATM−2 CE, 4+ days to expiry, re-picked at every fill.
-        <span id="recovery-measured" style="color:#fbbf24;">5-year audit (Jan 2021–Jul 2026, Dhan + Upstox, era-correct lots): the result depends almost entirely on WHEN the option is bought. Priced the way a resting Dhan Super Order would really fill, the best variant earns +₹17,004 in 5½ years on a −₹41,271 drawdown — and turns negative without its best 5 campaigns. Not deployable.</span>
-      </div>
-      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button id="recovery-start" class="btn" type="button" data-pf-action="recoveryStart">▶ Start paper run</button>
-        <button id="recovery-stop" class="btn btn-ghost" type="button" data-pf-action="recoveryStop" style="display:none;">■ Stop</button>
-      </div>
+
+      <details id="recovery-advanced" class="candle-entry-advanced">
+        <summary><span class="candle-entry-advanced-title">Advanced</span><span id="recovery-advanced-state" class="candle-entry-advanced-state">rule as measured</span></summary>
+        <div class="candle-entry-grid" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
+          <div class="candle-entry-field">
+            <label for="recovery-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Ladder shape</label>
+            <select id="recovery-mode" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="ladder">Ladder &mdash; re-arm after every stop</option><option value="fib-zone">Fib zones &mdash; 2-2 and 4-4 only</option></select>
+          </div>
+          <div class="candle-entry-field">
+            <label for="recovery-sl-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Stop sits on</label>
+            <select id="recovery-sl-source" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="entry" selected>Entry candle low</option><option value="previous">Previous candle low</option><option value="ultimate">Lowest low since the mother</option></select>
+          </div>
+          <div class="candle-entry-field">
+            <label for="recovery-lots" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots per rung</label>
+            <select id="recovery-lots" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="1,2" selected>1 then 2</option><option value="1,1">1 flat</option><option value="1,2,3">1, 2, 3</option></select>
+          </div>
+          <div class="candle-entry-field">
+            <label for="recovery-horizon" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Horizon (sessions)</label>
+            <input id="recovery-horizon" type="number" min="1" max="30" value="10" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          </div>
+          <div class="candle-entry-field">
+            <label for="recovery-margin" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Margin over losses &#8377;</label>
+            <input id="recovery-margin" type="number" min="0" step="100" value="500" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          </div>
+        </div>
+      </details>
+
       <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
         <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--muted);">GIVE IT A MOTHER CANDLE</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
           <label class="sr-only" for="recovery-mother">High Entry mother candle timestamp</label>
-          <input id="recovery-mother" class="pf-input" type="datetime-local" step="60" style="flex:1;min-width:220px;">
-          <button id="recovery-add-mother" class="btn" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
+          <input id="recovery-mother" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="flex:1;min-width:220px;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+          <button id="recovery-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
         </div>
         <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
-          A completed candle open on the chosen timeframe. Its high and low come from Dhan; nothing is typed. Add as many as you like — each runs as its own campaign with its own ledger.
+          A completed candle open on the chosen chart &mdash; and it must still be the highest of the last few sessions. Its high and low come from Dhan; nothing is typed. Add as many as you like &mdash; each runs as its own campaign with its own ledger.
         </div>
       </div>
       <div id="recovery-error" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
     </div>
-    <div class="card" style="padding:18px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <h3 style="margin:0;font-size:15px;">Book monitor</h3>
-        <span id="recovery-poll" style="font:11px 'JetBrains Mono',monospace;color:var(--muted);">not started</span>
+    <section id="recovery-monitor" class="candle-entry-monitor" aria-live="polite" aria-label="High Entry paper campaign monitor">
+      <div class="candle-entry-monitor-head">
+        <div>
+          <div class="candle-entry-monitor-kicker" id="recovery-monitor-kicker">Paper campaigns</div>
+          <h4 id="recovery-monitor-title">Book monitor</h4>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+          <button id="recovery-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" aria-label="Open campaign chart">&#8599; Chart</button>
+          <div id="recovery-poll" class="candle-entry-monitor-updated">not started</div>
+        </div>
       </div>
-      <div id="recovery-tiles" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;"></div>
-      <div id="recovery-campaigns" style="margin-top:14px;"></div>
+      <div id="recovery-tiles" class="candle-entry-tiles"></div>
+      <div class="candle-entry-monitor-section">
+        <div id="recovery-campaigns"></div>
+      </div>
+      <div class="candle-entry-monitor-section" id="recovery-closed-wrap" hidden>
+        <div class="candle-entry-monitor-kicker">Closed trades <span id="recovery-closed-count"></span></div>
+        <div class="candle-entry-table-wrap"><table class="candle-entry-table">
+          <thead><tr><th>Campaign</th><th>Rung</th><th>Lots</th><th>Strike</th><th>In</th><th>Out</th><th>Why</th><th>Net</th></tr></thead>
+          <tbody id="recovery-closed-rows"></tbody>
+        </table></div>
+      </div>
+    </section>
+    </div><!-- /he-panes -->
+
+    <div id="recovery-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="High Entry campaign chart">
+      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title"><h3 id="recovery-chart-title">High Entry campaign chart</h3><div id="recovery-chart-meta">Loading chart&hellip;</div></div>
+          <div class="terminal-cascade-chart-actions">
+            <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">&#9644; buy-stop</span><span style="color:#fff;">&#9650; fill</span><span style="color:#fbbf24;">&#9660; exit</span><span style="color:#a78bfa;">&#9635; mother</span></div>
+            <div id="recovery-chart-strip"></div>
+            <button type="button" class="cascade-options-control" data-pf-action="closeRecoveryChart" aria-label="Close chart">&#10005;</button>
+          </div>
+        </div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="recovery-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>
+      </div>
     </div>
   </div>
   <div id="oc-tab-bench" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-bench" aria-hidden="true" style="display:none;">
