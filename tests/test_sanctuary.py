@@ -264,6 +264,26 @@ class StatementParserTests(unittest.TestCase):
         second = {r["ref_id"] for r in self.parse()["rows"]}
         self.assertEqual(first, second)
 
+    def test_the_drcr_dialect_reads_direction_from_the_flag(self):
+        from sanctuary_statements import parse_statement
+
+        # Kotak's shape: one Amount column, direction in a Dr / Cr flag,
+        # a second flag after Balance, and a timestamp on the date.
+        blob = (
+            '"","","Account Statement"\n'
+            '"X","","","","Account No.","000012345678"\n'
+            '"Sl. No.","Transaction Date","Value Date","Description","Chq /Ref No.",'
+            '"Amount","Dr / Cr","Balance","Dr / Cr"\n'
+            '"1","02-01-2023 02:58:07","02-01-2023","Ins Debit SPLN 1","CLIN-1","2,018.15","DR","0.00","CR"\n'
+            '"2","02-01-2023 10:40:30","02-01-2023","UPI/incoming","UPI-2","14,000.00","CR","14,000.00","CR"\n'
+        ).encode()
+        result = parse_statement("kotak.csv", blob)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["account_tail"], "345678")
+        dirs = {r["dir"]: r["amount"] for r in result["rows"]}
+        self.assertEqual(dirs, {"out": 2018.15, "in": 14000.00})
+        self.assertEqual(result["rows"][0]["entry_date"], "2023-01-02")
+
     def test_a_reexport_with_new_serials_keeps_the_same_refs(self):
         from sanctuary_statements import parse_statement
 

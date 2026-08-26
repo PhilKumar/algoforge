@@ -27,10 +27,16 @@ from datetime import datetime
 _HEADER_NAMES = {
     "date": ["transaction date", "txn date", "value date", "date"],
     "note": ["transaction remarks", "narration", "description", "particulars", "remarks"],
-    "withdrawal": ["withdrawal amount", "withdrawal", "debit", "dr amount", "dr"],
-    "deposit": ["deposit amount", "deposit", "credit", "cr amount", "cr"],
+    "withdrawal": ["withdrawal amount", "withdrawal", "debit", "dr amount"],
+    "deposit": ["deposit amount", "deposit", "credit", "cr amount"],
     "balance": ["balance", "closing balance", "running balance"],
-    "serial": ["s no", "s.no", "sr no", "sl no", "sr.no"],
+    "serial": ["s no", "s.no", "sr no", "sl no", "sl. no", "sr.no"],
+    # Some banks (Kotak) print one Amount column and say which way it went
+    # in a Dr / Cr flag beside it. These sit last so the classic columns
+    # claim their headers first; the flag after Amount wins over the one
+    # after Balance because assignment is first-strongest.
+    "amount": ["amount"],
+    "drcr": ["dr / cr", "dr/cr"],
 }
 
 _DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%b-%Y", "%d %b %Y", "%Y-%m-%d")
@@ -59,6 +65,7 @@ DEFAULT_RULES = [
     {"match": "zomato", "category": "Eating out"},
     {"match": "hdfc bank limited", "category": "HDFC loan"},
     {"match": "kotakmahprime", "category": "Kotak loan"},
+    {"match": "spln", "category": "Kotak loan"},
     {"match": "bajaj fin", "category": "Bajaj loan"},
     {"match": "lic of india", "category": "Insurance"},
     {"match": "lic prem", "category": "Insurance"},
@@ -175,11 +182,12 @@ def categorise(note: str, user_rules: list[dict] | None = None) -> str:
 
 def _parse_date(value: str) -> datetime | None:
     text = str(value or "").strip()
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
+    for candidate in (text, text.split(" ")[0]):
+        for fmt in _DATE_FORMATS:
+            try:
+                return datetime.strptime(candidate, fmt)
+            except ValueError:
+                continue
     return None
 
 
@@ -214,7 +222,7 @@ def _match_header(cells: list[str]) -> dict[str, int] | None:
         if best[1] >= 0:
             mapping[field] = best[1]
     required = {"date", "note"} <= set(mapping)
-    money = {"withdrawal", "deposit"} & set(mapping)
+    money = {"withdrawal", "deposit"} & set(mapping) or {"amount", "drcr"} <= set(mapping)
     return mapping if required and money else None
 
 
@@ -249,6 +257,13 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
             continue
         withdrawal = _parse_money(cell("withdrawal")) or 0.0
         deposit = _parse_money(cell("deposit")) or 0.0
+        if withdrawal <= 0 and deposit <= 0:
+            flagged = _parse_money(cell("amount")) or 0.0
+            flag = cell("drcr").strip().lower()
+            if flagged > 0 and flag in ("dr", "debit"):
+                withdrawal = flagged
+            elif flagged > 0 and flag in ("cr", "credit"):
+                deposit = flagged
         balance = _parse_money(cell("balance"))
         note = re.sub(r"\s+", " ", cell("note")).strip()
         if withdrawal <= 0 and deposit <= 0:
