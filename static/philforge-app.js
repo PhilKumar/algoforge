@@ -20457,11 +20457,29 @@ function _recTime(iso) {
   return `${String(d.getDate()).padStart(2, '0')} ${d.toLocaleString('en-IN', { month: 'short' })} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// A REFUSAL HAS TO SAY WHAT IT WAS. `String(err.message || err)` renders the
+// bare word "Error" whenever the message is empty -- which is exactly what a
+// failed response with no `detail` produced, because JSON.stringify(undefined)
+// is undefined and `new Error(undefined)` carries no message (Phil,
+// 2026-08-27: "Why error on the screen"). A line that says only "Error" is
+// worse than none: it reports that something broke and refuses to say what.
 function _recoveryError(msg) {
   const box = document.getElementById('oc-high-status');
   if (!box) return;
-  box.textContent = msg || '';
-  box.style.display = msg ? '' : 'none';
+  const text = String(msg ?? '').trim();
+  const shown = text && text !== 'Error' ? text : '';
+  box.textContent = shown;
+  box.style.display = shown ? '' : 'none';
+}
+
+/** Whatever the server actually said, or a sentence that names the request. */
+function _recoveryFailure(err, data, res, fallback) {
+  const fromBody = data ? _apiErrorMessage(data, '') : '';
+  if (fromBody) return fromBody;
+  const message = String(err?.message || '').trim();
+  if (message && message !== 'Error' && message !== 'undefined') return message;
+  if (res && !res.ok) return `${fallback} (${res.status} ${res.statusText || 'failed'})`;
+  return fallback;
 }
 
 async function recoveryStart() {
@@ -20479,14 +20497,16 @@ async function recoveryStart() {
     horizon_sessions: Number(document.getElementById('oc-high-horizon')?.value || 10),
     min_profit_inr: Number(document.getElementById('oc-high-margin')?.value || 500),
   };
+  let res = null;
+  let data = null;
   try {
-    const res = await fetch('/api/recovery/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(pfErrorText(data, 'Could not start the run.'));
-    if (data.readopted_mothers) showToast(`Re-adopted ${data.readopted_mothers} named mother(s)`, 'info');
+    res = await fetch('/api/recovery/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(_apiErrorMessage(data, ''));
+    if (data?.readopted_mothers) showToast(`Re-adopted ${data.readopted_mothers} named mother(s)`, 'info');
     refreshRecoveryStatus();
   } catch (err) {
-    _recoveryError(String(err.message || err));
+    _recoveryError(_recoveryFailure(err, data, res, 'Could not start the run.'));
   }
 }
 
@@ -20501,17 +20521,19 @@ async function recoveryAddMother() {
   _recoveryError('');
   const raw = document.getElementById('oc-high-mother')?.value;
   if (!raw) { _recoveryError('Pick a completed candle open first.'); return; }
+  let res = null;
+  let data = null;
   try {
-    const res = await fetch('/api/recovery/paper/mother', {
+    res = await fetch('/api/recovery/paper/mother', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: raw }),
     });
-    const data = await res.json();
-    // FastAPI errors can be a list; `data.detail ||` alone swallows those.
-    if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+    // A 500 can answer in HTML; reading it must not become the error itself.
+    data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(_apiErrorMessage(data, ''));
     showToast(`Mother ${_recTime(data.mother)} accepted — high ${_recNum(data.mother_high, 2)}`, 'success');
     refreshRecoveryStatus();
   } catch (err) {
-    _recoveryError(String(err.message || err));
+    _recoveryError(_recoveryFailure(err, data, res, 'That mother candle was refused.'));
   }
 }
 

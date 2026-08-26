@@ -9264,10 +9264,13 @@ body :is(
 #scalp-page .scalp-event-card,
 #scalp-page .scalp-history-card {
   padding: 14px !important;
-  border: 1px solid rgba(96, 165, 250, .26);
-  border-radius: 12px;
-  background: linear-gradient(145deg, rgba(15, 23, 42, .52), rgba(8, 47, 73, .20));
 }
+/* THE PANELS ARE PAINTED BY `.ocp-monitor`, NOT HERE. This block used to set
+   the border and a dark gradient itself, and because `#scalp-page .class`
+   outranks `[data-theme="light"] .ocp-monitor` the desk stayed dark-panelled
+   in the light skin (Phil, 2026-08-27: "Scalp light mode not completed
+   properly"). Every one of these carries `.ocp-monitor` now, so both themes
+   come from the one place that already knows how to draw them. */
 /* The section heading, in the consoles' voice: same size, same rule beneath. */
 #scalp-page .scalp-positions-card > div:first-child h3,
 #scalp-page .scalp-history-card > div:first-child h3,
