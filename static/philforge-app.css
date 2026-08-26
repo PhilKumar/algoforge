@@ -6340,9 +6340,6 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      tables each scroll inside their own wrap, so a 640px live column costs a
      sideways scroll on the widest table rather than the whole layout. */
   .ocp-panes { display:grid; grid-template-columns: minmax(0,320px) minmax(0,1fr); gap:18px; align-items:start; }
-  /* The launchpad carries two fields to a row, so it takes more width than a
-     strategy form does (Phil, 2026-08-27: "a lil bit wider to the right"). */
-  #scalp-page .ocp-panes { grid-template-columns: minmax(0,380px) minmax(0,1fr); }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
   .ocp-pane-form #oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields,
@@ -6374,11 +6371,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* Back to the old split once there is room for it: the ladder needs ~745px
      for its nine columns, so from here the form gives the width back. */
   .ocp-panes { grid-template-columns: minmax(0,400px) minmax(0,1fr); }
-  #scalp-page .ocp-panes { grid-template-columns: minmax(0,470px) minmax(0,1fr); }
 }
 @media (min-width: 1440px) {
   .ocp-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
-  #scalp-page .ocp-panes { grid-template-columns: minmax(0,600px) minmax(0,1fr); }
 }
 
 /* The ladder's Now cell carries two numbers -- the mark and the move. Side
