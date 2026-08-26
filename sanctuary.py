@@ -829,6 +829,62 @@ async def ledger_recategorise_row(row_id: int, request: Request, user: dict = De
     return {"ok": True}
 
 
+@router.get("/api/sanctuary/finance/standing")
+async def finance_standing(user: dict = Depends(_unlocked_user)):
+    """Where he stands: every debt still owed, the monthly load, and what
+    the last year's real cashflow says about the road out."""
+    import statistics
+
+    user_id = int(user["id"])
+    loans = await sanctuary_db.list_loans(user_id)
+    debts = []
+    unknown = 0
+    for loan in loans:
+        if not loan.get("active"):
+            continue
+        emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
+        remaining = sum(e["amount"] for e in emis if not e["paid_on"])
+        if remaining <= 0:
+            # A schedule built from statements only knows the PAST — a
+            # running loan with every known EMI paid still owes its future.
+            # The card's drawn/outstanding figure fills in; without one the
+            # debt is honestly unknown, never zero.
+            remaining = float(loan.get("drawn_amount") or 0)
+            if remaining <= 0 and float(loan.get("emi_amount") or 0) > 0:
+                unknown += 1
+                continue
+        if remaining > 0:
+            debts.append(
+                {
+                    "name": loan["name"],
+                    "remaining": round(remaining, 2),
+                    "emi": float(loan.get("emi_amount") or 0),
+                }
+            )
+    total_debt = round(sum(d["remaining"] for d in debts), 2)
+    monthly_emi = round(sum(d["emi"] for d in debts), 2)
+
+    flows = await sanctuary_db.monthly_flows(user_id, 13)
+    current = _month_key(_today_ist())
+    complete = [f for f in flows if f["month"] != current][-12:]
+    surpluses = [f["inflow"] - f["outflow"] for f in complete if f["inflow"] > 0]
+    surplus = round(statistics.median(surpluses), 2) if len(surpluses) >= 3 else None
+
+    months_out = None
+    if surplus and surplus > 0 and total_debt > 0:
+        months_out = round(total_debt / surplus)
+    return {
+        "debts": debts,
+        "debt_count": len(debts),
+        "unknown_count": unknown,
+        "total_debt": total_debt,
+        "monthly_emi": monthly_emi,
+        "flows": complete,
+        "surplus_median": surplus,
+        "months_to_clear": months_out,
+    }
+
+
 @router.get("/api/sanctuary/finance/search")
 async def ledger_search(q: str = "", user: dict = Depends(_unlocked_user)):
     query = q.strip()

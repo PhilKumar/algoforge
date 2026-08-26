@@ -285,6 +285,25 @@ async def recategorise_matching(user_id: int, match: str, category: str, from_ca
         return cursor.rowcount
 
 
+async def monthly_flows(user_id: int, months: int = 12) -> list[dict]:
+    """Per-month money in and money out, Self transfers excluded on both
+    sides — moved money is neither income nor spending."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT substr(entry_date, 1, 7) AS month,
+                      SUM(CASE WHEN source = 'statement-in' THEN amount ELSE 0 END) AS inflow,
+                      SUM(CASE WHEN source != 'statement-in' THEN amount ELSE 0 END) AS outflow
+               FROM sanctuary_ledger
+               WHERE user_id = ? AND category != 'Self transfer'
+               GROUP BY month ORDER BY month DESC LIMIT ?""",
+            (int(user_id), max(1, min(int(months), 60))),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        rows.reverse()
+        return rows
+
+
 async def statement_outflow_rows(user_id: int) -> list[dict]:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
