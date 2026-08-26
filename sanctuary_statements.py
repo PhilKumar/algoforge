@@ -6,9 +6,10 @@ HDFC's OpTransactionHistory) and plain CSV — and turns each row into a ledger
 candidate: date, narration, amount, running balance, and a ref_id that makes
 re-uploading the same statement, or overlapping years, post nothing twice.
 
-Only withdrawals become ledger candidates. The ledger is a spending book —
-every amount in it is positive money out — so deposits are counted and
-reported in the parse result for the preview, never posted.
+Every movement becomes a ledger candidate, marked with its direction:
+"out" for withdrawals, "in" for deposits. Amounts stay positive — the
+direction field says which way the money went, and the month view keeps
+inflows out of the spending totals.
 """
 
 from __future__ import annotations
@@ -122,9 +123,15 @@ DEFAULT_RULES = [
     {"match": "hotel", "category": "Eating out"},
     {"match": "tiffin", "category": "Eating out"},
     {"match": "indian clearing corp", "category": "Investments"},
+    {"match": "salary", "category": "Salary"},
+    {"match": "interest", "category": "Interest"},
+    {"match": "dividend", "category": "Dividend"},
+    {"match": "refund", "category": "Refund"},
+    {"match": "cashback", "category": "Refund"},
     # Money that only moved between the user's own accounts. The category is
     # load-bearing: the ledger view leaves it out of the month's spending.
     {"match": "sweep to od", "category": "Self transfer"},
+    {"match": "sweep from od", "category": "Self transfer"},
 ]
 
 
@@ -246,19 +253,22 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
         note = re.sub(r"\s+", " ", cell("note")).strip()
         if withdrawal <= 0 and deposit <= 0:
             continue
-        if deposit > 0 and withdrawal <= 0:
+        direction = "out" if withdrawal > 0 else "in"
+        amount = withdrawal if direction == "out" else deposit
+        if direction == "in":
             deposits_count += 1
             deposits_total = round(deposits_total + deposit, 2)
-            continue
         # The serial and balance keep two same-amount same-day payments to the
         # same payee distinct, and keep the SAME row identical across the
-        # year-file overlap a bank puts at the boundary.
+        # year-file overlap a bank puts at the boundary. The direction is in
+        # the fingerprint so a matching in and out can never share a ref.
         fingerprint = "|".join(
             [
                 when.date().isoformat(),
                 cell("serial"),
                 note,
-                f"{withdrawal:.2f}",
+                direction,
+                f"{amount:.2f}",
                 "" if balance is None else f"{balance:.2f}",
             ]
         )
@@ -267,13 +277,14 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
             {
                 "entry_date": when.date().isoformat(),
                 "note": note[:500],
-                "amount": withdrawal,
+                "amount": amount,
+                "dir": direction,
                 "balance": balance,
                 "ref_id": f"stmt:{acct_tail}:{digest}",
             }
         )
     if not rows:
-        return {"status": "error", "error": "The table parsed but held no withdrawal rows."}
+        return {"status": "error", "error": "The table parsed but held no transaction rows."}
     rows.sort(key=lambda r: r["entry_date"])
     return {
         "status": "ok",

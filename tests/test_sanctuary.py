@@ -242,10 +242,14 @@ class StatementParserTests(unittest.TestCase):
 
         return parse_statement("2021.csv", self.CSV)
 
-    def test_withdrawals_post_and_deposits_stay_out(self):
+    def test_both_directions_post_and_carry_their_direction(self):
         result = self.parse()
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(len(result["rows"]), 4)
+        self.assertEqual(len(result["rows"]), 5)
+        by_dir = {"in": 0, "out": 0}
+        for row in result["rows"]:
+            by_dir[row["dir"]] += 1
+        self.assertEqual(by_dir, {"in": 1, "out": 4})
         self.assertEqual(result["deposits_count"], 1)
         self.assertAlmostEqual(result["deposits_total"], 50000.00)
         self.assertEqual(result["account_tail"], "887766")
@@ -253,7 +257,7 @@ class StatementParserTests(unittest.TestCase):
     def test_same_day_same_amount_rows_get_distinct_refs(self):
         rows = self.parse()["rows"]
         refs = {r["ref_id"] for r in rows}
-        self.assertEqual(len(refs), 4, "the serial+balance must split the twin tea payments")
+        self.assertEqual(len(refs), 5, "the serial+balance must split the twin tea payments")
 
     def test_reparsing_yields_identical_refs(self):
         first = {r["ref_id"] for r in self.parse()["rows"]}

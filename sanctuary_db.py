@@ -327,7 +327,7 @@ async def ledger_ref_exists(user_id: int, ref_id: str) -> bool:
 
 
 async def ledger_month_trend(user_id: int, months: list[str]) -> dict[str, float]:
-    """Total ledger amount per requested YYYY-MM month."""
+    """Total OUTFLOW per requested YYYY-MM month — inflows are not spending."""
     if not months:
         return {}
     async with aiosqlite.connect(config.DB_PATH) as db:
@@ -336,7 +336,8 @@ async def ledger_month_trend(user_id: int, months: list[str]) -> dict[str, float
         cursor = await db.execute(
             f"""SELECT substr(entry_date, 1, 7) AS month, SUM(amount) AS total
                 FROM sanctuary_ledger
-                WHERE user_id = ? AND substr(entry_date, 1, 7) IN ({placeholders})
+                WHERE user_id = ? AND source != 'statement-in'
+                  AND substr(entry_date, 1, 7) IN ({placeholders})
                 GROUP BY month""",  # nosec B608
             [int(user_id), *months],
         )

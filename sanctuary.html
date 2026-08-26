@@ -368,6 +368,8 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .ledger-pager{display:flex;gap:12px;align-items:center;justify-content:center;padding-top:12px}
 .ledger-pager span{color:var(--soft);font-size:.85rem}
 .led-acct-chip{font-size:.72rem;color:var(--soft);white-space:nowrap}
+.led-in{color:var(--moss);font-weight:700}
+.led-out{color:var(--danger)}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
@@ -927,6 +929,11 @@ html[data-theme="dark"]{color-scheme:dark}
         <input class="field" id="led-search" type="search" placeholder="Search notes, categories…">
         <select class="field" id="led-cat"></select>
         <select class="field" id="led-acct"></select>
+        <select class="field" id="led-flow">
+          <option value="">In and out</option>
+          <option value="in">Money in</option>
+          <option value="out">Money out</option>
+        </select>
         <button class="btn ghost" id="led-csv" title="Download what the filters show">⬇ CSV</button>
       </div>
       <div style="overflow-x:auto"><table id="ledger-table"></table></div>
@@ -939,7 +946,7 @@ html[data-theme="dark"]{color-scheme:dark}
 
     <div class="card" style="margin-bottom:24px">
       <div class="section-title">Bank statements</div>
-      <div class="section-sub">Drop a netbanking export (.xls or .csv) and every spend finds its date. Re-uploading or overlapping years posts nothing twice. Deposits are counted, never posted — this is the spending book.</div>
+      <div class="section-sub">Drop a netbanking export (.xls or .csv) and every movement finds its date — money out in rose, money in with a green +. Re-uploading or overlapping years posts nothing twice, and inflows never count as spending.</div>
       <input type="file" id="stmt-file" accept=".xls,.csv" multiple hidden>
       <div id="stmt-drop" class="stmt-drop">Drop statements here, or tap to choose</div>
       <div id="stmt-previews"></div>
@@ -1668,7 +1675,7 @@ function renderFinance(){
       <div class="sub"><span class="edit" id="salary-edit">${f.salary_is_default ? "set for this month" : "change"}</span></div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
-      <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}</div></div>
+      <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
     <div class="tile card"><div class="lbl">Saved</div>
       <div class="val num pos">${inr(t.saved)}</div>
       <div class="sub">NPS · PF · SIP…</div></div>
@@ -1693,11 +1700,12 @@ function renderFinance(){
   S.savingNames = new Set(f.categories.filter((c) => c.kind === "saving").map((c) => c.name));
   S.ledgerRows = [
     ...f.ledger.map((r) => ({...r,
+      dir: r.source === "statement-in" ? "in" : "out",
       acct: r.ref_id && r.ref_id.startsWith("stmt:") ? "··" + r.ref_id.split(":")[1].slice(-4) : ""})),
     ...f.emis.map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
-      note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", acct: ""})),
+      note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", dir: "out", acct: ""})),
   ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
-  S.led = S.led || {q: "", cat: "", acct: "", page: 1};
+  S.led = S.led || {q: "", cat: "", acct: "", flow: "", page: 1};
   S.led.page = 1;
   const monthCats = [...new Set(S.ledgerRows.map((r) => r.category))].sort();
   $("led-cat").innerHTML = `<option value="">Every category</option>` +
@@ -1711,11 +1719,12 @@ function renderFinance(){
 }
 const LED_PAGE = 10;
 function ledgerFiltered(){
-  const {q, cat, acct} = S.led;
+  const {q, cat, acct, flow} = S.led;
   const needle = q.trim().toLowerCase();
   return (S.ledgerRows || []).filter((r) =>
     (!cat || r.category === cat) &&
     (!acct || r.acct === acct) &&
+    (!flow || r.dir === flow) &&
     (!needle || (r.note + " " + r.category + " " + r.acct).toLowerCase().includes(needle)));
 }
 function renderLedgerTable(){
@@ -1723,11 +1732,13 @@ function renderLedgerTable(){
   const pages = Math.max(1, Math.ceil(rows.length / LED_PAGE));
   S.led.page = Math.min(Math.max(1, S.led.page), pages);
   const slice = rows.slice((S.led.page - 1) * LED_PAGE, S.led.page * LED_PAGE);
-  const total = rows.reduce((a, r) => a + r.amount, 0);
+  const inTotal = rows.filter((r) => r.dir === "in").reduce((a, r) => a + r.amount, 0);
+  const outTotal = rows.filter((r) => r.dir !== "in").reduce((a, r) => a + r.amount, 0);
   const filtered = rows.length !== (S.ledgerRows || []).length;
+  const flows = (inTotal ? "in " + inr2(inTotal) : "") + (inTotal && outTotal ? " · " : "") + (outTotal ? "out " + inr2(outTotal) : "");
   $("ledger-sub").textContent = filtered
-    ? rows.length + " of " + S.ledgerRows.length + " entries match — together " + inr2(total)
-    : rows.length + " entries — savings in green, EMIs marked.";
+    ? rows.length + " of " + S.ledgerRows.length + " entries match — " + (flows || "nothing moved")
+    : rows.length + " entries — " + (inTotal ? flows : "savings in green, EMIs marked.");
   $("ledger-table").innerHTML =
     `<tr><th>Date</th><th>Category</th><th>Note</th><th>A/c</th><th class="amt">Amount</th><th></th></tr>` +
     (slice.length ? slice.map((r) => `<tr>
@@ -1736,7 +1747,7 @@ function renderLedgerTable(){
         r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source === "statement" ? "bank" : "you"}</span></td>
       <td style="color:var(--muted)">${esc(r.note)}</td>
       <td class="led-acct-chip num">${esc(r.acct)}</td>
-      <td class="amt num" style="${S.savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${inr2(r.amount)}</td>
+      <td class="amt num ${r.dir === "in" ? "led-in" : "led-out"}" style="${S.savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${r.dir === "in" ? "+" : "−"}${inr2(r.amount)}</td>
       <td>${r.source === "manual" ? `<button class="btn subtle small" data-led-del="${r.id}">✕</button>` : ""}</td>
     </tr>`).join("")
     : `<tr><td colspan="6" style="color:var(--muted);padding:18px 10px">Nothing matches. Loosen the search.</td></tr>`);
@@ -1747,14 +1758,15 @@ function renderLedgerTable(){
 $("led-search").oninput = () => { S.led.q = $("led-search").value; S.led.page = 1; renderLedgerTable(); };
 $("led-cat").onchange = () => { S.led.cat = $("led-cat").value; S.led.page = 1; renderLedgerTable(); };
 $("led-acct").onchange = () => { S.led.acct = $("led-acct").value; S.led.page = 1; renderLedgerTable(); };
+$("led-flow").onchange = () => { S.led.flow = $("led-flow").value; S.led.page = 1; renderLedgerTable(); };
 $("led-prev").onclick = () => { S.led.page--; renderLedgerTable(); };
 $("led-next").onclick = () => { S.led.page++; renderLedgerTable(); };
 $("led-csv").onclick = () => {
   const rows = ledgerFiltered();
   if (!rows.length) return toast("Nothing to download");
   const cell = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
-  const csv = "Date,Category,Note,Account,Amount,Source\n" + rows.map((r) =>
-    [r.entry_date, r.category, r.note, r.acct, r.amount.toFixed(2), r.source].map(cell).join(",")).join("\n");
+  const csv = "Date,Category,Note,Account,Direction,Amount,Source\n" + rows.map((r) =>
+    [r.entry_date, r.category, r.note, r.acct, r.dir, r.amount.toFixed(2), r.source].map(cell).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"}));
   a.download = "ledger-" + S.finMonth + ".csv";
@@ -2264,7 +2276,7 @@ function renderStmtPreviews(){
         <span class="stmt-chip">${esc(pv.date_from)} → ${esc(pv.date_to)}</span>
         <span class="stmt-chip">${pv.new_count} new</span>
         ${pv.already_posted ? `<span class="stmt-chip">${pv.already_posted} already in</span>` : ""}
-        <span class="stmt-chip">${pv.deposits_count} deposits kept out (${inr2(pv.deposits_total)})</span>
+        <span class="stmt-chip led-in">+${pv.deposits_count} in (${inr2(pv.deposits_total)})</span>
       </div>
       <div style="margin-top:8px">${chips}</div>
       <div style="margin-top:10px">${pv.new_count

@@ -608,7 +608,7 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
                 "category": str(row.get("category") or "Uncategorised")[:60],
                 "amount": amount,
                 "note": str(row.get("note") or "")[:500],
-                "source": "statement",
+                "source": "statement-in" if row.get("dir") == "in" else "statement",
                 "ref_id": ref_id[:120],
             }
         )
@@ -1000,12 +1000,14 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     salary = float((months_state.get(month) or {}).get("salary", default_salary))
 
     excluded = saving_names | {"Self transfer"}
-    spent = sum(r["amount"] for r in ledger if r["category"] not in excluded)
-    saved = sum(r["amount"] for r in ledger if r["category"] in saving_names)
+    outgo = [r for r in ledger if r["source"] != "statement-in"]
+    spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
+    saved = sum(r["amount"] for r in outgo if r["category"] in saving_names)
+    inflow = sum(r["amount"] for r in ledger if r["source"] == "statement-in")
     emi_total = sum(e["amount"] for e in emis)
 
     by_category: dict[str, float] = {}
-    for row in ledger:
+    for row in outgo:
         by_category[row["category"]] = by_category.get(row["category"], 0) + row["amount"]
     for emi in emis:
         label = f"EMI · {emi['loan_name']}"
@@ -1040,6 +1042,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "salary_is_default": month not in months_state or "salary" not in (months_state.get(month) or {}),
         "note": (months_state.get(month) or {}).get("note", ""),
         "totals": {
+            "inflow": round(inflow, 2),
             "spent": round(spent + emi_total, 2),
             "expenses": round(spent, 2),
             "emis": round(emi_total, 2),
