@@ -636,6 +636,10 @@ async def statement_rule(request: Request, user: dict = Depends(_unlocked_user))
     user_id = int(user["id"])
     payload = await request.json()
     match = str(payload.get("match") or "").strip()[:80]
+    # A handle-shaped match ("hepzibah08@") is stored by its name stem, so
+    # the rule also catches the truncated forms a narration prints.
+    if match.endswith("@"):
+        match = match[:-1]
     category = str(payload.get("category") or "").strip()[:60]
     if len(match) < 2 or not category:
         raise HTTPException(status_code=400, detail="Need a match and a category")
@@ -643,6 +647,10 @@ async def statement_rule(request: Request, user: dict = Depends(_unlocked_user))
     rules = [r for r in rules if str(r.get("match", "")).lower() != match.lower()]
     rules.insert(0, {"match": match, "category": category})
     await sanctuary_db.set_json_state(user_id, "stmt_rules", rules[:400])
+    categories = await _get_categories(user_id)
+    if category not in {c["name"] for c in categories} and len(categories) < 100:
+        categories.append({"name": category, "emoji": "🏷️", "kind": "expense", "quick": False})
+        await sanctuary_db.set_json_state(user_id, "categories", categories)
     moved = await sanctuary_db.recategorise_uncategorised(user_id, match, category)
     return {"moved": moved, "rules": len(rules)}
 

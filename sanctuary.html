@@ -2175,7 +2175,8 @@ const stmtState = {previews: []};
 function stmtCatOpts(sel){
   const names = (S.fin ? S.fin.categories.map((c) => c.name) : []);
   ["Credit card bill", "Self transfer", "Uncategorised"].forEach((n) => { if (!names.includes(n)) names.push(n); });
-  return names.map((n) => `<option ${n === sel ? "selected" : ""}>${esc(n)}</option>`).join("");
+  return names.map((n) => `<option ${n === sel ? "selected" : ""}>${esc(n)}</option>`).join("")
+    + `<option value="__new__">＋ New category…</option>`;
 }
 function renderStmtPreviews(){
   $("stmt-previews").innerHTML = stmtState.previews.map((pv, i) => {
@@ -2241,13 +2242,24 @@ document.addEventListener("click", async (e) => {
   const teach = e.target.closest("[data-stmt-teach]");
   if (teach) {
     const row = teach.closest(".stmt-review-row");
-    const category = row.querySelector("select").value;
-    if (!category || category === "Uncategorised") return toast("Pick a category first");
+    const named = row.querySelector("input.stmt-new-cat");
+    const category = named ? named.value.trim().slice(0, 60) : row.querySelector("select").value;
+    if (!category || category === "Uncategorised" || category === "__new__") return toast("Pick a category first");
     teach.disabled = true;
     const r = await api("/api/sanctuary/statements/rule", {method: "POST",
       body: {match: row.dataset.match, category}});
     toast(r.moved + " sorted — and it will know next time.");
     refreshFinance(); loadStmtReview();
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.matches(".stmt-review-row select") && e.target.value === "__new__") {
+    const input = document.createElement("input");
+    input.className = "field stmt-new-cat";
+    input.placeholder = "Name the category";
+    input.maxLength = 60;
+    e.target.replaceWith(input);
+    input.focus();
   }
 });
 async function loadStmtReview(){

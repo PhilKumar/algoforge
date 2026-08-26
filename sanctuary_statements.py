@@ -114,7 +114,9 @@ def payee_key(note: str) -> str:
     text = (note or "").strip()
     for token in text.replace("/", " ").split():
         if "@" in token:
-            return token.lower()[:40]
+            # The bank half of a handle churns across exports (okax, oki,
+            # okic are one person) — the name half is the identity.
+            return token.split("@", 1)[0].lower()[:40] + "@"
     scheme_words = {"upi", "bil", "onl", "nfs", "mmt", "imps", "ach", "mps", "neft", "rtgs", "inft"}
     for part in text.split("/"):
         cleaned = part.strip().lower()

@@ -277,7 +277,10 @@ class StatementParserTests(unittest.TestCase):
     def test_payee_key_prefers_the_upi_handle(self):
         from sanctuary_statements import payee_key
 
-        self.assertEqual(payee_key("UPI/1001/Jan/emman.joy@okici/IDFC FIRST Bank/"), "emman.joy@okici")
+        # The bank half churns (okax, oki, okic are one person) — the key
+        # is the name half, marked as a handle by its trailing @.
+        self.assertEqual(payee_key("UPI/1001/Jan/emman.joy@okici/IDFC FIRST Bank/"), "emman.joy@")
+        self.assertEqual(payee_key("UPI/9/x/someone@okax/A/"), payee_key("UPI/8/y/someone@oki/B/"))
         self.assertEqual(payee_key("BIL/ONL/000123456789/Indian Oil/998877/Cylinder"), "indian oil")
 
     def test_bulk_insert_skips_what_is_already_posted(self):
