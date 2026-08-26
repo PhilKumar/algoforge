@@ -2914,15 +2914,22 @@
     background: rgba(255,255,255,0.025);
     border: 1px solid var(--border);
     border-radius: 9px;
-    overflow: hidden;
+    /* On a window too narrow to hold all five, the strip can be nudged
+       sideways instead of simply swallowing whatever did not fit. The
+       scrollbar stays hidden, so nothing changes when it does fit. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
     flex: 1 1 auto;
     min-width: 0;
   }
+  .topbar-ticker::-webkit-scrollbar { display: none; }
   .ticker-cell {
-    padding: 5px 13px;
+    padding: 5px 9px;
     text-align: center;
-    flex: 1 1 104px;
-    min-width: 104px;
+    flex: 1 1 96px;
+    min-width: 96px;
     border-right: 1px solid rgba(255,255,255,0.035);
     transition: background 0.15s;
     cursor: default;
@@ -4248,6 +4255,19 @@
   }
   [data-theme="light"] .nav-subtab-desc {
     color: #64748b;
+  }
+
+  /* Until the bar is genuinely wide, the install pill goes back to being a
+     mark like its neighbours. Its label was ~90px of the very space the
+     index strip needed to show ATM PE, and the pill already collapses this
+     way on small screens. */
+  @media (max-width: 1800px) {
+    .topbar-install-btn {
+      width: 32px;
+      padding: 0;
+      justify-content: center;
+    }
+    .topbar-install-label { display: none; }
   }
 
   /* ── Responsive: new header ── */

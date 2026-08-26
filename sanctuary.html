@@ -427,6 +427,22 @@ html[data-theme="dark"] .cal-day.sel:hover,html[data-theme="dark"] .cal-mon.sel:
 .cal-link{font-weight:800;font-size:.84rem;color:var(--moss);padding:5px 10px;border-radius:9px}
 .cal-link:hover{background:var(--moss-wash)}
 
+/* ── the emoji palette ────────────────────────────────────── */
+.emoji-face{max-width:64px;flex:0 0 64px;font-size:22px;line-height:1;text-align:center;cursor:pointer;
+  display:flex;align-items:center;justify-content:center}
+.emoji-face:hover{border-color:var(--moss)}
+.emoji-pop{width:320px;max-height:min(62dvh,440px);overflow-y:auto}
+.emoji-group{margin-bottom:12px}
+.emoji-title{font-size:.68rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--soft);margin-bottom:6px}
+.emoji-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.emoji-opt{aspect-ratio:1;border-radius:11px;font-size:20px;line-height:1;display:flex;align-items:center;
+  justify-content:center;transition:background .12s ease;border:1px solid transparent}
+.emoji-opt:hover{background:var(--moss-wash)}
+.emoji-opt.on{background:var(--moss-wash);border-color:var(--moss)}
+.emoji-own{display:flex;gap:8px;align-items:center;padding-top:10px;border-top:1px solid var(--line-soft)}
+.emoji-own .field{flex:1;text-align:center;font-size:18px}
+
 /* native controls that remain (selects, scrollbars, file pickers) follow the theme */
 :root{color-scheme:light}
 html[data-theme="dark"]{color-scheme:dark}
@@ -734,6 +750,9 @@ html[data-theme="dark"]{color-scheme:dark}
       <h2 id="greet-line"></h2>
     </div>
     <div class="topbar-actions">
+      <a class="iconbtn" href="/app" title="Back to the terminal" aria-label="Back to the terminal" style="text-decoration:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </a>
       <button class="iconbtn" id="theme-btn" title="Day / night">
         <svg id="theme-ico" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5V5M12 19v2.5M4.3 4.3L6 6M18 18l1.7 1.7M2.5 12H5M19 12h2.5M4.3 19.7L6 18M18 6l1.7-1.7"/></svg>
       </button>
@@ -1113,13 +1132,64 @@ new MutationObserver((records) => {
 }).observe(document.documentElement, {childList: true, subtree: true});
 calScan();
 
+/* ═══ the emoji palette: pick a face for a category without hunting a keyboard ═══ */
+const EMOJI_SETS = [
+  ["Kitchen", ["🥛", "🍛", "🧺", "🍞", "🍪", "🍚", "🥚", "🥦", "🍎", "☕", "🍫", "🧂"]],
+  ["Getting about", ["🛺", "🚌", "🚗", "🏍️", "⛽", "🚕", "🚂", "✈️", "🛵", "🚲"]],
+  ["The house", ["⚡", "💧", "🔥", "📶", "📱", "🏠", "🔧", "🛋️", "🧹", "🧴", "🪣", "🛠️"]],
+  ["The children", ["🎒", "🎓", "🎵", "🎨", "🧸", "🎁", "🎂", "⚽", "📚", "✏️"]],
+  ["Body & care", ["💊", "🩺", "🏥", "🦷", "👓", "💇", "🧼", "🏃"]],
+  ["Money kept", ["🏦", "💰", "🪙", "🌳", "🌿", "📈", "💳", "🧾", "🔐"]],
+  ["Heart", ["🕊️", "⛪", "🙏", "❤️", "🤝", "🎈", "🌻", "🐕"]],
+  ["Other", ["🛍️", "🎬", "✂️", "🌱", "🧳", "📦", "🪔", "🎯"]],
+];
+let _emojiPop = null;
+
+function emojiClose(){
+  if (_emojiPop){ _emojiPop.remove(); _emojiPop = null; }
+}
+
+function emojiOpen(face, current, onPick){
+  const wasMine = _emojiPop && _emojiPop._face === face;
+  emojiClose();
+  if (wasMine) return;
+  const pop = document.createElement("div");
+  pop.className = "cal-pop emoji-pop";
+  pop._face = face;
+  pop.innerHTML = EMOJI_SETS.map(([title, list]) =>
+    '<div class="emoji-group"><div class="emoji-title">' + title + "</div><div class=\"emoji-grid\">" +
+    list.map((e) => '<button class="emoji-opt' + (e === current ? " on" : "") +
+      '" data-emoji="' + e + '">' + e + "</button>").join("") + "</div></div>").join("") +
+    '<div class="emoji-own"><input class="field" id="emoji-own-input" maxlength="4" placeholder="or paste any emoji" value="">' +
+    '<button class="btn small" data-emoji-own>Use</button></div>';
+  pop.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opt = e.target.closest("[data-emoji]");
+    if (opt){ onPick(opt.dataset.emoji); emojiClose(); return; }
+    if (e.target.closest("[data-emoji-own]")){
+      const typed = pop.querySelector("#emoji-own-input").value.trim();
+      if (typed){ onPick(typed); emojiClose(); }
+    }
+  });
+  document.body.appendChild(pop);
+  _emojiPop = pop;
+  calPlace(pop, face);
+}
+document.addEventListener("pointerdown", (e) => { if (_emojiPop && !_emojiPop.contains(e.target)) emojiClose(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") emojiClose(); });
+addEventListener("scroll", () => { if (_emojiPop) calPlace(_emojiPop, _emojiPop._face); }, true);
+
 /* ═══ film layer: photoreal shore behind the drawn one, when the clips exist ═══
    Each theme has one clip. The loop is a self-crossfade: a second copy of the
    same clip fades in over the last second of the playing one, so the seam
    between takes dissolves instead of popping. If a clip 404s the theme is
    marked dead and the drawn shore carries the page alone. */
-const SCENE_FILM_V = "shore-room-2";  /* bump when a clip is replaced — busts the week-long cache */
+const SCENE_FILM_V = "shore-room-gate-1";  /* bump when a clip is replaced — busts the week-long cache */
 const SCENE_FILM = {
+  gate: {  /* the landing: one long golden afternoon, whatever the hour */
+    light: "/static/sanctuary/gate.mp4?v=" + SCENE_FILM_V,
+    dark: "/static/sanctuary/gate.mp4?v=" + SCENE_FILM_V,
+  },
   journal: {
     light: "/static/sanctuary/shore-day.mp4?v=" + SCENE_FILM_V,
     dark: "/static/sanctuary/shore-night.mp4?v=" + SCENE_FILM_V,
@@ -1129,7 +1199,7 @@ const SCENE_FILM = {
     dark: "/static/sanctuary/room-night.mp4?v=" + SCENE_FILM_V,
   },
 };
-const _film = {key: null, view: "journal", el: null, dead: {}, pre: {}};
+const _film = {key: null, view: "gate", el: null, dead: {}, pre: {}};
 const _filmIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1200));
 
 function _filmUrl(key){
@@ -1243,6 +1313,7 @@ function scatterLeaves(){
   }
 }
 function showGate(mode){
+  sceneVideoView("gate");
   $("home").classList.add("hidden");
   $("gate").classList.remove("hidden");
   $("gate-setup").classList.toggle("hidden", mode !== "setup");
@@ -1290,6 +1361,7 @@ const KINDS = [
 
 /* ═══════════ enter (unlocked) ═══════════ */
 async function enter(){
+  sceneVideoView("journal");
   $("gate").classList.add("hidden");
   $("home").classList.remove("hidden");
   const now = istNow();
@@ -1743,7 +1815,7 @@ function categoriesModal(){
   const paint = () => {
     wrap.querySelector("#cm-list").innerHTML = cats.map((c, i) => `
       <div class="frow" style="align-items:center">
-        <input class="field" style="max-width:70px" data-ci="${i}" data-cf="emoji" value="${esc(c.emoji)}">
+        <button class="field emoji-face" data-cemoji="${i}" title="Choose a symbol">${esc(c.emoji)}</button>
         <input class="field" data-ci="${i}" data-cf="name" value="${esc(c.name)}">
         <select class="field" style="max-width:120px" data-ci="${i}" data-cf="kind">
           <option value="expense" ${c.kind === "expense" ? "selected" : ""}>expense</option>
@@ -1761,9 +1833,19 @@ function categoriesModal(){
   });
   wrap.addEventListener("click", (e) => {
     const del = e.target.closest("[data-cdel]");
-    if (del) { cats.splice(Number(del.dataset.cdel), 1); paint(); }
+    if (del) { cats.splice(Number(del.dataset.cdel), 1); paint(); return; }
+    const face = e.target.closest("[data-cemoji]");
+    if (face){
+      e.stopPropagation();
+      const i = Number(face.dataset.cemoji);
+      emojiOpen(face, cats[i].emoji, (chosen) => { cats[i].emoji = chosen; paint(); });
+    }
   });
-  wrap.querySelector("#cm-add").onclick = () => { cats.push({name: "", emoji: "🌱", kind: "expense", quick: false}); paint(); };
+  wrap.querySelector("#cm-add").onclick = () => {
+    cats.push({name: "", emoji: "🏷️", kind: "expense", quick: false});
+    paint();
+    wrap.querySelector("#cm-list").lastElementChild.querySelector("[data-cemoji]").click();
+  };
   wrap.querySelector("#cm-cancel").onclick = () => wrap.remove();
   wrap.querySelector("#cm-save").onclick = async () => {
     await api("/api/sanctuary/finance/categories", {method: "PUT", body: {categories: cats.filter((c) => c.name.trim())}});
