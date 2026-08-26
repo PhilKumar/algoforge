@@ -2352,12 +2352,15 @@ document.addEventListener("click", async (e) => {
   const teach = e.target.closest("[data-stmt-teach]");
   if (teach) {
     const row = teach.closest(".stmt-review-row");
+    const own = row.querySelector("#stmt-own-match");
+    const match = own ? own.value.trim() : row.dataset.match;
+    if (own && match.length < 2) return toast("Type the word to match first");
     const named = row.querySelector("input.stmt-new-cat");
     const category = named ? named.value.trim().slice(0, 60) : row.querySelector("select").value;
     if (!category || category === "Uncategorised" || category === "__new__") return toast("Pick a category first");
     teach.disabled = true;
     const r = await api("/api/sanctuary/statements/rule", {method: "POST",
-      body: {match: row.dataset.match, category}});
+      body: {match, category}});
     toast(r.moved + " sorted — and it will know next time.");
     refreshFinance(); loadStmtReview();
   }
@@ -2378,7 +2381,13 @@ async function loadStmtReview(){
     const r = await api("/api/sanctuary/statements/review");
     if (!r.uncategorised) { host.innerHTML = ""; return; }
     host.innerHTML = `<div class="section-title" style="font-size:.95rem">Sort the unsorted — ${r.uncategorised} left</div>
-      <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>` +
+      <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
+      <div class="stmt-review-row" data-match="">
+        <div class="who"><b>Teach your own</b><small>Any word from the narration — a name in all its spellings, a shop, a loan code.</small></div>
+        <input class="field" id="stmt-own-match" placeholder="e.g. hepzibah" style="max-width:180px">
+        <select class="field">${stmtCatOpts("Uncategorised")}</select>
+        <button class="btn ghost" data-stmt-teach>This is where they go</button>
+      </div>` +
       r.groups.slice(0, 25).map((g) => `
         <div class="stmt-review-row" data-match="${esc(g.match)}">
           <div class="who"><b>${esc(g.match)}</b> <span class="stmt-chip">${g.count} × ${inr2(g.total)}</span>
