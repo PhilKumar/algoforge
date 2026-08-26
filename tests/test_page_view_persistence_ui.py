@@ -54,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260826-simpler-panels-11" in MANIFEST
+    assert "20260826-panels-15" in MANIFEST

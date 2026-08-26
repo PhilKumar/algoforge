@@ -72,3 +72,41 @@ class LedgerLivesOutsideTheMonitorTests(unittest.TestCase):
                 self.assertNotIn("ocp-panes", ancestors)
                 # Still inside the strategy's own card, not loose on the page.
                 self.assertIn("card", ancestors[0])
+
+
+class EveryStrategyShowsBothPanelsTests(unittest.TestCase):
+    """A panel that hides when empty is a panel that looks missing.
+
+    Each strategy hid its monitor and its ledger by its own rule, so which
+    panels you saw depended on which strategies happened to be trading (Phil,
+    2026-08-26: "Only High Entry has book monitor... Only Candle Entry
+    Strategy has Closed paper campaigns"). Both stand on all four now, with an
+    empty state instead of a disappearance.
+    """
+
+    def test_no_ledger_panel_starts_hidden(self):
+        for strategy, panel_id in {**LEDGERS, "high_entry": "oc-high-closed"}.items():
+            with self.subTest(strategy=strategy):
+                line = next(
+                    line
+                    for line in MARKUP.split("\n")
+                    if f'id="{panel_id}"' in line and "rows" not in line and "count" not in line
+                )
+                self.assertNotIn(
+                    " hidden",
+                    line,
+                    f"{panel_id} ships hidden — it stays invisible whenever its renderer cannot run",
+                )
+
+    def test_the_empty_ledger_says_so_instead_of_vanishing(self):
+        script = (Path(__file__).resolve().parent.parent / "static" / "philforge-app.js").read_text(encoding="utf-8")
+        self.assertIn("wrap.hidden = false;", script)
+        self.assertIn("No closed campaign yet", script)
+
+    def test_an_idle_monitor_is_rendered_rather_than_hidden(self):
+        script = (Path(__file__).resolve().parent.parent / "static" / "philforge-app.js").read_text(encoding="utf-8")
+        self.assertIn("function _ocpIdleMonitor(", script)
+        # Both consoles that used to hide theirs now call it.
+        self.assertIn("oc-candle-monitor-title", script)
+        self.assertIn("oc-gap-monitor-title", script)
+        self.assertNotIn("if (monitor) monitor.hidden = true;", script)

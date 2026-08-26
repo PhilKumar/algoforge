@@ -2462,8 +2462,7 @@
   <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
       <div class="ocp-head">
-        <div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#38bdf8;">TRENDLINES + FIBS &middot; LADDER DOWN &middot; OUT 3:15</div>
-        <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3></div>
+        <div><!-- The descriptor sits BESIDE the name, not stacked above it, and the four headers are built the same way (Phil, 2026-08-26: "Put this next to Gap carry and follow the same in other 3 strategies... Need in single row"). --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#38bdf8;">TRENDLINES + FIBS &middot; LADDER DOWN &middot; OUT 3:15</span></div></div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="ocp-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a><span id="oc-fib-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       </div>
       <div id="oc-fib-recipe" class="ocp-recipe" aria-live="polite"></div>
@@ -2773,7 +2772,7 @@
            column's business: it belongs beneath the form AND the
            monitor, full width (Phil, 2026-08-26: "Closed paper rounds
            only must be under the form and monitor"). -->
-        <div class="ocp-monitor" id="oc-fib-closed" hidden>
+        <div class="ocp-monitor" id="oc-fib-closed">
         <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
         <div class="ocp-monitor-section">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
@@ -2788,7 +2787,7 @@
            instrument, state and contract; the body is on demand. -->
       <details class="cascade-options-window oc-fib-monitor-window">
         <summary class="cascade-options-window-head">
-          <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
+          <div class="cascade-options-window-title"><!-- ONE ROW: the state, then its badge. It wrapped, so a long title pushed AUTO . WATCHING onto a line of its own (Phil, 2026-08-26). --><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;"><h3 data-fx="title" style="margin:0;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state" style="flex:0 0 auto;">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
         </summary>
         <div class="cascade-options-strip-actions oc-fib-monitor-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
@@ -2855,7 +2854,7 @@
   <!-- ── TAB · Candle-entry ── -->
   <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">TWO-RED LADDER · BOX MOTHER · 5m → 15m</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="oc-candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="oc-candle-info" class="pf-info-pop pf-info-doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><!-- The descriptor sits BESIDE the name, not stacked above it, and the four headers are built the same way (Phil, 2026-08-26: "Put this next to Gap carry and follow the same in other 3 strategies... Need in single row"). --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="oc-candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">TWO-RED LADDER · BOX MOTHER · 5m → 15m</span></div><div id="oc-candle-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -3086,7 +3085,7 @@
              campaign disappeared with the campaign (Phil, 2026-08-26: the
              settled ~Rs 52.6k loss "again dropped"). Its own panel, its own
              visibility, owned by the ledger fetch alone. -->
-        <div class="ocp-monitor" id="oc-candle-closed" hidden>
+        <div class="ocp-monitor" id="oc-candle-closed">
           <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
           <div class="ocp-monitor-section">
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
@@ -3099,7 +3098,7 @@
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title"><h3 id="oc-candle-chart-title">Two-red ladder chart</h3><div id="oc-candle-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-candle-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-candle-chart-strip"></div><!-- THE WAY OUT. This dialog shipped with no close control, no Escape and no backdrop click, so a frozen chart could be opened and not left (Phil, 2026-08-26: "Not able to come out"). --><button type="button" class="cascade-options-control" data-pf-action="closeCandleEntryChart" aria-label="Close chart">&#10005;</button></div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-candle-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles on the chart you pick, with every rung the ladder bought, an armed stop, the target and the exit drawn on top.</div></div></div>
       </div>
@@ -3110,7 +3109,7 @@
   <!-- ── TAB · Gap Carry ── -->
   <div id="oc-tab-gapcarry" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-gapcarry">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(251,191,36,.30);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;">EMA20 + RSI &middot; ONE NIGHT &middot; 15:10 IN &middot; 09:20 OUT</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Gap Carry <button type="button" class="pf-info-btn" data-pf-info="oc-gap-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="oc-gap-info" class="pf-info-pop pf-info-doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><!-- The descriptor sits BESIDE the name, not stacked above it, and the four headers are built the same way (Phil, 2026-08-26: "Put this next to Gap carry and follow the same in other 3 strategies... Need in single row"). --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Gap Carry <button type="button" class="pf-info-btn" data-pf-info="oc-gap-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;">EMA20 + RSI &middot; ONE NIGHT &middot; 15:10 IN &middot; 09:20 OUT</span></div><div id="oc-gap-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
               <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
@@ -3289,7 +3288,7 @@
            only must be under the form and monitor"). -->
           <!-- Same lift as Candle Entry: the night archive outlives the carry,
                so it cannot live inside a monitor that hides between runs. -->
-          <div class="ocp-monitor" id="oc-gap-closed" hidden>
+          <div class="ocp-monitor" id="oc-gap-closed">
             <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper nights</h4></div></div>
             <div class="ocp-monitor-section">
               <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
@@ -3312,7 +3311,7 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
-          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <!-- High Entry had no descriptor at all; the other three did. Same row, same shape. --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">TWO REDS &middot; STOP AT THE ENTRY LOW</span></div>
           <div id="oc-high-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
@@ -3485,15 +3484,19 @@
       <div class="ocp-monitor-section">
         <div id="oc-high-rows"></div>
       </div>
-      <div class="ocp-monitor-section" id="oc-high-closed" hidden>
-        <div class="ocp-monitor-kicker">Closed trades <span id="oc-high-closed-count"></span></div>
-        <div class="ocp-table-wrap"><table class="ocp-table">
-          <thead><tr><th>Campaign</th><th>Rung</th><th>Lots</th><th>Strike</th><th>In</th><th>Out</th><th>Why</th><th>Net</th></tr></thead>
-          <tbody id="oc-high-closed-rows"></tbody>
-        </table></div>
-      </div>
     </section>
       </div><!-- /ocp-panes -->
+      <!-- THE SAME PANEL THE OTHER THREE CARRY: one row per campaign, the
+           same eight columns, under both columns rather than tucked inside the
+           monitor (Phil, 2026-08-26: "Closed trades has to look like the same
+           as in Candle Entry ... esp., see High Entry one"). -->
+      <div class="ocp-monitor" id="oc-high-closed">
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+        <div class="ocp-monitor-section">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-high-closed-count"></span></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-high-closed-rows"></tbody></table></div>
+        </div>
+      </div>
     </div><!-- /card -->
 
     <div id="oc-high-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="High Entry campaign chart">

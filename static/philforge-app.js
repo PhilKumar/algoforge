@@ -2045,6 +2045,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setRecoverySide',
   'loadRecoveryChart',
   'closeRecoveryChart',
+  'closeCandleEntryChart',
   'openRecoveryTearsheet',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
@@ -2543,6 +2544,25 @@ async function initCascadeOptionsPage() {
   }
 }
 
+// AN IDLE MONITOR, NOT A MISSING ONE. Candle Entry and Gap Carry hid their
+// monitor whenever nothing was running, so which strategies showed a monitor
+// depended on which ones happened to be trading (Phil, 2026-08-26: "Only High
+// Entry has book monitor"). The panel stays and says what it is waiting for --
+// a state line, never the dead "IDLE - No active campaign" card of 2026-08-20.
+function _ocpIdleMonitor(ids, note, columns) {
+  const monitor = document.getElementById(ids.monitor);
+  if (!monitor) return;
+  monitor.hidden = false;
+  const title = document.getElementById(ids.title);
+  const tiles = document.getElementById(ids.tiles);
+  const rows = document.getElementById(ids.rows);
+  if (title) title.textContent = note;
+  if (tiles) tiles.innerHTML = '';
+  if (rows) {
+    rows.innerHTML = `<tr><td colspan="${columns}" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">Nothing bought yet.</td></tr>`;
+  }
+}
+
 function _renderCandleEntryStatus(payload) {
   const campaign = payload?.campaign;
   const badge = _cascadeOptionsEl('oc-candle-badge');
@@ -2552,7 +2572,15 @@ function _renderCandleEntryStatus(payload) {
   const monitor = _cascadeOptionsEl('oc-candle-monitor');
   _lastCandleEntryStatus = campaign || null;
   if (!campaign) {
-    if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
+    // AUTO · WATCHING, the way Fib Boundary's badge reads. A scheduler that is
+    // armed and waiting is not idle, and three of the four badges said IDLE
+    // through it (Phil, 2026-08-26).
+    const watching = !!(_lastCandleEntryAuto && _lastCandleEntryAuto.enabled);
+    if (badge) {
+      badge.textContent = watching ? 'AUTO · WATCHING' : 'IDLE';
+      _cascadeSetTone(badge, watching ? 'info' : null);
+      badge.style.color = watching ? '#fde68a' : 'var(--muted)';
+    }
     if (summary) summary.textContent = 'No active Candle Entry campaign.';
     if (start) {
       const live = (document.getElementById('oc-candle-mode')?.value || 'paper') === 'live';
@@ -2560,7 +2588,11 @@ function _renderCandleEntryStatus(payload) {
       start.textContent = live ? '▶ Start LIVE campaign' : '▶ Start paper campaign';
     }
     if (kill) kill.style.display = 'none';
-    if (monitor) monitor.hidden = true;
+    _ocpIdleMonitor(
+      { monitor: 'oc-candle-monitor', title: 'oc-candle-monitor-title', tiles: 'oc-candle-tiles', rows: 'oc-candle-rows' },
+      _lastCandleEntryAuto && _lastCandleEntryAuto.enabled ? 'Auto mother on · waiting for a new box high' : 'Not started',
+      9,
+    );
     return;
   }
   const running = !!campaign.running;
@@ -2603,7 +2635,16 @@ function _renderCandleEntryStatus(payload) {
       summary.innerHTML = `Last campaign · ${escapeHtml(c.underlying || 'NIFTY')} ${escapeHtml(String(c.strike || ''))} ${escapeHtml(c.option_type || 'CE')} · ended ${escapeHtml(when)} · ${escapeHtml(how)} · ${oldEngine ? `<span class="is-warning" style="color:var(--warn);">${escapeHtml(money)}</span>` : escapeHtml(money)}`;
     }
   }
-  if (monitor && !showMonitor) { monitor.hidden = true; return; }
+  if (!showMonitor) {
+    // Ended on an earlier day: the summary above says what it did, and the
+    // ledger below keeps it for good -- but the panel still stands.
+    _ocpIdleMonitor(
+      { monitor: 'oc-candle-monitor', title: 'oc-candle-monitor-title', tiles: 'oc-candle-tiles', rows: 'oc-candle-rows' },
+      'Waiting for the next mother',
+      9,
+    );
+    return;
+  }
   _renderCandleEntryMonitor(campaign);
 }
 
@@ -2963,9 +3004,19 @@ async function _refreshPaperLedger(strategy) {
   } catch (err) {
     return;
   }
-  wrap.hidden = !rows.length;
-  if (!rows.length) { body.innerHTML = ''; return; }
+  // THE PANEL IS ALWAYS THERE. It used to hide itself when the archive was
+  // empty, so which strategies showed a "Closed paper campaigns" table
+  // depended on which ones happened to have traded -- Phil, 2026-08-26:
+  // "Only Candle Entry Strategy has Closed paper campaigns". An empty archive
+  // is a fact worth stating, not a reason to remove the panel.
+  wrap.hidden = false;
   const count = document.getElementById(ids.count);
+  if (!rows.length) {
+    if (count) count.textContent = '· none yet';
+    const columns = body.closest('table')?.querySelectorAll('thead th').length || 8;
+    body.innerHTML = `<tr><td colspan="${columns}" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">No closed campaign yet — a finished one is kept here for good.</td></tr>`;
+    return;
+  }
   if (count) {
     count.textContent = `· ${rows.length}` + (total === null || total === undefined ? '' : ` · net ${_candleEntrySigned(total)}`);
   }
@@ -3001,7 +3052,10 @@ async function _refreshPaperLedger(strategy) {
 }
 
 
+let _lastCandleEntryAuto = null;
+
 function _renderCandleEntryAuto(auto) {
+  _lastCandleEntryAuto = auto || null;
   const card = document.getElementById('oc-candle-auto-card');
   const input = document.getElementById('oc-candle-auto');
   const on = !!(auto && auto.enabled);
@@ -3398,6 +3452,33 @@ function toggleCandleEntryBacktestChart() {
 // ── Candle Entry · the running campaign's chart ─────────────────────────
 let _candleEntryChartTf = '';
 let _candleEntryChartDrawnKey = '';
+
+// THE WAY OUT of the campaign chart -- the live one and the frozen one, which
+// share this dialog. It had no close control at all: opening a closed
+// campaign's chart was a one-way door (Phil, 2026-08-26: "Not able to come
+// out"). Escape and a click on the backdrop do the same, wired below.
+function closeCandleEntryChart() {
+  const overlay = document.getElementById('oc-candle-chart-overlay');
+  if (overlay) pfSetCascadeChartOverlayOpen(overlay, false);
+}
+window.closeCandleEntryChart = closeCandleEntryChart;
+
+// Escape closes whichever of these dialogs is open, and so does the backdrop.
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const open = document.querySelector('#oc-candle-chart-overlay.is-open, #oc-fib-chart-overlay.is-open, #oc-gap-chart-overlay.is-open, #oc-high-chart-overlay.is-open');
+  if (!open) return;
+  event.stopPropagation();
+  if (open.id === 'oc-fib-chart-overlay' && typeof hideFibBoundaryChart === 'function') hideFibBoundaryChart();
+  else pfSetCascadeChartOverlayOpen(open, false);
+});
+document.addEventListener('click', event => {
+  // The backdrop is the overlay itself; a click inside the dialog is not one.
+  const overlay = event.target.closest('.pf-cascade-chart-overlay.is-open');
+  if (!overlay || event.target !== overlay) return;
+  if (overlay.id === 'oc-fib-chart-overlay' && typeof hideFibBoundaryChart === 'function') hideFibBoundaryChart();
+  else pfSetCascadeChartOverlayOpen(overlay, false);
+});
 
 async function loadCandleEntryChart() {
   const el = id => document.getElementById(id);
@@ -3934,7 +4015,10 @@ async function deleteGapCarryBacktest() {
   _setGapCarryFormStatus('Saved replay deleted. Press Backtest to replay it fresh.', 'success');
 }
 
+let _lastGapCarryAuto = null;
+
 function _renderGapCarryAuto(auto) {
+  _lastGapCarryAuto = auto || null;
   const card = _cascadeOptionsEl('oc-gap-auto-card');
   if (!card) return;
   const on = Boolean(auto && auto.enabled);
@@ -3979,9 +4063,20 @@ function _renderGapCarryStatus(campaign, running) {
     }
   };
   if (!campaign) {
-    if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
+    // AUTO · WATCHING here too -- see the note in _renderCandleEntryStatus.
+    const watching = !!(_lastGapCarryAuto && _lastGapCarryAuto.enabled);
+    if (badge) {
+      badge.textContent = watching ? 'AUTO · WATCHING' : 'IDLE';
+      _cascadeSetTone(badge, watching ? 'info' : null);
+      badge.style.color = watching ? '#fde68a' : 'var(--muted)';
+    }
     if (summary) summary.textContent = 'No active Gap Carry campaign.';
-    if (monitor) monitor.hidden = true;
+    // The panel stands even with nothing carried -- see _ocpIdleMonitor.
+    _ocpIdleMonitor(
+      { monitor: 'oc-gap-monitor', title: 'oc-gap-monitor-title', tiles: 'oc-gap-tiles', rows: 'oc-gap-rows' },
+      'Waiting for the 15:10 close',
+      8,
+    );
     if (kill) kill.style.display = 'none';
     setStart(false);
     return;
@@ -5779,7 +5874,10 @@ function _fibAutoState(s, today) {
   switch (fresh ? String(s.state || '') : '') {
     case 'outside-window': return { tone: 'wait', text: 'Closed · next mother 09:15' };
     case 'busy': return { tone: 'live', text: 'Ladder running' };
-    case 'waiting-for-candle': return { tone: 'live', text: `Mother broken · waiting for the ${nextMother || 'breakout'} candle` };
+    // "Waiting for the breakout candle to close" said nothing to read at a
+    // glance (Phil, 2026-08-26: "no sense"). What is actually true: the mother
+    // was broken, and the candle that broke it becomes the next one.
+    case 'waiting-for-candle': return { tone: 'live', text: 'Mother broken · next one forming' };
     case 'no-bar-yet': return { tone: 'wait', text: 'Waiting for the 09:15 bar' };
     case 'day-skipped': return { tone: 'off', text: 'No 09:15 candle · skipped' };
     case 'day-done': return { tone: 'off', text: 'Done · next mother 09:15' };
@@ -20560,7 +20658,7 @@ function renderRecovery(data) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
     const emptyWrap = document.getElementById('oc-high-closed');
-    if (emptyWrap) emptyWrap.hidden = true;
+    if (emptyWrap) emptyWrap.hidden = false;
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Not running.</div>';
     return;
   }
@@ -20587,23 +20685,37 @@ function renderRecovery(data) {
   const closedRows = document.getElementById('oc-high-closed-rows');
   const closedCount = document.getElementById('oc-high-closed-count');
   if (closedWrap && closedRows) {
-    const settled = [];
-    campaigns.forEach(c => (c.trades || []).filter(t => t.exit_time).forEach(t => settled.push([c, t])));
-    closedWrap.hidden = settled.length === 0;
-    if (closedCount) closedCount.textContent = settled.length ? `· ${settled.length}` : '';
-    closedRows.innerHTML = settled.map(([c, t]) => {
-      const net = Number(t.net_pnl || 0);
-      return `<tr>
-        <td>${escapeHtml(_recTime(c.mother && c.mother.timestamp))}</td>
-        <td>${t.trade_no}</td>
-        <td>${t.lots || '—'}</td>
-        <td>${t.strike ? escapeHtml(String(t.strike)) : '—'}</td>
-        <td>${escapeHtml(_recTime(t.entry_time))}</td>
-        <td>${escapeHtml(_recTime(t.exit_time))}</td>
-        <td>${escapeHtml(String(t.exit_reason || '—'))}</td>
-        <td style="color:${net >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(_recInr(t.net_pnl))}</td>
-      </tr>`;
-    }).join('');
+    // ONE ROW PER CAMPAIGN, in the eight columns every other strategy uses.
+    // It listed one row per TRADE under its own headings, so the same archive
+    // read differently here than on the other three tabs (Phil, 2026-08-26).
+    const ended = campaigns.filter(c => String(c.status || '').toUpperCase() !== 'RUNNING');
+    closedWrap.hidden = false;
+    const total = ended.reduce((n, c) => n + (Number(c.booked_net) || 0), 0);
+    if (closedCount) {
+      closedCount.textContent = ended.length
+        ? `· ${ended.length} · net ${_candleEntrySigned(total)}`
+        : '· none yet';
+    }
+    closedRows.innerHTML = ended.length ? ended.map(c => {
+      const trades = (c.trades || []).filter(t => t.exit_time);
+      const first = trades[0] || {};
+      const last = trades[trades.length - 1] || {};
+      const deployed = trades.reduce((n, t) => n + (Number(t.entry_premium) || 0) * (Number(t.quantity) || 0), 0);
+      const net = Number(c.booked_net || 0);
+      const strike = last.strike || first.strike;
+      return `<tr>`
+        + `<td>${escapeHtml(_recTime(first.entry_time || (c.mother && c.mother.timestamp)))}</td>`
+        + `<td>${escapeHtml(_recTime(last.exit_time))}</td>`
+        + `<td>${strike ? escapeHtml(String(strike)) + ' CE' : '—'}</td>`
+        + `<td>${trades.length}</td>`
+        + `<td>${deployed ? escapeHtml(_cascadeOptionsMoney(deployed)) : '—'}</td>`
+        + `<td class="ocp-muted">${escapeHtml(String(c.end_reason || c.status || '—').replaceAll('_', ' '))}</td>`
+        + `<td style="color:${net >= 0 ? '#6ee7b7' : '#fca5a5'};">${escapeHtml(_recInr(c.booked_net))}</td>`
+        + `<td><button type="button" class="cascade-options-control" data-pf-action="loadRecoveryChart"`
+        + ` data-rec-campaign="${escapeHtml(String(c.campaign_id))}" title="Draw this campaign">↗ Chart</button></td>`
+        + `</tr>`;
+    }).join('')
+      : '<tr><td colspan="8" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">No closed campaign yet — a finished one is kept here for good.</td></tr>';
   }
 
   if (poll) {
