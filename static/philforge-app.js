@@ -2554,7 +2554,11 @@ function _renderCandleEntryStatus(payload) {
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
     if (summary) summary.textContent = 'No active Candle Entry campaign.';
-    if (start) start.disabled = false;
+    if (start) {
+      const live = (document.getElementById('oc-candle-mode')?.value || 'paper') === 'live';
+      start.disabled = false;
+      start.textContent = live ? '▶ Start LIVE campaign' : '▶ Start paper campaign';
+    }
     if (kill) kill.style.display = 'none';
     if (monitor) monitor.hidden = true;
     return;
@@ -2562,7 +2566,17 @@ function _renderCandleEntryStatus(payload) {
   const running = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   if (badge) { badge.textContent = running ? state : `ENDED · ${state}`; _cascadeSetTone(badge, running ? 'info' : 'warning'); badge.style.color = running ? '#93c5fd' : 'var(--warn)'; }
-  if (start) start.disabled = running;
+  if (start) {
+    // A RUNNING CAMPAIGN SAYS SO ON THE BUTTON. Disabling it alone left the
+    // words "Start paper campaign" sitting over a campaign that had already
+    // started (Phil, 2026-08-26), so the one control everyone looks at was
+    // describing the opposite of the state. Gap Carry already relabels.
+    const live = (document.getElementById('oc-candle-mode')?.value || 'paper') === 'live';
+    start.disabled = running;
+    start.textContent = running
+      ? (live ? '● Running · LIVE' : '● Running · paper')
+      : (live ? '▶ Start LIVE campaign' : '▶ Start paper campaign');
+  }
   if (kill) kill.style.display = running ? '' : 'none';
   // Today's campaign gets the monitor; an older ended one is one line here.
   const endedAt = campaign.exit && campaign.exit.timestamp ? new Date(campaign.exit.timestamp) : null;
@@ -4675,11 +4689,18 @@ function _renderFibBoundaryStatus(payload) {
   // "IDLE · No active campaign" is the thing Phil called dead (2026-08-20).
   _renderFibBoundaryAuto(payload?.auto);
   const picked = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
-  // A running server-side auto mother is the truth after a reload. Restoring
-  // Manual over it would hide the scheduler that is still able to start a
-  // campaign, so an enabled setting always brings its Auto control back.
-  if (_lastFibBoundaryAuto[picked]?.enabled && _fibMotherMode() !== 'auto') {
-    _applyFibBoundaryMotherMode('auto');
+  // A running server-side auto mother is the truth after a RELOAD -- but only
+  // then. This ran on every poll, so choosing Manual while the scheduler was
+  // enabled snapped straight back to Auto a few seconds later and the control
+  // could not be moved at all (Phil, 2026-08-26: "Not able to stay on
+  // manual"). Hydrate once; after that the switch belongs to whoever pressed
+  // it. Turning auto off is what stops the scheduler -- the mode control only
+  // decides which form you are looking at.
+  if (!_fibMotherModeHydrated && _lastFibBoundaryAuto[picked] !== undefined) {
+    _fibMotherModeHydrated = true;
+    if (_lastFibBoundaryAuto[picked]?.enabled && _fibMotherMode() !== 'auto') {
+      _applyFibBoundaryMotherMode('auto');
+    }
   }
   const autoWatching = Object.values(_lastFibBoundaryAuto || {}).some(row => row && row.enabled);
 
@@ -5617,6 +5638,8 @@ function setFibBoundaryBuyMode(_event, button) {
 // button becomes "Enable auto" and the timestamp input steps aside.
 function setFibBoundaryMotherMode(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'manual';
+  // A press is a decision: no later poll may hydrate over it.
+  _fibMotherModeHydrated = true;
   _applyFibBoundaryMotherMode(value);
 }
 
@@ -5705,6 +5728,9 @@ async function stopFibBoundaryAuto(_event, button) {
 }
 
 let _lastFibBoundaryAuto = {};
+// Set once the page has read the server's auto state (or the user has pressed
+// the mother switch); keeps the poll from re-applying Auto forever.
+let _fibMotherModeHydrated = false;
 let _fibAutoChainHtml = {};
 
 // What auto is doing RIGHT NOW, in words. Phil, 2026-08-20: "When auto is

@@ -148,7 +148,9 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await openFibTab(page);
 
     const monitor = page.locator('#oc-fib-rows > [data-fx-symbol="BANKNIFTY"]');
-    const summary = monitor.locator('summary');
+    // The campaign-events fold adds a second <summary> inside the monitor, so
+    // this must name the monitor's OWN header rather than any summary in it.
+    const summary = monitor.locator('summary.cascade-options-window-head');
     const body = monitor.locator('.cascade-options-window-body');
     await expect(summary.locator('button')).toHaveCount(0);
     // openFibTab unfolded it for the tests; verify the fold both ways.
@@ -233,5 +235,50 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await expect(monitors.first().locator('[data-fx="badge"]')).toHaveText('IDLE');
     await expect(monitors.first().locator('[data-fx="kill"]')).toBeHidden();
     await expect(page.locator('#oc-fib-blocked')).toBeEmpty();
+  });
+
+  test('Manual stays Manual while the auto mother is still enabled', async ({ page }) => {
+    // THE POLL USED TO OWN THIS SWITCH. Every status refresh re-applied Auto
+    // whenever the server's scheduler was on, so pressing Manual snapped back
+    // within seconds and the mother could not be set by hand at all
+    // (Phil, 2026-08-26: "Not able to stay on manual").
+    await page.route('**/api/fib-boundary/auto**', async route => {
+      await route.fulfill({ json: { status: 'ok', auto: { NIFTY: { enabled: true, symbol: 'NIFTY' } } } });
+    });
+    await login(page, () => []);
+    await openFibTab(page);
+
+    // A reload with the scheduler on still hydrates to Auto -- that part stays.
+    await page.evaluate(() => {
+      (window as any)._renderFibBoundaryStatus({ campaigns: [], live_available: false, auto: { NIFTY: { enabled: true, symbol: 'NIFTY' } } });
+    });
+    await expect(page.locator('#oc-fib-mother-mode')).toHaveValue('auto');
+
+    await page.click('#oc-fib-mother-mode-toggle [data-value="manual"]');
+    await expect(page.locator('#oc-fib-mother-mode')).toHaveValue('manual');
+
+    // Three more polls arrive with auto STILL enabled; the choice survives.
+    await page.evaluate(() => {
+      for (let i = 0; i < 3; i += 1) {
+        (window as any)._renderFibBoundaryStatus({ campaigns: [], live_available: false, auto: { NIFTY: { enabled: true, symbol: 'NIFTY' } } });
+      }
+    });
+    await expect(page.locator('#oc-fib-mother-mode')).toHaveValue('manual');
+    await expect(page.locator('#oc-fib-mother-manual-row')).toBeVisible();
+  });
+
+  test('the campaign events are their own fold, not a wall under the round', async ({ page }) => {
+    await login(page, () => [campaign('NIFTY')]);
+    await openCascade(page);
+    await page.click('#oc-tabbtn-fib');
+    await page.waitForFunction(() => document.querySelectorAll('#oc-fib-rows > *').length > 0, null, { timeout: 10_000 });
+
+    const monitor = page.locator('#oc-fib-rows > [data-fx-symbol="NIFTY"]');
+    const fold = monitor.locator('details[data-fx="events-fold"]');
+    await expect(fold).toHaveCount(1);
+    // The closed-round table is NOT inside the fold: results stay in view.
+    await expect(fold.locator('[data-fx="rounds"]')).toHaveCount(0);
+    await expect(fold.locator('[data-fx="events"]')).toHaveCount(1);
+    await expect(fold.locator('summary')).toContainText('campaign events');
   });
 });

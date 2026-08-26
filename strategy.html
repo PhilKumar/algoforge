@@ -2820,10 +2820,16 @@
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px;"><span class="ocp-section-title" data-fx="rounds-title">Closed paper round · net P&amp;L</span><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
           <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody data-fx="rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
         </div>
-        <div style="margin-top:14px;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px;"><span class="ocp-section-title" data-fx="events-title">Campaign events</span><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div>
+        <!-- THE EVENT LOG FOLDS AWAY, like every other strategy's Activity.
+             Run inline under the closed round it read as one long unbroken
+             wall (Phil, 2026-08-26: "Make this nifty campaign events
+             separate"). Same ocp-activity fold Candle Entry and Gap Carry
+             already use, so the log is one press away instead of always
+             pushing the panel open. -->
+        <details class="ocp-activity" data-fx="events-fold" style="margin-top:14px;">
+          <summary class="ocp-activity-head"><h4 data-fx="events-title">Campaign events</h4><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></summary>
           <div data-fx="events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div>
-        </div>
+        </details>
       </div>
     </template>
 
@@ -3043,15 +3049,24 @@
         </div>
         <div id="oc-candle-tiles" class="ocp-tiles"></div>
         <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-rows"></tbody></table></div></div>
-        <div class="ocp-monitor-section" id="oc-candle-closed" hidden>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
-          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
-        </div>
         <details class="ocp-activity">
           <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-candle-event-count">0 updates</span></summary>
           <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="oc-candle-events"><tr><td colspan="3" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </details>
       </section>
+      <!-- THE ALL-TIME LEDGER, OUTSIDE THE MONITOR. It used to sit inside
+           #oc-candle-monitor, which is hidden whenever no campaign is
+           running -- so the archive that exists precisely to outlive a
+           campaign disappeared with the campaign (Phil, 2026-08-26: the
+           settled ~Rs 52.6k loss "again dropped"). Its own panel, its own
+           visibility, owned by the ledger fetch alone. -->
+      <div class="ocp-monitor" id="oc-candle-closed" hidden>
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+        <div class="ocp-monitor-section">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
+        </div>
+      </div>
       <details id="oc-candle-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-candle-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-candle-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
@@ -3246,15 +3261,20 @@
           <div id="oc-gap-tiles" class="ocp-tiles"></div>
           <div id="oc-gap-monitor-rule" class="ocp-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
           <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-rows"></tbody></table></div></div>
-          <div class="ocp-monitor-section" id="oc-gap-closed" hidden>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
-            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
-          </div>
           <details class="ocp-activity">
             <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-gap-event-count">0 updates</span></summary>
             <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="oc-gap-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
           </details>
         </section>
+        <!-- Same lift as Candle Entry: the night archive outlives the carry,
+             so it cannot live inside a monitor that hides between runs. -->
+        <div class="ocp-monitor" id="oc-gap-closed" hidden>
+          <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper nights</h4></div></div>
+          <div class="ocp-monitor-section">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
+            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
+          </div>
+        </div>
         <section id="oc-gap-backtest" class="ocp-monitor" hidden>
           <div class="ocp-monitor-head"><span class="ocp-monitor-kicker">Replay on recorded prices</span><span id="oc-gap-backtest-updated" class="ocp-monitor-updated"></span></div>
           <div id="oc-gap-backtest-tiles" class="ocp-tiles"></div>

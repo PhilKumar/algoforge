@@ -1902,17 +1902,68 @@ def _paper_campaign_row(
     }
 
 
-async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any], engine: Any = None) -> None:
-    """Write a finished campaign to the ledger. Never lets a save fail on it."""
-    snapshot = None
-    if engine is not None:
-        try:
-            snapshot = engine.to_dict()
-        except Exception:  # a chart is worth less than the archive itself
-            snapshot = None
-    row = _paper_campaign_row(status, engine_snapshot=snapshot)
-    if row is None:
-        return
+def _fib_boundary_campaign_row(
+    status: Mapping[str, Any], *, engine_snapshot: Mapping[str, Any] | None = None
+) -> dict | None:
+    """Fold a finished Fib Boundary ladder into a ledger row.
+
+    ITS STATUS IS FLAT, NOT NESTED. The ladder reports `mother_timestamp`,
+    `exit_timestamp` and `rounds` where the Candle Entry shape reports
+    `mother{}`, `exit{}` and `contract{}`, so the generic builder read an empty
+    mother, found no campaign key and archived NOTHING -- every Fib campaign
+    ever closed was dropped on the floor, silently, exactly the way Gap Carry's
+    nights were (2026-08-26). A ladder also banks ROUNDS: the money is their
+    sum, not the last one's.
+    """
+    state = str(status.get("status") or "").upper()
+    if state not in _PAPER_TERMINAL_STATES:
+        return None
+    key = str(status.get("mother_timestamp") or status.get("exit_timestamp") or "")
+    if not key:
+        return None
+    rounds = [dict(row) for row in (status.get("rounds") or [])]
+    # `fills` is cleared when a mother parks, so a banked round carries its own.
+    fills = [dict(f) for row in rounds for f in (row.get("fills") or [])]
+    fills += [dict(f) for f in (status.get("fills") or [])]
+    fills.sort(key=lambda f: str(f.get("timestamp") or ""))
+    first = fills[0] if fills else {}
+    strike, kind = first.get("strike"), first.get("option_type") or "CE"
+
+    def _sum(field: str) -> float | None:
+        values = [row.get(field) for row in rounds if row.get(field) is not None]
+        if values:
+            return round(sum(float(v) for v in values), 2)
+        top = status.get(field)
+        return None if top is None else round(float(top), 2)
+
+    last_round = rounds[-1] if rounds else {}
+    return {
+        "campaign_key": key,
+        "symbol": str(status.get("symbol") or ""),
+        "contract": f"{strike} {kind}" if strike else "",
+        "opened_at": first.get("timestamp") or key,
+        "closed_at": last_round.get("exit_timestamp") or status.get("exit_timestamp"),
+        "status": state,
+        "exit_reason": last_round.get("exit_reason") or status.get("exit_reason") or (None if fills else "no_buy"),
+        "buys": len(fills),
+        "deployed_inr": _sum("deployed_inr"),
+        "gross_pnl": _sum("gross_pnl"),
+        "costs_total": _sum("costs_total"),
+        "net_pnl": _sum("net_pnl"),
+        "source": "live",
+        "payload": {
+            "mother_timestamp": status.get("mother_timestamp"),
+            "anchor": status.get("anchor"),
+            "rounds": rounds,
+            "fills": fills,
+            "events": status.get("events") or [],
+            "engine": dict(engine_snapshot) if engine_snapshot else None,
+        },
+    }
+
+
+async def _write_paper_campaign_row(user_id: int, strategy: str, row: Mapping[str, Any]) -> None:
+    """The write half, shared by every strategy's row builder."""
     seen = (int(user_id), strategy, row["campaign_key"], _paper_ledger_fingerprint(row))
     if seen in _paper_ledger_written:
         return
@@ -1930,6 +1981,21 @@ async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[s
             row["buys"],
             row["net_pnl"],
         )
+
+
+async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any], engine: Any = None) -> None:
+    """Write a finished campaign to the ledger. Never lets a save fail on it."""
+    snapshot = None
+    if engine is not None:
+        try:
+            snapshot = engine.to_dict()
+        except Exception:  # a chart is worth less than the archive itself
+            snapshot = None
+    builder = _fib_boundary_campaign_row if strategy == "fib_boundary" else _paper_campaign_row
+    row = builder(status, engine_snapshot=snapshot)
+    if row is None:
+        return
+    await _write_paper_campaign_row(int(user_id), strategy, row)
 
 
 async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:

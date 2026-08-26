@@ -54,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260826-fib-consolidated-5" in MANIFEST
+    assert "20260826-ledger-outlives-6" in MANIFEST
