@@ -1855,7 +1855,9 @@ def _paper_ledger_fingerprint(row: Mapping[str, Any]) -> str:
     return f"{row.get('status')}|{row.get('net_pnl')}|{row.get('closed_at')}|{row.get('buys')}"
 
 
-def _paper_campaign_row(status: Mapping[str, Any], *, source: str = "live") -> dict | None:
+def _paper_campaign_row(
+    status: Mapping[str, Any], *, source: str = "live", engine_snapshot: Mapping[str, Any] | None = None
+) -> dict | None:
     """Fold one engine's status into a ledger row, or None if it is not done."""
     state = str(status.get("status") or "").upper()
     if state not in _PAPER_TERMINAL_STATES:
@@ -1889,15 +1891,90 @@ def _paper_campaign_row(status: Mapping[str, Any], *, source: str = "live") -> d
             "exit": exit_row,
             "fills": fills,
             "rounds": status.get("rounds") or [],
+            # THE ENGINE, AS IT STOOD WHEN IT FINISHED. The chart is drawn by
+            # `ladder_chart`, which wants the ladder object itself -- so keeping
+            # the snapshot lets a closed campaign be redrawn through the SAME
+            # renderer as a live one, instead of a second drawing path that
+            # would drift from it. A campaign rebuilt from prices has no engine
+            # to keep, and says so by not offering a chart.
+            "engine": dict(engine_snapshot) if engine_snapshot else None,
         },
     }
 
 
-async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any]) -> None:
-    """Write a finished campaign to the ledger. Never lets a save fail on it."""
-    row = _paper_campaign_row(status)
-    if row is None:
-        return
+def _fib_boundary_campaign_row(
+    status: Mapping[str, Any], *, engine_snapshot: Mapping[str, Any] | None = None
+) -> dict | None:
+    """Fold a finished Fib Boundary ladder into a ledger row.
+
+    ITS STATUS IS FLAT, NOT NESTED. The ladder reports `mother_timestamp`,
+    `exit_timestamp` and `rounds` where the Candle Entry shape reports
+    `mother{}`, `exit{}` and `contract{}`, so the generic builder read an empty
+    mother, found no campaign key and archived NOTHING -- every Fib campaign
+    ever closed was dropped on the floor, silently, exactly the way Gap Carry's
+    nights were (2026-08-26). A ladder also banks ROUNDS: the money is their
+    sum, not the last one's.
+    """
+    state = str(status.get("status") or "").upper()
+    if state not in _PAPER_TERMINAL_STATES:
+        return None
+    key = str(status.get("mother_timestamp") or status.get("exit_timestamp") or "")
+    if not key:
+        return None
+    rounds = [dict(row) for row in (status.get("rounds") or [])]
+    # `fills` is cleared when a mother parks, so a banked round carries its own.
+    fills = [dict(f) for row in rounds for f in (row.get("fills") or [])]
+    fills += [dict(f) for f in (status.get("fills") or [])]
+    fills.sort(key=lambda f: str(f.get("timestamp") or ""))
+    first = fills[0] if fills else {}
+    strike, kind = first.get("strike"), first.get("option_type") or "CE"
+
+    def _sum(field: str) -> float | None:
+        values = [row.get(field) for row in rounds if row.get(field) is not None]
+        if values:
+            return round(sum(float(v) for v in values), 2)
+        top = status.get(field)
+        return None if top is None else round(float(top), 2)
+
+    last_round = rounds[-1] if rounds else {}
+    return {
+        "campaign_key": key,
+        "symbol": str(status.get("symbol") or ""),
+        "contract": f"{strike} {kind}" if strike else "",
+        "opened_at": first.get("timestamp") or key,
+        "closed_at": last_round.get("exit_timestamp") or status.get("exit_timestamp"),
+        "status": state,
+        "exit_reason": last_round.get("exit_reason") or status.get("exit_reason") or (None if fills else "no_buy"),
+        "buys": len(fills),
+        "deployed_inr": _sum("deployed_inr"),
+        "gross_pnl": _sum("gross_pnl"),
+        "costs_total": _sum("costs_total"),
+        "net_pnl": _sum("net_pnl"),
+        "source": "live",
+        "payload": {
+            "mother_timestamp": status.get("mother_timestamp"),
+            "anchor": status.get("anchor"),
+            "rounds": rounds,
+            "fills": fills,
+            "events": status.get("events") or [],
+            "engine": dict(engine_snapshot) if engine_snapshot else None,
+            # WHAT IT TAKES TO REDRAW THIS LADDER. The chart route recomputes
+            # geometry from the candle stream alone, so a finished campaign
+            # redraws exactly from these four -- no second renderer, and no
+            # engine to rebuild.
+            "chart": {
+                "symbol": str(status.get("symbol") or "NIFTY"),
+                "side": str(status.get("side") or "CE"),
+                "timeframe": str(status.get("timeframe") or "1m"),
+                "buy_mode": str(status.get("buy_mode") or "levels"),
+                "mother_timestamp": status.get("mother_timestamp"),
+            },
+        },
+    }
+
+
+async def _write_paper_campaign_row(user_id: int, strategy: str, row: Mapping[str, Any]) -> None:
+    """The write half, shared by every strategy's row builder."""
     seen = (int(user_id), strategy, row["campaign_key"], _paper_ledger_fingerprint(row))
     if seen in _paper_ledger_written:
         return
@@ -1917,6 +1994,21 @@ async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[s
         )
 
 
+async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any], engine: Any = None) -> None:
+    """Write a finished campaign to the ledger. Never lets a save fail on it."""
+    snapshot = None
+    if engine is not None:
+        try:
+            snapshot = engine.to_dict()
+        except Exception:  # a chart is worth less than the archive itself
+            snapshot = None
+    builder = _fib_boundary_campaign_row if strategy == "fib_boundary" else _paper_campaign_row
+    row = builder(status, engine_snapshot=snapshot)
+    if row is None:
+        return
+    await _write_paper_campaign_row(int(user_id), strategy, row)
+
+
 async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:
     """Gap Carry settles a NIGHT, not a campaign, so each closed one is a row.
 
@@ -1929,18 +2021,23 @@ async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> 
             continue
         entry = night.get("entry") or {}
         exit_row = night.get("exit") or {}
+        # THE KEYS ARE as_dict's, NOT to_dict's. The position is persisted FLAT
+        # (entry_premium, exit_timestamp, charges) but reported NESTED, and
+        # reading one shape with the other's names is silent: the money still
+        # arrived, so the row looked right while its closed_at and its charges
+        # came back empty. `timestamp`, not `at`; `charges`, not `costs`.
         row = {
             "campaign_key": session,
             "symbol": str(night.get("symbol") or "NIFTY"),
             "contract": f"{night.get('strike', '')} {night.get('side') or 'CE'}",
-            "opened_at": entry.get("at") or session,
-            "closed_at": exit_row.get("at"),
+            "opened_at": entry.get("timestamp") or session,
+            "closed_at": exit_row.get("timestamp"),
             "status": "CLOSED",
             "exit_reason": exit_row.get("reason") or ("at intrinsic" if exit_row.get("priced") is False else None),
             "buys": 1,
-            "deployed_inr": None,
+            "deployed_inr": entry.get("capital"),
             "gross_pnl": night.get("gross"),
-            "costs_total": night.get("costs"),
+            "costs_total": night.get("charges"),
             "net_pnl": night.get("net"),
             "source": "live",
             "payload": dict(night),
@@ -1966,7 +2063,7 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
     )
     runtime = _candle_entry_engines.get(int(user_id))
     if runtime is not None:
-        await _archive_paper_campaign(int(user_id), "candle_entry", runtime.engine.get_status())
+        await _archive_paper_campaign(int(user_id), "candle_entry", runtime.engine.get_status(), runtime.engine)
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
@@ -2005,7 +2102,7 @@ async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) ->
     await _db_mod.set_app_state(_fib_boundary_open_state_key(user_id), json.dumps(payload, default=str))
     _fib_boundary_open_state_last_save[int(user_id)] = now
     for _symbol, runtime in sorted(runtimes.items()):
-        await _archive_paper_campaign(int(user_id), "fib_boundary", runtime.engine.get_status())
+        await _archive_paper_campaign(int(user_id), "fib_boundary", runtime.engine.get_status(), runtime.engine)
 
 
 async def _restore_candle_entry_open_state(
@@ -11201,6 +11298,99 @@ async def paper_campaigns_closed(strategy: str, request: Request):
     }
 
 
+@app.get("/api/paper-campaigns/{strategy}/{campaign_id}/chart")
+async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request, timeframe: str = ""):
+    """A FINISHED campaign, redrawn from the engine it ended as.
+
+    Frozen by construction: the ladder comes from the snapshot stored when the
+    campaign closed, not from anything still running, so it draws the same after
+    the next mother has replaced it -- which is the whole point, given the last
+    one was destroyed before it could ever be looked at.
+
+    It goes through `_candle_entry_charts`, the renderer the live chart and the
+    Test Bench already use. A campaign rebuilt from recorded prices kept no
+    engine and is refused here rather than drawn from a guess.
+    """
+    key = str(strategy or "").replace("-", "_").lower()
+    if key not in _PAPER_LEDGER_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy '{strategy}'.")
+    user_id = _request_user_id(request)
+    row = await _db_mod.get_paper_campaign(user_id, campaign_id)
+    if row is None or str(row.get("strategy")) != key:
+        raise HTTPException(status_code=404, detail="No such archived campaign.")
+    snapshot = (row.get("payload") or {}).get("engine")
+    if not snapshot:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This campaign was rebuilt from recorded prices after its own state had been "
+                "overwritten, so there is no ladder to draw. Its buys and settlement are in the table."
+            ),
+        )
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+
+    if key == "gap_carry":
+        # ONE NIGHT, REBUILT AND REDRAWN. The live route can only draw what is
+        # in the engine registry right now, so a settled night was undrawable
+        # the moment the next one started. The engine comes back from its own
+        # snapshot and goes through the SAME payload builder the live chart
+        # uses (Phil, 2026-08-26: the frozen chart on the other three).
+        try:
+            engine = _gap_carry_mod.GapCarryPaper.from_dict(snapshot)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Stored night could not be read back: {exc}") from exc
+        night_key = _gap_carry_timeframe(timeframe or engine.config.timeframe)
+        try:
+            rows = await _gap_carry_load_candles(adapter, night_key, days=_GAP_CARRY_CHART_DAYS)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {night_key} candles: {exc}") from exc
+        if not rows:
+            raise HTTPException(status_code=503, detail=f"No closed NIFTY {night_key} candles to draw.")
+        payload = _gap_carry_chart_payload(engine, rows, night_key)
+        payload["net_pnl"] = row.get("net_pnl")
+        payload["frozen"] = True
+        return payload
+
+    if key != "candle_entry":
+        # Fib Boundary redraws through its own chart route, which recomputes
+        # geometry from the candle stream and so reproduces a past mother
+        # exactly; High Entry keeps its campaigns in its own book and charts
+        # them from there. Neither needs an engine rebuilt here.
+        raise HTTPException(status_code=501, detail=f"No chart for archived {key} campaigns yet.")
+    try:
+        engine = LadderCandleEntryPaper.from_dict(snapshot, adapter=adapter)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Stored campaign could not be read back: {exc}") from exc
+    tf = str(timeframe or engine.timeframe).strip().lower()
+    if tf not in engine.stages:
+        raise HTTPException(status_code=400, detail=f"This ladder's charts are {', '.join(engine.stages)}.")
+    # The window is the campaign's own: its mother through the day it ended.
+    until = engine.contract.expiry
+    raw_closed = str(row.get("closed_at") or "")
+    if raw_closed:
+        try:
+            until = datetime.fromisoformat(raw_closed.replace("Z", "+00:00")).date()
+        except ValueError:
+            pass
+    try:
+        rows = await adapter.async_get_candles("NIFTY", tf, from_date=engine.mother.timestamp.date(), to_date=until)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {tf} candles: {exc}") from exc
+    return {
+        "status": "ok",
+        "frozen": True,
+        "timeframe": tf,
+        "stages": list(engine.stages),
+        "mother_timestamp": engine.mother.timestamp.isoformat(),
+        "campaign_status": row.get("status"),
+        "net_pnl": row.get("net_pnl"),
+        "chart": _candle_entry_charts(engine, {tf: rows})[tf],
+    }
+
+
 @app.get("/api/candle-entry/paper/status")
 async def candle_entry_paper_status(request: Request):
     user_id = _request_user_id(request)
@@ -11260,7 +11450,7 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
     if old is not None and old.running:
         raise HTTPException(
             status_code=409,
-            detail="A Candle Entry campaign is already running. Kill it before replacing its mother.",
+            detail="A campaign is already running. Kill it first.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     box_window: list = []
@@ -12627,7 +12817,7 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     if existing is not None and existing.running and existing.engine.status not in _GAP_CARRY_TERMINAL:
         raise HTTPException(
             status_code=409,
-            detail="A Gap Carry campaign is already running. Kill it before starting another.",
+            detail="A campaign is already running. Kill it first.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     rows = await _gap_carry_load_candles(adapter, config.timeframe)
@@ -12705,7 +12895,13 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
     today = now.date().isoformat()
     if setting.get("skipped_day") == today:
         return "day-skipped"
-    broker_client, _source = await _resolve_user_broker_client(user)
+    # NOT awaited: _resolve_user_broker_client is a plain function returning a
+    # tuple. The await made every tick of this loop raise "object tuple can't
+    # be used in 'await' expression" -- silently, every 15 seconds, since at
+    # least 25 Aug. That morning's entry only happened because a manually
+    # started campaign's own poll loop was still alive to take it; the first
+    # session where the auto step was the ONLY entry path lost its trade.
+    broker_client, _source = _resolve_user_broker_client(user)
     if broker_client is None:
         return "no-broker"
     runtime = await _restore_gap_carry_open_state(uid, broker_client, activate=True)
@@ -12999,6 +13195,17 @@ async def gap_carry_paper_chart(request: Request, timeframe: str = ""):
     rows = await _gap_carry_load_candles(runtime.adapter, key, days=_GAP_CARRY_CHART_DAYS)
     if not rows:
         raise HTTPException(status_code=503, detail=f"No closed NIFTY {key} candles to draw.")
+    return _gap_carry_chart_payload(engine, rows, key)
+
+
+def _gap_carry_chart_payload(engine, rows: list, key: str) -> dict:
+    """One night drawn on its candles, for the live chart and the frozen one.
+
+    Lifted out of the live route unchanged so an archived night is drawn by
+    the SAME builder the running one uses -- a second one would be free to
+    drift, and the whole point of a frozen chart is that it still shows what
+    the campaign actually did.
+    """
     pos = engine.position or (engine.history[-1] if engine.history else None)
 
     lines, entries, exits = [], [], []

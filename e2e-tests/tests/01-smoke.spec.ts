@@ -1219,6 +1219,11 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
 
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
 
+  // The rule switches live in the Advanced fold now, as they do on every other
+  // strategy panel (Phil, 2026-08-26: uniformity across all four) -- open it
+  // before touching them.
+  await page.evaluate(() => { const d = document.getElementById('oc-fib-advanced') as HTMLDetailsElement; if (d) d.open = true; });
+
   // All five instruments Phil asked for, NIFTY first.
   await expect(page.locator('#oc-fib-symbol option')).toHaveCount(5);
   await expect(page.locator('#oc-fib-symbol')).toHaveValue('NIFTY');
@@ -1452,7 +1457,7 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // Start is fail-closed for the selected instrument while its ladder runs,
   // and the button names exactly what must happen first.
   await expect(page.locator('#oc-fib-start')).toBeDisabled();
-  await expect(page.locator('#oc-fib-start')).toContainText('Kill the NIFTY ladder first');
+  await expect(page.locator('#oc-fib-start')).toContainText('Running · NIFTY');
   // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
   await expect(page.locator('#oc-fib-blocked table')).toBeVisible();
   await expect(page.locator('#oc-fib-blocked')).toContainText('NIFTY');
@@ -1652,6 +1657,10 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // Fib Boundary and Fib Space became ONE engine on 2026-08-15. The switch was
   // built into it and wired to nothing -- the page could only ever start one of
   // the two halves.
+  // The rule switches live in the Advanced fold now, as they do on every other
+  // strategy panel (Phil, 2026-08-26: uniformity across all four) -- open it
+  // before touching them.
+  await page.evaluate(() => { const d = document.getElementById('oc-fib-advanced') as HTMLDetailsElement; if (d) d.open = true; });
   await expect(page.locator('#oc-fib-buy-mode')).toHaveValue('levels');
   await expect(page.locator('#oc-fib-levels-hint')).toContainText('L2·L3·L4·L6·L8·L12·L16');
   await page.click('#oc-fib-buy-mode-toggle [data-value="convergence"]');
@@ -1779,7 +1788,7 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
   // The monitor must render from a not_started payload rather than staying blank
   // -- a JS typo here leaves an empty panel that a green Python run never catches.
   await expect(page.locator('#oc-high-badge')).toHaveText('IDLE');
-  await expect(page.locator('#oc-high-rows')).toContainText('Nothing running');
+  await expect(page.locator('#oc-high-rows')).toContainText('Not running');
   await expect(page.locator('#oc-high-start')).toBeVisible();
   await expect(page.locator('#oc-high-stop')).toBeHidden();
 

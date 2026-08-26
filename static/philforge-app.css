@@ -1,4 +1,15 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* THE SCROLLBAR KEEPS ITS LANE. Without this the bar appears the moment a
+     fold pushes the page past the viewport and vanishes when it folds back,
+     and the whole layout jumps sideways by its width every time -- half of
+     what reads as "an impact on the entire page" when a panel is toggled.
+     DESKTOP ONLY: a phone draws its scrollbar over the page rather than in
+     the layout, so there is no jump to prevent there -- and reserving the
+     lane anyway took 5px off a 390px screen, which is a real cost for
+     nothing. */
+  @media (min-width: 768px) {
+    html { scrollbar-gutter: stable; }
+  }
   :root {
     --brand-rail-space: 206px;
     --shell-gutter: 14px;
@@ -6249,7 +6260,31 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-advanced-state { font-weight:600; }
 .ocp-advanced-state.is-changed { color:#fde68a; }
 .ocp-advanced.is-changed { border-color: rgba(253,230,138,.38); }
-.ocp-advanced-body { padding: 2px 12px 12px; }
+/* THE FOLD OPENS, IT DOES NOT SNAP. Advanced added its whole height in one
+   frame -- 384px on Candle Entry -- so every press shoved the rest of the page
+   and read as the layout breaking rather than a panel opening (Phil,
+   2026-08-26: "it completely feels an impact on the entire page"). Same
+   0fr->1fr the monitor fold already uses. `details` keeps the body in the box
+   while open, so the row transition is all that is needed. */
+.ocp-advanced[open] > .ocp-advanced-body,
+.ocp-advanced > .ocp-advanced-body { padding: 2px 12px 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ocp-advanced > .ocp-advanced-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    transition: grid-template-rows .24s cubic-bezier(.2,.8,.2,1), padding .24s cubic-bezier(.2,.8,.2,1), opacity .16s ease;
+  }
+  .ocp-advanced[open] > .ocp-advanced-body {
+    grid-template-rows: 1fr;
+    padding: 2px 12px 12px;
+    opacity: 1;
+  }
+  .ocp-advanced > .ocp-advanced-body > * { min-height: 0; }
+}
 .ocp-advanced-body .ocp-switch-grid { margin-top:4px; }
 [data-theme="light"] .ocp-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
 /* The auto mother's card: on/off, what it is waiting for, the recent chain. */
@@ -6257,7 +6292,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-auto-card.is-on { border-color: rgba(52,211,153,.42); }
 .ocp-auto-card[hidden] { display:none; }
 .ocp-auto-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--text); }
-.ocp-auto-head > span { color:var(--muted); flex:1 1 auto; }
+/* Only a SUBTITLE span stretches; the ON/OFF badge must stay a chip. The
+   old bare `> span` rule inflated the badge into a row-wide ellipse
+   (Phil, 2026-08-26: "The ON is having a elliptical round fully occupying
+   unwanted spaces"). */
+.ocp-auto-head > span:not(.ocp-auto-badge) { color:var(--muted); flex:1 1 auto; }
+.ocp-auto-head .ocp-auto-badge { flex:0 0 auto; }
+.ocp-auto-head > :last-child { margin-left:auto; }
 .ocp-auto-alert { margin-top:5px; color:#f59e0b; }
 .ocp-auto-chain { width:100%; border-collapse:collapse; margin-top:6px; }
 .ocp-auto-chain th, .ocp-auto-chain td { padding:3px 6px; text-align:right; border-bottom:1px solid rgba(148,163,184,.12); white-space:nowrap; }
@@ -6273,13 +6314,21 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    The form is a fixed, readable column on the left and stays in place while
    the live column scrolls; the monitor, its Chart button and the backtest
    own the right. Below 1280px nothing changes: one column, form first. */
-.ocp-panes { display:block; }
+/* Both columns start 12px below the recipe. The form's essentials carried
+   their own 12px while the live column started at 0, so its first bordered
+   card touched the recipe strip and the two columns never lined up
+   (Phil, 2026-08-26: "There is a alignment missing... space is missing"). */
+.ocp-panes { display:block; margin-top:12px; }
+.ocp-pane-form > .ocp-essentials:first-child { margin-top:0; }
 .ocp-pane { min-width:0; }
-@media (min-width: 1280px) {
-  /* The live column decides the split: the ladder needs ~745px for its nine
-     columns, so between 1280 and 1440 the form gives up width rather than
-     pushing the money behind a sideways scroll. */
-  .ocp-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
+@media (min-width: 1080px) {
+  /* THE TWO COLUMNS START AT 1080, NOT 1280. Above the old breakpoint the
+     live column sat beside the form; on a window any narrower it dropped
+     UNDERNEATH it, which is where Phil kept finding the auto mother and its
+     chain (2026-08-26: "Never asked you to put it under the form"). The
+     tables each scroll inside their own wrap, so a 640px live column costs a
+     sideways scroll on the widest table rather than the whole layout. */
+  .ocp-panes { display:grid; grid-template-columns: minmax(0,320px) minmax(0,1fr); gap:18px; align-items:start; }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
   .ocp-pane-form #oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields,
@@ -6301,8 +6350,17 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .ocp-pane-form #oc-high-advanced .ocp-switch-grid { grid-template-columns: minmax(0,1fr); }
   .ocp-pane-live > .ocp-monitor:first-child,
   .ocp-pane-live > .ocp-auto-card:first-child { margin-top:0; }
+  /* Fib's banner nests one level deeper (inside its per-ladder rows column),
+     so the same reset has to reach it there too or its top sits 10px lower
+     than every other tab's. */
+  .ocp-pane-live > .oc-fib-rows > .ocp-auto-card:first-child { margin-top:0; }
 }
 
+@media (min-width: 1280px) {
+  /* Back to the old split once there is room for it: the ladder needs ~745px
+     for its nine columns, so from here the form gives the width back. */
+  .ocp-panes { grid-template-columns: minmax(0,400px) minmax(0,1fr); }
+}
 @media (min-width: 1440px) {
   .ocp-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
 }
@@ -6579,21 +6637,16 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* The COLUMN holds the grid slot now, not one panel: a user can run one ladder
    per instrument, and each gets its own monitor stacked inside that slot. */
 #options-cascade-page .oc-fib-rows {
-  grid-column: 2;
-  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  /* The monitor column is as tall as the setup form beside it, and every OPEN
-     monitor scrolls INSIDE its own card (Phil, 2026-08-18: "the scroll bar
-     inside the panel, not outside" -- and no void under the form). Size
-     containment keeps the column's content out of the row's height, so the
-     row is the form's height; the cards share it and each body scrolls. */
-  align-self: stretch;
-  contain: size;
-  min-height: 460px;
-  overflow: hidden;
+  /* The old grid-era sizing (contain:size, min-height:460px, overflow:hidden)
+     matched this column's height to the form beside it. Inside the ocp pane it
+     became a FIXED 460px box that ignored its own content and clipped the
+     monitor with no scrollbar (Phil, 2026-08-26: "Not even able scroll the
+     NIFTY CE monitor"). The pane flows; a tall OPEN monitor still scrolls
+     inside its own card via the body-inner max-height below. */
 }
 #options-cascade-page .oc-fib-setup-card { margin-bottom: 0; }  /* bottoms flush with the monitors */
 #options-cascade-page .oc-fib-monitor-window {
@@ -6660,16 +6713,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 }
 /* Open: the body is the scroll region, so the bar sits inside the card. */
 #options-cascade-page .oc-fib-monitor-window[open] > .cascade-options-window-body > .oc-fib-monitor-body-inner {
+  max-height: 64vh;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(148,163,184,.28) transparent;
 }
-/* Each ladder gets its own results + events pair, so the pairs stack too. No
-   gap here: .oc-fib-lower-grid already carries margin-top:14px, and both would
-   double the space between pairs. */
-#options-cascade-page #oc-fib-lower { display: grid; gap: 0; }
 #options-cascade-page .oc-fib-monitor-window.is-active {
   border-color: rgba(52,211,153,.52);
   box-shadow: 0 0 0 1px rgba(52,211,153,.12), 0 12px 30px -23px rgba(52,211,153,.55);
@@ -6703,8 +6753,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 
 /* The auto-mother watch card. It sits at the TOP OF THE MONITOR COLUMN, not
    under the form: between campaigns it is what there is to watch. */
-#options-cascade-page .oc-fib-auto-card { display: grid; gap: 8px; }
-#options-cascade-page .oc-fib-auto-card:empty { display: none; }
+/* (the fib auto banner uses .ocp-auto-card, the same strip as Gap Carry) */
+#options-cascade-page #oc-fib-auto-card:empty { display: none; }
 #options-cascade-page .ocp-auto-card { border: 1px solid rgba(148,163,184,.18); border-radius: 12px; padding: 13px 15px; background: rgba(7,16,29,.45); font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
 #options-cascade-page .ocp-auto-card.is-on { border-color: rgba(52,211,153,.42); }
 #options-cascade-page .ocp-auto-head { display: flex; align-items: center; gap: 10px; }
@@ -6768,7 +6818,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 }
 #options-cascade-page .oc-fib-lower-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(310px, .7fr);
+  /* One column: the pair lives inside the ~800px live pane now, stacked like
+     every other panel's monitor sections, not side by side across the page. */
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-top: 14px;
   align-items: start;

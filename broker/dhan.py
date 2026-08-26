@@ -424,17 +424,82 @@ def enable_marketfeed_throttle(on: bool = True):
     _mf_throttle_enabled = on
 
 
+_mf_lock = threading.Lock()
+# The floor is ALWAYS on. The 1s throttle used to apply only while a live scalp
+# trade was open, so every other caller burst freely -- and the header quotes,
+# the monitors' marks and the movers panel landing in the same second produced
+# 2,400+ marketfeed 429s in three days. 0.3s collapses the bursts without
+# slowing any single caller a human would notice.
+_MF_FLOOR_INTERVAL: float = 0.3
+
+
 def _throttle_marketfeed():
-    """Block until at least _MF_MIN_INTERVAL has elapsed since the last marketfeed call.
-    Only active when a live scalp trade is open."""
-    if not _mf_throttle_enabled:
-        return
+    """Space marketfeed REST calls process-wide: 1s while a live scalp trade is
+    open (Dhan's own cadence for order-adjacent data), a 0.3s floor otherwise."""
     global _mf_last_call
-    now = _time.monotonic()
-    wait = _MF_MIN_INTERVAL - (now - _mf_last_call)
-    if wait > 0:
-        _time.sleep(wait)
-    _mf_last_call = _time.monotonic()
+    interval = _MF_MIN_INTERVAL if _mf_throttle_enabled else _MF_FLOOR_INTERVAL
+    with _mf_lock:
+        now = _time.monotonic()
+        wait = interval - (now - _mf_last_call)
+        if wait > 0:
+            _time.sleep(wait)
+        _mf_last_call = _time.monotonic()
+
+
+# ── The charts endpoints: paced, and briefly cached ──────────────────────────
+# Six strategy loops poll candles every 10-20 seconds, and several of them ask
+# for the SAME series (NIFTY 5m, today) within the same second. Unpaced, the
+# bursts drew ~3,200 charts 429s in three days; retried, but each retry sleeps
+# a worker thread and enough of them in a row open the circuit breaker, which
+# then starves every strategy at once. Two layers, both at the single choke
+# point every caller already funnels through:
+#   * a process-wide pacer, so charts calls leave at most ~3/second;
+#   * an 8s result cache keyed on the exact request, so N loops asking the
+#     same question inside one bar cost ONE call. 8s is under half the
+#     fastest poll (10s): a loop never sees data older than its own cadence.
+_charts_lock = threading.Lock()
+_charts_last_call: float = 0.0
+_CHARTS_MIN_INTERVAL: float = 0.35
+
+_candles_cache: Dict[tuple, tuple] = {}
+_candles_cache_lock = threading.Lock()
+_CANDLES_CACHE_TTL: float = 8.0
+_CANDLES_CACHE_MAX: int = 256
+
+
+def _throttle_charts():
+    """Space /charts/* calls process-wide. Sleeping INSIDE the lock is the
+    point: concurrent callers queue and leave evenly spaced."""
+    global _charts_last_call
+    with _charts_lock:
+        now = _time.monotonic()
+        wait = _CHARTS_MIN_INTERVAL - (now - _charts_last_call)
+        if wait > 0:
+            _time.sleep(wait)
+        _charts_last_call = _time.monotonic()
+
+
+def _candles_cache_get(key: tuple):
+    with _candles_cache_lock:
+        hit = _candles_cache.get(key)
+        if hit is None:
+            return None
+        stamped, df = hit
+        if _time.monotonic() - stamped > _CANDLES_CACHE_TTL:
+            _candles_cache.pop(key, None)
+            return None
+        return df.copy()
+
+
+def _candles_cache_put(key: tuple, df) -> None:
+    with _candles_cache_lock:
+        now = _time.monotonic()
+        if len(_candles_cache) >= _CANDLES_CACHE_MAX:
+            for stale in [k for k, (t, _d) in _candles_cache.items() if now - t > _CANDLES_CACHE_TTL]:
+                _candles_cache.pop(stale, None)
+            if len(_candles_cache) >= _CANDLES_CACHE_MAX:
+                _candles_cache.clear()  # a full cache of live keys cycles in 8s anyway
+        _candles_cache[key] = (now, df.copy())
 
 
 def _request_with_retry(
@@ -1222,8 +1287,16 @@ class DhanClient:
         }
         _dlog.debug(f"[DHAN] POST {endpoint} payload_keys={list(_safe.keys())}")
 
+        # The cache first, breaker second: a fresh answer (≤8s) is served even
+        # while the breaker is open, so a burst of 429s no longer blinds every
+        # strategy at once.
+        cache_key = (endpoint, tuple(sorted((k, str(v)) for k, v in payload.items())))
+        cached = _candles_cache_get(cache_key)
+        if cached is not None:
+            return cached
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker is OPEN — skipping candle fetch")
+        _throttle_charts()
         try:
             resp = _request_with_retry(
                 "POST",
@@ -1287,6 +1360,7 @@ class DhanClient:
         df.sort_index(inplace=True)
 
         print(f"[DHAN] ✅ Got {len(df)} candles: {df.index[0]} → {df.index[-1]}")
+        _candles_cache_put(cache_key, df)
         return df
 
     def get_rolling_option_data(
@@ -1341,6 +1415,7 @@ class DhanClient:
 
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker is OPEN — skipping rolling option fetch")
+        _throttle_charts()
         try:
             resp = _request_with_retry(
                 "POST",

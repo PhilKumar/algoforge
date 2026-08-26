@@ -977,6 +977,9 @@ class FibTouchLadder:
         self._last_fill_timestamp: Optional[datetime] = None
         self.exit_timestamp: Optional[datetime] = None
         self.exit_reason: Optional[str] = None
+        # The last mark-to-market of the open legs. Kept rather than recomputed
+        # per read: a status poll must never cost a broker quote.
+        self._last_mark: Optional[dict[str, Any]] = None
         self.exit_index: Optional[float] = None
         self.gross_pnl: Optional[float] = None
         self.costs_total: Optional[float] = None
@@ -1906,6 +1909,71 @@ class FibTouchLadder:
         self.costs_total = round(sum(row["costs_total"] for row in self.rounds), 2)
         self.net_pnl = round(self.gross_pnl - self.costs_total, 2)
 
+    def mark_open(self, at: datetime) -> Optional[dict[str, Any]]:
+        """The legs this ladder still holds, priced as if sold at `at`.
+
+        Fib Boundary reported deployed capital and nothing else, so an open
+        campaign looked identical whether it was up or down -- the one number
+        a running ladder is watched for was the one it would not say (Phil,
+        2026-08-26: "Need Open trades ... with current P&L"). Gap Carry and
+        Candle Entry already mark; this is the same arithmetic, charged on the
+        round trip so the figure is what selling would BOOK, not a gross that
+        flatters it.
+
+        `net_pnl` is None when any held leg has no quote: one unpriced leg
+        makes the basket a guess, and a guess must not be shown as money. The
+        legs still come back so the table can show what did price.
+        """
+        if not self.fills or self.exit_timestamp is not None:
+            return None
+        groups: dict[tuple[float, date], list[TouchFill]] = {}
+        for fill in self.fills:
+            groups.setdefault((fill.strike, fill.expiry), []).append(fill)
+        quotes: dict[tuple[float, date], Optional[float]] = {}
+        for key in groups:
+            try:
+                quotes[key] = self.premium_lookup(at, key[0], key[1], self.side)
+            except Exception:  # a quote is never worth losing the poll over
+                quotes[key] = None
+        priced = all(value is not None for value in quotes.values())
+        legs: list[dict[str, Any]] = []
+        pairs: list[tuple[TouchFill, float]] = []
+        gross = 0.0
+        deployed = 0.0
+        for key, fills in groups.items():
+            quote = quotes[key]
+            quantity = sum(fill.quantity for fill in fills)
+            paid = sum(float(fill.premium) * fill.quantity for fill in fills)
+            deployed += paid
+            leg_gross = (
+                sum((float(quote) - float(fill.premium)) * fill.quantity for fill in fills)
+                if quote is not None
+                else None
+            )
+            legs.append(
+                {
+                    "strike": key[0],
+                    "expiry": key[1].isoformat(),
+                    "option_type": self.side,
+                    "quantity": quantity,
+                    "paid": round(paid / quantity, 2) if quantity else None,
+                    "mark": round(float(quote), 2) if quote is not None else None,
+                    "gross_pnl": round(leg_gross, 2) if leg_gross is not None else None,
+                }
+            )
+            if quote is not None:
+                gross += float(leg_gross)
+                pairs.extend((fill, float(quote)) for fill in fills)
+        costs = round(self._costs_for(pairs), 2) if priced and pairs else None
+        return {
+            "at": at.isoformat(),
+            "legs": legs,
+            "deployed_inr": round(deployed, 2),
+            "gross_pnl": round(gross, 2) if priced else None,
+            "costs_total": costs,
+            "net_pnl": round(gross - costs, 2) if priced and costs is not None else None,
+        }
+
     def _costs_for(self, pairs: Sequence[tuple[TouchFill, float]]) -> float:
         """Statutory round costs, charged per contract the basket holds."""
         from cascade_costs import (
@@ -2132,8 +2200,14 @@ class FibTouchLadder:
             self._advance_turn(bar)
             self._try_fill(bar)
         if self._try_exit(bar):
+            self._last_mark = None
             return
         self._try_expiry_exit(bar)
+        # WHAT THE OPEN BASKET IS WORTH, refreshed on the bar rather than on
+        # the status poll: the page reads this several times a second and a
+        # quote per read would be a rate-limit storm. Nothing held, nothing to
+        # mark.
+        self._last_mark = self.mark_open(bar.timestamp) if self.fills else None
 
     def _deep_carry_holds(self, bar: Bar) -> bool:
         """Is this the mother's own day, with a deep basket still on?
@@ -2698,6 +2772,9 @@ class FibTouchLadder:
             "rearm_below": self._rearm_below,
             "capital_cap_inr": self.config.capital_cap_inr,
             "deployed_inr": self.deployed_inr,
+            # WHAT THE OPEN LEGS ARE WORTH NOW. None once nothing is held, or
+            # when a leg has no quote -- see mark_open.
+            "mark": self._last_mark,
             "remaining_inr": self.remaining_inr,
             "open_lots": self.open_lots,
             "open_quantity": self.open_quantity,
