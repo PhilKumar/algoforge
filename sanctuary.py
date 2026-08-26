@@ -949,7 +949,8 @@ async def statement_rule(request: Request, user: dict = Depends(_unlocked_user))
     if category not in {c["name"] for c in categories} and len(categories) < 100:
         categories.append({"name": category, "emoji": "🏷️", "kind": "expense", "quick": False})
         await sanctuary_db.set_json_state(user_id, "categories", categories)
-    moved = await sanctuary_db.recategorise_uncategorised(user_id, match, category)
+    from_category = str(payload.get("from_category") or "Uncategorised").strip()[:60]
+    moved = await sanctuary_db.recategorise_matching(user_id, match, category, from_category)
     return {"moved": moved, "rules": len(rules)}
 
 

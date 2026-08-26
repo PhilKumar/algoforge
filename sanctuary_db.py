@@ -268,16 +268,18 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
     return len(fresh)
 
 
-async def recategorise_uncategorised(user_id: int, match: str, category: str) -> int:
-    """Move every Uncategorised row whose note carries the match."""
+async def recategorise_matching(user_id: int, match: str, category: str, from_category: str = "Uncategorised") -> int:
+    """Move every row in from_category whose note carries the match — the
+    default splits the unsorted pile, a named source splits an existing
+    category (two loans from one lender, told apart by mandate number)."""
     if not match.strip():
         return 0
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             """UPDATE sanctuary_ledger SET category = ?
-               WHERE user_id = ? AND category = 'Uncategorised'
+               WHERE user_id = ? AND category = ?
                  AND instr(lower(note), lower(?)) > 0""",
-            (category, int(user_id), match.strip()),
+            (category, int(user_id), from_category, match.strip()),
         )
         await db.commit()
         return cursor.rowcount
