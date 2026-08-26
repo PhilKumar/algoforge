@@ -2767,6 +2767,12 @@
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
       <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="oc-fib-auto-card"></div></div>
+        <!-- One results+events pair per ladder. This used to sit OUTSIDE the
+             panes, so it rendered as a detached full-width band under a column
+             of dead space (Phil, 2026-08-26: "Panels are not fixed and
+             awkward"). It is part of the ladder's story: it lives in the
+             ladder's column. -->
+        <div id="oc-fib-lower"></div>
       <div class="ocp-monitor-section" id="oc-fib-closed" hidden>
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
         <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
@@ -2774,9 +2780,6 @@
       </div>
     </div>
 
-    <!-- And one results+events pair per ladder, for the same reason: a single
-         "Campaign events" card cannot serve four instruments. -->
-    <div id="oc-fib-lower"></div>
 
     <template id="oc-fib-rows-tpl">
       <!-- Collapsed by default (Phil, 2026-08-13): the summary row already says

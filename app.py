@@ -12792,7 +12792,13 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
     today = now.date().isoformat()
     if setting.get("skipped_day") == today:
         return "day-skipped"
-    broker_client, _source = await _resolve_user_broker_client(user)
+    # NOT awaited: _resolve_user_broker_client is a plain function returning a
+    # tuple. The await made every tick of this loop raise "object tuple can't
+    # be used in 'await' expression" -- silently, every 15 seconds, since at
+    # least 25 Aug. That morning's entry only happened because a manually
+    # started campaign's own poll loop was still alive to take it; the first
+    # session where the auto step was the ONLY entry path lost its trade.
+    broker_client, _source = _resolve_user_broker_client(user)
     if broker_client is None:
         return "no-broker"
     runtime = await _restore_gap_carry_open_state(uid, broker_client, activate=True)

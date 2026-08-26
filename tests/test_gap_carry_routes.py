@@ -419,3 +419,26 @@ class AdapterBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoStepExecutesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_the_auto_step_actually_runs_to_a_verdict(self):
+        """The whole loop, not a unit of it — because the loop was the bug.
+
+        `_resolve_user_broker_client` is a plain function returning a tuple, and
+        an `await` in front of it made EVERY tick raise "object tuple can't be
+        used in 'await' expression" — silently, each 15 seconds, from at least
+        25 Aug. The 25 Aug entry only happened because a manually started
+        campaign's poll loop was still alive; 26 Aug, when the auto step was the
+        only entry path, lost its trade. Under the old code this test dies with
+        that exact TypeError before any verdict is returned.
+        """
+        import app as app_module
+
+        orig = app_module._resolve_user_broker_client
+        app_module._resolve_user_broker_client = lambda user, **kw: (None, "none")
+        try:
+            verdict = await app_module._gap_carry_auto_step({"id": 9944}, {})
+        finally:
+            app_module._resolve_user_broker_client = orig
+        self.assertEqual(verdict, "no-broker")
