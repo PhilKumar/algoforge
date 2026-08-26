@@ -351,6 +351,17 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   padding:8px 10px;border-bottom:1px solid var(--line)}
 .ledger td,.emi-table td{padding:9px 10px;border-bottom:1px solid var(--line-soft)}
 .ledger td.amt,.emi-table td.amt,.ledger th.amt,.emi-table th.amt{text-align:right}
+.stmt-drop{border:1.5px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--soft);
+  cursor:pointer;transition:border-color .2s,background .2s}
+.stmt-drop:hover,.stmt-drop.over{border-color:var(--moss);background:rgba(255,255,255,.05)}
+.stmt-card{border:1px solid var(--line-soft);border-radius:12px;padding:12px 14px;margin-top:12px}
+.stmt-card .head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.stmt-card .head b{font-size:.95rem}
+.stmt-chip{font-size:.74rem;padding:2px 9px;border-radius:99px;border:1px solid var(--line-soft);color:var(--soft)}
+.stmt-review-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.stmt-review-row .who{flex:1;min-width:180px}
+.stmt-review-row .who small{display:block;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
+.stmt-review-row select{max-width:190px}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
@@ -907,6 +918,15 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-title">The month's ledger</div>
       <div class="section-sub" id="ledger-sub"></div>
       <div style="overflow-x:auto"><table id="ledger-table"></table></div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <div class="section-title">Bank statements</div>
+      <div class="section-sub">Drop a netbanking export (.xls or .csv) and every spend finds its date. Re-uploading or overlapping years posts nothing twice. Deposits are counted, never posted — this is the spending book.</div>
+      <input type="file" id="stmt-file" accept=".xls,.csv" multiple hidden>
+      <div id="stmt-drop" class="stmt-drop">Drop statements here, or tap to choose</div>
+      <div id="stmt-previews"></div>
+      <div id="stmt-review" style="margin-top:14px"></div>
     </div>
 
     <div class="card" style="margin-bottom:24px">
@@ -1583,6 +1603,11 @@ function renderSongs(){
 async function refreshFinance(){
   S.fin = await api("/api/sanctuary/finance?month=" + S.finMonth);
   renderFinance();
+  if (typeof loadStmtReview === "function" && !refreshFinance._reviewQueued) {
+    /* one review fetch per paint, after the handlers below exist */
+    refreshFinance._reviewQueued = true;
+    setTimeout(() => { refreshFinance._reviewQueued = false; loadStmtReview(); }, 0);
+  }
 }
 function renderFinance(){
   const f = S.fin; if (!f) return;
@@ -2145,6 +2170,103 @@ function openFullAdd(){
     wrap.remove(); toast("Noted."); refreshFinance();
   };
 }
+/* ═══ bank statements: drop, preview, import, then sort the unsorted ═══ */
+const stmtState = {previews: []};
+function stmtCatOpts(sel){
+  const names = (S.fin ? S.fin.categories.map((c) => c.name) : []);
+  ["Credit card bill", "Self transfer", "Uncategorised"].forEach((n) => { if (!names.includes(n)) names.push(n); });
+  return names.map((n) => `<option ${n === sel ? "selected" : ""}>${esc(n)}</option>`).join("");
+}
+function renderStmtPreviews(){
+  $("stmt-previews").innerHTML = stmtState.previews.map((pv, i) => {
+    if (pv.status !== "ok") return `<div class="stmt-card"><div class="head"><b>${esc(pv.filename)}</b>
+      <span class="stmt-chip" style="color:var(--danger,#c0574f)">${esc(pv.error)}</span></div></div>`;
+    const cats = {};
+    pv.rows.forEach((r) => { if (!r.posted) cats[r.category] = (cats[r.category] || 0) + 1; });
+    const chips = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([c, n]) => `<span class="stmt-chip">${esc(c)} · ${n}</span>`).join(" ");
+    return `<div class="stmt-card"><div class="head">
+        <b>${esc(pv.filename)}</b>
+        <span class="stmt-chip">a/c ··${esc(pv.account_tail)}</span>
+        <span class="stmt-chip">${esc(pv.date_from)} → ${esc(pv.date_to)}</span>
+        <span class="stmt-chip">${pv.new_count} new</span>
+        ${pv.already_posted ? `<span class="stmt-chip">${pv.already_posted} already in</span>` : ""}
+        <span class="stmt-chip">${pv.deposits_count} deposits kept out (${inr2(pv.deposits_total)})</span>
+      </div>
+      <div style="margin-top:8px">${chips}</div>
+      <div style="margin-top:10px">${pv.new_count
+        ? `<button class="btn" data-stmt-import="${i}">Import ${pv.new_count} into the ledger</button>`
+        : `<span class="section-sub">Everything here is already in the ledger.</span>`}</div>
+    </div>`;
+  }).join("");
+}
+async function stmtHandleFiles(files){
+  for (const file of files) {
+    const fd = new FormData(); fd.append("file", file);
+    $("stmt-drop").textContent = "Reading " + file.name + "…";
+    try {
+      const pv = await api("/api/sanctuary/statements/parse", {method: "POST", body: fd});
+      pv.filename = pv.filename || file.name;
+      stmtState.previews.push(pv);
+    } catch (err) {
+      stmtState.previews.push({status: "error", filename: file.name, error: err.message || "Could not read it"});
+    }
+    renderStmtPreviews();
+  }
+  $("stmt-drop").textContent = "Drop statements here, or tap to choose";
+}
+$("stmt-drop").onclick = () => $("stmt-file").click();
+$("stmt-file").onchange = (e) => { stmtHandleFiles([...e.target.files]); e.target.value = ""; };
+$("stmt-drop").ondragover = (e) => { e.preventDefault(); $("stmt-drop").classList.add("over"); };
+$("stmt-drop").ondragleave = () => $("stmt-drop").classList.remove("over");
+$("stmt-drop").ondrop = (e) => { e.preventDefault(); $("stmt-drop").classList.remove("over");
+  stmtHandleFiles([...e.dataTransfer.files]); };
+document.addEventListener("click", async (e) => {
+  const imp = e.target.closest("[data-stmt-import]");
+  if (imp) {
+    const pv = stmtState.previews[Number(imp.dataset.stmtImport)];
+    imp.disabled = true; imp.textContent = "Importing…";
+    const rows = pv.rows.filter((r) => !r.posted);
+    let added = 0;
+    for (let at = 0; at < rows.length; at += 800) {
+      const r = await api("/api/sanctuary/statements/commit", {method: "POST",
+        body: {rows: rows.slice(at, at + 800)}});
+      added += r.added;
+    }
+    toast(added + " entries took their places. 🌿");
+    pv.already_posted += added; pv.new_count = 0; pv.rows.forEach((r) => r.posted = true);
+    renderStmtPreviews(); refreshFinance(); loadStmtReview();
+    return;
+  }
+  const teach = e.target.closest("[data-stmt-teach]");
+  if (teach) {
+    const row = teach.closest(".stmt-review-row");
+    const category = row.querySelector("select").value;
+    if (!category || category === "Uncategorised") return toast("Pick a category first");
+    teach.disabled = true;
+    const r = await api("/api/sanctuary/statements/rule", {method: "POST",
+      body: {match: row.dataset.match, category}});
+    toast(r.moved + " sorted — and it will know next time.");
+    refreshFinance(); loadStmtReview();
+  }
+});
+async function loadStmtReview(){
+  const host = $("stmt-review");
+  try {
+    const r = await api("/api/sanctuary/statements/review");
+    if (!r.uncategorised) { host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="section-title" style="font-size:.95rem">Sort the unsorted — ${r.uncategorised} left</div>
+      <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>` +
+      r.groups.slice(0, 25).map((g) => `
+        <div class="stmt-review-row" data-match="${esc(g.match)}">
+          <div class="who"><b>${esc(g.match)}</b> <span class="stmt-chip">${g.count} × ${inr2(g.total)}</span>
+            <small>${esc(g.sample)}</small></div>
+          <select class="field">${stmtCatOpts("Uncategorised")}</select>
+          <button class="btn ghost" data-stmt-teach>This is where they go</button>
+        </div>`).join("");
+  } catch { host.innerHTML = ""; }
+}
+
 $("cat-manage").onclick = categoriesModal;
 $("loan-add").onclick = () => loanForm(null);
 $("recur-add").onclick = () => {

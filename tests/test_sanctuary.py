@@ -221,5 +221,102 @@ class TestLedgerAutomation(unittest.TestCase):
         self.assertEqual(emis[1]["paid_on"], "")
 
 
+class StatementParserTests(unittest.TestCase):
+    """The statement importer: an ICICI-shaped table, the dedupe key, and the
+    rule that deposits and self-transfers never count as spending."""
+
+    CSV = (
+        "DETAILED STATEMENT\n"
+        "Account Number,000099887766 ( INR ) - USER\n"
+        "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
+        "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
+        "1,01/01/2021,01/01/2021,,MPS/APOLLO PHAR/2021,1001.00,0.00,69010.49\n"
+        "2,01/01/2021,01/01/2021,,UPI/1001/salary in,0.00,50000.00,119010.49\n"
+        "3,02/01/2021,02/01/2021,,UPI/1002/Sweep to OD ac,5000.00,0.00,114010.49\n"
+        "4,02/01/2021,02/01/2021,,UPI/1003/You are paying tea,100.00,0.00,113910.49\n"
+        "5,02/01/2021,02/01/2021,,UPI/1004/You are paying tea,100.00,0.00,113810.49\n"
+    ).encode()
+
+    def parse(self):
+        from sanctuary_statements import parse_statement
+
+        return parse_statement("2021.csv", self.CSV)
+
+    def test_withdrawals_post_and_deposits_stay_out(self):
+        result = self.parse()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["rows"]), 4)
+        self.assertEqual(result["deposits_count"], 1)
+        self.assertAlmostEqual(result["deposits_total"], 50000.00)
+        self.assertEqual(result["account_tail"], "887766")
+
+    def test_same_day_same_amount_rows_get_distinct_refs(self):
+        rows = self.parse()["rows"]
+        refs = {r["ref_id"] for r in rows}
+        self.assertEqual(len(refs), 4, "the serial+balance must split the twin tea payments")
+
+    def test_reparsing_yields_identical_refs(self):
+        first = {r["ref_id"] for r in self.parse()["rows"]}
+        second = {r["ref_id"] for r in self.parse()["rows"]}
+        self.assertEqual(first, second)
+
+    def test_default_rules_reach_the_obvious_payees(self):
+        from sanctuary_statements import categorise
+
+        self.assertEqual(categorise("MPS/APOLLO PHAR/2021"), "Health")
+        self.assertEqual(categorise("UPI/1002/Sweep to OD ac"), "Self transfer")
+        self.assertEqual(categorise("UPI/419/payment on CRED/cred.club@axisb"), "Credit card bill")
+        self.assertEqual(categorise("UPI/9/completely new shop"), "Uncategorised")
+
+    def test_user_rule_wins_over_the_default(self):
+        from sanctuary_statements import categorise
+
+        rules = [{"match": "apollo", "category": "Pharmacy run"}]
+        self.assertEqual(categorise("MPS/APOLLO PHAR/2021", rules), "Pharmacy run")
+
+    def test_payee_key_prefers_the_upi_handle(self):
+        from sanctuary_statements import payee_key
+
+        self.assertEqual(payee_key("UPI/1001/Jan/emman.joy@okici/IDFC FIRST Bank/"), "emman.joy@okici")
+        self.assertEqual(payee_key("BIL/ONL/000123456789/Indian Oil/998877/Cylinder"), "indian oil")
+
+    def test_bulk_insert_skips_what_is_already_posted(self):
+        db_fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = db_path
+        self.addCleanup(os.unlink, db_path)
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+
+        async def run():
+            rows = [
+                {"entry_date": "2021-01-01", "amount": 10.0, "note": "a", "ref_id": "stmt:x:1"},
+                {"entry_date": "2021-01-02", "amount": 20.0, "note": "b", "ref_id": "stmt:x:2"},
+            ]
+            first = await sanctuary_db.add_ledger_many(1, rows)
+            second = await sanctuary_db.add_ledger_many(
+                1,
+                rows
+                + [
+                    {"entry_date": "2021-01-03", "amount": 30.0, "note": "c", "ref_id": "stmt:x:3"},
+                ],
+            )
+            return first, second
+
+        first, second = asyncio.run(run())
+        self.assertEqual(first, 2)
+        self.assertEqual(second, 1, "the re-upload must add only the new row")
+
+
 if __name__ == "__main__":
     unittest.main()

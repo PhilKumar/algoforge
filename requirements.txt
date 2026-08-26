@@ -25,3 +25,5 @@ segno>=1.6
 Pillow==12.3.0
 # Reads the repayment schedule out of a bank's PDF for the Sanctuary ledger.
 pdfplumber==0.11.9
+# Reads the binary .xls a bank's netbanking hands out, for the statement importer.
+xlrd==2.0.2

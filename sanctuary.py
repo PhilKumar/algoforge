@@ -33,6 +33,7 @@ import db as core_db
 import sanctuary_content
 import sanctuary_db
 import sanctuary_emi
+import sanctuary_statements
 from image_uploads import ImageValidationError, sanitize_image
 
 router = APIRouter()
@@ -559,6 +560,93 @@ async def ledger_delete(row_id: int, user: dict = Depends(_unlocked_user)):
     return {"ok": True}
 
 
+# ── Bank statements (the ledger's backfill and its monthly feed) ─
+
+
+@router.post("/api/sanctuary/statements/parse")
+async def statement_parse(file: UploadFile, user: dict = Depends(_unlocked_user)):
+    """Parse an uploaded statement into a preview. Nothing posts here."""
+    user_id = int(user["id"])
+    blob = await _read_upload(file)
+    result = await asyncio.to_thread(sanctuary_statements.parse_statement, file.filename or "", blob)
+    if result.get("status") != "ok":
+        return result
+    user_rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    for row in result["rows"]:
+        row["category"] = sanctuary_statements.categorise(row["note"], user_rules)
+    existing = await sanctuary_db.existing_ledger_refs(user_id, [r["ref_id"] for r in result["rows"]])
+    result["already_posted"] = len(existing)
+    result["new_count"] = len(result["rows"]) - len(existing)
+    for row in result["rows"]:
+        row["posted"] = row["ref_id"] in existing
+    return result
+
+
+@router.post("/api/sanctuary/statements/commit")
+async def statement_commit(request: Request, user: dict = Depends(_unlocked_user)):
+    user_id = int(user["id"])
+    payload = await request.json()
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 5000:
+        raise HTTPException(status_code=400, detail="Bad statement rows")
+    cleaned = []
+    for row in rows:
+        row = row or {}
+        entry_date = str(row.get("entry_date") or "")
+        ref_id = str(row.get("ref_id") or "")
+        try:
+            amount = round(float(row.get("amount")), 2)
+        except (TypeError, ValueError):
+            continue
+        if not _DATE_RE.match(entry_date) or not ref_id.startswith("stmt:"):
+            continue
+        if not 0 < amount <= 100_000_000:
+            continue
+        cleaned.append(
+            {
+                "entry_date": entry_date,
+                "category": str(row.get("category") or "Uncategorised")[:60],
+                "amount": amount,
+                "note": str(row.get("note") or "")[:500],
+                "source": "statement",
+                "ref_id": ref_id[:120],
+            }
+        )
+    added = await sanctuary_db.add_ledger_many(user_id, cleaned)
+    return {"added": added, "skipped": len(cleaned) - added}
+
+
+@router.get("/api/sanctuary/statements/review")
+async def statement_review(user: dict = Depends(_unlocked_user)):
+    """The unsorted rows, grouped by who was paid — the review row's feed."""
+    rows = await sanctuary_db.uncategorised_ledger(int(user["id"]))
+    groups: dict[str, dict] = {}
+    for row in rows:
+        key = sanctuary_statements.payee_key(row["note"])
+        group = groups.setdefault(key, {"match": key, "count": 0, "total": 0.0, "sample": row["note"]})
+        group["count"] += 1
+        group["total"] = round(group["total"] + row["amount"], 2)
+    ordered = sorted(groups.values(), key=lambda g: -g["total"])
+    return {"uncategorised": len(rows), "groups": ordered[:120]}
+
+
+@router.post("/api/sanctuary/statements/rule")
+async def statement_rule(request: Request, user: dict = Depends(_unlocked_user)):
+    """Teach a rule: this match means this category, now and from now on."""
+    user_id = int(user["id"])
+    payload = await request.json()
+    match = str(payload.get("match") or "").strip()[:80]
+    category = str(payload.get("category") or "").strip()[:60]
+    if len(match) < 2 or not category:
+        raise HTTPException(status_code=400, detail="Need a match and a category")
+    rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    rules = [r for r in rules if str(r.get("match", "")).lower() != match.lower()]
+    rules.insert(0, {"match": match, "category": category})
+    await sanctuary_db.set_json_state(user_id, "stmt_rules", rules[:400])
+    moved = await sanctuary_db.recategorise_uncategorised(user_id, match, category)
+    return {"moved": moved, "rules": len(rules)}
+
+
 # ── Recurring items (NPS, PF, MF SIP, fees…) ─────────────────────
 
 
@@ -877,7 +965,8 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
     salary = float((months_state.get(month) or {}).get("salary", default_salary))
 
-    spent = sum(r["amount"] for r in ledger if r["category"] not in saving_names)
+    excluded = saving_names | {"Self transfer"}
+    spent = sum(r["amount"] for r in ledger if r["category"] not in excluded)
     saved = sum(r["amount"] for r in ledger if r["category"] in saving_names)
     emi_total = sum(e["amount"] for e in emis)
 
