@@ -57,13 +57,27 @@ class ClosedPaperTradesTests(unittest.TestCase):
         self.assertIn('id="candle-entry-closed-rounds"', HTML)
         self.assertIn("Closed paper rounds", HTML)
 
-    def test_candle_entry_renders_the_rounds_its_engine_reports(self):
-        self.assertIn("function _renderCandleEntryClosedRounds(campaign)", APP_JS)
-        self.assertIn("_renderCandleEntryClosedRounds(campaign);", APP_JS)
-        body = APP_JS.split("function _renderCandleEntryClosedRounds(campaign)")[1]
-        body = body.split("\n}")[0]
-        self.assertIn("campaign.rounds", body)
+    def test_the_closed_table_reads_the_ledger_not_the_live_engine(self):
+        """The engine holds only the CURRENT campaign; the next mother wipes it.
+
+        Reading `campaign.rounds` meant a settled trade survived exactly as long
+        as its successor took to start -- which is how Phil's first live Candle
+        Entry campaign vanished on 25 Aug 2026. The rows come from the archive.
+        """
+        self.assertIn("async function _refreshPaperLedger(strategy)", APP_JS)
+        self.assertNotIn("function _renderCandleEntryClosedRounds", APP_JS)
+        body = APP_JS.split("async function _refreshPaperLedger(strategy)")[1].split("\n}")[0]
+        self.assertIn("/api/paper-campaigns/", body)
         self.assertIn("net_pnl", body)
+        # A rebuilt row must never pass as a live capture.
+        self.assertIn("rebuilt", body)
+
+    def test_every_strategy_tab_has_a_closed_table_wired_to_the_ledger(self):
+        for prefix in ("candle-entry", "fibx", "gap-carry"):
+            self.assertIn(f'id="{prefix}-closed-rounds"', HTML, prefix)
+            self.assertIn(f'id="{prefix}-closed-wrap"', HTML, prefix)
+        for strategy in ("candle_entry", "fib_boundary", "gap_carry"):
+            self.assertIn(f"_refreshPaperLedger('{strategy}')", APP_JS, strategy)
 
     def test_high_entry_keeps_its_book_after_the_run_is_stopped(self):
         body = APP_JS.split("function renderRecovery(data)")[1].split("\n}")[0]

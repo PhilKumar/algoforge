@@ -203,6 +203,42 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_fib_backtest_user_date ON fib_backtest_runs(user_id, mother_timestamp)",
+    # ── THE PAPER LEDGER. A finished campaign used to live nowhere. ──
+    # Candle Entry, Fib Boundary and Gap Carry each keep their WHOLE state in a
+    # single app_state row, and the next auto mother OVERWRITES it -- so the
+    # first live Candle Entry campaign (mother 3 Aug, NIFTY 24400 CE, two rungs,
+    # ~-Rs 52,891) reached expiry on 25 Aug 2026 and was destroyed within the
+    # hour by the campaign that replaced it. Phil, that evening: "Where is that
+    # trade that is completed today with expiry?" -- it was gone, and no backup
+    # was late enough to hold its settlement.
+    #
+    # A campaign is archived here the moment it goes terminal, keyed so the same
+    # one can never be written twice. `source` says whether the row was captured
+    # live or rebuilt afterwards from recorded prices; a rebuilt row is honest
+    # about being a reconstruction rather than a live capture.
+    """CREATE TABLE IF NOT EXISTS paper_campaigns (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id       INTEGER NOT NULL,
+        strategy      TEXT    NOT NULL,
+        campaign_key  TEXT    NOT NULL,
+        symbol        TEXT    NOT NULL DEFAULT '',
+        contract      TEXT    NOT NULL DEFAULT '',
+        opened_at     TEXT,
+        closed_at     TEXT,
+        status        TEXT    NOT NULL DEFAULT '',
+        exit_reason   TEXT,
+        buys          INTEGER NOT NULL DEFAULT 0,
+        deployed_inr  REAL,
+        gross_pnl     REAL,
+        costs_total   REAL,
+        net_pnl       REAL,
+        source        TEXT    NOT NULL DEFAULT 'live',
+        payload       TEXT    NOT NULL DEFAULT '{}',
+        created_at    TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_campaign_key ON paper_campaigns(user_id, strategy, campaign_key)",
+    "CREATE INDEX IF NOT EXISTS idx_paper_campaign_closed ON paper_campaigns(user_id, strategy, closed_at)",
     # ── Sanctuary: the owner's private journal and household ledger. ──
     # Small collections (categories, songs, recurring config, month salaries,
     # the cached verse of the day) live as JSON values in sanctuary_state,
@@ -1664,6 +1700,78 @@ async def save_fib_backtest_run(user_id: int, payload: dict) -> int:
         )
         await db.commit()
         return int(cursor.lastrowid or 0)
+    finally:
+        await db.close()
+
+
+async def save_paper_campaign(user_id: int, strategy: str, row: dict) -> bool:
+    """Archive one FINISHED paper campaign. Returns True if it was new.
+
+    Idempotent on (user, strategy, campaign_key): the save path runs on every
+    poll, and a campaign that has ended stays ended, so this is called again and
+    again for the same one. The first write wins and later ones update the money
+    in place -- a campaign whose exit is priced late must be allowed to correct
+    itself, but it must never appear twice.
+    """
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO paper_campaigns
+                   (user_id, strategy, campaign_key, symbol, contract, opened_at,
+                    closed_at, status, exit_reason, buys, deployed_inr, gross_pnl,
+                    costs_total, net_pnl, source, payload, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(user_id, strategy, campaign_key) DO UPDATE SET
+                   closed_at    = excluded.closed_at,
+                   status       = excluded.status,
+                   exit_reason  = excluded.exit_reason,
+                   buys         = excluded.buys,
+                   deployed_inr = excluded.deployed_inr,
+                   gross_pnl    = excluded.gross_pnl,
+                   costs_total  = excluded.costs_total,
+                   net_pnl      = excluded.net_pnl,
+                   payload      = excluded.payload""",
+            (
+                int(user_id),
+                str(strategy),
+                str(row.get("campaign_key") or ""),
+                str(row.get("symbol") or ""),
+                str(row.get("contract") or ""),
+                row.get("opened_at"),
+                row.get("closed_at"),
+                str(row.get("status") or ""),
+                row.get("exit_reason"),
+                int(row.get("buys") or 0),
+                row.get("deployed_inr"),
+                row.get("gross_pnl"),
+                row.get("costs_total"),
+                row.get("net_pnl"),
+                str(row.get("source") or "live"),
+                _json_dumps(row.get("payload") or {}),
+                _now_iso(),
+            ),
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0) == 1
+    finally:
+        await db.close()
+
+
+async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> list[dict]:
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT id, campaign_key, symbol, contract, opened_at, closed_at,
+                      status, exit_reason, buys, deployed_inr, gross_pnl,
+                      costs_total, net_pnl, source
+               FROM paper_campaigns
+               WHERE user_id = ? AND strategy = ?
+               ORDER BY COALESCE(closed_at, created_at) DESC, id DESC
+               LIMIT ?""",
+            (int(user_id), str(strategy), max(1, min(int(limit), 200))),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
     finally:
         await db.close()
 

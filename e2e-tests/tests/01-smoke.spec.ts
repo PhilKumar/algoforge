@@ -153,6 +153,9 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/gap-carry/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
+    // THE PAPER LEDGER. Every strategy tab asks for its finished campaigns on
+    // each refresh; an empty archive is the normal answer offline.
+    else if (path.startsWith('/api/paper-campaigns/')) await route.fulfill({ json: { status: 'ok', campaigns: [], count: 0, net_total: null } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }

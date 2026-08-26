@@ -1829,6 +1829,133 @@ async def _save_specialized_cascade_state(
     last_save[int(user_id)] = now
 
 
+# ── THE PAPER LEDGER ────────────────────────────────────────────────────────
+# A finished campaign used to live nowhere. Each of these strategies keeps its
+# WHOLE state in one app_state row, and the next auto mother overwrites it, so
+# the first live Candle Entry campaign (mother 3 Aug, NIFTY 24400 CE, two rungs)
+# reached expiry on 25 Aug 2026 and was destroyed by its successor inside the
+# hour. Phil, that evening: "Where is that trade that is completed today with
+# expiry?" -- gone, with no backup late enough to hold the settlement.
+#
+# So a campaign is written to its own table the moment it reads terminal. This
+# hangs off the SAVE path, not the auto loop, because the auto loop's logging
+# was already guarded behind conditions that silently never fired.
+_PAPER_TERMINAL_STATES = {"CLOSED", "EXPIRED", "KILLED", "ABANDONED", "RECOVERED"}
+
+# WRITTEN ONCE, NOT ON EVERY POLL. The save path runs every few seconds and a
+# campaign that has ended stays ended, so an unguarded archive opened a database
+# connection per poll -- and Gap Carry re-wrote EVERY settled night each time.
+# The ledger is idempotent, so this costs nothing but the writes; it is the
+# writes that were the problem.
+_paper_ledger_written: set[tuple[int, str, str, str]] = set()
+
+
+def _paper_ledger_fingerprint(row: Mapping[str, Any]) -> str:
+    """What would make this row worth writing again — its money, essentially."""
+    return f"{row.get('status')}|{row.get('net_pnl')}|{row.get('closed_at')}|{row.get('buys')}"
+
+
+def _paper_campaign_row(status: Mapping[str, Any], *, source: str = "live") -> dict | None:
+    """Fold one engine's status into a ledger row, or None if it is not done."""
+    state = str(status.get("status") or "").upper()
+    if state not in _PAPER_TERMINAL_STATES:
+        return None
+    mother = status.get("mother") or {}
+    contract = status.get("contract") or {}
+    exit_row = status.get("exit") or {}
+    fills = status.get("fills") or []
+    key = str(mother.get("timestamp") or exit_row.get("timestamp") or "")
+    if not key:
+        return None
+    strike = contract.get("strike")
+    kind = contract.get("option_type") or "CE"
+    return {
+        "campaign_key": key,
+        "symbol": str(contract.get("underlying") or ""),
+        "contract": f"{strike} {kind}" if strike else "",
+        "opened_at": (fills[0].get("timestamp") if fills else mother.get("timestamp")),
+        "closed_at": exit_row.get("timestamp"),
+        "status": state,
+        "exit_reason": exit_row.get("reason") or (None if fills else "no_buy"),
+        "buys": len(fills),
+        "deployed_inr": status.get("deployed_inr"),
+        "gross_pnl": status.get("gross_pnl"),
+        "costs_total": status.get("costs_total"),
+        "net_pnl": status.get("net_pnl"),
+        "source": source,
+        "payload": {
+            "mother": mother,
+            "contract": contract,
+            "exit": exit_row,
+            "fills": fills,
+            "rounds": status.get("rounds") or [],
+        },
+    }
+
+
+async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any]) -> None:
+    """Write a finished campaign to the ledger. Never lets a save fail on it."""
+    row = _paper_campaign_row(status)
+    if row is None:
+        return
+    seen = (int(user_id), strategy, row["campaign_key"], _paper_ledger_fingerprint(row))
+    if seen in _paper_ledger_written:
+        return
+    try:
+        fresh = await _db_mod.save_paper_campaign(int(user_id), strategy, row)
+    except Exception as exc:  # a ledger write must not cost the live state save
+        _logger.warning("[LEDGER] %s: could not archive campaign for user %s: %s", strategy, user_id, exc)
+        return
+    _paper_ledger_written.add(seen)
+    if fresh:
+        _logger.info(
+            "[LEDGER] %s: archived campaign %s (%s buys, net %s)",
+            strategy,
+            row["campaign_key"],
+            row["buys"],
+            row["net_pnl"],
+        )
+
+
+async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:
+    """Gap Carry settles a NIGHT, not a campaign, so each closed one is a row.
+
+    Its status carries `history` rather than the mother/fills shape the ladders
+    use, so the generic row builder would quietly archive nothing at all.
+    """
+    for night in status.get("history") or []:
+        session = str(night.get("session") or "")
+        if not session:
+            continue
+        entry = night.get("entry") or {}
+        exit_row = night.get("exit") or {}
+        row = {
+            "campaign_key": session,
+            "symbol": str(night.get("symbol") or "NIFTY"),
+            "contract": f"{night.get('strike', '')} {night.get('side') or 'CE'}",
+            "opened_at": entry.get("at") or session,
+            "closed_at": exit_row.get("at"),
+            "status": "CLOSED",
+            "exit_reason": exit_row.get("reason") or ("at intrinsic" if exit_row.get("priced") is False else None),
+            "buys": 1,
+            "deployed_inr": None,
+            "gross_pnl": night.get("gross"),
+            "costs_total": night.get("costs"),
+            "net_pnl": night.get("net"),
+            "source": "live",
+            "payload": dict(night),
+        }
+        seen = (int(user_id), "gap_carry", session, _paper_ledger_fingerprint(row))
+        if seen in _paper_ledger_written:
+            continue
+        try:
+            await _db_mod.save_paper_campaign(int(user_id), "gap_carry", row)
+        except Exception as exc:
+            _logger.warning("[LEDGER] gap_carry: could not archive %s: %s", session, exc)
+            continue
+        _paper_ledger_written.add(seen)
+
+
 async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) -> None:
     await _save_specialized_cascade_state(
         user_id,
@@ -1837,6 +1964,9 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
         _candle_entry_open_state_last_save,
         force=force,
     )
+    runtime = _candle_entry_engines.get(int(user_id))
+    if runtime is not None:
+        await _archive_paper_campaign(int(user_id), "candle_entry", runtime.engine.get_status())
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
@@ -1874,6 +2004,8 @@ async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) ->
     }
     await _db_mod.set_app_state(_fib_boundary_open_state_key(user_id), json.dumps(payload, default=str))
     _fib_boundary_open_state_last_save[int(user_id)] = now
+    for _symbol, runtime in sorted(runtimes.items()):
+        await _archive_paper_campaign(int(user_id), "fib_boundary", runtime.engine.get_status())
 
 
 async def _restore_candle_entry_open_state(
@@ -2082,6 +2214,8 @@ def _build_recovery_host(
     *,
     timeframe: str,
     mode: str,
+    side: str = "CE",
+    itm_steps: int | None = None,
     config_overrides: dict | None = None,
 ) -> CandleRecoveryHost:
     """Wire the measured rules to the broker's real chain.
@@ -2093,30 +2227,37 @@ def _build_recovery_host(
     """
     terms = RECOVERY_SYMBOLS[symbol]
     quote = _cascade_premium_lookup(broker)
+    side = str(side).upper()
+    # Depth and side are per-run choices, not properties of the index. The
+    # five-year audit put the only surviving book four strikes in the money,
+    # so the console has to be able to ask for it.
+    depth = int(terms["itm_steps"] if itm_steps is None else itm_steps)
+    # In the money is BELOW spot for a call and ABOVE it for a put.
+    offset_steps = -depth if side == "CE" else depth
 
     def select_contract(when: datetime, index_price: float):
         return adapter.select_campaign_contract(
             mother_spot=float(index_price),
             selected_at=when,
-            ce_offset_steps=-int(terms["itm_steps"]),
+            ce_offset_steps=offset_steps,
             strike_step=int(terms["strike_step"]),
-            option_type="CE",
+            option_type=side,
             symbol=terms["dhan_symbol"],
         )
 
     def premium_lookup(when: datetime, strike: int, expiry) -> float | None:
         # the lookup keys on .underlying, not .symbol
         return quote(
-            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type="CE")
+            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type=side)
         )
 
     lot_size = int(
         adapter.select_campaign_contract(
             mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
             selected_at=datetime.now(IST),
-            ce_offset_steps=-int(terms["itm_steps"]),
+            ce_offset_steps=offset_steps,
             strike_step=int(terms["strike_step"]),
-            option_type="CE",
+            option_type=side,
             symbol=terms["dhan_symbol"],
         ).lot_size
     )
@@ -2127,7 +2268,7 @@ def _build_recovery_host(
         lots_schedule=tuple(overrides.get("lots_schedule") or (1, 2)),
         min_profit_inr=float(overrides.get("min_profit_inr", 500.0)),
         sl_source=str(overrides.get("sl_source", "entry")),
-        itm_steps=int(terms["itm_steps"]),
+        itm_steps=depth,
         min_dte=int(terms["min_dte"]),
         max_dte=int(terms["max_dte"]),
         horizon_sessions=int(overrides.get("horizon_sessions", 10)),
@@ -2139,6 +2280,7 @@ def _build_recovery_host(
         select_contract=select_contract,
         config=config,
         mode=mode,
+        side=side,
         lot_size=lot_size,
         dhan_symbol=terms["dhan_symbol"],
     )
@@ -11033,6 +11175,32 @@ async def _candle_entry_load_ladder(
     return mother, batches
 
 
+_PAPER_LEDGER_STRATEGIES = {"candle_entry", "fib_boundary", "gap_carry"}
+
+
+@app.get("/api/paper-campaigns/{strategy}")
+async def paper_campaigns_closed(strategy: str, request: Request):
+    """Every finished paper campaign this strategy has ever booked.
+
+    The engines keep only the CURRENT campaign, so before this the page could
+    show a settled trade for as long as the next mother took to replace it, and
+    not one minute longer.
+    """
+    key = str(strategy or "").replace("-", "_").lower()
+    if key not in _PAPER_LEDGER_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy '{strategy}'.")
+    user_id = _request_user_id(request)
+    rows = await _db_mod.list_paper_campaigns(user_id, key, limit=100)
+    booked = [r for r in rows if r.get("net_pnl") is not None]
+    return {
+        "status": "ok",
+        "strategy": key,
+        "campaigns": rows,
+        "count": len(rows),
+        "net_total": round(sum(float(r["net_pnl"]) for r in booked), 2) if booked else None,
+    }
+
+
 @app.get("/api/candle-entry/paper/status")
 async def candle_entry_paper_status(request: Request):
     user_id = _request_user_id(request)
@@ -12366,6 +12534,9 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
         _gap_carry_open_state_last_save,
         force=force,
     )
+    runtime = _gap_carry_engines.get(int(user_id))
+    if runtime is not None:
+        await _archive_gap_carry_nights(int(user_id), runtime.engine.get_status())
 
 
 async def _restore_gap_carry_open_state(
@@ -15534,6 +15705,15 @@ async def recovery_paper_start(request: Request):
     symbol = str(body.get("symbol") or "nifty").strip().lower()
     timeframe = str(body.get("timeframe") or "15m").strip().lower()
     mode = str(body.get("mode") or "ladder").strip().lower()
+    side = str(body.get("side") or "CE").strip().upper()
+    if side not in ("CE", "PE"):
+        raise HTTPException(status_code=400, detail="Side must be CE or PE.")
+    try:
+        itm_steps = int(body.get("itm_steps", 2))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Strikes in the money must be a whole number.") from None
+    if not 0 <= itm_steps <= 10:
+        raise HTTPException(status_code=400, detail="Strikes in the money must be between 0 and 10.")
     if symbol not in RECOVERY_SYMBOLS:
         raise HTTPException(status_code=400, detail=f"Measured symbols: {', '.join(sorted(RECOVERY_SYMBOLS))}.")
     if timeframe not in RECOVERY_TIMEFRAMES:
@@ -15564,7 +15744,14 @@ async def recovery_paper_start(request: Request):
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     try:
         host = _build_recovery_host(
-            symbol, adapter, broker_client, timeframe=timeframe, mode=mode, config_overrides=overrides
+            symbol,
+            adapter,
+            broker_client,
+            timeframe=timeframe,
+            mode=mode,
+            side=side,
+            itm_steps=itm_steps,
+            config_overrides=overrides,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -15674,6 +15861,109 @@ async def recovery_paper_stop(request: Request):
         runtime.task.cancel()
     await _save_recovery_state(user_id, runtime)
     return {"status": "stopped", "mode": "paper", "symbol": runtime.symbol}
+
+
+def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
+    """One campaign drawn in the payload the standard chart already reads.
+
+    Deliberately NOT a second renderer: `ladder_chart` speaks a shape the
+    front end knows, and this emits that same shape from the recovery
+    engine's own trades. A filled rung is a solid line carrying what it
+    cost, an armed-but-unfilled buy-stop is faint, and each stop is drawn
+    where it actually sat.
+    """
+    mother_ts = row["mother"]["timestamp"][:19]
+    rows = [
+        {
+            "t": int(c.timestamp.timestamp()),
+            "o": c.open,
+            "h": c.high,
+            "l": c.low,
+            "c": c.close,
+            "is_mother": c.timestamp.isoformat()[:19] == mother_ts,
+        }
+        for c in candles
+    ]
+    lines, entries, exits = [], [], []
+    for t in row.get("trades") or []:
+        if t.get("entry_index") is not None and t.get("entry_time"):
+            spent = float(t.get("entry_premium") or 0) * int(t.get("quantity") or 0)
+            lines.append(
+                {
+                    "price": t["entry_index"],
+                    "label": f"BUY {t['trade_no']} · {t.get('lots') or 1} lot",
+                    "inr_notional": round(spent, 2),
+                    "filled": True,
+                }
+            )
+            entries.append({"t": int(datetime.fromisoformat(t["entry_time"]).timestamp()), "price": t["entry_index"]})
+        elif t.get("trigger") is not None:
+            # armed and never bought: the setup was there, the recovery was not
+            lines.append({"price": t["trigger"], "label": f"ARMED {t['trade_no']}", "inr_notional": 0, "filled": False})
+        if t.get("sl_level") is not None and t.get("entry_time"):
+            lines.append({"price": t["sl_level"], "label": f"STOP {t['trade_no']}", "inr_notional": 0, "filled": False})
+        if t.get("exit_time"):
+            exits.append(
+                {
+                    "t": int(datetime.fromisoformat(t["exit_time"]).timestamp()),
+                    "price": t.get("entry_index"),
+                    "pnl": t.get("net_pnl") or 0,
+                }
+            )
+    need = row.get("required_recovery")
+    return {
+        "timeframe": timeframe,
+        "candles": rows,
+        "mother": {"high": row["mother"]["high"], "low": row["mother"]["low"]},
+        "trendlines": [],
+        "legs": [],
+        "lines": lines,
+        "entries": entries,
+        "exits": exits,
+        "avg_entry_price": None,
+        # The target is a RUPEE threshold on the ledger, never a price, so
+        # there is no line to draw -- the label carries it instead.
+        "tp_price": None,
+        "tp_label": (f"RECOVER ₹{round(float(need)):,} to close green" if need else "LEDGER CLEAR"),
+    }
+
+
+@app.get("/api/recovery/paper/chart")
+async def recovery_paper_chart(request: Request, campaign_id: str = "", timeframe: str = ""):
+    """A named campaign drawn on its own chart, from the engine's own state."""
+    runtime = _recovery_engines.get(_request_user_id(request))
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No High Entry run to draw. Start one and name a mother.")
+    host = runtime.host
+    snap = host.snapshot()
+    rows = snap.get("campaigns") or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="No campaign yet. Name a mother candle first.")
+    wanted = str(campaign_id or "").strip()
+    row = next((r for r in rows if r["campaign_id"] == wanted), rows[0])
+    key = str(timeframe or host.config.timeframe).strip().lower()
+    if key not in RECOVERY_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Charts are {', '.join(RECOVERY_TIMEFRAMES)}.")
+    start = datetime.fromisoformat(row["mother"]["timestamp"]).date()
+    try:
+        candles = await runtime.adapter.async_get_candles(
+            host.dhan_symbol, key, from_date=start, to_date=datetime.now(IST).date()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load {host.dhan_symbol} {key} candles: {exc}") from exc
+    return {
+        "status": "ok",
+        "timeframe": key,
+        "stages": list(RECOVERY_TIMEFRAMES),
+        "campaign_id": row["campaign_id"],
+        "campaigns": [
+            {"id": r["campaign_id"], "mother": r["mother"]["timestamp"], "status": r["status"]} for r in rows
+        ],
+        "mother_timestamp": row["mother"]["timestamp"],
+        "campaign_status": row["status"],
+        "side": row.get("side"),
+        "chart": _recovery_chart(row, candles, key),
+    }
 
 
 @app.get("/api/recovery/paper/status")

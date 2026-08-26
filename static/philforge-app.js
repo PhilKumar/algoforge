@@ -198,7 +198,7 @@ const ICO = {
     'bt-from-date': 'Select backtest start date',
     'bt-to-date': 'Select backtest end date',
     'terminal-cascade-mother-timestamp': 'YYYY-MM-DDTHH:MM · IST',
-    'candle-entry-mother-timestamp': 'YYYY-MM-DDTHH:MM · IST',
+    'oc-candle-mother-timestamp': 'YYYY-MM-DDTHH:MM · IST',
     'cascade-options-mother-timestamp': 'YYYY-MM-DDTHH:MM · IST',
     'cascade-mother-timestamp': 'YYYY-MM-DDTHH:MM · IST',
   };
@@ -2040,6 +2040,11 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryStop',
   'recoveryAddMother',
   'recoveryDrop',
+  'setRecoveryRunMode',
+  'setRecoverySide',
+  'loadRecoveryChart',
+  'closeRecoveryChart',
+  'openRecoveryTearsheet',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
   'deleteFibBoundaryPaper',
@@ -2539,11 +2544,11 @@ async function initCascadeOptionsPage() {
 
 function _renderCandleEntryStatus(payload) {
   const campaign = payload?.campaign;
-  const badge = _cascadeOptionsEl('candle-entry-badge');
-  const summary = _cascadeOptionsEl('candle-entry-summary');
-  const start = _cascadeOptionsEl('candle-entry-start');
-  const kill = _cascadeOptionsEl('candle-entry-kill');
-  const monitor = _cascadeOptionsEl('candle-entry-monitor');
+  const badge = _cascadeOptionsEl('oc-candle-badge');
+  const summary = _cascadeOptionsEl('ocp-summary');
+  const start = _cascadeOptionsEl('oc-candle-start');
+  const kill = _cascadeOptionsEl('oc-candle-stop');
+  const monitor = _cascadeOptionsEl('ocp-monitor');
   _lastCandleEntryStatus = campaign || null;
   if (!campaign) {
     if (badge) { badge.textContent = 'IDLE'; _cascadeSetTone(badge); badge.style.color = 'var(--muted)'; }
@@ -2588,7 +2593,7 @@ function _renderCandleEntryStatus(payload) {
 }
 
 function _candleEntryOverviewRow(label, value, detail = '', tone = '') {
-  return `<div class="candle-entry-overview-row"><div class="candle-entry-overview-label">${escapeHtml(label)}</div><div class="candle-entry-overview-value${tone ? ` ${tone}` : ''}">${escapeHtml(value)}</div>${detail ? `<div class="candle-entry-overview-detail">${escapeHtml(detail)}</div>` : ''}</div>`;
+  return `<div class="ocp-overview-row"><div class="ocp-overview-label">${escapeHtml(label)}</div><div class="ocp-overview-value${tone ? ` ${tone}` : ''}">${escapeHtml(value)}</div>${detail ? `<div class="ocp-overview-detail">${escapeHtml(detail)}</div>` : ''}</div>`;
 }
 
 // "25 Aug" -- an expiry is a DAY, so _fibShortStamp's 00:00 is noise on it.
@@ -2656,19 +2661,19 @@ function _candleEntryMarkLeg(mark, fill) {
 
 // A monitor tile: like the backtest metric, but the value may take two lines
 // -- a mother's time and high do not fit one.
-function _candleEntryTile(label, value, accent = 'var(--text)') {
-  return `<div class="cascade-options-metric candle-entry-tile" style="padding:10px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px/1.35 'JetBrains Mono',monospace;color:${accent};overflow-wrap:anywhere;">${escapeHtml(value)}</div></div>`;
+function _ocpTile(label, value, accent = 'var(--text)') {
+  return `<div class="cascade-options-metric ocp-tile" style="padding:10px;border:1px solid var(--border);border-radius:7px;min-width:0;"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(label)}</div><div style="margin-top:4px;font:800 12px/1.35 'JetBrains Mono',monospace;color:${accent};overflow-wrap:anywhere;">${escapeHtml(value)}</div></div>`;
 }
 
 function _renderCandleEntryMonitor(campaign) {
-  const monitor = _cascadeOptionsEl('candle-entry-monitor');
-  const tiles = _cascadeOptionsEl('candle-entry-monitor-tiles');
-  const rungsEl = _cascadeOptionsEl('candle-entry-monitor-rungs');
-  const updated = _cascadeOptionsEl('candle-entry-monitor-updated');
-  const eventsEl = _cascadeOptionsEl('candle-entry-events');
-  const eventCount = _cascadeOptionsEl('candle-entry-event-count');
-  const title = _cascadeOptionsEl('candle-entry-monitor-title');
-  const kicker = _cascadeOptionsEl('candle-entry-monitor-kicker');
+  const monitor = _cascadeOptionsEl('ocp-monitor');
+  const tiles = _cascadeOptionsEl('oc-candle-tiles');
+  const rungsEl = _cascadeOptionsEl('oc-candle-rows');
+  const updated = _cascadeOptionsEl('ocp-monitor-updated');
+  const eventsEl = _cascadeOptionsEl('ocp-events');
+  const eventCount = _cascadeOptionsEl('oc-candle-event-count');
+  const title = _cascadeOptionsEl('oc-candle-monitor-title');
+  const kicker = _cascadeOptionsEl('ocp-monitor-kicker');
   if (!monitor || !tiles || !rungsEl || !eventsEl) return;
   monitor.hidden = false;
   const mother = campaign.mother || {};
@@ -2706,13 +2711,13 @@ function _renderCandleEntryMonitor(campaign) {
     ? `${_candleEntrySigned(mark.net_pnl)}${mark.return_pct == null ? '' : ` · ${mark.return_pct > 0 ? '+' : ''}${mark.return_pct}%`}`
     : !exit && mark && mark.unpriced ? 'no quote' : null;
   tiles.innerHTML = [
-    _candleEntryTile('Mother · high', `${_cascadeOptionsTimestamp(mother.timestamp).slice(0, 16)} · ${_cascadeNumber(mother.high)}`),
-    _candleEntryTile('Box · buys below', box && box.bars ? (box.filled < box.bars ? `${box.filled}/${box.bars} bars` : `${_cascadeNumber(box.line)} · box ${_cascadeNumber(box.low)}–${_cascadeNumber(box.high)}`) : 'off'),
-    _candleEntryTile('Target', campaign.target_index == null ? 'after the first buy' : _cascadeNumber(campaign.target_index), '#fde68a'),
-    _candleEntryTile('Position', position, positionTone),
-    _candleEntryTile(exit ? 'Net P&L' : 'Deployed', exit ? (campaign.net_pnl == null ? 'unpriced' : _cascadeOptionsMoney(campaign.net_pnl)) : (campaign.deployed_inr ? _cascadeOptionsMoney(Number(campaign.deployed_inr)) : '—'), exit ? positionTone : '#fde68a'),
-    openPnl == null ? '' : _candleEntryTile('Open P&L · if sold', openPnl, mark.net_pnl == null ? 'var(--muted)' : _candleEntryPnlTone(mark.net_pnl)),
-    _candleEntryTile('Watching for', next, running ? '#93c5fd' : 'var(--muted)'),
+    _ocpTile('Mother · high', `${_cascadeOptionsTimestamp(mother.timestamp).slice(0, 16)} · ${_cascadeNumber(mother.high)}`),
+    _ocpTile('Box · buys below', box && box.bars ? (box.filled < box.bars ? `${box.filled}/${box.bars} bars` : `${_cascadeNumber(box.line)} · box ${_cascadeNumber(box.low)}–${_cascadeNumber(box.high)}`) : 'off'),
+    _ocpTile('Target', campaign.target_index == null ? 'after the first buy' : _cascadeNumber(campaign.target_index), '#fde68a'),
+    _ocpTile('Position', position, positionTone),
+    _ocpTile(exit ? 'Net P&L' : 'Deployed', exit ? (campaign.net_pnl == null ? 'unpriced' : _cascadeOptionsMoney(campaign.net_pnl)) : (campaign.deployed_inr ? _cascadeOptionsMoney(Number(campaign.deployed_inr)) : '—'), exit ? positionTone : '#fde68a'),
+    openPnl == null ? '' : _ocpTile('Open P&L · if sold', openPnl, mark.net_pnl == null ? 'var(--muted)' : _candleEntryPnlTone(mark.net_pnl)),
+    _ocpTile('Watching for', next, running ? '#93c5fd' : 'var(--muted)'),
   ].join('');
   const rungStateLabel = { filled: 'BOUGHT', armed: 'STOP ARMED', watching: 'WATCHING', waiting: 'WAITING' };
   rungsEl.innerHTML = rungs.length ? rungs.map(rung => {
@@ -2722,7 +2727,7 @@ function _renderCandleEntryMonitor(campaign) {
     const filledTxt = fill ? _cascadeOptionsTimestamp(fill.timestamp).slice(5, 16) : '—';
     const strikeTxt = fill && fill.strike ? Number(fill.strike).toLocaleString('en-IN') : '—';
     const premiumTxt = fill && fill.option_premium != null ? `₹${_cascadeNumber(fill.option_premium)}` : (fill ? 'no price' : '—');
-    const tone = rung.state === 'filled' ? 'candle-entry-strong' : (rung.state === 'armed' ? '' : 'candle-entry-muted');
+    const tone = rung.state === 'filled' ? 'ocp-strong' : (rung.state === 'armed' ? '' : 'ocp-muted');
     // WHAT THIS RUNG IS WORTH NOW: its own contract's mark, and the move on
     // its own quantity. Blank once the campaign has closed -- the exit row
     // and the Net P&L tile carry the settled money then.
@@ -2733,23 +2738,23 @@ function _renderCandleEntryMonitor(campaign) {
     const nowTxt = leg && leg.mark != null ? `₹${_cascadeNumber(leg.mark)}` : (fill && !exit ? 'no quote' : '—');
     const nowCell = move == null
       ? `<td class="${tone}">${escapeHtml(nowTxt)}</td>`
-      : `<td class="${tone}">${escapeHtml(nowTxt)}<span class="candle-entry-now-move" style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
+      : `<td class="${tone}">${escapeHtml(nowTxt)}<span class="ocp-now-move" style="color:${_candleEntryPnlTone(move)}">${escapeHtml(_candleEntrySigned(move))}</span></td>`;
     return `<tr><td class="${tone}">${rung.rung}</td><td class="${tone}">${escapeHtml(tfLabel(rung.timeframe))}</td><td class="${tone}">${rung.lots} (${rung.quantity})</td><td class="${tone}">${escapeHtml(stateTxt)}</td><td class="${tone}">${escapeHtml(stopTxt)}</td><td class="${tone}">${escapeHtml(filledTxt)}</td><td class="${tone}">${escapeHtml(strikeTxt)}</td><td class="${tone}">${escapeHtml(premiumTxt)}</td>${nowCell}</tr>`;
-  }).join('') : '<tr><td colspan="9" class="candle-entry-empty">The ladder appears when a campaign starts.</td></tr>';
+  }).join('') : '<tr><td colspan="9" class="ocp-empty">The ladder appears when a campaign starts.</td></tr>';
   // The bar's own time, its close, and when the basket was last priced. The
   // "refreshed" clock said the same minute as "marked" nearly always, and the
   // date repeats the kicker -- both dropped.
   if (updated) updated.textContent = `${_cascadeOptionsTimestamp(latest.timestamp).slice(11, 16)} · ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''}`;
-  _renderCandleEntryClosedRounds(campaign);
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
     const text = _candleEntryEventDescription(event);
-    return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="candle-entry-muted">${escapeHtml(pfErrorText(text, 'Campaign status updated.'))}</td></tr>`;
-  }).join('') : '<tr><td colspan="3" class="candle-entry-empty">Updates will appear here when a candle qualifies, the entry stop arms, a paper trade opens or closes, or an option quote is unavailable.</td></tr>';
+    return `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</td><td>${escapeHtml(text.name)}</td><td class="ocp-muted">${escapeHtml(pfErrorText(text, 'Campaign status updated.'))}</td></tr>`;
+  }).join('') : '<tr><td colspan="3" class="ocp-empty">Updates will appear here when a candle qualifies, the entry stop arms, a paper trade opens or closes, or an option quote is unavailable.</td></tr>';
 }
 
 async function refreshCandleEntryStatus() {
+  _refreshPaperLedger('candle_entry');
   try {
     const response = await fetch('/api/candle-entry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
@@ -2757,13 +2762,13 @@ async function refreshCandleEntryStatus() {
     _renderCandleEntryStatus(data);
     _renderCandleEntryAuto(data.auto);
   } catch (error) {
-    const summary = _cascadeOptionsEl('candle-entry-summary');
+    const summary = _cascadeOptionsEl('ocp-summary');
     if (summary) summary.textContent = error.message || 'Unable to load Candle Entry campaign.';
   }
 }
 
 function _setCandleEntryFormStatus(message, tone = 'muted') {
-  const el = _cascadeOptionsEl('candle-entry-form-status');
+  const el = _cascadeOptionsEl('oc-candle-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -2771,13 +2776,13 @@ function _setCandleEntryFormStatus(message, tone = 'muted') {
 }
 
 function _ceRenderTimeframes() {
-  const select = _cascadeOptionsEl('candle-entry-timeframe');
+  const select = _cascadeOptionsEl('oc-candle-timeframe');
   if (!select) return;
   if (!select._ceRecipeBound) {
     select._ceRecipeBound = true;
     select.addEventListener('change', _syncCandleEntryRecipe);
-    ['candle-entry-itm', 'candle-entry-box-bars'].forEach(id => document.getElementById(id)?.addEventListener('change', _syncCandleEntryRecipe));
-    document.getElementById('candle-entry-box-bars')?.addEventListener('input', _syncCandleEntryRecipe);
+    ['oc-candle-itm', 'oc-candle-box-bars'].forEach(id => document.getElementById(id)?.addEventListener('change', _syncCandleEntryRecipe));
+    document.getElementById('oc-candle-box-bars')?.addEventListener('input', _syncCandleEntryRecipe);
   }
   const chosen = select.value || '5m';
   select.innerHTML = _TB_LADDER.map((tf) => {
@@ -2785,7 +2790,7 @@ function _ceRenderTimeframes() {
     return `<option value="${tf}"${tf === chosen ? ' selected' : ''}>${_TB_TF_LABEL[tf]} · ${climb}</option>`;
   }).join('');
   select.value = chosen;
-  const mother = _cascadeOptionsEl('candle-entry-mother-timestamp');
+  const mother = _cascadeOptionsEl('oc-candle-mother-timestamp');
   if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[select.value] || '';
   _syncCandleEntryMotherMode();
 }
@@ -2794,10 +2799,10 @@ function _ceRenderTimeframes() {
 // Fib Boundary form's switch, same delegated-action wiring.
 function setCandleEntrySession(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'hold';
-  const input = document.getElementById('candle-entry-session');
+  const input = document.getElementById('oc-candle-session');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('candle-entry-session-toggle');
+  const group = document.getElementById('oc-candle-session-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -2809,12 +2814,12 @@ function setCandleEntrySession(_event, button) {
 }
 
 function _candleEntryIntradayClose() {
-  return (document.getElementById('candle-entry-session')?.value || 'hold') === 'intraday';
+  return (document.getElementById('oc-candle-session')?.value || 'hold') === 'intraday';
 }
 
 // The three rule switches (Phil, 2026-08-19): which contract, how far back
 // the target sits, fixed or trailing exit. One helper drives all of them.
-function _candleEntrySetSwitch(inputId, groupId, value) {
+function _ocpSetSwitch(inputId, groupId, value) {
   const input = document.getElementById(inputId);
   if (!input || input.value === value) return;
   input.value = value;
@@ -2827,19 +2832,19 @@ function _candleEntrySetSwitch(inputId, groupId, value) {
     });
   }
 }
-function setCandleEntryExpiry(_event, button) { _candleEntrySetSwitch('candle-entry-expiry-rule', 'candle-entry-expiry-toggle', button?.dataset?.value || 'monthly'); _syncCandleEntryRecipe(); }
-function setCandleEntryTarget(_event, button) { _candleEntrySetSwitch('candle-entry-target', 'candle-entry-target-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
-function setCandleEntryExit(_event, button) { _candleEntrySetSwitch('candle-entry-exit-mode', 'candle-entry-exit-toggle', button?.dataset?.value || 'fixed'); _syncCandleEntryRecipe(); }
+function setCandleEntryExpiry(_event, button) { _ocpSetSwitch('oc-candle-expiry-rule', 'oc-candle-expiry-toggle', button?.dataset?.value || 'monthly'); _syncCandleEntryRecipe(); }
+function setCandleEntryTarget(_event, button) { _ocpSetSwitch('oc-candle-target', 'oc-candle-target-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
+function setCandleEntryExit(_event, button) { _ocpSetSwitch('oc-candle-exit-mode', 'oc-candle-exit-toggle', button?.dataset?.value || 'fixed'); _syncCandleEntryRecipe(); }
 // Phil's rule, 2026-08-19: the mother is the bar that MAKES the 278-bar high,
 // and the ladder buys only in the bottom quarter of that box. "Manual" is the
 // older way -- you name the candle.
-function setCandleEntryMother(_event, button) { _candleEntrySetSwitch('candle-entry-mother-mode', 'candle-entry-mother-toggle', button?.dataset?.value || 'box'); _syncCandleEntryMotherMode(); }
-function setCandleEntryBox(_event, button) { _candleEntrySetSwitch('candle-entry-box-position', 'candle-entry-box-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
+function setCandleEntryMother(_event, button) { _ocpSetSwitch('oc-candle-mother-mode', 'oc-candle-mother-toggle', button?.dataset?.value || 'box'); _syncCandleEntryMotherMode(); }
+function setCandleEntryBox(_event, button) { _ocpSetSwitch('oc-candle-box-position', 'oc-candle-box-toggle', button?.dataset?.value || '0.25'); _syncCandleEntryRecipe(); }
 // Paper or Live. The same switch the Fib Boundary form has; the server refuses
 // Live behind the same gate until a reconciled Dhan order path exists.
-function setCandleEntryMode(_event, button) { _candleEntrySetSwitch('candle-entry-mode', 'candle-entry-mode-toggle', button?.dataset?.value || 'paper'); _syncCandleEntryMotherMode(); }
+function setCandleEntryMode(_event, button) { _ocpSetSwitch('oc-candle-mode', 'oc-candle-mode-toggle', button?.dataset?.value || 'paper'); _syncCandleEntryMotherMode(); }
 
-function _candleEntryMotherMode() { return document.getElementById('candle-entry-mother-mode')?.value || 'box'; }
+function _candleEntryMotherMode() { return document.getElementById('oc-candle-mother-mode')?.value || 'box'; }
 
 // THE AUTO MOTHER. On: the server starts the measured rule on each new
 // 278-bar high, market hours only, never on top of a running campaign. The
@@ -2847,11 +2852,11 @@ function _candleEntryMotherMode() { return document.getElementById('candle-entry
 let _candleEntryAutoPosting = false;
 async function setCandleEntryAuto(_event, button) {
   const value = button?.dataset?.value || 'off';
-  const input = document.getElementById('candle-entry-auto');
+  const input = document.getElementById('oc-candle-auto');
   if (!input || input.value === value || _candleEntryAutoPosting) return;
   _candleEntryAutoPosting = true;
   const previous = input.value;
-  _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', value);
+  _ocpSetSwitch('oc-candle-auto', 'oc-candle-auto-toggle', value);
   try {
     const response = await fetch('/api/candle-entry/auto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: value === 'on', mode: _candleEntryTradeMode() }) });
     const data = await response.json().catch(() => ({}));
@@ -2859,44 +2864,76 @@ async function setCandleEntryAuto(_event, button) {
     _renderCandleEntryAuto(data.auto);
     _setCandleEntryFormStatus(value === 'on' ? 'Auto mother ON — the next new 278-bar high starts the measured rule (market hours only).' : 'Auto mother OFF. A running campaign keeps running.', value === 'on' ? 'success' : 'muted');
   } catch (error) {
-    _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', previous);
+    _ocpSetSwitch('oc-candle-auto', 'oc-candle-auto-toggle', previous);
     _setCandleEntryFormStatus(error.message || 'Auto mother did not change.', 'error');
   } finally {
     _candleEntryAutoPosting = false;
   }
 }
 
-function _renderCandleEntryClosedRounds(campaign) {
-  const wrap = _cascadeOptionsEl('candle-entry-closed-wrap');
-  const body = _cascadeOptionsEl('candle-entry-closed-rounds');
-  const count = _cascadeOptionsEl('candle-entry-closed-count');
+// THE PAPER LEDGER. The engines keep only the CURRENT campaign -- the next
+// auto mother overwrites the last one -- so a settled trade used to survive
+// only until its successor started. These rows come from the archive instead,
+// which is written the moment a campaign reads terminal.
+const _PAPER_LEDGER_UI = {
+  candle_entry: { wrap: 'oc-candle-closed', body: 'oc-candle-closed-rows', count: 'oc-candle-closed-count' },
+  fib_boundary: { wrap: 'oc-fib-closed', body: 'oc-fib-closed-rows', count: 'oc-fib-closed-count' },
+  gap_carry: { wrap: 'oc-gap-closed', body: 'oc-gap-closed-rows', count: 'oc-gap-closed-count' },
+};
+
+function _paperLedgerMoney(value) {
+  if (value === null || value === undefined) return 'unpriced';
+  return _candleEntrySigned(Number(value));
+}
+
+async function _refreshPaperLedger(strategy) {
+  const ids = _PAPER_LEDGER_UI[strategy];
+  if (!ids) return;
+  const wrap = document.getElementById(ids.wrap);
+  const body = document.getElementById(ids.body);
   if (!wrap || !body) return;
-  const rounds = Array.isArray(campaign && campaign.rounds) ? campaign.rounds : [];
-  wrap.hidden = !rounds.length;
-  if (!rounds.length) { body.innerHTML = ''; return; }
-  if (count) count.textContent = `· ${rounds.length}`;
-  body.innerHTML = rounds.slice().reverse().map(round => {
-    const net = round.net_pnl == null ? null : Number(round.net_pnl);
+  let rows = [];
+  let total = null;
+  try {
+    const res = await fetch(`/api/paper-campaigns/${strategy}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+    rows = Array.isArray(data.campaigns) ? data.campaigns : [];
+    total = data.net_total;
+  } catch (err) {
+    return;
+  }
+  wrap.hidden = !rows.length;
+  if (!rows.length) { body.innerHTML = ''; return; }
+  const count = document.getElementById(ids.count);
+  if (count) {
+    count.textContent = `· ${rows.length}` + (total === null || total === undefined ? '' : ` · net ${_candleEntrySigned(total)}`);
+  }
+  body.innerHTML = rows.map(row => {
+    const net = row.net_pnl == null ? null : Number(row.net_pnl);
     const tone = net == null ? 'var(--muted)' : _candleEntryPnlTone(net);
-    const costs = round.costs && round.costs.total != null ? `₹${_cascadeNumber(round.costs.total)}` : '—';
+    // A row rebuilt from recorded prices says so rather than passing as a live capture.
+    const rebuilt = String(row.source || 'live') !== 'live'
+      ? ' <span style="color:var(--warn);" title="Rebuilt from recorded option prices, not captured live">rebuilt</span>'
+      : '';
+    const when = (v) => (v ? escapeHtml(_cascadeOptionsTimestamp(v).slice(5, 16)) : '—');
     return `<tr>`
-      + `<td>${escapeHtml(String(round.round_id ?? round.round ?? ''))}</td>`
-      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.opened_at).slice(5, 16))}</td>`
-      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.closed_at).slice(5, 16))}</td>`
-      + `<td>${round.exit_index_price == null ? '—' : escapeHtml(_cascadeNumber(round.exit_index_price))}</td>`
-      + `<td>${round.exit_option_premium == null ? '—' : `₹${escapeHtml(_cascadeNumber(round.exit_option_premium))}`}</td>`
-      + `<td class="candle-entry-muted">${escapeHtml(String(round.exit_reason || '—'))}</td>`
-      + `<td class="candle-entry-muted">${costs}</td>`
-      + `<td style="color:${tone};">${net == null ? 'unpriced' : escapeHtml(_candleEntrySigned(net))}</td>`
+      + `<td>${when(row.opened_at)}${rebuilt}</td>`
+      + `<td>${when(row.closed_at)}</td>`
+      + `<td>${escapeHtml(String(row.contract || '—'))}</td>`
+      + `<td>${escapeHtml(String(row.buys ?? 0))}</td>`
+      + `<td>${row.deployed_inr == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(row.deployed_inr)))}</td>`
+      + `<td class="ocp-muted">${escapeHtml(String(row.exit_reason || row.status || '—'))}</td>`
+      + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net))}</td>`
       + `</tr>`;
   }).join('');
 }
 
+
 function _renderCandleEntryAuto(auto) {
-  const card = document.getElementById('candle-entry-auto-card');
-  const input = document.getElementById('candle-entry-auto');
+  const card = document.getElementById('ocp-auto-card');
+  const input = document.getElementById('oc-candle-auto');
   const on = !!(auto && auto.enabled);
-  if (input && !_candleEntryAutoPosting) _candleEntrySetSwitch('candle-entry-auto', 'candle-entry-auto-toggle', on ? 'on' : 'off');
+  if (input && !_candleEntryAutoPosting) _ocpSetSwitch('oc-candle-auto', 'oc-candle-auto-toggle', on ? 'on' : 'off');
   if (!card) return;
   if (!auto || (!on && !(auto.log || []).length)) { card.hidden = true; card.innerHTML = ''; return; }
   card.hidden = false;
@@ -2917,29 +2954,29 @@ function _renderCandleEntryAuto(auto) {
       : 'waiting for the first new 278-bar high')
     : 'off';
   const rows = log.length
-    ? `<div class="candle-entry-auto-chain-wrap"><table class="candle-entry-auto-chain"><tr><th>Mother</th><th>Contract</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
+    ? `<div class="ocp-auto-chain-wrap"><table class="ocp-auto-chain"><tr><th>Mother</th><th>Contract</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
       + log.map(r => `<tr><td>${escapeHtml(_cascadeOptionsTimestamp(r.mother).slice(0, 16))}</td><td>${escapeHtml(String(r.contract || ''))}</td><td>${escapeHtml(r.exit_timestamp ? _cascadeOptionsTimestamp(r.exit_timestamp).slice(0, 16) : '—')}</td><td>${escapeHtml(String(r.exit_reason || r.status || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? ''))}</td><td class="${r.net == null ? '' : r.net >= 0 ? 'pos' : 'neg'}">${r.net == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(r.net)))}</td></tr>`).join('')
       + `</table></div>`
     : '';
-  card.innerHTML = `<div class="candle-entry-auto-head"><strong>Auto mother ${on ? 'ON' : 'OFF'} · ${escapeHtml(String(auto.mode || 'paper'))}</strong><span>${escapeHtml(state)}</span>${(auto.log || []).length ? `<span style="flex:0 0 auto;">${(auto.log || []).length} campaign${(auto.log || []).length === 1 ? '' : 's'} · net ${escapeHtml(_cascadeOptionsMoney(net))}</span>` : ''}</div>`
-    + (auto.alert ? `<div class="candle-entry-auto-alert">⚠ ${escapeHtml(String(auto.alert))}</div>` : '')
-    + (auto.last_error ? `<div class="candle-entry-auto-alert">${escapeHtml(String(auto.last_error))}</div>` : '')
+  card.innerHTML = `<div class="ocp-auto-head"><strong>Auto mother ${on ? 'ON' : 'OFF'} · ${escapeHtml(String(auto.mode || 'paper'))}</strong><span>${escapeHtml(state)}</span>${(auto.log || []).length ? `<span style="flex:0 0 auto;">${(auto.log || []).length} campaign${(auto.log || []).length === 1 ? '' : 's'} · net ${escapeHtml(_cascadeOptionsMoney(net))}</span>` : ''}</div>`
+    + (auto.alert ? `<div class="ocp-auto-alert">⚠ ${escapeHtml(String(auto.alert))}</div>` : '')
+    + (auto.last_error ? `<div class="ocp-auto-alert">${escapeHtml(String(auto.last_error))}</div>` : '')
     + rows;
 }
-function _candleEntryTradeMode() { return document.getElementById('candle-entry-mode')?.value || 'paper'; }
+function _candleEntryTradeMode() { return document.getElementById('oc-candle-mode')?.value || 'paper'; }
 
 // The timestamp field means two different things: the mother itself (Manual)
 // or the moment to look back FROM for the latest box high (Box, optional --
 // blank is now). The box row only shows when it applies.
 function _syncCandleEntryMotherMode() {
   const box = _candleEntryMotherMode() === 'box';
-  const label = document.getElementById('candle-entry-timestamp-label');
+  const label = document.getElementById('oc-candle-timestamp-label');
   if (label) label.textContent = box ? 'Look back from · IST (blank = now)' : 'Mother timestamp · IST';
-  const input = _cascadeOptionsEl('candle-entry-mother-timestamp');
+  const input = _cascadeOptionsEl('oc-candle-mother-timestamp');
   if (input) input.placeholder = box ? 'now' : 'YYYY-MM-DDTHH:MM · IST';
-  const row = document.getElementById('candle-entry-box-row');
+  const row = document.getElementById('oc-candle-box-row');
   if (row) row.style.display = box ? '' : 'none';
-  const start = document.getElementById('candle-entry-start');
+  const start = document.getElementById('oc-candle-start');
   if (start) start.textContent = _candleEntryTradeMode() === 'live' ? '▶ Start LIVE campaign' : '▶ Start paper campaign';
   _syncCandleEntryRecipe();
 }
@@ -2947,10 +2984,10 @@ function _syncCandleEntryMotherMode() {
 // THE MEASURED RULE. Anything in Advanced that differs from it is counted on
 // the fold, so the form says at a glance whether it is running the rule or a
 // variation of it.
-const _CANDLE_ENTRY_MEASURED = { 'candle-entry-mother-mode': 'box', 'candle-entry-box-bars': '278', 'candle-entry-box-position': '0.25', 'candle-entry-exit-mode': 'trailing', 'candle-entry-target': '0.25', 'candle-entry-expiry-rule': 'monthly', 'candle-entry-session': 'hold', 'candle-entry-itm': '-2', 'candle-entry-strike-at': 'each_buy' };
+const _CANDLE_ENTRY_MEASURED = { 'oc-candle-mother-mode': 'box', 'oc-candle-box-bars': '278', 'oc-candle-box-position': '0.25', 'oc-candle-exit-mode': 'trailing', 'oc-candle-target': '0.25', 'oc-candle-expiry-rule': 'monthly', 'oc-candle-session': 'hold', 'oc-candle-itm': '-2', 'oc-candle-strike-at': 'each_buy' };
 function _syncCandleEntryAdvancedState() {
-  const el = document.getElementById('candle-entry-advanced-state');
-  const fold = document.getElementById('candle-entry-advanced');
+  const el = document.getElementById('ocp-advanced-state');
+  const fold = document.getElementById('ocp-advanced');
   if (!el) return;
   const changed = Object.entries(_CANDLE_ENTRY_MEASURED).filter(([id, want]) => String(document.getElementById(id)?.value ?? want) !== want).length;
   el.textContent = changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the measured rule` : 'rule as measured';
@@ -2962,22 +2999,22 @@ function _syncCandleEntryAdvancedState() {
 // It replaces a paragraph of explanation: read it and you know the rule.
 function _syncCandleEntryRecipe() {
   _syncCandleEntryAdvancedState();
-  const el = document.getElementById('candle-entry-recipe');
+  const el = document.getElementById('ocp-recipe');
   if (!el) return;
-  const tf = _TB_TF_LABEL[_cascadeOptionsEl('candle-entry-timeframe')?.value || '5m'] || '5m';
+  const tf = _TB_TF_LABEL[_cascadeOptionsEl('oc-candle-timeframe')?.value || '5m'] || '5m';
   const box = _candleEntryMotherMode() === 'box';
-  const bars = Number(document.getElementById('candle-entry-box-bars')?.value || 278);
-  const pos = document.getElementById('candle-entry-box-position')?.value || '0.25';
-  const itm = Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2);
-  const expiry = (document.getElementById('candle-entry-expiry-rule')?.value || 'monthly') === 'weekly4' ? 'weekly ≥4d' : 'monthly';
-  const target = (document.getElementById('candle-entry-target')?.value || '0.25') === '0.5' ? '½' : '¼';
-  const trailing = (document.getElementById('candle-entry-exit-mode')?.value || 'fixed') === 'trailing';
+  const bars = Number(document.getElementById('oc-candle-box-bars')?.value || 278);
+  const pos = document.getElementById('oc-candle-box-position')?.value || '0.25';
+  const itm = Number(_cascadeOptionsEl('oc-candle-itm')?.value ?? -2);
+  const expiry = (document.getElementById('oc-candle-expiry-rule')?.value || 'monthly') === 'weekly4' ? 'weekly ≥4d' : 'monthly';
+  const target = (document.getElementById('oc-candle-target')?.value || '0.25') === '0.5' ? '½' : '¼';
+  const trailing = (document.getElementById('oc-candle-exit-mode')?.value || 'fixed') === 'trailing';
   const session = _candleEntryIntradayClose() ? 'out by 3:15' : 'held to target or expiry';
   const mode = _candleEntryTradeMode() === 'live' ? 'LIVE' : 'paper';
   el.textContent = [
     `${tf} start`,
     box ? `mother = the ${bars}-bar high · buys only in the bottom ${pos === '0.5' ? 'half' : 'quarter'} of that box` : 'mother = the candle you name',
-    `CE ATM${itm === 0 ? '' : itm} ${({ each_buy: 'at each buy', first_buy: 'at the first buy' })[document.getElementById('candle-entry-strike-at')?.value || 'each_buy'] || 'at the mother'} · ${expiry}`,
+    `CE ATM${itm === 0 ? '' : itm} ${({ each_buy: 'at each buy', first_buy: 'at the first buy' })[document.getElementById('oc-candle-strike-at')?.value || 'each_buy'] || 'at the mother'} · ${expiry}`,
     `${target} target${trailing ? ' → 30% trail' : ', sold'}`,
     session,
     mode,
@@ -2989,20 +3026,20 @@ function _syncCandleEntryRecipe() {
 function _candleEntryPayload() {
   return {
     mother_mode: _candleEntryMotherMode(),
-    mother_timestamp: _cascadeOptionsEl('candle-entry-mother-timestamp')?.value || '',
-    timeframe: _cascadeOptionsEl('candle-entry-timeframe')?.value || '5m',
-    box_bars: Number(document.getElementById('candle-entry-box-bars')?.value || 278),
-    box_position: Number(document.getElementById('candle-entry-box-position')?.value || 0.25),
-    ce_offset_steps: Number(_cascadeOptionsEl('candle-entry-itm')?.value ?? -2),
-    strike_at: document.getElementById('candle-entry-strike-at')?.value || 'each_buy',
+    mother_timestamp: _cascadeOptionsEl('oc-candle-mother-timestamp')?.value || '',
+    timeframe: _cascadeOptionsEl('oc-candle-timeframe')?.value || '5m',
+    box_bars: Number(document.getElementById('oc-candle-box-bars')?.value || 278),
+    box_position: Number(document.getElementById('oc-candle-box-position')?.value || 0.25),
+    ce_offset_steps: Number(_cascadeOptionsEl('oc-candle-itm')?.value ?? -2),
+    strike_at: document.getElementById('oc-candle-strike-at')?.value || 'each_buy',
     intraday_close: _candleEntryIntradayClose(),
-    expiry_rule: document.getElementById('candle-entry-expiry-rule')?.value || 'monthly',
-    target_fraction: Number(document.getElementById('candle-entry-target')?.value || 0.25),
-    trailing_target: (document.getElementById('candle-entry-exit-mode')?.value || 'fixed') === 'trailing',
+    expiry_rule: document.getElementById('oc-candle-expiry-rule')?.value || 'monthly',
+    target_fraction: Number(document.getElementById('oc-candle-target')?.value || 0.25),
+    trailing_target: (document.getElementById('oc-candle-exit-mode')?.value || 'fixed') === 'trailing',
   };
 }
 // Where the strike is chosen: at the first buy (a trader's ATM-2) or at the mother.
-function setCandleEntryStrikeAt(_event, button) { _candleEntrySetSwitch('candle-entry-strike-at', 'candle-entry-strike-at-toggle', button?.dataset?.value || 'each_buy'); _syncCandleEntryRecipe(); }
+function setCandleEntryStrikeAt(_event, button) { _ocpSetSwitch('oc-candle-strike-at', 'oc-candle-strike-at-toggle', button?.dataset?.value || 'each_buy'); _syncCandleEntryRecipe(); }
 
 async function startCandleEntryPaper() {
   const payload = { ..._candleEntryPayload(), mode: _candleEntryTradeMode() };
@@ -3053,7 +3090,7 @@ let _candleEntryBacktestChartTf = '';
 async function runCandleEntryBacktest() {
   const payload = _candleEntryPayload();
   if (!payload.mother_timestamp) { _setCandleEntryFormStatus(payload.mother_mode === 'box' ? 'Pick the moment to look back from — the latest box high at or before it is the mother.' : 'Pick a mother timestamp to backtest.', 'error'); return; }
-  const button = document.getElementById('candle-entry-backtest-btn');
+  const button = document.getElementById('oc-candle-backtest-btn');
   if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
   _setCandleEntryFormStatus(`Replaying the ${_TB_TF_LABEL[payload.timeframe] || payload.timeframe} ladder on recorded prices…`, 'busy');
   try {
@@ -3085,14 +3122,14 @@ async function _restoreLastCandleEntryBacktest() {
     if (!payload || payload.status !== 'ok' || _lastCandleEntryBacktest) return;
     _renderCandleEntryBacktest(payload);
     const when = data.run.created_at ? _cascadeOptionsTimestamp(data.run.created_at) : '';
-    const note = document.getElementById('candle-entry-backtest-note');
+    const note = document.getElementById('oc-candle-backtest-note');
     if (note && when) note.textContent = `${note.textContent} · saved run from ${when}`;
     // A restored replay reads exactly like one just run, and a stale one is
     // worse than none: the 19 Aug run kept showing three rungs struck at the
     // mother after the ladder became two rungs at each buy. Say what it is.
-    const badge = document.getElementById('candle-entry-backtest-badge');
+    const badge = document.getElementById('oc-candle-backtest-badge');
     if (badge && !badge.textContent.startsWith('SAVED')) badge.textContent = `SAVED · ${badge.textContent}`;
-    const stale = document.getElementById('candle-entry-backtest-stale');
+    const stale = document.getElementById('oc-candle-backtest-stale');
     if (stale) {
       stale.textContent = `Saved replay${when ? ` from ${when}` : ''} — a stored result, not today's. It keeps the rule it ran `
         + 'under, so an old one can show a ladder the page no longer trades. Backtest replaces it; ✕ Delete throws it away.';
@@ -3123,11 +3160,11 @@ async function deleteCandleEntryBacktest() {
   }
   _lastCandleEntryBacktest = null;
   _candleEntryCollapseBacktestChart();
-  const panel = document.getElementById('candle-entry-backtest');
+  const panel = document.getElementById('oc-candle-backtest');
   if (panel) panel.style.display = 'none';
-  const legs = document.getElementById('candle-entry-backtest-legs');
+  const legs = document.getElementById('oc-candle-backtest-legs');
   if (legs) legs.innerHTML = '';
-  ['candle-entry-backtest-csv', 'candle-entry-backtest-delete', 'candle-entry-backtest-chart-btn'].forEach(id => {
+  ['oc-candle-backtest-csv', 'oc-candle-backtest-delete', 'oc-candle-backtest-chart-btn'].forEach(id => {
     const node = document.getElementById(id);
     if (node) node.style.display = 'none';
   });
@@ -3135,20 +3172,20 @@ async function deleteCandleEntryBacktest() {
 }
 
 function _renderCandleEntryBacktest(data) {
-  const panel = document.getElementById('candle-entry-backtest');
+  const panel = document.getElementById('oc-candle-backtest');
   if (panel) panel.style.display = '';
-  const stale = document.getElementById('candle-entry-backtest-stale');
+  const stale = document.getElementById('oc-candle-backtest-stale');
   if (stale) { stale.textContent = ''; stale.style.display = 'none'; }
   const c = data.campaign || {};
   _lastCandleEntryBacktest = data;
   _candleEntryCollapseBacktestChart();
   const charts = data.charts || {};
   const hasChart = Object.keys(charts).some(tf => Array.isArray(charts[tf]?.candles) && charts[tf].candles.length);
-  const chartBtn = document.getElementById('candle-entry-backtest-chart-btn');
+  const chartBtn = document.getElementById('oc-candle-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
-  ['candle-entry-backtest-csv', 'candle-entry-backtest-delete'].forEach(id => { const a = document.getElementById(id); if (a) a.style.display = ''; });
+  ['oc-candle-backtest-csv', 'oc-candle-backtest-delete'].forEach(id => { const a = document.getElementById(id); if (a) a.style.display = ''; });
 
-  const badge = document.getElementById('candle-entry-backtest-badge');
+  const badge = document.getElementById('oc-candle-backtest-badge');
   if (badge) {
     const priced = data.pricing === 'recorded_history';
     const gaps = Number(c.unpriced_fills || 0) + ((data.premium_failures || []).length ? 1 : 0);
@@ -3156,17 +3193,17 @@ function _renderCandleEntryBacktest(data) {
     badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
     badge.style.borderColor = badge.style.color;
   }
-  const contract = document.getElementById('candle-entry-backtest-contract');
+  const contract = document.getElementById('oc-candle-backtest-contract');
   const k = data.contract || {};
   if (contract) {
     const boxBit = data.mother_mode === 'box' && data.box ? ` · mother = the ${data.box.bars}-bar high, buys below ${_cascadeNumber(data.box.line_at_mother)} (bottom ${data.box.position === 0.5 ? 'half' : 'quarter'} of ${_cascadeNumber(data.box.low_at_mother)}–${_cascadeNumber(data.box.high_at_mother)})` : '';
     const struck = ({ each_buy: ' (strike at each buy)', first_buy: ' (strike at the first buy)' })[data.strike_at] || ' (strike at the mother)';
     contract.textContent = `NIFTY ${k.strike || '—'} CE${struck} · expiry ${k.expiry || '—'} (${data.expiry_rule === 'weekly4' ? 'weekly ≥4d' : 'monthly'}) · ${String(data.timeframe || '').toUpperCase()} mother, climbing ${(data.stages || []).map(tf => _TB_TF_LABEL[tf] || tf).join(' → ')}${boxBit} · ${data.lot_size} units/lot · target ${data.target_fraction === 0.5 ? '½' : '¼'} back${data.trailing_target ? ', trailing' : ''} · ${data.intraday_close ? 'out by 3:15' : 'held to target or expiry'}`;
   }
-  const gist = document.getElementById('candle-entry-backtest-gist');
+  const gist = document.getElementById('oc-candle-backtest-gist');
   if (gist) gist.textContent = data.note || '';
 
-  const summary = document.getElementById('candle-entry-backtest-summary');
+  const summary = document.getElementById('oc-candle-backtest-summary');
   const fills = Array.isArray(c.fills) ? c.fills : [];
   if (summary) {
     const exit = c.exit || {};
@@ -3181,7 +3218,7 @@ function _renderCandleEntryBacktest(data) {
     ].join('');
   }
 
-  const note = document.getElementById('candle-entry-backtest-note');
+  const note = document.getElementById('oc-candle-backtest-note');
   if (note) {
     const exit = c.exit;
     const ended = exit
@@ -3192,7 +3229,7 @@ function _renderCandleEntryBacktest(data) {
     note.textContent = `Mother ${_cascadeOptionsTimestamp((data.mother || {}).timestamp)} · high ${_cascadeNumber((data.mother || {}).high)}${avg}${target} · ${ended} · ${data.candles_replayed} bars replayed`;
   }
 
-  const gapsEl = document.getElementById('candle-entry-backtest-gaps');
+  const gapsEl = document.getElementById('oc-candle-backtest-gaps');
   if (gapsEl) {
     const lines = [].concat(
       (data.premium_failures || []).map(String),
@@ -3204,7 +3241,7 @@ function _renderCandleEntryBacktest(data) {
       : '';
   }
 
-  const legs = document.getElementById('candle-entry-backtest-legs');
+  const legs = document.getElementById('oc-candle-backtest-legs');
   if (legs) {
     // Each contract is sold at its own price: read the leg's own strike first,
     // then the headline exit premium (one strike for the whole ladder).
@@ -3234,10 +3271,10 @@ function _renderCandleEntryBacktest(data) {
 }
 
 function _candleEntryCollapseBacktestChart() {
-  const wrap = document.getElementById('candle-entry-backtest-chart-wrap');
-  const box = document.getElementById('candle-entry-backtest-chart');
-  const strip = document.getElementById('candle-entry-backtest-chart-strip');
-  const btn = document.getElementById('candle-entry-backtest-chart-btn');
+  const wrap = document.getElementById('oc-candle-backtest-chart-wrap');
+  const box = document.getElementById('oc-candle-backtest-chart');
+  const strip = document.getElementById('oc-candle-backtest-chart-strip');
+  const btn = document.getElementById('oc-candle-backtest-chart-btn');
   if (wrap) wrap.style.display = 'none';
   if (box) box.innerHTML = '';
   if (strip) strip.innerHTML = '';
@@ -3246,7 +3283,7 @@ function _candleEntryCollapseBacktestChart() {
 
 function _candleEntryDrawBacktestChart() {
   const data = _lastCandleEntryBacktest;
-  const box = document.getElementById('candle-entry-backtest-chart');
+  const box = document.getElementById('oc-candle-backtest-chart');
   if (!data || !box) return;
   const charts = data.charts || {};
   const tfs = (data.stages || Object.keys(charts)).filter(tf => charts[tf]);
@@ -3256,10 +3293,10 @@ function _candleEntryDrawBacktestChart() {
 }
 
 function toggleCandleEntryBacktestChart() {
-  const wrap = document.getElementById('candle-entry-backtest-chart-wrap');
-  const box = document.getElementById('candle-entry-backtest-chart');
-  const strip = document.getElementById('candle-entry-backtest-chart-strip');
-  const btn = document.getElementById('candle-entry-backtest-chart-btn');
+  const wrap = document.getElementById('oc-candle-backtest-chart-wrap');
+  const box = document.getElementById('oc-candle-backtest-chart');
+  const strip = document.getElementById('oc-candle-backtest-chart-strip');
+  const btn = document.getElementById('oc-candle-backtest-chart-btn');
   if (!wrap || !box) return;
   if (wrap.style.display !== 'none' && box.innerHTML) {
     _candleEntryCollapseBacktestChart();
@@ -3292,10 +3329,10 @@ let _candleEntryChartDrawnKey = '';
 async function loadCandleEntryChart() {
   const el = id => document.getElementById(id);
   const campaign = _lastCandleEntryStatus;
-  const chart = el('candle-entry-chart');
-  const meta = el('candle-entry-chart-meta');
-  const overlay = el('candle-entry-chart-overlay');
-  const title = el('candle-entry-chart-title');
+  const chart = el('oc-candle-chart');
+  const meta = el('oc-candle-chart-meta');
+  const overlay = el('oc-candle-chart-overlay');
+  const title = el('oc-candle-chart-title');
   if (!campaign) { _setCandleEntryFormStatus('Start a campaign first — the chart draws what it is watching.', 'error'); return; }
   const stages = Array.isArray(campaign.stages) && campaign.stages.length ? campaign.stages : [campaign.timeframe];
   const timeframe = stages.includes(_candleEntryChartTf) ? _candleEntryChartTf : stages[0];
@@ -3303,7 +3340,7 @@ async function loadCandleEntryChart() {
   _candleEntryCollapseBacktestChart();
   pfSetCascadeChartOverlayOpen(overlay, true);
   if (title) title.textContent = `NIFTY two-red ladder · ${String(campaign.timeframe).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
-  const stripHost = el('candle-entry-chart-strip');
+  const stripHost = el('oc-candle-chart-strip');
   if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
     pfChartStrip(stripHost, {
       timeframes: stages,
@@ -3346,15 +3383,15 @@ async function loadCandleEntryChart() {
 }
 
 function hideCandleEntryChart() {
-  const overlay = document.getElementById('candle-entry-chart-overlay');
+  const overlay = document.getElementById('oc-candle-chart-overlay');
   if (!overlay || !overlay.classList.contains('is-open')) return;
   pfSetCascadeChartOverlayOpen(overlay, false);
   _candleEntryChartTf = '';
   _candleEntryChartDrawnKey = '';
-  const strip = document.getElementById('candle-entry-chart-strip');
+  const strip = document.getElementById('oc-candle-chart-strip');
   if (strip) strip.innerHTML = '';
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
-  const chart = document.getElementById('candle-entry-chart');
+  const chart = document.getElementById('oc-candle-chart');
   if (chart) chart.innerHTML = '';
 }
 
@@ -3644,7 +3681,7 @@ let _lastGapCarryTimeframes = ['5m', '15m'];
 const _GC_MONEY = (v) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
 
 function _setGapCarryFormStatus(message, tone = 'muted') {
-  const el = _cascadeOptionsEl('gap-carry-form-status');
+  const el = _cascadeOptionsEl('oc-gap-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -3654,19 +3691,19 @@ function _setGapCarryFormStatus(message, tone = 'muted') {
 function _gapCarryPayload() {
   const val = (id, fallback) => document.getElementById(id)?.value || fallback;
   return {
-    timeframe: val('gap-carry-timeframe', '5m'),
-    rsi_threshold: Number(val('gap-carry-rsi', '70')),
-    strike_offset_steps: Number(val('gap-carry-offset', '4')),
-    lots: Number(val('gap-carry-lots', '1')),
-    entry_time: val('gap-carry-entry-time', '15:10'),
-    exit_time: val('gap-carry-exit-time', '09:20'),
-    expiry_rule: val('gap-carry-expiry-rule', 'weekly'),
+    timeframe: val('oc-gap-timeframe', '5m'),
+    rsi_threshold: Number(val('oc-gap-rsi', '70')),
+    strike_offset_steps: Number(val('oc-gap-offset', '4')),
+    lots: Number(val('oc-gap-lots', '1')),
+    entry_time: val('oc-gap-entry-time', '15:10'),
+    exit_time: val('oc-gap-exit-time', '09:20'),
+    expiry_rule: val('oc-gap-expiry-rule', 'weekly'),
   };
 }
 
 function _syncGapCarryRecipe() {
   const p = _gapCarryPayload();
-  const recipe = _cascadeOptionsEl('gap-carry-recipe');
+  const recipe = _cascadeOptionsEl('oc-gap-recipe');
   const put = (100 - p.rsi_threshold).toFixed(0);
   if (recipe) {
     recipe.textContent =
@@ -3674,12 +3711,12 @@ function _syncGapCarryRecipe() {
       `below with RSI ${put}− buys a PE · ATM+${p.strike_offset_steps} ITM · ${p.lots} lot${p.lots > 1 ? 's' : ''} · ` +
       `${p.expiry_rule} expiry · sold ${p.exit_time} next session`;
   }
-  const start = document.getElementById('gap-carry-start');
+  const start = document.getElementById('oc-gap-start');
   if (start && !start.dataset.running) {
-    start.textContent = (document.getElementById('gap-carry-mode')?.value === 'live')
+    start.textContent = (document.getElementById('oc-gap-mode')?.value === 'live')
       ? '▶ Start LIVE carry' : '▶ Start paper carry';
   }
-  const state = _cascadeOptionsEl('gap-carry-advanced-state');
+  const state = _cascadeOptionsEl('oc-gap-advanced-state');
   if (state) {
     const measured = p.rsi_threshold === 70 && p.strike_offset_steps === 4 && p.lots === 1
       && p.entry_time === '15:10' && p.exit_time === '09:20' && p.expiry_rule === 'weekly';
@@ -3688,23 +3725,23 @@ function _syncGapCarryRecipe() {
 }
 
 function setGapCarryMode(_event, button) {
-  _candleEntrySetSwitch('gap-carry-mode', 'gap-carry-mode-toggle', button?.dataset?.value || 'paper');
+  _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', button?.dataset?.value || 'paper');
   _syncGapCarryRecipe();
 }
 function setGapCarryExpiry(_event, button) {
-  _candleEntrySetSwitch('gap-carry-expiry-rule', 'gap-carry-expiry-toggle', button?.dataset?.value || 'weekly');
+  _ocpSetSwitch('oc-gap-expiry-rule', 'oc-gap-expiry-toggle', button?.dataset?.value || 'weekly');
   _syncGapCarryRecipe();
 }
 function setGapCarryRsi(_event, button) {
-  _candleEntrySetSwitch('gap-carry-rsi', 'gap-carry-rsi-toggle', button?.dataset?.value || '70');
+  _ocpSetSwitch('oc-gap-rsi', 'oc-gap-rsi-toggle', button?.dataset?.value || '70');
   _syncGapCarryRecipe();
 }
 function setGapCarryOffset(_event, button) {
-  _candleEntrySetSwitch('gap-carry-offset', 'gap-carry-offset-toggle', button?.dataset?.value || '4');
+  _ocpSetSwitch('oc-gap-offset', 'oc-gap-offset-toggle', button?.dataset?.value || '4');
   _syncGapCarryRecipe();
 }
 function setGapCarryLots(_event, button) {
-  _candleEntrySetSwitch('gap-carry-lots', 'gap-carry-lots-toggle', button?.dataset?.value || '1');
+  _ocpSetSwitch('oc-gap-lots', 'oc-gap-lots-toggle', button?.dataset?.value || '1');
   _syncGapCarryRecipe();
 }
 
@@ -3715,23 +3752,23 @@ let _gapCarryAutoInFlight = false;
 async function setGapCarryAuto(_event, button) {
   if (_gapCarryAutoInFlight) return;
   const wanted = button?.dataset?.value || 'off';
-  const previous = document.getElementById('gap-carry-auto')?.value || 'off';
+  const previous = document.getElementById('oc-gap-auto')?.value || 'off';
   if (wanted === previous) return;
   _gapCarryAutoInFlight = true;
-  _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', wanted);
+  _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', wanted);
   try {
     const response = await fetch('/api/gap-carry/auto', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: wanted === 'on', mode: document.getElementById('gap-carry-mode')?.value || 'paper' }),
+      body: JSON.stringify({ enabled: wanted === 'on', mode: document.getElementById('oc-gap-mode')?.value || 'paper' }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The auto switch could not be changed.'));
     _renderGapCarryAuto(data.auto || {});
     _setGapCarryFormStatus(wanted === 'on' ? 'Auto carry is on — 15:10 in, 09:20 out, every session.' : 'Auto carry is off.', 'success');
   } catch (error) {
-    _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', previous);
+    _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', previous);
     _setGapCarryFormStatus(error.message || 'The auto switch could not be changed.', 'error');
   } finally {
     _gapCarryAutoInFlight = false;
@@ -3739,7 +3776,7 @@ async function setGapCarryAuto(_event, button) {
 }
 
 async function startGapCarryPaper() {
-  const button = _cascadeOptionsEl('gap-carry-start');
+  const button = _cascadeOptionsEl('oc-gap-start');
   if (button) button.disabled = true;
   _setGapCarryFormStatus('Reading the candle and pricing the contract…', 'busy');
   try {
@@ -3747,7 +3784,7 @@ async function startGapCarryPaper() {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ..._gapCarryPayload(), mode: document.getElementById('gap-carry-mode')?.value || 'paper' }),
+      body: JSON.stringify({ ..._gapCarryPayload(), mode: document.getElementById('oc-gap-mode')?.value || 'paper' }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'The campaign could not be started.'));
@@ -3779,7 +3816,7 @@ async function killGapCarryPaper() {
 }
 
 async function runGapCarryBacktest() {
-  const button = _cascadeOptionsEl('gap-carry-backtest-btn');
+  const button = _cascadeOptionsEl('oc-gap-backtest-btn');
   const label = button ? button.textContent : '';
   if (button) { button.disabled = true; button.textContent = '◱ Replaying…'; }
   _setGapCarryFormStatus('Replaying the same rule on recorded prices…', 'busy');
@@ -3815,16 +3852,16 @@ async function deleteGapCarryBacktest() {
     _setGapCarryFormStatus(error.message || 'The replay could not be deleted.', 'error');
     return;
   }
-  const panel = _cascadeOptionsEl('gap-carry-backtest');
+  const panel = _cascadeOptionsEl('oc-gap-backtest');
   if (panel) panel.hidden = true;
   _setGapCarryFormStatus('Saved replay deleted. Press Backtest to replay it fresh.', 'success');
 }
 
 function _renderGapCarryAuto(auto) {
-  const card = _cascadeOptionsEl('gap-carry-auto-card');
+  const card = _cascadeOptionsEl('oc-gap-auto-card');
   if (!card) return;
   const on = Boolean(auto && auto.enabled);
-  _candleEntrySetSwitch('gap-carry-auto', 'gap-carry-auto-toggle', on ? 'on' : 'off');
+  _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', on ? 'on' : 'off');
   if (!on) { card.hidden = true; card.textContent = ''; return; }
   card.hidden = false;
   const bits = [`<strong>Auto carry is on.</strong> 15:10 in, 09:20 out, every session.`];
@@ -3836,20 +3873,20 @@ function _renderGapCarryAuto(auto) {
 }
 
 // The same tile Candle Entry draws. It used to reach for
-// .candle-entry-tile-label / -value, which the stylesheet has never defined,
+// .ocp-tile-label / -value, which the stylesheet has never defined,
 // so every Gap Carry tile rendered as two runs of bare text.
 function _gapCarryTile(label, value, tone) {
   const colour = tone === 'good' ? '#6ee7b7' : tone === 'bad' ? 'var(--danger)' : 'var(--text)';
-  return _candleEntryTile(String(label), String(value), colour);
+  return _ocpTile(String(label), String(value), colour);
 }
 
 function _renderGapCarryStatus(campaign, running) {
-  const badge = _cascadeOptionsEl('gap-carry-badge');
-  const summary = _cascadeOptionsEl('gap-carry-summary');
-  const monitor = _cascadeOptionsEl('gap-carry-monitor');
-  const kill = _cascadeOptionsEl('gap-carry-kill');
-  const startBtn = document.getElementById('gap-carry-start');
-  const live = document.getElementById('gap-carry-mode')?.value === 'live';
+  const badge = _cascadeOptionsEl('oc-gap-badge');
+  const summary = _cascadeOptionsEl('oc-gap-summary');
+  const monitor = _cascadeOptionsEl('oc-gap-monitor');
+  const kill = _cascadeOptionsEl('oc-gap-stop');
+  const startBtn = document.getElementById('oc-gap-start');
+  const live = document.getElementById('oc-gap-mode')?.value === 'live';
   // THE BUTTON MUST SAY WHICH STATE IT IS IN. Phil, 2026-08-24: it sat on
   // "Start paper carry" while a campaign was already carrying, so the page gave
   // no sign that Start had worked.
@@ -3895,16 +3932,16 @@ function _renderGapCarryStatus(campaign, running) {
   monitor.hidden = !(isRunning || pos || history.length);
   if (monitor.hidden) return;
 
-  const kicker = _cascadeOptionsEl('gap-carry-monitor-kicker');
+  const kicker = _cascadeOptionsEl('oc-gap-monitor-kicker');
   if (kicker) kicker.textContent = live ? 'Live carry' : 'Paper carry';
-  const title = _cascadeOptionsEl('gap-carry-monitor-title');
+  const title = _cascadeOptionsEl('oc-gap-monitor-title');
   if (title) {
     title.textContent = campaign.open
       ? `Holding overnight · sells at ${exitAt}`
       : (isRunning ? `Waiting for ${entryAt}` : `Ended · ${status.toLowerCase()}`);
   }
 
-  const tiles = _cascadeOptionsEl('gap-carry-monitor-tiles');
+  const tiles = _cascadeOptionsEl('oc-gap-tiles');
   if (tiles) {
     const rows = [];
     const sig = campaign.signal;
@@ -3924,7 +3961,7 @@ function _renderGapCarryStatus(campaign, running) {
     tiles.innerHTML = rows.join('');
   }
 
-  const ruleLine = _cascadeOptionsEl('gap-carry-monitor-rule');
+  const ruleLine = _cascadeOptionsEl('oc-gap-monitor-rule');
   if (ruleLine) {
     const put = rule.rsi_for_put ?? (100 - Number(rule.rsi_threshold || 70));
     ruleLine.textContent =
@@ -3933,14 +3970,14 @@ function _renderGapCarryStatus(campaign, running) {
       `ATM+${rule.strike_offset_steps ?? 4} ITM · ${rule.lots ?? 1} lot${(rule.lots ?? 1) > 1 ? 's' : ''}`;
   }
 
-  const body = _cascadeOptionsEl('gap-carry-monitor-rows');
+  const body = _cascadeOptionsEl('oc-gap-rows');
   if (body) {
     // The open leg first, then the nights already settled, newest first.
     const seen = [];
     if (pos && campaign.open) seen.push([pos, true]);
     for (const row of history.slice().reverse()) seen.push([row, false]);
     if (!pos && !history.length) {
-      body.innerHTML = `<tr><td colspan="8" class="candle-entry-empty">Nothing bought yet — the candle is read at ${escapeHtml(entryAt)}.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="8" class="ocp-empty">Nothing bought yet — the candle is read at ${escapeHtml(entryAt)}.</td></tr>`;
     } else {
       if (!seen.length && pos) seen.push([pos, false]);
       body.innerHTML = seen.map(([row, open]) => {
@@ -3966,8 +4003,8 @@ function _renderGapCarryStatus(campaign, running) {
   }
 
   const notes = Array.isArray(campaign.notes) ? campaign.notes.slice().reverse() : [];
-  const events = _cascadeOptionsEl('gap-carry-events');
-  const count = _cascadeOptionsEl('gap-carry-event-count');
+  const events = _cascadeOptionsEl('oc-gap-events');
+  const count = _cascadeOptionsEl('oc-gap-event-count');
   if (count) count.textContent = `${notes.length} update${notes.length === 1 ? '' : 's'}`;
   if (events) {
     events.innerHTML = notes.length
@@ -3978,21 +4015,21 @@ function _renderGapCarryStatus(campaign, running) {
           const what = split > 0 ? text.slice(split + 2) : text;
           return `<tr><td>${escapeHtml(when)}</td><td>${escapeHtml(what)}</td></tr>`;
         }).join('')
-      : '<tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr>';
+      : '<tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr>';
   }
 
-  const chartBtn = _cascadeOptionsEl('gap-carry-chart-btn');
+  const chartBtn = _cascadeOptionsEl('oc-gap-chart-btn');
   if (chartBtn) chartBtn.style.display = (isRunning || pos) ? '' : 'none';
-  const stamp = _cascadeOptionsEl('gap-carry-monitor-updated');
+  const stamp = _cascadeOptionsEl('oc-gap-monitor-updated');
   if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
 }
 
 function _renderGapCarryBacktest(data) {
-  const panel = _cascadeOptionsEl('gap-carry-backtest');
+  const panel = _cascadeOptionsEl('oc-gap-backtest');
   if (!panel || !data || !data.summary) return;
   panel.hidden = false;
   const s = data.summary;
-  const tiles = _cascadeOptionsEl('gap-carry-backtest-tiles');
+  const tiles = _cascadeOptionsEl('oc-gap-backtest-tiles');
   if (tiles) {
     const rows = [
       _gapCarryTile('Nights', String(s.trades ?? 0)),
@@ -4005,7 +4042,7 @@ function _renderGapCarryBacktest(data) {
     if (s.floored_exits) rows.push(_gapCarryTile(`At intrinsic (${s.floored_exits})`, _GC_MONEY(s.floored_net)));
     tiles.innerHTML = rows.join('');
   }
-  const table = _cascadeOptionsEl('gap-carry-backtest-table');
+  const table = _cascadeOptionsEl('oc-gap-backtest-table');
   if (table) {
     const rows = (data.positions || []).slice(-40).reverse();
     table.innerHTML =
@@ -4018,7 +4055,7 @@ function _renderGapCarryBacktest(data) {
       }).join('') +
       '</tbody>';
   }
-  const stamp = _cascadeOptionsEl('gap-carry-backtest-updated');
+  const stamp = _cascadeOptionsEl('oc-gap-backtest-updated');
   if (stamp) {
     const skipped = data.skipped ? ` · ${data.skipped} skipped` : '';
     stamp.textContent = `${data.window ? `${data.window.from} → ${data.window.to}` : ''}${skipped}`;
@@ -4026,7 +4063,7 @@ function _renderGapCarryBacktest(data) {
   // CSV, the journal chart and Delete belong to a replay that EXISTS. Shown
   // unconditionally, Delete offered to throw away nothing at all.
   const hasBook = ((data.positions || []).length) > 0;
-  ['gap-carry-backtest-csv', 'gap-carry-backtest-chart-btn', 'gap-carry-backtest-delete'].forEach((id) => {
+  ['oc-gap-backtest-csv', 'oc-gap-backtest-chart-btn', 'oc-gap-backtest-delete'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = hasBook ? '' : 'none';
   });
@@ -4040,16 +4077,16 @@ function _renderGapCarryBacktest(data) {
 let _gapCarryChartTf = '';
 
 function _gapCarryCollapseBacktestChart() {
-  const wrap = document.getElementById('gap-carry-backtest-chart-wrap');
-  const btn = document.getElementById('gap-carry-backtest-chart-btn');
+  const wrap = document.getElementById('oc-gap-backtest-chart-wrap');
+  const btn = document.getElementById('oc-gap-backtest-chart-btn');
   if (wrap) wrap.style.display = 'none';
   if (btn) btn.textContent = '↗ Journal chart';
 }
 
 async function toggleGapCarryBacktestChart() {
-  const wrap = document.getElementById('gap-carry-backtest-chart-wrap');
-  const box = document.getElementById('gap-carry-backtest-chart');
-  const btn = document.getElementById('gap-carry-backtest-chart-btn');
+  const wrap = document.getElementById('oc-gap-backtest-chart-wrap');
+  const box = document.getElementById('oc-gap-backtest-chart');
+  const btn = document.getElementById('oc-gap-backtest-chart-btn');
   if (!wrap || !box) return;
   if (wrap.style.display !== 'none') { _gapCarryCollapseBacktestChart(); return; }
   // The overlay and this journal share ONE canvas renderer; put the other away.
@@ -4071,17 +4108,17 @@ async function toggleGapCarryBacktestChart() {
 
 async function loadGapCarryChart() {
   const el = (id) => document.getElementById(id);
-  const chart = el('gap-carry-chart');
-  const meta = el('gap-carry-chart-meta');
-  const overlay = el('gap-carry-chart-overlay');
-  const title = el('gap-carry-chart-title');
+  const chart = el('oc-gap-chart');
+  const meta = el('oc-gap-chart-meta');
+  const overlay = el('oc-gap-chart-overlay');
+  const title = el('oc-gap-chart-title');
   const stages = Array.isArray(_lastGapCarryTimeframes) && _lastGapCarryTimeframes.length ? _lastGapCarryTimeframes : ['5m', '15m'];
-  const timeframe = stages.includes(_gapCarryChartTf) ? _gapCarryChartTf : (document.getElementById('gap-carry-timeframe')?.value || stages[0]);
+  const timeframe = stages.includes(_gapCarryChartTf) ? _gapCarryChartTf : (document.getElementById('oc-gap-timeframe')?.value || stages[0]);
   _gapCarryChartTf = timeframe;
   _gapCarryCollapseBacktestChart();
   pfSetCascadeChartOverlayOpen(overlay, true);
   if (title) title.textContent = `NIFTY gap carry · ${String(timeframe).toUpperCase()} · EMA20 + RSI`;
-  const stripHost = el('gap-carry-chart-strip');
+  const stripHost = el('oc-gap-chart-strip');
   if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
     pfChartStrip(stripHost, {
       timeframes: stages,
@@ -4118,7 +4155,7 @@ async function loadGapCarryChart() {
 }
 
 function hideGapCarryChart() {
-  const overlay = document.getElementById('gap-carry-chart-overlay');
+  const overlay = document.getElementById('oc-gap-chart-overlay');
   if (!overlay || !overlay.classList.contains('is-open')) return;
   pfSetCascadeChartOverlayOpen(overlay, false);
   _gapCarryChartTf = '';
@@ -4134,13 +4171,14 @@ async function _restoreLastGapCarryBacktest() {
 }
 
 async function refreshGapCarryStatus() {
+  _refreshPaperLedger('gap_carry');
   try {
     const response = await fetch('/api/gap-carry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       // The poll writes its errors to the SUMMARY, never the form status — a
       // 3-second poll would otherwise wipe the message Start just produced.
-      const summary = _cascadeOptionsEl('gap-carry-summary');
+      const summary = _cascadeOptionsEl('oc-gap-summary');
       if (summary) summary.textContent = pfErrorText(data, 'Gap Carry status is unavailable.');
       return;
     }
@@ -4149,7 +4187,7 @@ async function refreshGapCarryStatus() {
     _renderGapCarryStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
     _syncGapCarryRecipe();
   } catch (_error) {
-    const summary = _cascadeOptionsEl('gap-carry-summary');
+    const summary = _cascadeOptionsEl('oc-gap-summary');
     if (summary) summary.textContent = 'Gap Carry status is unavailable.';
   }
 }
@@ -4243,8 +4281,8 @@ function _syncFibLevelsHint() {
   // instrument, every side. What DOES vary by instrument is which expiry rule
   // the user actually gets and whether a backtest can price it at all -- so
   // that is what this line says now.
-  const symbol = document.getElementById('fibx-symbol')?.value || 'NIFTY';
-  const note = document.getElementById('fibx-symbol-note');
+  const symbol = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
+  const note = document.getElementById('oc-fib-symbol-note');
   if (note) {
     const terms = _FIBX_SYMBOL_NOTES[symbol];
     note.textContent = terms || '';
@@ -4254,10 +4292,10 @@ function _syncFibLevelsHint() {
   // The drawn ladder is L2..L16 in both modes; convergence only BUYS where two
   // fibs meet, and eligibility there is the narrower 1/2/4/8 set Phil signed
   // off on 2026-08-04. The hint has to say which of the two is armed.
-  const levelsHint = document.getElementById('fibx-levels-hint');
+  const levelsHint = document.getElementById('oc-fib-levels-hint');
   if (levelsHint) {
-    const buys = document.getElementById('fibx-buy-mode')?.value || 'levels';
-    const session = (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday' ? ' · OUT 3:15' : ' · CARRIES';
+    const buys = document.getElementById('oc-fib-buy-mode')?.value || 'levels';
+    const session = (document.getElementById('oc-fib-session')?.value || 'intraday') === 'intraday' ? ' · OUT 3:15' : ' · CARRIES';
     levelsHint.textContent = (buys === 'convergence' ? 'ZONES · L1·L2·L4·L8' : 'L2·L3·L4·L6·L8·L12·L16') + session;
     levelsHint.title = buys === 'convergence'
       ? 'Partner: buys only where a level of one fib meets a level of another — the deepest two spaces.'
@@ -4266,8 +4304,8 @@ function _syncFibLevelsHint() {
 
   // Do not advertise a real-money path while the server's fill/reconciliation
   // safety gate is closed.
-  const mode = document.getElementById('fibx-mode')?.value || 'paper';
-  const modeNote = document.getElementById('fibx-mode-note');
+  const mode = document.getElementById('oc-fib-mode')?.value || 'paper';
+  const modeNote = document.getElementById('oc-fib-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
       ? 'Unavailable — broker fill verification and restart reconciliation are still pending.'
@@ -4275,7 +4313,7 @@ function _syncFibLevelsHint() {
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
 
-  const mother = document.getElementById('fibx-mother-timestamp');
+  const mother = document.getElementById('oc-fib-mother-timestamp');
   if (!mother) return;
   // The picker must offer only the minutes this chart can open on: 5m gets
   // multiples of 5, 15m multiples of 15, 1H only :15, and 1m every minute.
@@ -4289,16 +4327,16 @@ function _syncFibLevelsHint() {
 // "current week" cannot mean anything on those three.
 function pickFibTimeframe(event, el) {
   const btn = el || event?.currentTarget;
-  const row = document.getElementById('fibx-timeframe');
+  const row = document.getElementById('oc-fib-timeframe');
   if (!btn || !row) return;
   row.dataset.value = btn.getAttribute('data-tf') || '1m';
-  row.querySelectorAll('.fibx-tf').forEach(b => b.classList.toggle('is-active', b === btn));
+  row.querySelectorAll('.oc-fib-tf').forEach(b => b.classList.toggle('is-active', b === btn));
   _syncFibLevelsHint();
 }
 
 // The picker is a button row, so `.value` no longer exists on it.
 function _fibTimeframe() {
-  return document.getElementById('fibx-timeframe')?.dataset.value || '1m';
+  return document.getElementById('oc-fib-timeframe')?.dataset.value || '1m';
 }
 
 const _FIBX_SYMBOL_NOTES = {
@@ -4399,9 +4437,9 @@ function _apiErrorMessage(data, fallback) {
 // withheld, because Dhan only quotes 'now'), and the Backtest button is the way
 // to get real historical P&L for it. Say so before they hit a button.
 function _syncFibModeHint() {
-  const el = document.getElementById('fibx-mode-hint');
+  const el = document.getElementById('oc-fib-mode-hint');
   if (!el) return;
-  const raw = document.getElementById('fibx-mother-timestamp')?.value;
+  const raw = document.getElementById('oc-fib-mother-timestamp')?.value;
   el.classList.remove('is-live', 'is-replay');
   if (!raw) { el.textContent = ''; return; }
   const picked = new Date(raw);
@@ -4426,7 +4464,7 @@ async function initOptionsCascadePage() {
     _storedView(PF_VIEW_STATE.fibBoundaryMotherMode, ['manual', 'auto'], 'manual'),
     { persist: false },
   );
-  ['fibx-symbol', 'fibx-mode'].forEach(id => {
+  ['oc-fib-symbol', 'oc-fib-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) {
       sel.addEventListener('change', () => {
@@ -4437,7 +4475,7 @@ async function initOptionsCascadePage() {
       sel._fibHintBound = true;
     }
   });
-  const tsSel = document.getElementById('fibx-mother-timestamp');
+  const tsSel = document.getElementById('oc-fib-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
   _syncFibModeHint();
@@ -4457,7 +4495,7 @@ async function initOptionsCascadePage() {
 }
 
 function _fibSetFormStatus(message, tone = 'muted') {
-  const el = document.getElementById('fibx-form-status');
+  const el = document.getElementById('oc-fib-status');
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
@@ -4484,10 +4522,10 @@ function _fibxLevelTone(status) {
 // a rebuild would drop the <details> open state and the events scroll position
 // on every tick.
 function _fibxPanelRoots(symbols) {
-  const monitors = document.getElementById('fibx-monitors');
-  const lower = document.getElementById('fibx-lower');
-  const monitorTpl = document.getElementById('fibx-monitor-tpl');
-  const lowerTpl = document.getElementById('fibx-lower-tpl');
+  const monitors = document.getElementById('oc-fib-rows');
+  const lower = document.getElementById('oc-fib-lower');
+  const monitorTpl = document.getElementById('oc-fib-rows-tpl');
+  const lowerTpl = document.getElementById('oc-fib-lower-tpl');
   if (!monitors || !lower || !monitorTpl || !lowerTpl) return new Map();
   const roots = new Map();
   const wanted = symbols.length ? symbols : [''];
@@ -4511,7 +4549,7 @@ function _fibxPanelRoots(symbols) {
   [monitors, lower].forEach(host => {
     Array.from(host.children).forEach(node => {
       // The auto watch card lives in this column too and belongs to no symbol.
-      if (node.id === 'fibx-auto-panel') return;
+      if (node.id === 'oc-fib-auto-card') return;
       if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
     });
   });
@@ -4519,7 +4557,7 @@ function _fibxPanelRoots(symbols) {
   // user is scrolling costs them their place.
   [[monitors, 'monitor'], [lower, 'pair']].forEach(([host, which]) => {
     const desired = wanted.map(symbol => roots.get(String(symbol))[which]);
-    const offset = host.querySelector(':scope > #fibx-auto-panel') ? 1 : 0;
+    const offset = host.querySelector(':scope > #oc-fib-auto-card') ? 1 : 0;
     if (desired.some((node, i) => host.children[i + offset] !== node)) desired.forEach(node => host.appendChild(node));
   });
   return roots;
@@ -4537,7 +4575,7 @@ function _renderFibBoundaryStatus(payload) {
   // under auto the watch card IS the monitor, and a second dead card saying
   // "IDLE · No active campaign" is the thing Phil called dead (2026-08-20).
   _renderFibBoundaryAuto(payload?.auto);
-  const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const picked = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
   // A running server-side auto mother is the truth after a reload. Restoring
   // Manual over it would hide the scheduler that is still able to start a
   // campaign, so an enabled setting always brings its Auto control back.
@@ -4577,10 +4615,10 @@ function _renderFibBoundaryStatus(payload) {
 // What is running right now, and whether it stands in the way of THIS form. A
 // different instrument never does any more -- only the selected one can 409.
 function _renderFibBoundaryRunningTable(campaigns) {
-  const blocked = document.getElementById('fibx-blocked');
-  const startBtn = document.getElementById('fibx-start');
-  const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
-  const selectedMode = document.getElementById('fibx-mode')?.value || 'paper';
+  const blocked = document.getElementById('oc-fib-blocked');
+  const startBtn = document.getElementById('oc-fib-start');
+  const picked = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
+  const selectedMode = document.getElementById('oc-fib-mode')?.value || 'paper';
   const running = campaigns.filter(row => row.running);
   const clash = running.some(row => String(row.symbol) === String(picked));
   if (startBtn) {
@@ -4601,7 +4639,7 @@ function _renderFibBoundaryRunningTable(campaigns) {
   }
   if (!blocked) return;
   blocked.innerHTML = running.length
-    ? `<table class="fibx-blocked">`
+    ? `<table class="oc-fib-blocked">`
       + `<tr><th>Running now</th><td>${running.length} ladder${running.length === 1 ? '' : 's'} · one per instrument</td></tr>`
       + running.map(row => {
         const isClash = String(row.symbol) === String(picked);
@@ -4629,7 +4667,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const active = fx('active');
   const gist = fx('gist');
   const title = fx('title');
-  const startBtn = document.getElementById('fibx-start');
+  const startBtn = document.getElementById('oc-fib-start');
   const killBtn = fx('kill');
   const armBtn = fx('arm');
   const eventsTf = px('events-tf');
@@ -4787,11 +4825,11 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const anchorEl = fx('anchor');
   if (anchorEl) {
     anchorEl.innerHTML = anchor
-      ? `<table class="fibx-anchor-table">`
-        + `<tr><th>Fib high</th><td><strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong></td><td class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))}</td></tr>`
-        + `<tr><th>Fib low</th><td><strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong></td><td class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</td></tr>`
-        + `<tr><th>Span</th><td>${escapeHtml(_cascadeNumber(anchor.span))} pts</td><td class="fibx-when">every level is one span apart</td></tr>`
-        + `<tr><th>Confirmed</th><td colspan="2" class="fibx-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))}</td></tr>`
+      ? `<table class="oc-fib-anchor-table">`
+        + `<tr><th>Fib high</th><td><strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong></td><td class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))}</td></tr>`
+        + `<tr><th>Fib low</th><td><strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong></td><td class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</td></tr>`
+        + `<tr><th>Span</th><td>${escapeHtml(_cascadeNumber(anchor.span))} pts</td><td class="oc-fib-when">every level is one span apart</td></tr>`
+        + `<tr><th>Confirmed</th><td colspan="2" class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))}</td></tr>`
         + `</table>`
       : '<div style="color:var(--muted);">No fib yet — waiting for the swing to settle.</div>';
   }
@@ -4855,8 +4893,8 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
       const price = zone && !lone && level.zone_floor != null
         ? `${_cascadeNumber(level.index_price)} → ${_cascadeNumber(level.zone_floor)}`
         : _cascadeNumber(level.index_price);
-      return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
-        + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong title="${escapeHtml(String(level.key))}">${escapeHtml(name)}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
+      return `<div class="oc-fib-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
+        + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong title="${escapeHtml(String(level.key))}">${escapeHtml(name)}</strong><span class="oc-fib-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
         + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;" title="${zone && !lone ? 'top of the zone → how deep it may be worked' : ''}">${escapeHtml(price)}</div>`
         + (note ? `<div style="margin-top:2px;font:9px 'JetBrains Mono',monospace;color:var(--muted);">${escapeHtml(note)}</div>` : '')
         + `</div>`;
@@ -4918,13 +4956,14 @@ function _renderFibBoundaryEvents(pair, events) {
 }
 
 async function refreshFibBoundaryStatus() {
+  _refreshPaperLedger('fib_boundary');
   try {
     const response = await fetch('/api/fib-boundary/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(pfErrorText(data, 'Unable to load fib-boundary campaigns'));
     _renderFibBoundaryStatus(data);
   } catch (error) {
-    const summary = document.querySelector('#fibx-monitors [data-fx="summary"]');
+    const summary = document.querySelector('#oc-fib-rows [data-fx="summary"]');
     if (summary && !summary.innerHTML) summary.textContent = error.message || 'Unable to load fib-boundary campaigns.';
   }
 }
@@ -4932,29 +4971,29 @@ async function refreshFibBoundaryStatus() {
 async function startFibBoundaryPaper() {
   const el = id => document.getElementById(id);
   if (_fibMotherMode() === 'auto') {
-    const picked = el('fibx-symbol')?.value || 'NIFTY';
+    const picked = el('oc-fib-symbol')?.value || 'NIFTY';
     const on = !!(_lastFibBoundaryAuto && _lastFibBoundaryAuto[picked] && _lastFibBoundaryAuto[picked].enabled);
     return on ? stopFibBoundaryAuto(null, null) : enableFibBoundaryAuto();
   }
   // Nothing about the geometry is typed: the mother names where to look and the
   // server finds the swing around it.
   const payload = {
-    symbol: el('fibx-symbol')?.value || 'NIFTY',
-    mother_timestamp: el('fibx-mother-timestamp')?.value,
-    side: el('fibx-side')?.value || 'CE',
+    symbol: el('oc-fib-symbol')?.value || 'NIFTY',
+    mother_timestamp: el('oc-fib-mother-timestamp')?.value,
+    side: el('oc-fib-side')?.value || 'CE',
     timeframe: _fibTimeframe(),
-    mode: el('fibx-mode')?.value || 'paper',
+    mode: el('oc-fib-mode')?.value || 'paper',
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
     trailing_target: _fibTrailingTarget(),
     lot_ramp: _fibLotRamp(),
-    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
-    itm_steps: Number(el('fibx-itm')?.value),
+    capital_cap_inr: Number(el('oc-fib-capital-cap')?.value),
+    itm_steps: Number(el('oc-fib-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
-  const button = el('fibx-start');
+  const button = el('oc-fib-start');
   if (button) {
     button.disabled = true;
     button.textContent = payload.mode === 'live'
@@ -5381,10 +5420,10 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
 // is verified, which is a correctness gate and a different thing entirely.
 function setFibBoundaryMode(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'paper';
-  const input = document.getElementById('fibx-mode');
+  const input = document.getElementById('oc-fib-mode');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('fibx-mode-toggle');
+  const group = document.getElementById('oc-fib-mode-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5404,10 +5443,10 @@ function setFibBoundaryMode(_event, button) {
 // two strategies. Same toggle mechanics as Paper/Live above.
 function setFibBoundaryBuyMode(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'levels';
-  const input = document.getElementById('fibx-buy-mode');
+  const input = document.getElementById('oc-fib-buy-mode');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('fibx-buy-mode-toggle');
+  const group = document.getElementById('oc-fib-buy-mode-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5429,10 +5468,10 @@ function setFibBoundaryMotherMode(_event, button) {
 
 function _applyFibBoundaryMotherMode(value, options = {}) {
   const mode = value === 'auto' ? 'auto' : 'manual';
-  const input = document.getElementById('fibx-mother-mode');
+  const input = document.getElementById('oc-fib-mother-mode');
   if (!input) return;
   input.value = mode;
-  const group = document.getElementById('fibx-mother-mode-toggle');
+  const group = document.getElementById('oc-fib-mother-mode-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === mode;
@@ -5446,16 +5485,16 @@ function _applyFibBoundaryMotherMode(value, options = {}) {
 }
 
 function _fibMotherMode() {
-  return (document.getElementById('fibx-mother-mode')?.value || 'manual') === 'auto' ? 'auto' : 'manual';
+  return (document.getElementById('oc-fib-mother-mode')?.value || 'manual') === 'auto' ? 'auto' : 'manual';
 }
 
 function _syncFibMotherModeRow() {
   const auto = _fibMotherMode() === 'auto';
-  const row = document.getElementById('fibx-mother-manual-row');
+  const row = document.getElementById('oc-fib-mother-manual-row');
   if (row) row.style.display = auto ? 'none' : '';
   // Under Auto the rule is the measured one and the server ignores these, so
   // the form stops offering them: instrument, paper/live and the cap remain.
-  document.querySelectorAll('#options-cascade-page .fibx-rule-only').forEach(el => { el.style.display = auto ? 'none' : ''; });
+  document.querySelectorAll('#options-cascade-page .oc-fib-rule-only').forEach(el => { el.style.display = auto ? 'none' : ''; });
 }
 
 async function enableFibBoundaryAuto() {
@@ -5464,13 +5503,13 @@ async function enableFibBoundaryAuto() {
   // The rule itself is the server's (_FIB_AUTO_RULE) -- the configuration on
   // the tearsheet, not whatever this form happens to show.
   const payload = {
-    symbol: el('fibx-symbol')?.value || 'NIFTY',
+    symbol: el('oc-fib-symbol')?.value || 'NIFTY',
     enabled: true,
-    mode: el('fibx-mode')?.value || 'paper',
-    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
+    mode: el('oc-fib-mode')?.value || 'paper',
+    capital_cap_inr: Number(el('oc-fib-capital-cap')?.value),
   };
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
-  const button = el('fibx-start');
+  const button = el('oc-fib-start');
   if (button) button.disabled = true;
   _fibSetFormStatus(`Switching the auto mother on for ${payload.symbol}…`, 'busy');
   try {
@@ -5487,7 +5526,7 @@ async function enableFibBoundaryAuto() {
 }
 
 async function stopFibBoundaryAuto(_event, button) {
-  const symbol = button?.dataset?.symbol || document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const symbol = button?.dataset?.symbol || document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
   const ok = await customConfirm(
     `Switch the auto mother <strong>OFF</strong> for <strong>${escapeHtml(symbol)}</strong>? A ladder already running today keeps running; nothing new starts.`,
     { title: `Auto mother off · ${symbol}`, icon: ICO.warn(28), okText: 'Switch off', danger: true },
@@ -5536,7 +5575,7 @@ function _fibAutoState(s, today) {
 
 function _renderFibBoundaryAuto(auto) {
   _lastFibBoundaryAuto = auto && typeof auto === 'object' ? auto : {};
-  const panel = document.getElementById('fibx-auto-panel');
+  const panel = document.getElementById('oc-fib-auto-card');
   if (!panel) return;
   const rows = Object.entries(_lastFibBoundaryAuto).filter(([, s]) => s && (s.enabled || (s.log || []).length));
   if (!rows.length) { panel.innerHTML = ''; return; }
@@ -5547,18 +5586,18 @@ function _renderFibBoundaryAuto(auto) {
     const state = s.enabled ? _fibAutoState(s, today) : { tone: 'off', text: 'Switched off' };
     const at = String(s.state_at || '').slice(0, 10) === today ? String(s.state_at || '').slice(11, 16) : '';
     const chain = log.length
-      ? `<table class="fibx-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
+      ? `<table class="ocp-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
         + log.map(r => `<tr><td>${escapeHtml(String(r.seq || ''))}</td><td>${escapeHtml(String(r.mother || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_timestamp || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_reason || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? 0))}</td><td class="${Number(r.net) > 0 ? 'pos' : (Number(r.net) < 0 ? 'neg' : '')}">${escapeHtml(_cascadeOptionsMoney(Number(r.net || 0)))}</td></tr>`).join('')
         + `</table>`
       : '';
-    return `<div class="fibx-auto-card ${s.enabled ? 'is-on' : ''}">`
-      + `<div class="fibx-auto-head"><strong>${escapeHtml(symbol)} · Auto mother</strong>`
-      + `<span class="fibx-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span>`
+    return `<div class="ocp-auto-card ${s.enabled ? 'is-on' : ''}">`
+      + `<div class="ocp-auto-head"><strong>${escapeHtml(symbol)} · Auto mother</strong>`
+      + `<span class="ocp-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span>`
       + `<button type="button" class="cascade-options-control" data-pf-action="openFibAutoChart" data-symbol="${escapeHtml(symbol)}" title="Today's mother, its fib levels and where price is against them">↗ Chart</button></div>`
-      + `<div class="fibx-auto-state is-${state.tone}">${escapeHtml(state.text)}${at ? `<span>${escapeHtml(at)}</span>` : ''}</div>`
-      + (s.alert ? `<div class="fibx-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
-      + (s.last_error ? `<div class="fibx-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
-      + `<div class="fibx-auto-today">Today · ${log.length} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}</div>`
+      + `<div class="ocp-auto-state is-${state.tone}">${escapeHtml(state.text)}${at ? `<span>${escapeHtml(at)}</span>` : ''}</div>`
+      + (s.alert ? `<div class="ocp-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
+      + (s.last_error ? `<div class="ocp-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
+      + `<div class="ocp-auto-today">Today · ${log.length} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}</div>`
       + chain
       + `</div>`;
   }).join('');
@@ -5568,11 +5607,11 @@ function _renderFibBoundaryAuto(auto) {
 // however many days that takes. Phil's own words, 2026-08-16.
 function setFibBoundarySession(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'intraday';
-  const input = document.getElementById('fibx-session');
+  const input = document.getElementById('oc-fib-session');
   if (!input || input.value === value) return;
   input.value = value;
   _syncFibDeepCarryRow();
-  const group = document.getElementById('fibx-session-toggle');
+  const group = document.getElementById('oc-fib-session-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5584,7 +5623,7 @@ function setFibBoundarySession(_event, button) {
 }
 
 function _fibIntradayClose() {
-  return (document.getElementById('fibx-session')?.value || 'intraday') === 'intraday';
+  return (document.getElementById('oc-fib-session')?.value || 'intraday') === 'intraday';
 }
 
 // The deep-ladder switch (Phil, 2026-08-18): hold a >4-rung basket one more
@@ -5592,10 +5631,10 @@ function _fibIntradayClose() {
 // Intraday, so the row hides itself under Normal · carry.
 function setFibBoundaryDeepCarry(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'close';
-  const input = document.getElementById('fibx-deep-carry');
+  const input = document.getElementById('oc-fib-deep-carry');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('fibx-deep-carry-toggle');
+  const group = document.getElementById('oc-fib-deep-carry-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5606,7 +5645,7 @@ function setFibBoundaryDeepCarry(_event, button) {
 }
 
 function _fibDeepCarry() {
-  return (document.getElementById('fibx-deep-carry')?.value || 'close') === 'hold';
+  return (document.getElementById('oc-fib-deep-carry')?.value || 'close') === 'hold';
 }
 
 // One lot a buy, or 1-2-3 down the ladder (Phil, 2026-08-18, on the form
@@ -5614,10 +5653,10 @@ function _fibDeepCarry() {
 // deeper drawdown, and did nothing for SENSEX.
 function setFibBoundaryLotRamp(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'same';
-  const input = document.getElementById('fibx-lot-ramp');
+  const input = document.getElementById('oc-fib-lot-ramp');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('fibx-lot-ramp-toggle');
+  const group = document.getElementById('oc-fib-lot-ramp-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5628,16 +5667,16 @@ function setFibBoundaryLotRamp(_event, button) {
 }
 
 function _fibLotRamp() {
-  return (document.getElementById('fibx-lot-ramp')?.value || 'same') === 'ramp';
+  return (document.getElementById('oc-fib-lot-ramp')?.value || 'same') === 'ramp';
 }
 
 // Fixed target or trailing exit (Phil, 2026-08-18).
 function setFibBoundaryTarget(_event, button) {
   const value = button && button.dataset ? button.dataset.value : 'fixed';
-  const input = document.getElementById('fibx-target-mode');
+  const input = document.getElementById('oc-fib-target-mode');
   if (!input || input.value === value) return;
   input.value = value;
-  const group = document.getElementById('fibx-target-toggle');
+  const group = document.getElementById('oc-fib-target-toggle');
   if (group) {
     group.querySelectorAll('.scalp-toggle-btn').forEach(btn => {
       const on = btn.dataset.value === value;
@@ -5648,16 +5687,16 @@ function setFibBoundaryTarget(_event, button) {
 }
 
 function _fibTrailingTarget() {
-  return (document.getElementById('fibx-target-mode')?.value || 'fixed') === 'trailing';
+  return (document.getElementById('oc-fib-target-mode')?.value || 'fixed') === 'trailing';
 }
 
 function _syncFibDeepCarryRow() {
-  const row = document.getElementById('fibx-deep-carry-row');
+  const row = document.getElementById('oc-fib-deep-carry-row');
   if (row) row.style.display = _fibIntradayClose() ? '' : 'none';
 }
 
 function _fibBuyMode() {
-  return document.getElementById('fibx-buy-mode')?.value || 'levels';
+  return document.getElementById('oc-fib-buy-mode')?.value || 'levels';
 }
 
 async function armFibBoundaryLive(_event, button) {
@@ -5689,7 +5728,7 @@ let _fibxChartTf = '';
 let _fibxChartDrawnKey = '';
 
 function openFibAutoChart(_event, button) {
-  const symbol = button?.dataset?.symbol || document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const symbol = button?.dataset?.symbol || document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
   const setting = (_lastFibBoundaryAuto || {})[symbol] || {};
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   // The mother it is on, the one it is waiting for, else today's 09:15.
@@ -5704,21 +5743,21 @@ async function loadFibBoundaryChart(_event, button) {
   // symbol, so the form answers instead and the chart can be read before Start.
   const ctx = (!_event && !button && _fibxChartCtx) ? _fibxChartCtx : null;
   const campaign = ctx ? null : _lastFibBoundaryStatus?.[_fibxSymbolFor(button)];
-  const timestamp = ctx?.timestamp || campaign?.mother_timestamp || el('fibx-mother-timestamp')?.value;
-  const symbol = ctx?.symbol || campaign?.symbol || el('fibx-symbol')?.value || 'NIFTY';
-  const side = ctx?.side || campaign?.side || el('fibx-side')?.value || 'CE';
+  const timestamp = ctx?.timestamp || campaign?.mother_timestamp || el('oc-fib-mother-timestamp')?.value;
+  const symbol = ctx?.symbol || campaign?.symbol || el('oc-fib-symbol')?.value || 'NIFTY';
+  const side = ctx?.side || campaign?.side || el('oc-fib-side')?.value || 'CE';
   const baseTf = ctx?.baseTf || campaign?.timeframe || _fibTimeframe();
   const timeframe = _fibxChartTf || baseTf;
   _fibxChartCtx = { symbol, side, timestamp, baseTf, isCampaign: ctx ? ctx.isCampaign : !!campaign };
-  const chart = el('fibx-chart');
-  const meta = el('fibx-chart-meta');
-  const overlay = el('fibx-chart-overlay');
-  const title = el('fibx-chart-title');
+  const chart = el('oc-fib-chart');
+  const meta = el('oc-fib-chart-meta');
+  const overlay = el('oc-fib-chart-overlay');
+  const title = el('oc-fib-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   pfSetCascadeChartOverlayOpen(overlay, true);
   if (title) title.textContent = `${symbol} ${side} fib ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
   // The site strip: timeframes + refresh, once. Zoom lives on the canvas host.
-  const stripHost = el('fibx-chart-strip');
+  const stripHost = el('oc-fib-chart-strip');
   if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
     pfChartStrip(stripHost, {
       timeframes: ['1m', '5m', '15m', '1h'],
@@ -5801,25 +5840,25 @@ async function loadFibBoundaryChart(_event, button) {
 // Shared by the overlay and the journal toggle: both draw with the one Canvas
 // renderer, so opening either has to put the other away.
 function _fibBoundaryCollapseBacktestChart() {
-  const box = document.getElementById('fibx-backtest-chart');
-  const btn = document.getElementById('fibx-backtest-chart-btn');
+  const box = document.getElementById('oc-fib-backtest-chart');
+  const btn = document.getElementById('oc-fib-backtest-chart-btn');
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
   if (btn) btn.textContent = '↗ Journal chart';
 }
 
 function hideFibBoundaryChart() {
-  const overlay = document.getElementById('fibx-chart-overlay');
+  const overlay = document.getElementById('oc-fib-chart-overlay');
   pfSetCascadeChartOverlayOpen(overlay, false);
   // The next campaign opens on its own mother chart, not this one's override.
   _fibxChartTf = '';
   _fibxChartDrawnKey = '';
   _fibxChartCtx = null;
-  const strip = document.getElementById('fibx-chart-strip');
+  const strip = document.getElementById('oc-fib-chart-strip');
   if (strip) strip.innerHTML = '';
   // A hidden host still holds pointer bindings, a ResizeObserver and a theme
   // MutationObserver. Closing the dialog has to release them.
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
-  const chart = document.getElementById('fibx-chart');
+  const chart = document.getElementById('oc-fib-chart');
   if (chart) chart.innerHTML = '';
 }
 
@@ -5828,20 +5867,20 @@ async function runFibBoundaryBacktest() {
   // Field for field the same as Start. The two engines are one now, so the
   // two payloads have to be too -- a route test pins that.
   const payload = {
-    symbol: el('fibx-symbol')?.value || 'NIFTY',
-    mother_timestamp: el('fibx-mother-timestamp')?.value,
-    side: el('fibx-side')?.value || 'CE',
+    symbol: el('oc-fib-symbol')?.value || 'NIFTY',
+    mother_timestamp: el('oc-fib-mother-timestamp')?.value,
+    side: el('oc-fib-side')?.value || 'CE',
     timeframe: _fibTimeframe(),
     buy_mode: _fibBuyMode(),
     intraday_close: _fibIntradayClose(),
     deep_carry: _fibDeepCarry(),
     trailing_target: _fibTrailingTarget(),
     lot_ramp: _fibLotRamp(),
-    capital_cap_inr: Number(el('fibx-capital-cap')?.value),
-    itm_steps: Number(el('fibx-itm')?.value),
+    capital_cap_inr: Number(el('oc-fib-capital-cap')?.value),
+    itm_steps: Number(el('oc-fib-itm')?.value),
   };
   if (!payload.mother_timestamp) { _fibSetFormStatus('Pick a mother timestamp to backtest.', 'error'); return; }
-  const button = el('fibx-backtest-btn');
+  const button = el('oc-fib-backtest-btn');
   if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
   _fibSetFormStatus(`Replaying ${payload.symbol} ${payload.side} on recorded prices…`, 'busy');
   try {
@@ -5879,11 +5918,11 @@ async function _restoreLastFibBoundaryBacktest() {
     if (!payload || payload.status !== 'ok' || _lastFibBacktest) return;
     _renderFibBoundaryBacktest(payload);
     const when = data.run.created_at ? _cascadeOptionsTimestamp(data.run.created_at) : '';
-    const note = document.getElementById('fibx-backtest-note');
+    const note = document.getElementById('oc-fib-backtest-note');
     if (note && when) note.textContent = `${note.textContent} · saved run from ${when}`;
-    const badge = document.getElementById('fibx-backtest-badge');
+    const badge = document.getElementById('oc-fib-backtest-badge');
     if (badge && !badge.textContent.startsWith('SAVED')) badge.textContent = `SAVED · ${badge.textContent}`;
-    const stale = document.getElementById('fibx-backtest-stale');
+    const stale = document.getElementById('oc-fib-backtest-stale');
     if (stale) {
       stale.textContent = `Saved replay${when ? ` from ${when}` : ''} — a stored result, not today's. It keeps the rule it ran `
         + 'under, so an old one can show a ladder the page no longer trades. Backtest replaces it; ✕ Delete throws it away.';
@@ -5945,9 +5984,9 @@ async function deleteFibBoundaryBacktest() {
   }
   _lastFibBacktest = null;
   _fibBoundaryCollapseBacktestChart();
-  const panel = document.getElementById('fibx-backtest');
+  const panel = document.getElementById('oc-fib-backtest');
   if (panel) panel.style.display = 'none';
-  ['fibx-backtest-csv', 'fibx-backtest-delete', 'fibx-backtest-chart-btn'].forEach(id => {
+  ['oc-fib-backtest-csv', 'oc-fib-backtest-delete', 'oc-fib-backtest-chart-btn'].forEach(id => {
     const node = document.getElementById(id);
     if (node) node.style.display = 'none';
   });
@@ -5962,7 +6001,7 @@ async function deleteFibBoundaryBacktest() {
 window.deleteFibBoundaryBacktest = deleteFibBoundaryBacktest;
 
 function _renderFibBoundaryBacktest(data) {
-  const panel = document.getElementById('fibx-backtest');
+  const panel = document.getElementById('oc-fib-backtest');
   if (panel) panel.style.display = '';
   const c = data.campaign || {};
   // The chart payload is the SAME shape the live chart route returns, so the
@@ -5970,14 +6009,14 @@ function _renderFibBoundaryBacktest(data) {
   _lastFibBacktest = { meta: data, chart: data.chart };
   const hasChart = !!(data.chart && Array.isArray(data.chart.candles) && data.chart.candles.length);
   _fibBoundaryCollapseBacktestChart();
-  const chartBtn = document.getElementById('fibx-backtest-chart-btn');
+  const chartBtn = document.getElementById('oc-fib-backtest-chart-btn');
   if (chartBtn) chartBtn.style.display = hasChart ? '' : 'none';
-  const stale = document.getElementById('fibx-backtest-stale');
+  const stale = document.getElementById('oc-fib-backtest-stale');
   if (stale) { stale.textContent = ''; stale.style.display = 'none'; }
-  const del = document.getElementById('fibx-backtest-delete');
+  const del = document.getElementById('oc-fib-backtest-delete');
   if (del) del.style.display = '';
 
-  const badge = document.getElementById('fibx-backtest-badge');
+  const badge = document.getElementById('oc-fib-backtest-badge');
   if (badge) {
     const priced = data.pricing === 'recorded_history';
     const gaps = (c.data_gaps || []).length;
@@ -5985,14 +6024,14 @@ function _renderFibBoundaryBacktest(data) {
     badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
     badge.style.borderColor = badge.style.color;
   }
-  const contract = document.getElementById('fibx-backtest-contract');
+  const contract = document.getElementById('oc-fib-backtest-contract');
   if (contract) {
     contract.textContent = `${data.symbol} ${data.side} · ${String(data.timeframe).toUpperCase()} mother, 1m entries · ${data.lot_size} units/lot`;
   }
-  const gist = document.getElementById('fibx-backtest-gist');
+  const gist = document.getElementById('oc-fib-backtest-gist');
   if (gist) gist.textContent = data.note || '';
 
-  const summary = document.getElementById('fibx-backtest-summary');
+  const summary = document.getElementById('oc-fib-backtest-summary');
   if (summary) {
     const outcome = String(c.exit_reason || c.status || '—').replaceAll('_', ' ');
     summary.innerHTML = [
@@ -6009,7 +6048,7 @@ function _renderFibBoundaryBacktest(data) {
     ].join('');
   }
 
-  const note = document.getElementById('fibx-backtest-note');
+  const note = document.getElementById('oc-fib-backtest-note');
   if (note) {
     const a = c.anchor;
     // A mother that moved on its own has to say so. The engine rebases when
@@ -6027,7 +6066,7 @@ function _renderFibBoundaryBacktest(data) {
       : `No fib formed — the swing never settled${ended}.${moved}`;
   }
 
-  const gapsEl = document.getElementById('fibx-backtest-gaps');
+  const gapsEl = document.getElementById('oc-fib-backtest-gaps');
   if (gapsEl) {
     const gaps = c.data_gaps || [];
     gapsEl.innerHTML = gaps.length
@@ -6035,7 +6074,7 @@ function _renderFibBoundaryBacktest(data) {
       : '';
   }
 
-  const legs = document.getElementById('fibx-backtest-legs');
+  const legs = document.getElementById('oc-fib-backtest-legs');
   if (legs) {
     // EVERY leg the replay traded, banked rounds included. A round that pays
     // out empties `fills` and parks the mother, so a replay whose OUTCOME says
@@ -6066,8 +6105,8 @@ function _renderFibBoundaryBacktest(data) {
 }
 
 function toggleFibBoundaryBacktestChart() {
-  const box = document.getElementById('fibx-backtest-chart');
-  const btn = document.getElementById('fibx-backtest-chart-btn');
+  const box = document.getElementById('oc-fib-backtest-chart');
+  const btn = document.getElementById('oc-fib-backtest-chart-btn');
   if (!box) return;
   if (box.style.display !== 'none' && box.innerHTML) {
     box.style.display = 'none';
@@ -19951,7 +19990,7 @@ document.addEventListener('change', (event) => {
     _tbRenderTimeframes();
   } else if (id === 'tb-strategy') {
     _tbRenderTimeframes();
-  } else if (id === 'candle-entry-timeframe') {
+  } else if (id === 'oc-candle-timeframe') {
     _ceRenderTimeframes();
   }
   if (['tb-instrument', 'tb-strategy', 'tb-timeframe', 'tb-mother', 'tb-rung'].includes(id)) {
@@ -20024,7 +20063,7 @@ function _recTime(iso) {
 }
 
 function _recoveryError(msg) {
-  const box = document.getElementById('recovery-error');
+  const box = document.getElementById('oc-high-status');
   if (!box) return;
   box.textContent = msg || '';
   box.style.display = msg ? '' : 'none';
@@ -20032,12 +20071,18 @@ function _recoveryError(msg) {
 
 async function recoveryStart() {
   _recoveryError('');
+  const lots = String(document.getElementById('oc-high-lots')?.value || '1,2')
+    .split(',').map(x => Number(x.trim())).filter(x => x > 0);
   const body = {
-    symbol: document.getElementById('recovery-symbol')?.value || 'nifty',
-    timeframe: document.getElementById('recovery-timeframe')?.value || '15m',
-    mode: document.getElementById('recovery-mode')?.value || 'ladder',
-    horizon_sessions: Number(document.getElementById('recovery-horizon')?.value || 10),
-    min_profit_inr: Number(document.getElementById('recovery-margin')?.value || 500),
+    symbol: document.getElementById('oc-high-symbol')?.value || 'nifty',
+    timeframe: document.getElementById('oc-high-timeframe')?.value || '5m',
+    mode: document.getElementById('oc-high-mode')?.value || 'ladder',
+    side: document.getElementById('oc-high-side')?.value || 'CE',
+    itm_steps: Number(document.getElementById('oc-high-itm')?.value || 4),
+    sl_source: document.getElementById('oc-high-sl-source')?.value || 'entry',
+    lots_schedule: lots.length ? lots : [1, 2],
+    horizon_sessions: Number(document.getElementById('oc-high-horizon')?.value || 10),
+    min_profit_inr: Number(document.getElementById('oc-high-margin')?.value || 500),
   };
   try {
     const res = await fetch('/api/recovery/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -20059,7 +20104,7 @@ async function recoveryStop() {
 
 async function recoveryAddMother() {
   _recoveryError('');
-  const raw = document.getElementById('recovery-mother')?.value;
+  const raw = document.getElementById('oc-high-mother')?.value;
   if (!raw) { _recoveryError('Pick a completed candle open first.'); return; }
   try {
     const res = await fetch('/api/recovery/paper/mother', {
@@ -20124,7 +20169,10 @@ function _recoveryCampaign(c) {
         <span style="color:${statusColour};margin-left:10px;">${c.status}</span>
         ${c.end_reason ? `<span style="color:var(--muted);"> (${c.end_reason})</span>` : ''}
       </div>
-      <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;" aria-label="Chart this campaign">&#8599; Chart</button>
+        <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+      </div>
     </div>
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
       ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>
@@ -20136,16 +20184,120 @@ function _recoveryCampaign(c) {
   </div>`;
 }
 
+// THE TOGGLES. Same switch helper the other consoles use, so a High Entry
+// button behaves exactly like a Candle Entry one.
+function setRecoveryRunMode(_event, button) {
+  _ocpSetSwitch('oc-high-run-mode', 'oc-high-mode-toggle', button?.dataset?.value || 'paper');
+  _recoveryRecipe();
+}
+
+function setRecoverySide(_event, button) {
+  _ocpSetSwitch('oc-high-side', 'oc-high-side-toggle', button?.dataset?.value || 'CE');
+  _recoveryRecipe();
+}
+
+function openRecoveryTearsheet(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  window.open('/assets/tearsheet?doc=recovery#curve-trail', '_blank', 'noopener');
+}
+
+// THE RECIPE STRIP. One sentence saying what pressing Start would actually do,
+// rebuilt whenever a control moves -- the settings live in six places and the
+// only honest summary is a computed one.
+function _recoveryRecipe() {
+  const host = document.getElementById('oc-high-recipe');
+  if (!host) return;
+  const val = (id, fallback) => document.getElementById(id)?.value || fallback;
+  const side = val('oc-high-side', 'CE');
+  const itm = Number(val('oc-high-itm', 4));
+  const tf = String(val('oc-high-timeframe', '5m')).toUpperCase();
+  const lots = val('oc-high-lots', '1,2').split(',').join(' then ');
+  const sl = { entry: 'the entry candle low', previous: 'the previous candle low', ultimate: 'the lowest low since the mother' }[val('oc-high-sl-source', 'entry')];
+  const margin = Number(val('oc-high-margin', 500));
+  const shape = val('oc-high-mode', 'ladder') === 'ladder' ? 're-arming after every stop' : 'fib zones 2-2 and 4-4 only';
+  const mode = val('oc-high-run-mode', 'paper') === 'live' ? 'LIVE' : 'Paper';
+  const audit = (tf === '5M' && side === 'CE' && itm === 4)
+    ? '<strong style="color:#6ee7b7;">the one book the five-year audit found green</strong>'
+    : '<strong style="color:#fbbf24;">not the measured configuration</strong>';
+  const state = document.getElementById('oc-high-advanced-state');
+  if (state) {
+    const stock = val('oc-high-mode', 'ladder') === 'ladder' && val('oc-high-sl-source', 'entry') === 'entry'
+      && val('oc-high-lots', '1,2') === '1,2' && margin === 500 && Number(val('oc-high-horizon', 10)) === 10;
+    state.textContent = stock ? 'rule as measured' : 'changed from the measured rule';
+    state.style.color = stock ? '' : '#fbbf24';
+  }
+  host.innerHTML = `${escapeHtml(mode)} · <strong>${escapeHtml(tf)}</strong> chart · two reds, then a buy-stop at the second red's high ·
+    <strong>ATM&minus;${itm} ${escapeHtml(side)}</strong>, re-picked at every fill · ${escapeHtml(lots)} lots ·
+    stop on ${escapeHtml(sl)} · sell when the ledger is repaid plus &#8377;${margin.toLocaleString('en-IN')} ·
+    ${escapeHtml(shape)} &mdash; ${audit}`;
+}
+
+// THE CHART. Same overlay and same payload the other consoles draw, asked for
+// one campaign at a time.
+let _recoveryChartTf = '';
+let _recoveryChartCampaign = '';
+
+function closeRecoveryChart() {
+  const overlay = document.getElementById('oc-high-chart-overlay');
+  if (overlay && typeof pfSetCascadeChartOverlayOpen === 'function') pfSetCascadeChartOverlayOpen(overlay, false);
+}
+
+async function loadRecoveryChart(_event, el) {
+  const byId = id => document.getElementById(id);
+  const overlay = byId('oc-high-chart-overlay');
+  const chart = byId('oc-high-chart');
+  const meta = byId('oc-high-chart-meta');
+  const title = byId('oc-high-chart-title');
+  const wanted = el?.dataset?.recCampaign || _recoveryChartCampaign || '';
+  if (overlay && typeof pfSetCascadeChartOverlayOpen === 'function') pfSetCascadeChartOverlayOpen(overlay, true);
+  if (meta) meta.textContent = 'Loading chart…';
+  try {
+    const qs = new URLSearchParams();
+    if (wanted) qs.set('campaign_id', wanted);
+    if (_recoveryChartTf) qs.set('timeframe', _recoveryChartTf);
+    const res = await fetch(`/api/recovery/paper/chart?${qs.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Chart unavailable.');
+    _recoveryChartCampaign = data.campaign_id || wanted;
+    _recoveryChartTf = data.timeframe;
+    if (title) title.textContent = `High Entry · ${String(data.side || 'CE')} · ${String(data.timeframe).toUpperCase()} chart`;
+    if (meta) meta.textContent = `Mother ${_recTime(data.mother_timestamp)} IST · ${String(data.campaign_status || '').toUpperCase()}`;
+    const strip = byId('oc-high-chart-strip');
+    if (strip && typeof pfChartStrip === 'function') {
+      pfChartStrip(strip, {
+        timeframes: data.stages || [],
+        active: data.timeframe,
+        onTimeframe: tf => { _recoveryChartTf = tf; loadRecoveryChart(); },
+        onRefresh: () => loadRecoveryChart(),
+        onClose: () => closeRecoveryChart(),
+      });
+    }
+    // pfBenchDrawChart is THE renderer -- the same one the Test Bench, Candle
+    // Entry and Fib Boundary draw with. It needs the overlay laid out first or
+    // it measures a zero-width host and paints nothing.
+    if (chart && typeof pfBenchDrawChart === 'function') {
+      await pfWaitForCascadeChartLayout();
+      pfBenchDrawChart(chart, data.chart || {});
+    }
+  } catch (err) {
+    if (meta) meta.textContent = String(err.message || err);
+    if (chart) chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(String(err.message || err))}</div>`;
+  }
+}
+
 function renderRecovery(data) {
-  const badge = document.getElementById('recovery-badge');
-  const startBtn = document.getElementById('recovery-start');
-  const stopBtn = document.getElementById('recovery-stop');
-  const poll = document.getElementById('recovery-poll');
-  const tiles = document.getElementById('recovery-tiles');
-  const list = document.getElementById('recovery-campaigns');
+  const badge = document.getElementById('oc-high-badge');
+  const startBtn = document.getElementById('oc-high-start');
+  const stopBtn = document.getElementById('oc-high-stop');
+  const poll = document.getElementById('oc-high-monitor-updated');
+  const tiles = document.getElementById('oc-high-tiles');
+  const list = document.getElementById('oc-high-rows');
   if (!badge || !tiles || !list) return;
 
+  _recoveryRecipe();
   const running = data && data.status === 'ok' && data.running;
+  const kicker = document.getElementById('oc-high-monitor-kicker');
+  if (kicker) kicker.textContent = running ? 'Paper campaigns · live' : 'Paper campaigns';
   badge.textContent = running ? 'RUNNING' : 'IDLE';
   badge.style.color = running ? '#34d399' : 'var(--muted)';
   if (startBtn) startBtn.style.display = running ? 'none' : '';
@@ -20160,22 +20312,52 @@ function renderRecovery(data) {
   if (!running && !campaigns.length) {
     if (poll) poll.textContent = 'not started';
     tiles.innerHTML = '';
+    const emptyWrap = document.getElementById('oc-high-closed');
+    if (emptyWrap) emptyWrap.hidden = true;
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
     return;
   }
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
   const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
-  const tile = (label, value, colour) =>
-    `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
-      <div style="font:800 9px 'JetBrains Mono',monospace;letter-spacing:.6px;color:var(--muted);">${label}</div>
-      <div style="margin-top:4px;font:600 17px 'JetBrains Mono',monospace;${colour ? `color:${colour};` : ''}">${value}</div>
-    </div>`;
+  // _ocpTile is the shared tile. Rolling our own reached for
+  // .ocp-tile-label / -value, which the stylesheet has never defined
+  // -- the same bug that once rendered every Gap Carry tile as bare text.
+  const ledger = Number(book.booked_net || 0);
+  const need = campaigns.reduce((a, c) => a + Number(c.required_recovery || 0), 0);
   tiles.innerHTML = [
-    tile('CAMPAIGNS', campaigns.length),
-    tile('OPEN TRADES', openTrades),
-    tile('CLOSED TRADES', closed),
-    tile('LEDGER', _recInr(book.booked_net), (book.booked_net || 0) >= 0 ? '#34d399' : '#f87171'),
+    // FOUR tiles, not five: the grid lays out four to a row, and a fifth
+    // orphaned itself under three empty cells. The closed count already
+    // titles its own table.
+    _ocpTile('Campaigns', `${campaigns.length} · ${closed} closed`, 'var(--text)'),
+    _ocpTile('Open trades', String(openTrades), openTrades ? '#38bdf8' : 'var(--text)'),
+    _ocpTile('To recover', need ? `₹${Math.round(need).toLocaleString('en-IN')}` : '—', need ? '#fbbf24' : 'var(--text)'),
+    _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
   ].join('');
+
+  // CLOSED TRADES GET THEIR OWN TABLE. Settled paper money was only ever
+  // readable by expanding each campaign; the book deserves one flat ledger.
+  const closedWrap = document.getElementById('oc-high-closed');
+  const closedRows = document.getElementById('oc-high-closed-rows');
+  const closedCount = document.getElementById('oc-high-closed-count');
+  if (closedWrap && closedRows) {
+    const settled = [];
+    campaigns.forEach(c => (c.trades || []).filter(t => t.exit_time).forEach(t => settled.push([c, t])));
+    closedWrap.hidden = settled.length === 0;
+    if (closedCount) closedCount.textContent = settled.length ? `· ${settled.length}` : '';
+    closedRows.innerHTML = settled.map(([c, t]) => {
+      const net = Number(t.net_pnl || 0);
+      return `<tr>
+        <td>${escapeHtml(_recTime(c.mother && c.mother.timestamp))}</td>
+        <td>${t.trade_no}</td>
+        <td>${t.lots || '—'}</td>
+        <td>${t.strike ? escapeHtml(String(t.strike)) : '—'}</td>
+        <td>${escapeHtml(_recTime(t.entry_time))}</td>
+        <td>${escapeHtml(_recTime(t.exit_time))}</td>
+        <td>${escapeHtml(String(t.exit_reason || '—'))}</td>
+        <td style="color:${net >= 0 ? '#6ee7b7' : 'var(--danger)'};">${escapeHtml(_recInr(t.net_pnl))}</td>
+      </tr>`;
+    }).join('');
+  }
 
   if (poll) {
     const skipped = book.last_report && book.last_report.skipped;
@@ -20188,6 +20370,11 @@ function renderRecovery(data) {
     ? campaigns.map(_recoveryCampaign).join('')
     : '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Running, but no mother named yet. Pick a completed candle open above.</div>';
 }
+
+// The recipe is only honest if it moves with the controls.
+document.addEventListener('change', event => {
+  if (event.target && /^oc-high-(timeframe|itm|mode|sl-source|lots|margin|horizon|symbol)$/.test(event.target.id)) _recoveryRecipe();
+});
 
 async function refreshRecoveryStatus() {
   try {
