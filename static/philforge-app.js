@@ -3021,9 +3021,9 @@ function _renderCandleEntryAuto(auto) {
   const state = on
     ? (live ? `mother ${_fibShortStamp((_lastCandleEntryStatus.mother || {}).timestamp)} · running`
       : auto.waiting ? `waiting · ${auto.waiting}`
-      : auto.free_from ? `last campaign freed ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} · waiting for the next new 278-bar high`
+      : auto.free_from ? `free since ${_cascadeOptionsTimestamp(auto.free_from).slice(0, 16)} · waiting for a new box high`
       : auto.last_mother ? `last mother ${_cascadeOptionsTimestamp(auto.last_mother).slice(0, 16)}${auto.last_watch_from ? ` · watched from ${_cascadeOptionsTimestamp(auto.last_watch_from).slice(0, 16)}` : ''}`
-      : 'waiting for the first new 278-bar high')
+      : 'waiting for the first box high')
     : 'off';
   const rows = log.length
     ? `<div class="ocp-auto-chain-wrap"><table class="ocp-auto-chain"><tr><th>Mother</th><th>Contract</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
@@ -3083,14 +3083,15 @@ function _syncCandleEntryRecipe() {
   const trailing = (document.getElementById('oc-candle-exit-mode')?.value || 'fixed') === 'trailing';
   const session = _candleEntryIntradayClose() ? 'out by 3:15' : 'held to target or expiry';
   const mode = _candleEntryTradeMode() === 'live' ? 'LIVE' : 'paper';
+  // Short by design -- see the note in _syncFibBoundaryRecipe.
   el.textContent = [
-    `${tf} start`,
-    box ? `mother = the ${bars}-bar high · buys only in the bottom ${pos === '0.5' ? 'half' : 'quarter'} of that box` : 'mother = the candle you name',
-    `CE ATM${itm === 0 ? '' : itm} ${({ each_buy: 'at each buy', first_buy: 'at the first buy' })[document.getElementById('oc-candle-strike-at')?.value || 'each_buy'] || 'at the mother'} · ${expiry}`,
-    `${target} target${trailing ? ' → 30% trail' : ', sold'}`,
-    session,
-    mode,
-  ].join(' · ');
+    `${tf}`,
+    box ? `${bars}-bar box` : 'mother you name',
+    `CE ATM${itm === 0 ? '' : itm}`,
+    `${target} target`,
+    _candleEntryIntradayClose() ? 'out 3:15' : 'to expiry',
+    mode === 'LIVE' ? 'LIVE' : null,
+  ].filter(Boolean).join(' · ');
 }
 
 // Field for field what Backtest sends. The two routes trade ONE ladder, so
@@ -3778,10 +3779,14 @@ function _syncGapCarryRecipe() {
   const recipe = _cascadeOptionsEl('oc-gap-recipe');
   const put = (100 - p.rsi_threshold).toFixed(0);
   if (recipe) {
-    recipe.textContent =
-      `${p.timeframe} · at ${p.entry_time} a close above EMA20 with RSI ${p.rsi_threshold}+ buys a CE, ` +
-      `below with RSI ${put}− buys a PE · ATM+${p.strike_offset_steps} ITM · ${p.lots} lot${p.lots > 1 ? 's' : ''} · ` +
-      `${p.expiry_rule} expiry · sold ${p.exit_time} next session`;
+    // Short by design -- see the note in _syncFibBoundaryRecipe.
+    recipe.textContent = [
+      `${p.timeframe} · ${p.entry_time} in`,
+      `EMA20 + RSI ${p.rsi_threshold}`,
+      `ATM+${p.strike_offset_steps} ITM`,
+      `${p.exit_time} out`,
+      (document.getElementById('oc-gap-mode')?.value === 'live') ? 'LIVE' : null,
+    ].filter(Boolean).join(' · ');
   }
   const start = document.getElementById('oc-gap-start');
   if (start && !start.dataset.running) {
@@ -4416,12 +4421,18 @@ function _syncFibBoundaryRecipe() {
   const cap = Number(el('oc-fib-capital-cap')?.value || 75000);
   const auto = typeof _fibMotherMode === 'function' && _fibMotherMode() === 'auto';
   const strike = itm > 0 ? `ATM−${itm} ITM` : itm < 0 ? `ATM+${-itm} OTM` : 'ATM';
-  recipe.textContent =
-    `${tf} mother${auto ? ' · auto 09:15 daily' : ''} · fibs off the swing, buys ` +
-    `${buy === 'levels' ? 'every level' : 'where two fibs meet'} on the way down · ` +
-    `${side} ${strike} · ${target} target · ` +
-    `${session === 'intraday' ? 'out by 15:15' : 'carries to target or expiry'} · ` +
-    `${ramp === 'ramp' ? 'lots 1·2·3' : '1 lot a buy'} · cap ₹${cap.toLocaleString('en-IN')}`;
+  // FOUR THINGS, NOT TWELVE. The strip used to spell the whole rule out and
+  // read as a wall on every tab (Phil, 2026-08-26: "Too much of texts in the
+  // panels ... Just mention something simple"). The full rule lives one press
+  // away in the info sheet and in the Advanced fold.
+  const live = (el('oc-fib-mode')?.value || 'paper') === 'live';
+  recipe.textContent = [
+    `${tf} mother${auto ? ' · auto 09:15' : ''}`,
+    `${side} ${strike}`,
+    buy === 'levels' ? 'every fib level' : 'where two fibs meet',
+    session === 'intraday' ? 'out 15:15' : 'to target or expiry',
+    live ? 'LIVE' : null,
+  ].filter(Boolean).join(' · ');
   const state = el('oc-fib-advanced-state');
   if (state) {
     const untouched = side === 'CE' && buy === 'levels' && session === 'intraday'
@@ -4781,8 +4792,12 @@ function _renderFibBoundaryRunningTable(campaigns) {
     } else {
       startBtn.classList.remove('is-danger');
       startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
+      // A RUNNING LADDER SAYS SO, like every other strategy's button. It read
+      // as an instruction ("Kill the NIFTY ladder first") where the others
+      // report state, so the one control everyone checks did not answer the
+      // question everyone asks it (Phil, 2026-08-26: "Start button status").
       startBtn.textContent = clash
-        ? `▶ Kill the ${picked} ladder first`
+        ? `● Running · ${picked}`
         : selectedMode === 'live'
           ? (_fibBoundaryLiveAvailable ? '▶ Start LIVE monitor · unarmed' : '🔒 Live safety verification pending')
           : '▶ Start fib-boundary paper';
@@ -4855,7 +4870,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
     }
     if (active) active.style.display = 'none';
     if (gist) gist.textContent = options.autoWatching
-      ? 'The chain below is today, newest last; the tearsheet rule is pinned.'
+      ? 'Today, newest last.'
       : 'Pick an instrument, a side and a mother candle — the swing is found for you.';
     monitor.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
@@ -4976,6 +4991,18 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
       holding
         ? _cascadeOptionsMetric('Left to spend', _cascadeOptionsMoney(campaign.remaining_inr || 0), '#fde68a')
         : _cascadeOptionsMetric('Ladder cap', _cascadeOptionsMoney(cap), 'var(--muted)'),
+      // OPEN P&L, the number a running ladder is watched for. Gap Carry and
+      // Candle Entry both had it; this one reported deployed capital and left
+      // you to guess (Phil, 2026-08-26). Blank while nothing is held, and
+      // honest when a leg has no quote rather than showing a flattering
+      // gross: `net_pnl` is null unless every held leg priced.
+      holding && campaign.mark
+        ? _cascadeOptionsMetric(
+          campaign.mark.net_pnl == null ? 'Open · unpriced leg' : 'Open P&L · if sold',
+          campaign.mark.net_pnl == null ? '—' : _cascadeOptionsMoney(campaign.mark.net_pnl),
+          campaign.mark.net_pnl == null ? 'var(--muted)' : campaign.mark.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5',
+        )
+        : '',
     ].join('');
   }
   if (empty) empty.style.display = 'none';
@@ -5017,8 +5044,13 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
       + `<td style="padding:8px;text-align:right;" title="${escapeHtml(String(fill.quantity))} qty · exp ${escapeHtml(String(fill.expiry))}">${escapeHtml(String(fill.lots))}</td>`
       + `<td style="padding:8px;text-align:right;font-weight:800;color:#fde68a;">${escapeHtml(_cascadeOptionsMoney(fill.funded_inr))}</td>`
       + (() => {
-        // What this leg made, once it has sold. Open legs show a dash.
-        const out = fill.exit_premium;
+        // What this leg made once it sold -- or, while it is still held, what
+        // it is worth on the campaign's own mark (same strike and expiry).
+        const marked = (!fill.exit_premium && campaign.mark)
+          ? (campaign.mark.legs || []).find(leg => Number(leg.strike) === Number(fill.strike)
+              && String(leg.expiry) === String(fill.expiry))
+          : null;
+        const out = fill.exit_premium != null ? fill.exit_premium : (marked ? marked.mark : null);
         const pnl = out == null ? null : (Number(out) - Number(fill.premium)) * Number(fill.quantity);
         const tone = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
         return `<td style="padding:8px;text-align:right;font-weight:800;color:${tone};">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`;
@@ -5745,18 +5777,18 @@ function _fibAutoState(s, today) {
   // morning: only today's tick is allowed to speak for today.
   const fresh = String(s.state_at || '').slice(0, 10) === today;
   switch (fresh ? String(s.state || '') : '') {
-    case 'outside-window': return { tone: 'wait', text: 'Market closed — the first mother is tomorrow 09:15' };
-    case 'busy': return { tone: 'live', text: 'A ladder is running — see the monitor below' };
-    case 'waiting-for-candle': return { tone: 'live', text: `Mother broken — waiting for the ${nextMother || 'breakout'} candle to close` };
-    case 'no-bar-yet': return { tone: 'wait', text: 'Waiting for the 09:15 bar from Dhan' };
-    case 'day-skipped': return { tone: 'off', text: 'No 09:15 candle today — day skipped' };
-    case 'day-done': return { tone: 'off', text: 'Done for today — next mother tomorrow 09:15' };
-    case 'too-late': return { tone: 'off', text: 'Past 15:10 — next mother tomorrow 09:15' };
-    case 'stuck': return { tone: 'warn', text: 'A ladder needs a hand — auto will not chain' };
-    case 'no-broker': return { tone: 'warn', text: 'No Dhan account attached — nothing can start' };
+    case 'outside-window': return { tone: 'wait', text: 'Closed · next mother 09:15' };
+    case 'busy': return { tone: 'live', text: 'Ladder running' };
+    case 'waiting-for-candle': return { tone: 'live', text: `Mother broken · waiting for the ${nextMother || 'breakout'} candle` };
+    case 'no-bar-yet': return { tone: 'wait', text: 'Waiting for the 09:15 bar' };
+    case 'day-skipped': return { tone: 'off', text: 'No 09:15 candle · skipped' };
+    case 'day-done': return { tone: 'off', text: 'Done · next mother 09:15' };
+    case 'too-late': return { tone: 'off', text: 'Past 15:10 · next mother 09:15' };
+    case 'stuck': return { tone: 'warn', text: 'Needs a hand · auto paused' };
+    case 'no-broker': return { tone: 'warn', text: 'No Dhan account attached' };
     case 'start-failed': return { tone: 'warn', text: 'The last start was refused' };
     case 'started': return { tone: 'live', text: 'Campaign started' };
-    default: return { tone: 'wait', text: 'Watching — the next mother is 09:15' };
+    default: return { tone: 'wait', text: 'Watching · next mother 09:15' };
   }
 }
 
@@ -5786,8 +5818,11 @@ function _renderFibBoundaryAuto(auto) {
           + `</table>`
         : '',
     };
-    return `<strong>${escapeHtml(symbol)} auto mother is ${s.enabled ? 'on' : 'off'}.</strong> `
-      + `The 09:15 5m candle daily; a broken mother is replaced by the breakout candle. · ${escapeHtml(state.text)}${at ? ` · ${escapeHtml(at)}` : ''}`;
+    // The RULE is in the recipe strip and the info sheet; this line is for
+    // what is happening NOW. Restating the whole rule on every poll was the
+    // wall Phil kept pointing at (2026-08-26).
+    return `<strong>${escapeHtml(symbol)} auto ${s.enabled ? 'on' : 'off'}</strong>`
+      + ` · ${escapeHtml(state.text)}${at ? ` · ${escapeHtml(at)}` : ''}`;
   });
   panel.hidden = false;
   panel.classList.toggle('is-on', rows.some(([, s]) => s.enabled));
@@ -20409,13 +20444,13 @@ function _recoveryRecipe() {
   const itm = Number(val('oc-high-itm', 4));
   const tf = String(val('oc-high-timeframe', '5m')).toUpperCase();
   const lots = val('oc-high-lots', '1,2').split(',').join(' then ');
-  const sl = { entry: 'the entry candle low', previous: 'the previous candle low', ultimate: 'the lowest low since the mother' }[val('oc-high-sl-source', 'entry')];
+  const sl = { entry: 'the entry low', previous: 'the previous low', ultimate: 'the lowest low' }[val('oc-high-sl-source', 'entry')];
   const margin = Number(val('oc-high-margin', 500));
   const shape = val('oc-high-mode', 'ladder') === 'ladder' ? 're-arming after every stop' : 'fib zones 2-2 and 4-4 only';
   const mode = val('oc-high-run-mode', 'paper') === 'live' ? 'LIVE' : 'Paper';
   const audit = (tf === '5M' && side === 'CE' && itm === 4)
-    ? '<strong style="color:#6ee7b7;">the one book the five-year audit found green</strong>'
-    : '<strong style="color:#fbbf24;">not the measured configuration</strong>';
+    ? '<strong style="color:#6ee7b7;">audit green</strong>'
+    : '<strong style="color:#fbbf24;">off the measured rule</strong>';
   const state = document.getElementById('oc-high-advanced-state');
   if (state) {
     const stock = val('oc-high-mode', 'ladder') === 'ladder' && val('oc-high-sl-source', 'entry') === 'entry'
@@ -20423,10 +20458,16 @@ function _recoveryRecipe() {
     state.textContent = stock ? 'rule as measured' : 'changed from the measured rule';
     state.style.color = stock ? '' : '#fbbf24';
   }
-  host.innerHTML = `${escapeHtml(mode)} · <strong>${escapeHtml(tf)}</strong> chart · two reds, then a buy-stop at the second red's high ·
-    <strong>ATM&minus;${itm} ${escapeHtml(side)}</strong>, re-picked at every fill · ${escapeHtml(lots)} lots ·
-    stop on ${escapeHtml(sl)} · sell when the ledger is repaid plus &#8377;${margin.toLocaleString('en-IN')} ·
-    ${escapeHtml(shape)} &mdash; ${audit}`;
+  // Short by design -- see the note in _syncFibBoundaryRecipe. The audit chip
+  // stays: whether this is the green book is the one thing worth the width.
+  host.innerHTML = [
+    `<strong>${escapeHtml(tf)}</strong>`,
+    'two reds',
+    `<strong>ATM&minus;${itm} ${escapeHtml(side)}</strong>`,
+    `stop on ${escapeHtml(sl)}`,
+    mode === 'LIVE' ? '<strong>LIVE</strong>' : null,
+    audit,
+  ].filter(Boolean).join(' · ');
 }
 
 // THE CHART. Same overlay and same payload the other consoles draw, asked for
@@ -20497,7 +20538,16 @@ function renderRecovery(data) {
   if (kicker) kicker.textContent = running ? 'Paper campaigns · live' : 'Paper campaigns';
   badge.textContent = running ? 'RUNNING' : 'IDLE';
   badge.style.color = running ? '#34d399' : 'var(--muted)';
-  if (startBtn) startBtn.style.display = running ? 'none' : '';
+  if (startBtn) {
+    // It used to disappear while the run was on. Every other strategy keeps
+    // the button and relabels it, so this one does too.
+    const live = (document.getElementById('oc-high-run-mode')?.value || 'paper') === 'live';
+    startBtn.style.display = '';
+    startBtn.disabled = !!running;
+    startBtn.textContent = running
+      ? (live ? '● Running · LIVE' : '● Running · paper')
+      : (live ? '▶ Start LIVE run' : '▶ Start paper run');
+  }
   if (stopBtn) stopBtn.style.display = running ? '' : 'none';
 
   // A STOPPED RUN STILL HAS A BOOK. Returning here threw the campaigns and
@@ -20511,7 +20561,7 @@ function renderRecovery(data) {
     tiles.innerHTML = '';
     const emptyWrap = document.getElementById('oc-high-closed');
     if (emptyWrap) emptyWrap.hidden = true;
-    list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Nothing running. Start the run, then name a mother candle.</div>';
+    list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Not running.</div>';
     return;
   }
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);

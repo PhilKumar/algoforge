@@ -11413,7 +11413,7 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
     if old is not None and old.running:
         raise HTTPException(
             status_code=409,
-            detail="A Candle Entry campaign is already running. Kill it before replacing its mother.",
+            detail="A campaign is already running. Kill it first.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     box_window: list = []
@@ -12780,7 +12780,7 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     if existing is not None and existing.running and existing.engine.status not in _GAP_CARRY_TERMINAL:
         raise HTTPException(
             status_code=409,
-            detail="A Gap Carry campaign is already running. Kill it before starting another.",
+            detail="A campaign is already running. Kill it first.",
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     rows = await _gap_carry_load_candles(adapter, config.timeframe)

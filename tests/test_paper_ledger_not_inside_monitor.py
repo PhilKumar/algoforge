@@ -58,7 +58,17 @@ class LedgerLivesOutsideTheMonitorTests(unittest.TestCase):
                     f"{panel_id} sits inside {nested}, which is hidden whenever no campaign runs",
                 )
 
-    def test_each_ledger_sits_in_the_live_pane(self):
+    def test_each_ledger_sits_below_both_columns(self):
+        """Not in either column: beneath the form AND the monitor, full width.
+
+        Phil, 2026-08-26: "Closed paper rounds only must be under the form and
+        monitor." Inside the live column it was the monitor's neighbour; the
+        archive belongs under the whole strategy.
+        """
         for strategy, panel_id in LEDGERS.items():
             with self.subTest(strategy=strategy):
-                self.assertIn("ocp-pane ocp-pane-live", _ancestor_ids(panel_id))
+                ancestors = _ancestor_ids(panel_id)
+                self.assertNotIn("ocp-pane ocp-pane-live", ancestors)
+                self.assertNotIn("ocp-panes", ancestors)
+                # Still inside the strategy's own card, not loose on the page.
+                self.assertIn("card", ancestors[0])

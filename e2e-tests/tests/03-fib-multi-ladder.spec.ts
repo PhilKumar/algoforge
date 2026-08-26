@@ -216,8 +216,11 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await login(page, () => [campaign('NIFTY')]);
     await openFibTab(page);
 
-    // NIFTY is the default selection and it IS running.
-    await expect(page.locator('#oc-fib-start')).toHaveText(/Kill the NIFTY ladder first/);
+    // NIFTY is the default selection and it IS running -- and the button
+    // reports that state rather than issuing an instruction, the way every
+    // other strategy's does (2026-08-26).
+    await expect(page.locator('#oc-fib-start')).toHaveText(/Running · NIFTY/);
+    await expect(page.locator('#oc-fib-start')).toBeDisabled();
     await page.selectOption('#oc-fib-symbol', 'SENSEX');
     // A different instrument never blocked anything technically; now it does
     // not say it does either.

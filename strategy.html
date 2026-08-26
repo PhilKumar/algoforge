@@ -2767,15 +2767,19 @@
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
       <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="ocp-auto-card" hidden></div></div>
-      <div class="ocp-monitor" id="oc-fib-closed" hidden>
-      <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
-      <div class="ocp-monitor-section">
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
-        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
-      </div>
-      </div>
       </div>
     </div>
+      <!-- UNDER BOTH COLUMNS. The all-time ledger is not the live
+           column's business: it belongs beneath the form AND the
+           monitor, full width (Phil, 2026-08-26: "Closed paper rounds
+           only must be under the form and monitor"). -->
+        <div class="ocp-monitor" id="oc-fib-closed" hidden>
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+        <div class="ocp-monitor-section">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
+        </div>
+        </div>
     </div>
 
 
@@ -3054,19 +3058,6 @@
           <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="oc-candle-events"><tr><td colspan="3" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
         </details>
       </section>
-      <!-- THE ALL-TIME LEDGER, OUTSIDE THE MONITOR. It used to sit inside
-           #oc-candle-monitor, which is hidden whenever no campaign is
-           running -- so the archive that exists precisely to outlive a
-           campaign disappeared with the campaign (Phil, 2026-08-26: the
-           settled ~Rs 52.6k loss "again dropped"). Its own panel, its own
-           visibility, owned by the ledger fetch alone. -->
-      <div class="ocp-monitor" id="oc-candle-closed" hidden>
-        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
-        <div class="ocp-monitor-section">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
-          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
-        </div>
-      </div>
       <details id="oc-candle-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-candle-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-candle-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
@@ -3085,6 +3076,23 @@
       </details>
       </div>
       </div>
+      <!-- UNDER BOTH COLUMNS. The all-time ledger is not the live
+           column's business: it belongs beneath the form AND the
+           monitor, full width (Phil, 2026-08-26: "Closed paper rounds
+           only must be under the form and monitor"). -->
+        <!-- THE ALL-TIME LEDGER, OUTSIDE THE MONITOR. It used to sit inside
+             #oc-candle-monitor, which is hidden whenever no campaign is
+             running -- so the archive that exists precisely to outlive a
+             campaign disappeared with the campaign (Phil, 2026-08-26: the
+             settled ~Rs 52.6k loss "again dropped"). Its own panel, its own
+             visibility, owned by the ledger fetch alone. -->
+        <div class="ocp-monitor" id="oc-candle-closed" hidden>
+          <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+          <div class="ocp-monitor-section">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
+            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
+          </div>
+        </div>
     </div>
 
     <div id="oc-candle-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Candle Entry ladder chart">
@@ -3266,15 +3274,6 @@
             <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="oc-gap-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
           </details>
         </section>
-        <!-- Same lift as Candle Entry: the night archive outlives the carry,
-             so it cannot live inside a monitor that hides between runs. -->
-        <div class="ocp-monitor" id="oc-gap-closed" hidden>
-          <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper nights</h4></div></div>
-          <div class="ocp-monitor-section">
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
-            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
-          </div>
-        </div>
         <section id="oc-gap-backtest" class="ocp-monitor" hidden>
           <div class="ocp-monitor-head"><span class="ocp-monitor-kicker">Replay on recorded prices</span><span id="oc-gap-backtest-updated" class="ocp-monitor-updated"></span></div>
           <div id="oc-gap-backtest-tiles" class="ocp-tiles"></div>
@@ -3284,6 +3283,19 @@
         </section>
       </div>
       </div>
+      <!-- UNDER BOTH COLUMNS. The all-time ledger is not the live
+           column's business: it belongs beneath the form AND the
+           monitor, full width (Phil, 2026-08-26: "Closed paper rounds
+           only must be under the form and monitor"). -->
+          <!-- Same lift as Candle Entry: the night archive outlives the carry,
+               so it cannot live inside a monitor that hides between runs. -->
+          <div class="ocp-monitor" id="oc-gap-closed" hidden>
+            <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper nights</h4></div></div>
+            <div class="ocp-monitor-section">
+              <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
+              <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
+            </div>
+          </div>
     </div>
     <div id="oc-gap-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Gap Carry chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
@@ -3451,7 +3463,9 @@
           <button id="oc-high-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
         </div>
         <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
-          A completed candle open on the chosen chart &mdash; and it must still be the highest of the last few sessions. Its high and low come from Dhan; nothing is typed. Add as many as you like &mdash; each runs as its own campaign with its own ledger.
+          <!-- Four lines of prose became one: the rest is in the info sheet
+               (Phil, 2026-08-26: "Still seeing a lot of texts here"). -->
+          A completed candle, still the session high.
         </div>
       </div>
       <div id="oc-high-status" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>

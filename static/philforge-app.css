@@ -1,4 +1,15 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* THE SCROLLBAR KEEPS ITS LANE. Without this the bar appears the moment a
+     fold pushes the page past the viewport and vanishes when it folds back,
+     and the whole layout jumps sideways by its width every time -- half of
+     what reads as "an impact on the entire page" when a panel is toggled.
+     DESKTOP ONLY: a phone draws its scrollbar over the page rather than in
+     the layout, so there is no jump to prevent there -- and reserving the
+     lane anyway took 5px off a 390px screen, which is a real cost for
+     nothing. */
+  @media (min-width: 768px) {
+    html { scrollbar-gutter: stable; }
+  }
   :root {
     --brand-rail-space: 206px;
     --shell-gutter: 14px;
@@ -6249,7 +6260,31 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-advanced-state { font-weight:600; }
 .ocp-advanced-state.is-changed { color:#fde68a; }
 .ocp-advanced.is-changed { border-color: rgba(253,230,138,.38); }
-.ocp-advanced-body { padding: 2px 12px 12px; }
+/* THE FOLD OPENS, IT DOES NOT SNAP. Advanced added its whole height in one
+   frame -- 384px on Candle Entry -- so every press shoved the rest of the page
+   and read as the layout breaking rather than a panel opening (Phil,
+   2026-08-26: "it completely feels an impact on the entire page"). Same
+   0fr->1fr the monitor fold already uses. `details` keeps the body in the box
+   while open, so the row transition is all that is needed. */
+.ocp-advanced[open] > .ocp-advanced-body,
+.ocp-advanced > .ocp-advanced-body { padding: 2px 12px 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ocp-advanced > .ocp-advanced-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    transition: grid-template-rows .24s cubic-bezier(.2,.8,.2,1), padding .24s cubic-bezier(.2,.8,.2,1), opacity .16s ease;
+  }
+  .ocp-advanced[open] > .ocp-advanced-body {
+    grid-template-rows: 1fr;
+    padding: 2px 12px 12px;
+    opacity: 1;
+  }
+  .ocp-advanced > .ocp-advanced-body > * { min-height: 0; }
+}
 .ocp-advanced-body .ocp-switch-grid { margin-top:4px; }
 [data-theme="light"] .ocp-advanced { background: rgba(248,250,252,.6); border-color: rgba(15,23,42,.14); }
 /* The auto mother's card: on/off, what it is waiting for, the recent chain. */

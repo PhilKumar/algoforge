@@ -1457,7 +1457,7 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // Start is fail-closed for the selected instrument while its ladder runs,
   // and the button names exactly what must happen first.
   await expect(page.locator('#oc-fib-start')).toBeDisabled();
-  await expect(page.locator('#oc-fib-start')).toContainText('Kill the NIFTY ladder first');
+  await expect(page.locator('#oc-fib-start')).toContainText('Running · NIFTY');
   // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
   await expect(page.locator('#oc-fib-blocked table')).toBeVisible();
   await expect(page.locator('#oc-fib-blocked')).toContainText('NIFTY');
@@ -1788,7 +1788,7 @@ test('Recovery tab renders its controls and monitor', async ({ page }) => {
   // The monitor must render from a not_started payload rather than staying blank
   // -- a JS typo here leaves an empty panel that a green Python run never catches.
   await expect(page.locator('#oc-high-badge')).toHaveText('IDLE');
-  await expect(page.locator('#oc-high-rows')).toContainText('Nothing running');
+  await expect(page.locator('#oc-high-rows')).toContainText('Not running');
   await expect(page.locator('#oc-high-start')).toBeVisible();
   await expect(page.locator('#oc-high-stop')).toBeHidden();
 
