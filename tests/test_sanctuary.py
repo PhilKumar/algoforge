@@ -264,6 +264,23 @@ class StatementParserTests(unittest.TestCase):
         second = {r["ref_id"] for r in self.parse()["rows"]}
         self.assertEqual(first, second)
 
+    def test_a_reexport_with_new_serials_keeps_the_same_refs(self):
+        from sanctuary_statements import parse_statement
+
+        # The same Dec-30 deposit exported twice: the year file numbers it
+        # 462, a top-up file numbers it 1. One transaction, one ref.
+        row = ",30/12/2020,30/12/2020,,UPI/1/refill,0.00,491.00,547.43\n"
+        header = (
+            "Account Number,000099887766 ( INR )\n"
+            "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
+            "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
+        )
+        year_file = (header + "462" + row).encode()
+        topup_file = (header + "1" + row).encode()
+        ref_a = parse_statement("year.csv", year_file)["rows"][0]["ref_id"]
+        ref_b = parse_statement("topup.csv", topup_file)["rows"][0]["ref_id"]
+        self.assertEqual(ref_a, ref_b)
+
     def test_default_rules_reach_the_obvious_payees(self):
         from sanctuary_statements import categorise
 

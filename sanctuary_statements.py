@@ -258,21 +258,22 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
         if direction == "in":
             deposits_count += 1
             deposits_total = round(deposits_total + deposit, 2)
-        # The serial and balance keep two same-amount same-day payments to the
-        # same payee distinct, and keep the SAME row identical across the
-        # year-file overlap a bank puts at the boundary. The direction is in
-        # the fingerprint so a matching in and out can never share a ref.
+        # The fingerprint must name the TRANSACTION, not the export: serial
+        # numbers restart in every fresh export (a Dec-31 top-up file counts
+        # 1..6 where the year file said 460..465), so the serial stays out.
+        # Balance separates same-day twins; where even the balance repeats,
+        # the occurrence counter below does — and row order is chronological
+        # in every export, so the counter is stable across files too. The
+        # direction is included so a matching in and out never share a ref.
         fingerprint = "|".join(
             [
                 when.date().isoformat(),
-                cell("serial"),
                 note,
                 direction,
                 f"{amount:.2f}",
                 "" if balance is None else f"{balance:.2f}",
             ]
         )
-        digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:16]  # nosec B324 - dedupe key, not security
         rows.append(
             {
                 "entry_date": when.date().isoformat(),
@@ -280,11 +281,17 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
                 "amount": amount,
                 "dir": direction,
                 "balance": balance,
-                "ref_id": f"stmt:{acct_tail}:{digest}",
+                "_fp": fingerprint,
             }
         )
     if not rows:
         return {"status": "error", "error": "The table parsed but held no transaction rows."}
+    seen_fp: dict[str, int] = {}
+    for row in rows:
+        occurrence = seen_fp.get(row["_fp"], 0)
+        seen_fp[row["_fp"]] = occurrence + 1
+        digest = hashlib.sha1(f"{row.pop('_fp')}#{occurrence}".encode()).hexdigest()[:16]  # nosec B324 - dedupe key, not security
+        row["ref_id"] = f"stmt:{acct_tail}:{digest}"
     rows.sort(key=lambda r: r["entry_date"])
     return {
         "status": "ok",
