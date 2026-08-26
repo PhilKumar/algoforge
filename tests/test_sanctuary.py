@@ -204,6 +204,19 @@ class TestLedgerAutomation(unittest.TestCase):
         self.assertEqual(len(unpaid), 1)
         self.assertEqual(unpaid[0]["due_date"], "2027-01-05")
 
+    def test_a_revolving_loan_keeps_its_drawn_amount(self):
+        async def run():
+            loan_id = await self.sanctuary_db.create_loan(
+                1, {"name": "ICICI OD", "emi_amount": 0, "drawn_amount": 318572.84}
+            )
+            await self.sanctuary_db.update_loan(1, loan_id, {"drawn_amount": 300000.0})
+            loans = await self.sanctuary_db.list_loans(1)
+            return next(loan for loan in loans if loan["id"] == loan_id)
+
+        loan = asyncio.run(run())
+        self.assertEqual(loan["emi_amount"], 0)
+        self.assertEqual(loan["drawn_amount"], 300000.0)
+
     def test_replace_schedule_preserves_paid_marks(self):
         async def run():
             loan_id = await self.sanctuary_db.create_loan(1, {"name": "Test Loan"})

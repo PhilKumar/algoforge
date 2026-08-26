@@ -770,6 +770,11 @@ def _clean_loan_fields(payload: dict) -> dict:
             fields["emi_amount"] = max(0.0, round(float(payload.get("emi_amount") or 0), 2))
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Bad EMI amount") from None
+    if "drawn_amount" in payload:
+        try:
+            fields["drawn_amount"] = max(0.0, round(float(payload.get("drawn_amount") or 0), 2))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Bad drawn amount") from None
     if "due_day" in payload:
         fields["due_day"] = min(max(int(payload.get("due_day") or 5), 1), 28)
     if "start_date" in payload:

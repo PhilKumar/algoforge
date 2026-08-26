@@ -1821,14 +1821,18 @@ function renderLoans(){
         ${l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
 
-      <div class="loan-grid">
+      ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? `<div class="loan-grid">
+        <div class="lf"><span>Drawn</span><b class="num" style="color:var(--danger)">${inr(l.drawn_amount)}</b></div>
+        <div class="lf"><span>Type</span><b>Revolving — no fixed EMI</b></div>
+        <div class="lf"><span>Repayment</span><b>${esc(l.note || "as money allows")}</b></div>
+      </div>` : `<div class="loan-grid">
         <div class="lf"><span>EMI</span><b class="num">${inr(l.emi_amount)}</b></div>
         <div class="lf"><span>Due day</span><b class="num">${l.due_day}</b></div>
         <div class="lf"><span>Next due</span><b>${l.next_due ? niceDate(l.next_due) : "—"}</b></div>
         <div class="lf"><span>Outstanding</span><b class="num">${l.outstanding != null ? inr(l.outstanding) : "—"}</b></div>
         <div class="lf"><span>Still to pay</span><b class="num">${l.remaining_amount ? inr(l.remaining_amount) : "—"}</b></div>
         <div class="lf"><span>Instalments</span><b class="num">${l.schedule_count ? l.paid_count + " of " + l.schedule_count : "—"}</b></div>
-      </div>
+      </div>`}
 
       ${l.schedule_count ? `<div class="loan-progress" title="${l.paid_count} of ${l.schedule_count} paid">
         <i style="width:${Math.round((l.paid_count / l.schedule_count) * 100)}%"></i>
@@ -1847,8 +1851,8 @@ function renderLoans(){
 
       <div class="btns">
         ${l.overdue_count ? `<button class="btn small" data-settle="${l.id}">✓ ${l.overdue_count} already paid</button>` : ""}
-        <button class="btn small" data-lup="${l.id}">Upload schedule</button>
-        ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}
+        ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? "" : `<button class="btn small" data-lup="${l.id}">Upload schedule</button>
+        ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}`}
         <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
         <button class="btn subtle small loan-remove" data-ldel="${l.id}" title="Remove this loan">✕</button>
       </div>
@@ -1864,6 +1868,8 @@ function loanForm(loan){
       <input class="field num" id="lf-emi" type="number" min="0" value="${loan?.emi_amount || ""}"></div>
     <div style="flex:1"><label>Due day (1–28)</label>
       <input class="field num" id="lf-day" type="number" min="1" max="28" value="${loan?.due_day || 5}"></div></div>
+    <label>Drawn / outstanding (₹) <span style="font-weight:400">— for an OD or a card: what is owed right now. Leave EMI 0 and this becomes a revolving card.</span></label>
+    <input class="field num" id="lf-drawn" type="number" min="0" value="${loan?.drawn_amount || ""}">
     <label>Loan / account number</label>
     <input class="field" id="lf-acct" value="${esc(loan?.account_no || "")}" placeholder="the number the bank calls it by">
     <label>Details <span style="font-weight:400">— sanction date, rate, tenure, branch, the manager's number…</span></label>
@@ -1877,6 +1883,7 @@ function loanForm(loan){
       name: wrap.querySelector("#lf-name").value.trim(),
       lender: wrap.querySelector("#lf-lender").value.trim(),
       emi_amount: Number(wrap.querySelector("#lf-emi").value || 0),
+      drawn_amount: Number(wrap.querySelector("#lf-drawn").value || 0),
       due_day: Number(wrap.querySelector("#lf-day").value || 5),
       note: wrap.querySelector("#lf-note").value,
       account_no: wrap.querySelector("#lf-acct").value.trim(),

@@ -291,6 +291,7 @@ _SCHEMA_STATEMENTS = [
         note        TEXT    NOT NULL DEFAULT '',
         account_no  TEXT    NOT NULL DEFAULT '',
         details     TEXT    NOT NULL DEFAULT '',
+        drawn_amount REAL   NOT NULL DEFAULT 0,
         active      INTEGER NOT NULL DEFAULT 1,
         created_at  TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
@@ -353,9 +354,15 @@ def _init_db_sync():
     # The sanctuary's loans learned to carry their account number and the
     # details Phil wants at hand; a table created before that needs them added.
     existing_loan_columns = {row[1] for row in conn.execute("PRAGMA table_info(sanctuary_loans)").fetchall()}
-    for column in ("account_no", "details"):
+    for column, decl in (
+        ("account_no", "TEXT NOT NULL DEFAULT ''"),
+        ("details", "TEXT NOT NULL DEFAULT ''"),
+        # A revolving debt (the sweep-linked OD, a card) has no schedule;
+        # what it owes is a single stated figure.
+        ("drawn_amount", "REAL NOT NULL DEFAULT 0"),
+    ):
         if column not in existing_loan_columns:
-            conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")  # nosec B608
+            conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608
     conn.commit()
     conn.close()
     _initialized = True
