@@ -91,6 +91,41 @@ class TestEmiParser(unittest.TestCase):
         self.assertEqual(len(result["rows"]), 1)
         self.assertEqual(result["rows"][0]["due_date"], "2026-10-05")
 
+    def test_counter_column_is_never_read_as_money(self):
+        """An HDFC key-fact sheet numbers its rows AND dates them."""
+        kfs = (
+            "Instalment No.,Due Date,Instalment Amt (Rs),Principal (Rs),Interest (Rs),Outstanding Principal (Rs)\n"
+            "1,06/09/2025,42677,30881,11796,2382701\n"
+            "2,06/10/2025,51698,31147,20551,2351554\n"
+        ).encode()
+        result = parse_emi_document("kfs.csv", kfs)
+        self.assertEqual(len(result["rows"]), 2)
+        self.assertEqual(result["rows"][0]["amount"], 42677.0)  # not 1
+        self.assertEqual(result["rows"][1]["amount"], 51698.0)  # not 2
+        self.assertEqual(result["rows"][0]["outstanding"], 2382701.0)
+
+    def test_a_stray_two_cell_row_cannot_pose_as_the_header(self):
+        """ "Installment Frequency | Monthly" once captured the whole parse."""
+        sheet = (
+            "Installment Frequency,Monthly\n"
+            "Sanction Date,19/08/2025\n"
+            "Instalment No.,Due Date,Instalment Amt,Principal,Interest,Outstanding\n"
+            "1,06/09/2025,42677,30881,11796,2382701\n"
+            "2,06/10/2025,51698,31147,20551,2351554\n"
+        ).encode()
+        result = parse_emi_document("kfs.csv", sheet)
+        self.assertEqual([row["amount"] for row in result["rows"]], [42677.0, 51698.0])
+
+    def test_a_line_whose_date_follows_a_counter_still_reads(self):
+        from sanctuary_emi import _parse_lines_fallback
+
+        result = _parse_lines_fallback([["21 06/05/2027 51698 36668 15030 1705975"]], [])
+        self.assertEqual(len(result["rows"]), 1)
+        row = result["rows"][0]
+        self.assertEqual(row["due_date"], "2027-05-06")
+        self.assertEqual(row["amount"], 51698.0)
+        self.assertEqual(row["principal_part"], 36668.0)
+
     def test_add_months_clamps_month_ends(self):
         self.assertEqual(_add_months(date(2026, 1, 31), 1), date(2026, 2, 28))
         self.assertEqual(_add_months(date(2024, 1, 31), 1), date(2024, 2, 29))
