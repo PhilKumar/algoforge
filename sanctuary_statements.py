@@ -376,3 +376,111 @@ def parse_statement(filename: str, blob: bytes) -> dict:
     except Exception as exc:  # noqa: BLE001 - the upload is untrusted input
         return {"status": "error", "error": f"Could not read the file: {exc}"}
     return _rows_to_result(filename, grid)
+
+
+# ── Loan discovery: the statements remember every EMI he ever paid ─
+
+_LOANISH_RE = re.compile(
+    r"ach|nach|ecs|emi|loan|instal|prime|canfin|can fin|finserv|fin serv|bajaj|finance",
+    re.IGNORECASE,
+)
+_NOT_A_LOAN_RE = re.compile(r"zerodha|clearing corp|mutual fund|cra-nsdl|nps|groww|sip[/ ]", re.IGNORECASE)
+_LOAN_NUM_RE = re.compile(r"(\d{6,})")
+
+
+def discover_loans(rows: list[dict], today: "datetime.date") -> list[dict]:
+    """Find EMI-shaped streams in outflow rows: regular near-monthly debits
+    of a steady amount to one loan account. Keyed on the LAST long number in
+    the narration — the loan account — because a bank's narration format
+    changes mid-life while the loan number survives it (Can Fin's 42 debits
+    arrived under two formats; the trailing number says they are one loan).
+    A stream silent for 75+ days reads as closed.
+    """
+    import statistics
+    from datetime import datetime as _dt
+
+    # Two passes. A narration carries several numbers: the loan account and
+    # per-debit references. The reference is unique to its row; the loan
+    # account repeats every month — so each row keys on whichever of its
+    # numbers is seen most often across the whole tape.
+    loanish = []
+    seen_numbers: dict[str, int] = {}
+    for row in rows:
+        note = row["note"]
+        if not _LOANISH_RE.search(note) or _NOT_A_LOAN_RE.search(note):
+            continue
+        numbers = _LOAN_NUM_RE.findall(note)
+        loanish.append((row, numbers))
+        for number in set(numbers):
+            seen_numbers[number] = seen_numbers.get(number, 0) + 1
+    groups: dict[str, list] = {}
+    for row, numbers in loanish:
+        if numbers:
+            key = max(numbers, key=lambda n: (seen_numbers[n], len(n)))
+        else:
+            key = payee_key(row["note"])
+        groups.setdefault(key, []).append(row)
+
+    candidates = []
+    for key, items in groups.items():
+        if len(items) < 4:
+            continue
+        items.sort(key=lambda r: r["entry_date"])
+        amounts = [r["amount"] for r in items]
+        med = statistics.median(amounts)
+        if med < 500:
+            continue
+        dates = [_dt.strptime(r["entry_date"], "%Y-%m-%d").date() for r in items]
+        gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        if not gaps or not 20 <= statistics.median(gaps) <= 45:
+            continue
+        if statistics.median(abs(a - med) for a in amounts) / med > 0.35:
+            continue
+        lender = ""
+        for part in items[-1]["note"].split("/"):
+            cleaned = part.strip()
+            if (
+                cleaned
+                and not cleaned.isdigit()
+                and cleaned.upper() not in ("ACH", "NACH", "ECS", "TP", "UPI", "BIL", "ONL")
+            ):
+                lender = cleaned[:60]
+                break
+        candidates.append(
+            {
+                "key": key,
+                "lender": lender,
+                "count": len(items),
+                "emi": round(med, 2),
+                "first": items[0]["entry_date"],
+                "last": items[-1]["entry_date"],
+                "closed": (today - dates[-1]).days > 75,
+                "debits": [{"due_date": r["entry_date"], "amount": r["amount"]} for r in items],
+                "sample": items[-1]["note"][:120],
+            }
+        )
+    # One loan, two narration eras: same money, spans that touch — merge.
+    candidates.sort(key=lambda c: c["first"])
+    merged: list[dict] = []
+    for cand in candidates:
+        prev = next(
+            (
+                m
+                for m in merged
+                if abs(m["emi"] - cand["emi"]) <= 0.03 * max(m["emi"], 1)
+                and 0
+                <= (_dt.strptime(cand["first"], "%Y-%m-%d").date() - _dt.strptime(m["last"], "%Y-%m-%d").date()).days
+                <= 90
+            ),
+            None,
+        )
+        if prev:
+            prev["count"] += cand["count"]
+            prev["last"] = cand["last"]
+            prev["closed"] = cand["closed"]
+            prev["debits"] += cand["debits"]
+            prev["sample"] = cand["sample"]
+        else:
+            merged.append(cand)
+    merged.sort(key=lambda c: (-c["closed"], c["last"]), reverse=True)
+    return merged

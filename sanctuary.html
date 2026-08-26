@@ -964,6 +964,7 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-title">Loans &amp; EMIs</div>
       <div class="section-sub">Upload a bank's EMI schedule and every installment finds its month by itself. Alerts appear above when a due date comes near.</div>
       <div class="loans" id="loans"></div>
+      <div id="loan-found"></div>
       <div style="margin-top:14px"><button class="btn ghost" id="loan-add">＋ Add a loan</button></div>
     </div>
 
@@ -1888,7 +1889,41 @@ function renderRecurring(items){
 }
 
 /* loans */
-async function loadLoans(){ S.loans = (await api("/api/sanctuary/loans")).loans; renderLoans(); }
+async function loadLoans(){ S.loans = (await api("/api/sanctuary/loans")).loans; renderLoans(); loadLoanFinds(); }
+async function loadLoanFinds(){
+  const host = $("loan-found");
+  try {
+    const r = await api("/api/sanctuary/loans/discover");
+    if (!r.candidates.length) { host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="section-title" style="font-size:.95rem;margin-top:18px">Found in your statements</div>
+      <div class="section-sub">EMI-shaped streams the years remember. One tap and each becomes a card wearing its real history — closed ones arrive already resting.</div>` +
+      r.candidates.map((c) => `
+      <div class="stmt-review-row" data-lfkey="${esc(c.key)}">
+        <div class="who"><b>${esc(c.lender || "Unknown lender")}</b>
+          <span class="stmt-chip">${c.count} EMIs × ${inr2(c.emi)}</span>
+          <span class="stmt-chip">${esc(c.first)} → ${esc(c.last)}</span>
+          <span class="stmt-chip" style="${c.closed ? "" : "color:var(--moss)"}">${c.closed ? "looks closed" : "still running"}</span>
+          <small>${esc(c.sample)}</small></div>
+        <button class="btn ghost small" data-lf-adopt>Add to the shelf</button>
+        <button class="btn subtle small" data-lf-ignore>Not a loan</button>
+      </div>`).join("");
+  } catch { host.innerHTML = ""; }
+}
+document.addEventListener("click", async (e) => {
+  const adopt = e.target.closest("[data-lf-adopt]");
+  const ignore = e.target.closest("[data-lf-ignore]");
+  if (!adopt && !ignore) return;
+  const key = (adopt || ignore).closest("[data-lfkey]").dataset.lfkey;
+  if (adopt) {
+    adopt.disabled = true;
+    const r = await api("/api/sanctuary/loans/adopt", {method: "POST", body: {key}});
+    toast(`${r.name} — ${r.paid} EMIs on record${r.closed ? ", resting closed" : ""}. 🌿`);
+  } else {
+    await api("/api/sanctuary/loans/discover/ignore", {method: "POST", body: {key}});
+    toast("Set aside.");
+  }
+  loadLoans(); refreshFinance();
+});
 function renderLoans(){
   $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `
     <div class="loan card${l.active ? "" : " loan-closed"}">

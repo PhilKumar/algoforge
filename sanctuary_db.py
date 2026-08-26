@@ -285,6 +285,17 @@ async def recategorise_matching(user_id: int, match: str, category: str, from_ca
         return cursor.rowcount
 
 
+async def statement_outflow_rows(user_id: int) -> list[dict]:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT note, entry_date, amount FROM sanctuary_ledger
+               WHERE user_id = ? AND source = 'statement' ORDER BY entry_date""",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
 async def search_ledger(user_id: int, query: str, limit: int = 400) -> list[dict]:
     """Every year at once: rows whose note or category carries the query."""
     needle = f"%{query.strip()}%"

@@ -1103,6 +1103,67 @@ async def loan_create(request: Request, user: dict = Depends(_unlocked_user)):
     return {"id": loan_id}
 
 
+async def _loan_candidates(user_id: int) -> list[dict]:
+    rows = await sanctuary_db.statement_outflow_rows(user_id)
+    candidates = await asyncio.to_thread(sanctuary_statements.discover_loans, rows, _today_ist())
+    ignored = set(await sanctuary_db.get_json_state(user_id, "loan_ignored", []))
+    carded = {str(loan.get("account_no") or "") for loan in await sanctuary_db.list_loans(user_id)}
+    return [c for c in candidates if c["key"] not in ignored and c["key"] not in carded]
+
+
+@router.get("/api/sanctuary/loans/discover")
+async def loans_discover(user: dict = Depends(_unlocked_user)):
+    """EMI-shaped streams the statements remember, not yet on the shelf."""
+    candidates = await _loan_candidates(int(user["id"]))
+    for cand in candidates:
+        cand.pop("debits", None)
+    return {"candidates": candidates}
+
+
+@router.post("/api/sanctuary/loans/adopt")
+async def loans_adopt(request: Request, user: dict = Depends(_unlocked_user)):
+    """One tap: the stream becomes a loan card wearing its real history."""
+    user_id = int(user["id"])
+    payload = await request.json()
+    key = str(payload.get("key") or "")
+    cand = next((c for c in await _loan_candidates(user_id) if c["key"] == key), None)
+    if not cand:
+        raise HTTPException(status_code=404, detail="That stream is gone or already carded")
+    years = cand["first"][:4] + ("–" + cand["last"][:4] if cand["last"][:4] != cand["first"][:4] else "")
+    name = str(payload.get("name") or "").strip()[:80] or f"{cand['lender'] or 'Loan'} · {years}"
+    loan_id = await sanctuary_db.create_loan(
+        user_id,
+        {
+            "name": name,
+            "lender": cand["lender"],
+            "emi_amount": cand["emi"],
+            "due_day": min(max(int(cand["last"][8:10]), 1), 28),
+            "start_date": cand["first"],
+            "account_no": cand["key"] if cand["key"].isdigit() else "",
+            "note": "found in the statements",
+            "details": f"Auto-found from the bank statements: {cand['count']} debits of ~₹{cand['emi']:,.0f}, {cand['first']} to {cand['last']}. Last narration: {cand['sample']}",
+            "active": not cand["closed"],
+        },
+    )
+    await sanctuary_db.replace_schedule(user_id, loan_id, cand["debits"])
+    await sanctuary_db.settle_past_emis(user_id, loan_id, cand["last"])
+    return {"id": loan_id, "name": name, "paid": cand["count"], "closed": cand["closed"]}
+
+
+@router.post("/api/sanctuary/loans/discover/ignore")
+async def loans_discover_ignore(request: Request, user: dict = Depends(_unlocked_user)):
+    user_id = int(user["id"])
+    payload = await request.json()
+    key = str(payload.get("key") or "")[:80]
+    if not key:
+        raise HTTPException(status_code=400, detail="Which one?")
+    ignored = await sanctuary_db.get_json_state(user_id, "loan_ignored", [])
+    if key not in ignored:
+        ignored.append(key)
+    await sanctuary_db.set_json_state(user_id, "loan_ignored", ignored[:200])
+    return {"ok": True}
+
+
 @router.put("/api/sanctuary/loans/{loan_id}")
 async def loan_update(loan_id: int, request: Request, user: dict = Depends(_unlocked_user)):
     fields = _clean_loan_fields(await request.json())

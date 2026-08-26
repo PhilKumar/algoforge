@@ -407,6 +407,50 @@ class StatementParserTests(unittest.TestCase):
         self.assertEqual(second, 1, "the re-upload must add only the new row")
 
 
+class LoanDiscoveryTests(unittest.TestCase):
+    """EMI-shaped streams found in statement rows, keyed on the number that
+    repeats — the loan account — not the per-debit reference."""
+
+    def rows(self, notes_dates_amounts):
+        return [{"note": n, "entry_date": d, "amount": a} for n, d, a in notes_dates_amounts]
+
+    def test_a_stream_keyed_on_the_repeating_number_survives_reference_churn(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        rows = self.rows(
+            [
+                (f"ACH/SOME FINANCE/REF{90000 + i}11/00998877665", f"2023-{m:02d}-05", 5000.0)
+                for i, m in enumerate(range(1, 9))
+            ]
+        )
+        found = discover_loans(rows, date(2024, 6, 1))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["count"], 8)
+        self.assertTrue(found[0]["closed"])
+
+    def test_two_narration_eras_of_one_loan_merge(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        era1 = [("ACH/LENDER/112233445566", f"2023-{m:02d}-10", 9000.0) for m in range(1, 6)]
+        era2 = [(f"ACH/LENDER/NEWFMT{770 + m}/112233445566", f"2023-{m:02d}-10", 9000.0) for m in range(6, 12)]
+        found = discover_loans(self.rows(era1 + era2), date(2024, 6, 1))
+        self.assertEqual(len(found), 1, "one loan, not two")
+        self.assertEqual(found[0]["count"], 11)
+
+    def test_a_recent_stream_reads_as_running(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        rows = self.rows([("ACH/LENDER/445566778899", f"2024-{m:02d}-07", 12000.0) for m in range(1, 7)])
+        found = discover_loans(rows, date(2024, 7, 1))
+        self.assertFalse(found[0]["closed"])
+
+
 class VaultTests(unittest.TestCase):
     """The vault: encrypted at rest, refusing to store plaintext, and the
     document number encrypted like the file it belongs to."""
