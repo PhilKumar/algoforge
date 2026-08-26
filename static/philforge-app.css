@@ -472,15 +472,20 @@
   .scalp-stepper { -moz-appearance: textfield; appearance: textfield; }
   .scalp-step-btn { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text); border-radius:4px; width:22px; height:22px; font-size:13px; cursor:pointer; font-weight:700; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
   .scalp-step-btn:hover { background:rgba(255,255,255,0.12); }
-  .scalp-active-table { width:100%; min-width:1080px; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+  /* SYMBOL WAS TAKING A THIRD OF THE TABLE. "NIFTY 24250CE" is thirteen
+     characters; at 30% of a fixed 1080px it had 324px to sit in, while the
+     figures either side were squeezed into 8% each and the whole table
+     scrolled sideways in the live column (Phil, 2026-08-27). The width goes
+     to the numbers, and the table asks for less room to begin with. */
+  .scalp-active-table { width:100%; min-width:840px; border-collapse:collapse; font-size:12px; table-layout:fixed; }
   .scalp-active-table th, .scalp-active-table td { vertical-align:middle; }
-  .scalp-active-col-symbol { width:30%; }
-  .scalp-active-col-entry { width:16%; }
-  .scalp-active-col-ltp { width:8%; }
-  .scalp-active-col-pnl { width:8%; }
-  .scalp-active-col-target { width:13%; }
-  .scalp-active-col-sl { width:13%; }
-  .scalp-active-col-action { width:12%; }
+  .scalp-active-col-symbol { width:18%; }
+  .scalp-active-col-entry { width:14%; }
+  .scalp-active-col-ltp { width:12%; }
+  .scalp-active-col-pnl { width:12%; }
+  .scalp-active-col-target { width:15%; }
+  .scalp-active-col-sl { width:15%; }
+  .scalp-active-col-action { width:14%; }
   .scalp-cell-editor { display:inline-flex; align-items:center; justify-content:center; gap:3px; width:100%; }
   .scalp-range-editor { display:inline-flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; }
   .scalp-action-wrap { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; flex-wrap:wrap; }
@@ -538,10 +543,16 @@
   #stock-terminal-page #stock-terminal-ltp,
   #stock-terminal-page #stock-unit-price { color: var(--accent) !important; }
   @media (max-width: 900px) {
-    .scalp-active-table { min-width:980px; }
-    .scalp-active-col-symbol { width:28%; }
-    .scalp-active-col-entry { width:18%; }
-    .scalp-active-col-action { width:14%; }
+    /* All seven, so they sum to 100 rather than leaving four to inherit the
+       wide table's shares and overflow to 106%. */
+    .scalp-active-table { min-width:820px; }
+    .scalp-active-col-symbol { width:20%; }
+    .scalp-active-col-entry { width:15%; }
+    .scalp-active-col-ltp { width:11%; }
+    .scalp-active-col-pnl { width:11%; }
+    .scalp-active-col-target { width:14%; }
+    .scalp-active-col-sl { width:14%; }
+    .scalp-active-col-action { width:15%; }
   }
   .scalp-toggle {
     display: grid;
@@ -6329,6 +6340,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      tables each scroll inside their own wrap, so a 640px live column costs a
      sideways scroll on the widest table rather than the whole layout. */
   .ocp-panes { display:grid; grid-template-columns: minmax(0,320px) minmax(0,1fr); gap:18px; align-items:start; }
+  /* The launchpad carries two fields to a row, so it takes more width than a
+     strategy form does (Phil, 2026-08-27: "a lil bit wider to the right"). */
+  #scalp-page .ocp-panes { grid-template-columns: minmax(0,380px) minmax(0,1fr); }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
   .ocp-pane-form #oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields,
@@ -6360,9 +6374,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* Back to the old split once there is room for it: the ladder needs ~745px
      for its nine columns, so from here the form gives the width back. */
   .ocp-panes { grid-template-columns: minmax(0,400px) minmax(0,1fr); }
+  #scalp-page .ocp-panes { grid-template-columns: minmax(0,470px) minmax(0,1fr); }
 }
 @media (min-width: 1440px) {
   .ocp-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
+  #scalp-page .ocp-panes { grid-template-columns: minmax(0,600px) minmax(0,1fr); }
 }
 
 /* The ladder's Now cell carries two numbers -- the mark and the move. Side
@@ -9302,6 +9318,20 @@ body :is(
 #scalp-page .scalp-entry-grid {
   gap: 8px 10px !important;
   margin-bottom: 10px !important;
+}
+/* THE SAME SIZE THE CONSOLES SET THEIR FIELDS. Both were nominally 13px, but
+   the consoles set the MONO face and the launchpad was left on the body font,
+   which reads a good deal larger at the same number (Phil, 2026-08-27: "these
+   texts are large"). Inline styles carry the old size, hence !important. */
+#scalp-page .scalp-entry-card :is(select, input) {
+  font: 12px var(--font-mono) !important;
+}
+#scalp-page :is(#scalp-live-ltp, #scalp-margin) {
+  font-size: 13px !important;
+}
+#scalp-page .scalp-entry-card label {
+  font-size: 9px !important;
+  letter-spacing: .55px !important;
 }
 #scalp-page .scalp-entry-grid :is(input, select),
 #scalp-page .scalp-entry-grid :is(#scalp-live-ltp, #scalp-margin) {

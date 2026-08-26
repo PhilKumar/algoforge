@@ -108,8 +108,13 @@ test('Scalp panels size to content and Advanced preserves every execution field'
       columns: getComputedStyle(panes).gridTemplateColumns,
       alignItems: getComputedStyle(panes).alignItems,
       sideBySide: positions.left >= entry.left + entry.width - 5,
-      logIsItsOwnSection: log.tagName === 'DETAILS' && !log.closest('.ocp-panes'),
-      logFollowsThePanes: !!(panes.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING),
+      // The log is its own fold, and it sits UNDER Active Positions in the
+      // live column rather than under the whole desk (Phil, 2026-08-27:
+      // "make the event log goes below Active positions").
+      logIsItsOwnSection: log.tagName === 'DETAILS',
+      logUnderPositions: !!(document.querySelector('#scalp-page .scalp-positions-card')!
+        .compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING),
+      logInLiveColumn: !!log.closest('.ocp-pane-live'),
       advancedHeight: advancedBox.height,
     };
   });
@@ -117,7 +122,8 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   expect(geometry.alignItems).toBe('start');
   expect(geometry.sideBySide).toBe(true);
   expect(geometry.logIsItsOwnSection).toBe(true);
-  expect(geometry.logFollowsThePanes).toBe(true);
+  expect(geometry.logUnderPositions).toBe(true);
+  expect(geometry.logInLiveColumn).toBe(true);
   expect(geometry.advancedHeight).toBeLessThan(50);
 
   await advanced.locator('summary').click();
