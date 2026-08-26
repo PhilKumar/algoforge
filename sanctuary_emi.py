@@ -40,7 +40,10 @@ HEADER_SYNONYMS = {
         "emi month",
     ],
     "amount": [
+        "instalment amt",
+        "installment amt",
         "emi amount",
+        "emi amt",
         "emi",
         "installment amount",
         "instalment amount",
@@ -50,6 +53,7 @@ HEADER_SYNONYMS = {
         "total amount",
         "payment",
         "amount",
+        "amt",
         "total",
     ],
     "principal": [
@@ -168,21 +172,57 @@ def _period_number(raw) -> int | None:
 
 
 PERIOD_NAMES = ["period", "emi no", "sr no", "installment no", "instalment no"]
+_SERIAL_RE = re.compile(r"\b(no\.?|nos|number|sr|srl|sl|s\.no|#)\b")
+
+
+def _is_serial_header(cell: str) -> bool:
+    """True for a counter column — "Instalment No.", "Sr No", "S.No"."""
+    return bool(_SERIAL_RE.search(cell))
+
+
+def _header_score(cell: str, names: list[str]) -> int:
+    """How well a header matches a field: exact beats contained, longer beats shorter."""
+    best = 0
+    for name in names:
+        if cell == name:
+            return 1000 + len(name)
+        if name in cell:
+            best = max(best, len(name))
+    return best
 
 
 def _match_headers(row: list) -> dict[str, int] | None:
+    """Assign each field the column that matches it most specifically.
+
+    Column by column would let "Instalment No." claim the amount, because it
+    contains the word "instalment" — which is how an HDFC key-fact sheet was
+    read as sixty rupees of one, two, three. Scoring every pairing and taking
+    the strongest first gives "Instalment Amt" the money and leaves the
+    counter to be the period.
+    """
     cells = [str(c).strip().lower() if c is not None else "" for c in row]
-    mapping: dict[str, int] = {}
+    scored: dict[tuple[str, int], int] = {}
     for field, names in HEADER_SYNONYMS.items():
         for idx, cell in enumerate(cells):
-            if idx in mapping.values() or not cell:
+            if not cell:
                 continue
-            if any(cell == name or name in cell for name in names):
-                mapping[field] = idx
-                break
+            if field == "amount" and _is_serial_header(cell):
+                continue  # a counter is never the money
+            score = _header_score(cell, names)
+            if score:
+                scored[(field, idx)] = score
+
+    mapping: dict[str, int] = {}
+    taken: set[int] = set()
+    for (field, idx), _ in sorted(scored.items(), key=lambda kv: -kv[1]):
+        if field in mapping or idx in taken:
+            continue
+        mapping[field] = idx
+        taken.add(idx)
+
     if "due_date" not in mapping:
         for idx, cell in enumerate(cells):
-            if idx in mapping.values() or not cell:
+            if idx in taken or not cell:
                 continue
             if any(cell == name or name in cell for name in PERIOD_NAMES):
                 mapping["due_date"] = idx
@@ -204,14 +244,11 @@ def _finish(parsed: list[dict], warnings: list[str], needs_first_due=False) -> d
     return {"rows": unique, "warnings": warnings, "needs_first_due": needs_first_due}
 
 
-def _rows_to_schedule(rows: list[list], default_day, first_due: date | None) -> dict:
-    mapping = None
+def _parse_under_header(rows: list[list], mapping: dict[str, int], default_day, first_due: date | None) -> dict:
+    """Read the rows below one header, using that header's column map."""
     parsed, warnings = [], []
-    period_rows = []  # (period, amounts) when the date column is 1, 2, 3…
+    period_rows = []  # (period, amounts) when the date column counts 1, 2, 3…
     for row in rows:
-        if mapping is None:
-            mapping = _match_headers(row)
-            continue
 
         def get(field, row=row, mapping=mapping):
             return row[mapping[field]] if field in mapping and mapping[field] < len(row) else None
@@ -236,19 +273,58 @@ def _rows_to_schedule(rows: list[list], default_day, first_due: date | None) -> 
         period = _period_number(get("due_date"))
         if period is not None:
             period_rows.append((period, values))
-    if mapping is None:
-        return _parse_lines_fallback(rows, warnings)
+
     if period_rows and not parsed:
         if first_due is None:
             warnings.append(
                 f"The sheet numbers its {len(period_rows)} installments (1, 2, 3…) "
                 "instead of dating them — set the first EMI date to anchor them."
             )
-            return _finish([], warnings, needs_first_due=True)
+            result = _finish([], warnings, needs_first_due=True)
+            result["_candidates"] = len(period_rows)
+            return result
         base = min(p for p, _ in period_rows)
         for period, values in period_rows:
             parsed.append({"due_date": _add_months(first_due, period - base).isoformat(), **values})
-    return _finish(parsed, warnings)
+    result = _finish(parsed, warnings)
+    result["_candidates"] = len(result["rows"])
+    return result
+
+
+def _rows_to_schedule(rows: list[list], default_day, first_due: date | None) -> dict:
+    """Find the schedule among everything else the document contains.
+
+    A key-fact sheet is a dozen pages of tables, and taking the first row
+    that merely looks like a header hands the parse to something like
+    "Installment Frequency | Monthly" — which then reads the real schedule's
+    installment numbers as rupees. So every plausible header is tried and the
+    one that yields the most rows wins; a header also has to map at least
+    three fields across three filled cells before it is considered at all.
+    """
+    full, sparse = [], []
+    for index, row in enumerate(rows):
+        mapping = _match_headers(row)
+        if not mapping:
+            continue
+        filled = sum(1 for cell in row if cell not in (None, ""))
+        # A header naming three or more of the columns is trusted over a bare
+        # pair, because "Installment Frequency | Monthly" is shaped exactly
+        # like a legitimate two-column "Due Date | EMI" and would otherwise
+        # win on row count alone. Pairs are still read when nothing richer
+        # exists, which is what a minimal two-column sheet is.
+        (full if len(mapping) >= 3 and filled >= 3 else sparse).append((index, mapping))
+
+    for tier in (full, sparse):
+        best = None
+        for index, mapping in tier:
+            result = _parse_under_header(rows[index + 1 :], mapping, default_day, first_due)
+            if best is None or result["_candidates"] > best["_candidates"]:
+                best = result
+        if best is not None:
+            best.pop("_candidates", None)
+            if best["rows"] or best["needs_first_due"]:
+                return best
+    return _parse_lines_fallback(rows, [])
 
 
 def _parse_lines_fallback(rows: list[list], warnings: list[str]) -> dict:
@@ -269,10 +345,16 @@ def _parse_lines_fallback(rows: list[list], warnings: list[str]) -> dict:
                 continue
             due = None
             rest: list[str] = []
-            for width in (3, 2, 1):
-                due = _clean_date(" ".join(tokens[:width]))
+            # The date is usually first, but a line lifted from a paginated
+            # table often starts with the installment number — so the window
+            # walks the line instead of only trying its head.
+            for start in range(min(len(tokens), 4)):
+                for width in (3, 2, 1):
+                    found = _clean_date(" ".join(tokens[start : start + width]))
+                    if found is not None:
+                        due, rest = found, tokens[start + width :]
+                        break
                 if due is not None:
-                    rest = tokens[width:]
                     break
             if due is None:
                 continue
@@ -394,15 +476,13 @@ def _parse_pdf(blob: bytes, default_day, first_due, password):
             "warnings": ["PDF support needs pdfplumber on this server — upload CSV or XLSX instead."],
         }
     rows: list[list] = []
+    lines: list[list] = []
     try:
         with pdfplumber.open(io.BytesIO(blob), password=password or "") as pdf:
             for page in pdf.pages:
                 for table in page.extract_tables() or []:
                     rows.extend(table)
-            if not rows:
-                for page in pdf.pages:
-                    rows.extend([[line]] for line in (page.extract_text() or "").splitlines())
-                rows = [r[0] for r in rows]
+                lines.extend([line] for line in (page.extract_text() or "").splitlines())
     except Exception as exc:
         chain = []
         node: BaseException | None = exc
@@ -423,13 +503,28 @@ def _parse_pdf(blob: bytes, default_day, first_due, password):
             "needs_first_due": False,
             "warnings": ["Could not read the PDF — export the schedule as CSV or XLSX and retry."],
         }
-    if not rows:
+    if not rows and not lines:
         return {
             "rows": [],
             "needs_first_due": False,
             "warnings": ["No table found in the PDF — if it is a scanned image, upload CSV or XLSX instead."],
         }
-    return _rows_to_schedule(rows, default_day, first_due)
+    result = (
+        _rows_to_schedule(rows, default_day, first_due)
+        if rows
+        else {"rows": [], "warnings": [], "needs_first_due": False}
+    )
+    # An installment that straddles a page break is missing from the table
+    # the extractor rebuilds, but it is still there in the page's text.
+    from_text = _parse_lines_fallback(lines, [])
+    if result["rows"] and from_text["rows"]:
+        seen = {row["due_date"] for row in result["rows"]}
+        rescued = [row for row in from_text["rows"] if row["due_date"] not in seen]
+        if rescued:
+            return _finish(result["rows"] + rescued, result["warnings"])
+    if result["rows"] or result["needs_first_due"]:
+        return result
+    return from_text
 
 
 def parse_emi_document(
