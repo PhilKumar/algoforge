@@ -2046,6 +2046,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadRecoveryChart',
   'closeRecoveryChart',
   'closeCandleEntryChart',
+  'openArchivedFibChart',
   'openRecoveryTearsheet',
   'startFibBoundaryPaper',
   'killFibBoundaryPaper',
@@ -2945,6 +2946,29 @@ function _paperLedgerMoney(value) {
 // A finished campaign, redrawn as it stood when it closed. It borrows the tab's
 // own chart overlay rather than opening a second kind of window, and the strip
 // offers no timeframe switch: this is a record, not a live chart.
+// A FINISHED LADDER, ON ITS OWN CANDLES. It goes through loadFibBoundaryChart
+// -- the chart the tab already draws -- by handing it the archived mother
+// instead of the live one. The geometry is pure over the candle stream, so a
+// past mother reproduces exactly rather than being redrawn from a guess.
+async function openArchivedFibChart(event, el) {
+  const node = el || event?.currentTarget;
+  if (!node) return;
+  const mother = node.getAttribute('data-fx-mother');
+  if (!mother) return;
+  _fibxChartCtx = {
+    symbol: node.getAttribute('data-fx-symbol') || 'NIFTY',
+    side: node.getAttribute('data-fx-side') || 'CE',
+    timestamp: mother,
+    baseTf: node.getAttribute('data-fx-tf') || '1m',
+    buyMode: node.getAttribute('data-fx-buy-mode') || 'levels',
+    isCampaign: true,
+  };
+  await loadFibBoundaryChart();
+  const title = document.getElementById('oc-fib-chart-title');
+  if (title) title.textContent = 'Closed campaign · frozen';
+}
+window.openArchivedFibChart = openArchivedFibChart;
+
 async function openFrozenCampaignChart(event, el) {
   const node = el || event?.currentTarget;
   const id = node?.getAttribute('data-campaign-id');
@@ -3032,12 +3056,32 @@ async function _refreshPaperLedger(strategy) {
     // it ended as -- a row rebuilt from prices has no ladder to draw, and is
     // honest about that rather than offering a button that explains itself only
     // after you press it.
-    const chartable = strategy === 'candle_entry' && row.has_chart;
-    const chartCell = chartable
-      ? `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
-        + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
-        + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`
-      : `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
+    // A CHART FOR EVERY FINISHED CAMPAIGN, drawn by whichever renderer that
+    // strategy already owns rather than a new one (Phil, 2026-08-26).
+    // Candle Entry and Gap Carry rebuild their engine from the snapshot and go
+    // through the shared payload; Fib Boundary recomputes its geometry from
+    // the candle stream, which reproduces a past mother exactly. A row rebuilt
+    // from recorded prices kept no state and still says so.
+    const params = row.chart_params
+      ? (typeof row.chart_params === 'string' ? JSON.parse(row.chart_params) : row.chart_params)
+      : null;
+    const chartCell = (() => {
+      if (strategy === 'fib_boundary' && params && params.mother_timestamp) {
+        return `<button type="button" class="cascade-options-control" data-pf-action="openArchivedFibChart"`
+          + ` data-fx-mother="${escapeHtml(String(params.mother_timestamp))}"`
+          + ` data-fx-symbol="${escapeHtml(String(params.symbol || 'NIFTY'))}"`
+          + ` data-fx-side="${escapeHtml(String(params.side || 'CE'))}"`
+          + ` data-fx-tf="${escapeHtml(String(params.timeframe || '1m'))}"`
+          + ` data-fx-buy-mode="${escapeHtml(String(params.buy_mode || 'levels'))}"`
+          + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
+      }
+      if ((strategy === 'candle_entry' || strategy === 'gap_carry') && row.has_chart) {
+        return `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
+          + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
+          + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`;
+      }
+      return `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
+    })();
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`

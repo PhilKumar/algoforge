@@ -1958,6 +1958,17 @@ def _fib_boundary_campaign_row(
             "fills": fills,
             "events": status.get("events") or [],
             "engine": dict(engine_snapshot) if engine_snapshot else None,
+            # WHAT IT TAKES TO REDRAW THIS LADDER. The chart route recomputes
+            # geometry from the candle stream alone, so a finished campaign
+            # redraws exactly from these four -- no second renderer, and no
+            # engine to rebuild.
+            "chart": {
+                "symbol": str(status.get("symbol") or "NIFTY"),
+                "side": str(status.get("side") or "CE"),
+                "timeframe": str(status.get("timeframe") or "1m"),
+                "buy_mode": str(status.get("buy_mode") or "levels"),
+                "mother_timestamp": status.get("mother_timestamp"),
+            },
         },
     }
 
@@ -11316,13 +11327,39 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
                 "overwritten, so there is no ladder to draw. Its buys and settlement are in the table."
             ),
         )
-    if key != "candle_entry":
-        raise HTTPException(status_code=501, detail=f"No chart for archived {key} campaigns yet.")
-
     _user, broker_client, _source = await _request_broker_context(request)
     if broker_client is None:
         raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+
+    if key == "gap_carry":
+        # ONE NIGHT, REBUILT AND REDRAWN. The live route can only draw what is
+        # in the engine registry right now, so a settled night was undrawable
+        # the moment the next one started. The engine comes back from its own
+        # snapshot and goes through the SAME payload builder the live chart
+        # uses (Phil, 2026-08-26: the frozen chart on the other three).
+        try:
+            engine = _gap_carry_mod.GapCarryPaper.from_dict(snapshot)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Stored night could not be read back: {exc}") from exc
+        night_key = _gap_carry_timeframe(timeframe or engine.config.timeframe)
+        try:
+            rows = await _gap_carry_load_candles(adapter, night_key, days=_GAP_CARRY_CHART_DAYS)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {night_key} candles: {exc}") from exc
+        if not rows:
+            raise HTTPException(status_code=503, detail=f"No closed NIFTY {night_key} candles to draw.")
+        payload = _gap_carry_chart_payload(engine, rows, night_key)
+        payload["net_pnl"] = row.get("net_pnl")
+        payload["frozen"] = True
+        return payload
+
+    if key != "candle_entry":
+        # Fib Boundary redraws through its own chart route, which recomputes
+        # geometry from the candle stream and so reproduces a past mother
+        # exactly; High Entry keeps its campaigns in its own book and charts
+        # them from there. Neither needs an engine rebuilt here.
+        raise HTTPException(status_code=501, detail=f"No chart for archived {key} campaigns yet.")
     try:
         engine = LadderCandleEntryPaper.from_dict(snapshot, adapter=adapter)
     except Exception as exc:
@@ -13158,6 +13195,17 @@ async def gap_carry_paper_chart(request: Request, timeframe: str = ""):
     rows = await _gap_carry_load_candles(runtime.adapter, key, days=_GAP_CARRY_CHART_DAYS)
     if not rows:
         raise HTTPException(status_code=503, detail=f"No closed NIFTY {key} candles to draw.")
+    return _gap_carry_chart_payload(engine, rows, key)
+
+
+def _gap_carry_chart_payload(engine, rows: list, key: str) -> dict:
+    """One night drawn on its candles, for the live chart and the frozen one.
+
+    Lifted out of the live route unchanged so an archived night is drawn by
+    the SAME builder the running one uses -- a second one would be free to
+    drift, and the whole point of a frozen chart is that it still shows what
+    the campaign actually did.
+    """
     pos = engine.position or (engine.history[-1] if engine.history else None)
 
     lines, entries, exits = [], [], []

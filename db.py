@@ -1788,8 +1788,14 @@ async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> 
                       -- ended as; the payload itself is far too big to ship
                       -- with a list that only needs to know yes or no.
                       CASE WHEN json_valid(payload)
-                                AND json_extract(payload, '$.engine') IS NOT NULL
-                           THEN 1 ELSE 0 END AS has_chart
+                                AND (json_extract(payload, '$.engine') IS NOT NULL
+                                     OR json_extract(payload, '$.chart') IS NOT NULL)
+                           THEN 1 ELSE 0 END AS has_chart,
+                      -- The handful of fields a redraw needs, for the ladders
+                      -- whose chart is recomputed from the candles rather than
+                      -- rebuilt from an engine. Small enough to ship in a list.
+                      CASE WHEN json_valid(payload)
+                           THEN json_extract(payload, '$.chart') END AS chart_params
                FROM paper_campaigns
                WHERE user_id = ? AND strategy = ?
                ORDER BY COALESCE(closed_at, created_at) DESC, id DESC
