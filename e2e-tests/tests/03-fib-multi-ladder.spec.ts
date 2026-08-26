@@ -112,7 +112,8 @@ async function openFibTab(page: Page) {
   // Monitors are COLLAPSED by default now (Phil, 2026-08-13); these tests
   // exercise the body, so unfold them the way a reader would.
   await page.evaluate(() => {
-    document.querySelectorAll('#oc-fib-rows details').forEach((d) => { (d as HTMLDetailsElement).open = true; });
+    document.querySelectorAll('#oc-fib-rows details, #oc-fib-events-host details')
+      .forEach((d) => { (d as HTMLDetailsElement).open = true; });
   });
 }
 
@@ -139,8 +140,11 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     // own monitor (the separate #oc-fib-lower host is gone).
     const pairs = page.locator('#oc-fib-rows [data-fx="lower-slot"] > *');
     await expect(pairs).toHaveCount(2);
-    await expect(monitors.nth(0).locator('[data-fx="lower-slot"] [data-fx="events"]')).toContainText('NIFTY RUNG FILLED');
-    await expect(monitors.nth(1).locator('[data-fx="lower-slot"] [data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
+    // Each ladder's log is its own panel in the events host, keyed by symbol.
+    const logs = page.locator('#oc-fib-events-host > [data-fx-symbol]');
+    await expect(logs).toHaveCount(2);
+    await expect(logs.nth(0).locator('[data-fx="events"]')).toContainText('NIFTY RUNG FILLED');
+    await expect(logs.nth(1).locator('[data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
   });
 
   test('a monitor folds up and flows down without polling reopening it', async ({ page }) => {
@@ -276,10 +280,14 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await page.click('#oc-tabbtn-fib');
     await page.waitForFunction(() => document.querySelectorAll('#oc-fib-rows > *').length > 0, null, { timeout: 10_000 });
 
+    // The log is a SECTION OF ITS OWN now, below the panes beside the archive
+    // rather than inside the campaign panel (2026-08-26), and one per ladder.
     const monitor = page.locator('#oc-fib-rows > [data-fx-symbol="NIFTY"]');
-    const fold = monitor.locator('details[data-fx="events-fold"]');
+    await expect(monitor.locator('details[data-fx="events-fold"]')).toHaveCount(0);
+    const fold = page.locator('#oc-fib-events-host > [data-fx-symbol="NIFTY"]');
     await expect(fold).toHaveCount(1);
-    // The closed-round table is NOT inside the fold: results stay in view.
+    await expect(fold).toHaveJSProperty('tagName', 'DETAILS');
+    // The closed-round table stays with the campaign, not in the log.
     await expect(fold.locator('[data-fx="rounds"]')).toHaveCount(0);
     await expect(fold.locator('[data-fx="events"]')).toHaveCount(1);
     await expect(fold.locator('summary')).toContainText('campaign events');

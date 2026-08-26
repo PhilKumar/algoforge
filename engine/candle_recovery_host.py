@@ -388,6 +388,16 @@ class CandleRecoveryHost:
                 "min_dte": self.config.min_dte,
             },
             "campaigns": rows,
+            # THE EVENT LOG THE ENGINE ALREADY KEEPS. It recorded every arm,
+            # re-arm and missing contract and then never shipped them, so High
+            # Entry was the one strategy whose page could not say what its run
+            # had been doing (Phil, 2026-08-26). Newest last, capped: a page
+            # needs the recent past, not the whole session.
+            "events": [
+                dict(event)
+                for campaign in self.campaigns.values()
+                for event in (getattr(campaign.engine, "events", []) or [])
+            ][-120:],
             "booked_net": round(sum(priced), 2) if priced else 0.0,
             "last_poll": self.last_poll.isoformat() if self.last_poll else None,
             "last_report": self.last_report.to_dict() if self.last_report else None,
