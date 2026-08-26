@@ -135,11 +135,12 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await expect(monitors.nth(0).locator('[data-fx="gist"]')).toContainText('1M mother');
     await expect(monitors.nth(1).locator('[data-fx="gist"]')).toContainText('5M mother');
 
-    // And one results + events pair per ladder, with that ladder's events.
-    const pairs = page.locator('#oc-fib-lower > [data-fx-symbol]');
+    // And one results + events pair per ladder, nested inside that ladder's
+    // own monitor (the separate #oc-fib-lower host is gone).
+    const pairs = page.locator('#oc-fib-rows [data-fx="lower-slot"] > *');
     await expect(pairs).toHaveCount(2);
-    await expect(pairs.nth(0).locator('[data-fx="events"]')).toContainText('NIFTY RUNG FILLED');
-    await expect(pairs.nth(1).locator('[data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
+    await expect(monitors.nth(0).locator('[data-fx="lower-slot"] [data-fx="events"]')).toContainText('NIFTY RUNG FILLED');
+    await expect(monitors.nth(1).locator('[data-fx="lower-slot"] [data-fx="events"]')).toContainText('SENSEX RUNG FILLED');
   });
 
   test('a monitor folds up and flows down without polling reopening it', async ({ page }) => {
@@ -189,7 +190,7 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     const monitors = page.locator('#oc-fib-rows > [data-fx-symbol]');
     await expect(monitors).toHaveCount(1);
     await expect(monitors.first()).toHaveAttribute('data-fx-symbol', 'NIFTY');
-    await expect(page.locator('#oc-fib-lower > [data-fx-symbol]')).toHaveCount(1);
+    await expect(page.locator('#oc-fib-rows [data-fx="lower-slot"] > *')).toHaveCount(1);
   });
 
   test('a safety-locked live ladder cannot be armed from the UI', async ({ page }) => {

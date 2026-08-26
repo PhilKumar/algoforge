@@ -2591,7 +2591,6 @@
         <p class="pf-info-warn"><strong>இந்தப் பக்கம் இயக்கும் விதி</strong> (18 ஆக 2026-இல் பூட்டப்பட்டது): Lone &middot; 5m mother &middot; Buy CE &middot; <strong>Intraday, 15:15-க்குள் வெளியே</strong> &middot; <strong>Trailing</strong> target &middot; <strong>ஒரு round-க்கு அதிகபட்சம் 4 வாங்கல்கள்</strong> &middot; &#8377;75,000 cap &middot; ATM&minus;2 &middot; expiry &ge; 4 நாள் &middot; ஒரு குறியீட்டுக்கு ஒரு நேரத்தில் ஒரு campaign. 3 அக் 2024 &ndash; 17 ஆக 2026 வரை ஒவ்வொரு blind mother-இலும், உண்மையான premium-களில், backtest நடை = paper loop: <strong>NIFTY CE +&#8377;92,658</strong> (174 campaigns, 64% வெற்றி, அதிகபட்ச drawdown &minus;&#8377;64,127), <strong>SENSEX CE +&#8377;1,19,063</strong> (169, 59%, &minus;&#8377;43,170), இரண்டும் சேர்த்து +&#8377;2,11,721 / &minus;&#8377;86,916. புட் இரு குறியீடுகளிலும் நஷ்டம், வர்த்தகம் இல்லை; fixed target, carry, hold-a-day, deep-carry, 15m, 1m mothers எல்லாம் மோசம். <strong>18 ஆக 2026-க்கு முந்தைய எல்லா Fib Boundary எண்களும் செல்லாது</strong>. முழு அறிக்கை Assets &rarr; Fib Boundary tearsheet-இல். இந்த tab விதியை முன்னோக்கி paper-நிரூபிக்கிறது; ஊகிக்கவில்லை.</p>
         </div><!-- /ta -->
       </div>
-    </div>
     <!-- Two panes, as every other strategy has: the form on the left and
          everything live on the right. This was a four-child grid, so the
          monitor flowed UNDERNEATH the form instead of beside it, and the
@@ -2652,7 +2651,8 @@
         <details id="oc-fib-advanced" class="ocp-advanced">
           <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-fib-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
           <div class="ocp-advanced-body">
-            <div style="margin-bottom:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Levels this rule buys: <span id="oc-fib-levels-hint" style="color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span></div>
+            <div id="oc-fib-auto-pinned" style="display:none;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">Auto pins the measured rule — 5m mother, Buy CE, Lone, trailing target, out by 15:15, ATM−2, 1 lot a buy. Switch the mother to <strong>Manual</strong> to change any of it.</div>
+            <div class="oc-fib-rule-only" style="margin-bottom:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Levels this rule buys: <span id="oc-fib-levels-hint" style="color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span></div>
             <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
             <div class="ocp-switch-grid oc-fib-rule-only">
               <div>
@@ -2766,18 +2766,16 @@
       <!-- One monitor PER LADDER. The panel below is a template cloned per
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
-      <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="oc-fib-auto-card"></div></div>
-        <!-- One results+events pair per ladder. This used to sit OUTSIDE the
-             panes, so it rendered as a detached full-width band under a column
-             of dead space (Phil, 2026-08-26: "Panels are not fixed and
-             awkward"). It is part of the ladder's story: it lives in the
-             ladder's column. -->
-        <div id="oc-fib-lower"></div>
-      <div class="ocp-monitor-section" id="oc-fib-closed" hidden>
+      <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="ocp-auto-card" hidden></div></div>
+      <div class="ocp-monitor" id="oc-fib-closed" hidden>
+      <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+      <div class="ocp-monitor-section">
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
         <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
       </div>
       </div>
+      </div>
+    </div>
     </div>
 
 
@@ -2793,6 +2791,11 @@
         <div class="cascade-options-window-body">
           <div class="oc-fib-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>
+          <!-- TODAY'S AUTO CHAIN, inside THE panel. It used to live in its own
+               card above, which is why the column read as four unrelated boxes
+               (Phil, 2026-08-26: banner + ONE consolidated panel, like Gap
+               Carry). Filled from the auto settings; empty when auto is off. -->
+          <div data-fx="auto-chain" style="display:none;"></div>
           <div data-fx="empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
           <div data-fx="active" style="display:none;margin-top:16px;">
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin-bottom:7px;">Fib levels are measured from</div>
@@ -2803,18 +2806,24 @@
             <div data-fx="boundaries" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;"></div>
             <div data-fx="gaps" style="margin-top:12px;"></div>
           </div>
+          <div data-fx="lower-slot"></div>
           </div>
         </div>
       </details>
     </template>
 
     <template id="oc-fib-lower-tpl">
+      <!-- Results and activity as SECTIONS of the campaign panel, not cards of
+           their own. They nest into the monitor's lower slot. -->
       <div class="oc-fib-lower-grid">
-        <div class="card oc-fib-results-card" style="padding:20px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 data-fx="rounds-title" style="margin:0;font-size:15px;">Closed paper round · net P&amp;L</h3><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
+        <div style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px;"><span class="ocp-section-title" data-fx="rounds-title">Closed paper round · net P&amp;L</span><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
           <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody data-fx="rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
         </div>
-        <div class="card oc-fib-events-card" style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;"><h3 data-fx="events-title" style="margin:0;font-size:15px;">Campaign events</h3><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div><div data-fx="events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div></div>
+        <div style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px;"><span class="ocp-section-title" data-fx="events-title">Campaign events</span><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></div>
+          <div data-fx="events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div>
+        </div>
       </div>
     </template>
 

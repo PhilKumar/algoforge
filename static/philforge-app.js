@@ -4412,7 +4412,7 @@ function _syncFibBoundaryRecipe() {
   if (state) {
     const untouched = side === 'CE' && buy === 'levels' && session === 'intraday'
       && target === 'fixed' && ramp === 'same' && deep === 'close' && itm === 2 && tf === '1m';
-    state.textContent = untouched ? 'rule as set' : 'changed from defaults';
+    state.textContent = auto ? 'auto pins the measured rule' : (untouched ? 'rule as set' : 'changed from defaults');
   }
 }
 
@@ -4624,10 +4624,9 @@ function _fibxLevelTone(status) {
 // on every tick.
 function _fibxPanelRoots(symbols) {
   const monitors = document.getElementById('oc-fib-rows');
-  const lower = document.getElementById('oc-fib-lower');
   const monitorTpl = document.getElementById('oc-fib-rows-tpl');
   const lowerTpl = document.getElementById('oc-fib-lower-tpl');
-  if (!monitors || !lower || !monitorTpl || !lowerTpl) return new Map();
+  if (!monitors || !monitorTpl || !lowerTpl) return new Map();
   const roots = new Map();
   const wanted = symbols.length ? symbols : [''];
   wanted.forEach(symbol => {
@@ -4638,29 +4637,28 @@ function _fibxPanelRoots(symbols) {
       monitor.dataset.fxSymbol = key;
       monitors.appendChild(monitor);
     }
-    let pair = lower.querySelector(`[data-fx-symbol="${CSS.escape(key)}"]`);
-    if (!pair) {
+    // The results+events pair NESTS in its own monitor's body -- it used to be
+    // a separate card in a separate host, and the column read as four
+    // unrelated boxes (Phil, 2026-08-26: banner + ONE panel, like Gap Carry).
+    const slot = monitor.querySelector('[data-fx="lower-slot"]');
+    let pair = slot ? slot.firstElementChild : null;
+    if (!pair && slot) {
       pair = lowerTpl.content.firstElementChild.cloneNode(true);
-      pair.dataset.fxSymbol = key;
-      lower.appendChild(pair);
+      slot.appendChild(pair);
     }
     roots.set(key, { monitor, pair });
   });
   // A killed-and-cleared instrument leaves; the survivors keep their DOM.
-  [monitors, lower].forEach(host => {
-    Array.from(host.children).forEach(node => {
-      // The auto watch card lives in this column too and belongs to no symbol.
-      if (node.id === 'oc-fib-auto-card') return;
-      if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
-    });
+  Array.from(monitors.children).forEach(node => {
+    // The auto banner lives in this column too and belongs to no symbol.
+    if (node.id === 'oc-fib-auto-card') return;
+    if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
   });
   // Only touch the order when it is actually wrong -- re-appending a node the
   // user is scrolling costs them their place.
-  [[monitors, 'monitor'], [lower, 'pair']].forEach(([host, which]) => {
-    const desired = wanted.map(symbol => roots.get(String(symbol))[which]);
-    const offset = host.querySelector(':scope > #oc-fib-auto-card') ? 1 : 0;
-    if (desired.some((node, i) => host.children[i + offset] !== node)) desired.forEach(node => host.appendChild(node));
-  });
+  const desired = wanted.map(symbol => roots.get(String(symbol)).monitor);
+  const offset = monitors.querySelector(':scope > #oc-fib-auto-card') ? 1 : 0;
+  if (desired.some((node, i) => monitors.children[i + offset] !== node)) desired.forEach(node => monitors.appendChild(node));
   return roots;
 }
 
@@ -4791,7 +4789,7 @@ function _renderFibBoundaryRunningTable(campaigns) {
 function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const { monitor, pair } = root;
   const fx = key => monitor.querySelector(`[data-fx="${key}"]`);
-  const px = key => pair.querySelector(`[data-fx="${key}"]`);
+  const px = key => (pair ? pair.querySelector(`[data-fx="${key}"]`) : null);
   const badge = fx('badge');
   const contract = fx('contract');
   const summary = fx('summary');
@@ -4803,33 +4801,53 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const killBtn = fx('kill');
   const armBtn = fx('arm');
   const eventsTf = px('events-tf');
+  const picked = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
+  const chainKey = campaign ? String(campaign.symbol || 'NIFTY') : picked;
+  const chain = _fibAutoChainHtml[chainKey];
+  const chainSlot = fx('auto-chain');
+  if (chainSlot) {
+    chainSlot.innerHTML = chain ? chain.html : '';
+    chainSlot.style.display = chain && chain.html ? '' : 'none';
+  }
   if (!campaign) {
-    // Nothing to monitor and auto is watching: the card above says what it is
-    // waiting for, so this one steps aside instead of printing IDLE at Phil.
-    monitor.style.display = options.autoWatching ? 'none' : '';
-    pair.style.display = options.autoWatching ? 'none' : '';
+    // Auto watching, nothing open: the panel STAYS, as Gap Carry's does while
+    // it waits for 15:10 -- one panel, always, instead of the panel hiding and
+    // a side card growing monitor features (Phil, 2026-08-26: banner + ONE
+    // consolidated panel).
+    monitor.style.display = '';
+    if (pair) pair.style.display = options.autoWatching ? 'none' : '';
     if (badge) {
-      badge.textContent = 'IDLE';
+      badge.textContent = options.autoWatching ? 'AUTO · WATCHING' : 'IDLE';
       badge.classList.remove('is-positive', 'is-warning');
-      badge.style.color = 'var(--muted)';
-      badge.style.borderColor = 'var(--border)';
+      badge.style.color = options.autoWatching ? '#fde68a' : 'var(--muted)';
+      badge.style.borderColor = options.autoWatching ? 'rgba(245,158,11,.5)' : 'var(--border)';
     }
-    if (title) title.textContent = 'Campaign monitor';
-    if (contract) contract.textContent = 'No active campaign';
+    if (title) title.textContent = options.autoWatching ? (chain ? chain.stateText : 'Waiting for the next mother') : 'Campaign monitor';
+    if (options.autoWatching && !monitor.dataset.userToggled) monitor.open = true;
+    if (contract) contract.textContent = options.autoWatching ? 'Auto mother · 09:15 daily · rule pinned' : 'No active campaign';
     if (summary) summary.innerHTML = '';
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.style.display = options.autoWatching && chain && chain.html ? 'none' : '';
+      empty.textContent = options.autoWatching
+        ? 'Nothing bought yet — the next 09:15 mother starts itself.'
+        : 'Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.';
+    }
     if (active) active.style.display = 'none';
-    if (gist) gist.textContent = 'Pick an instrument, a side and a mother candle — the swing is found for you.';
+    if (gist) gist.textContent = options.autoWatching
+      ? 'The chain below is today, newest last; the tearsheet rule is pinned.'
+      : 'Pick an instrument, a side and a mother candle — the swing is found for you.';
     monitor.classList.remove('is-active');
     if (startBtn) startBtn.disabled = false;
     if (killBtn) killBtn.style.display = 'none';
     if (armBtn) armBtn.style.display = 'none';
-    _renderFibBoundaryRounds(pair, null);
-    _renderFibBoundaryEvents(pair, []);
+    if (pair) {
+      _renderFibBoundaryRounds(pair, null);
+      _renderFibBoundaryEvents(pair, []);
+    }
     return;
   }
   monitor.style.display = '';
-  pair.style.display = '';
+  if (pair) pair.style.display = '';
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
   const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
@@ -5040,8 +5058,10 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
       ? `<div style="padding:8px 10px;border:1px solid rgba(251,191,36,.3);border-radius:7px;color:var(--warn);font:10.5px/1.5 'JetBrains Mono',monospace;"><strong>${gaps.length} pricing gap${gaps.length === 1 ? '' : 's'}</strong><br>${gaps.slice(-4).map(escapeHtml).join('<br>')}</div>`
       : '';
   }
-  _renderFibBoundaryRounds(pair, campaign);
-  _renderFibBoundaryEvents(pair, campaign.events || []);
+  if (pair) {
+    _renderFibBoundaryRounds(pair, campaign);
+    _renderFibBoundaryEvents(pair, campaign.events || []);
+  }
 }
 
 function _renderFibBoundaryRounds(pair, campaign) {
@@ -5630,6 +5650,11 @@ function _syncFibMotherModeRow() {
   // Under Auto the rule is the measured one and the server ignores these, so
   // the form stops offering them: instrument, paper/live and the cap remain.
   document.querySelectorAll('#options-cascade-page .oc-fib-rule-only').forEach(el => { el.style.display = auto ? 'none' : ''; });
+  // Every switch in the Advanced fold is rule-only, so under Auto the fold
+  // opened onto NOTHING (Phil, 2026-08-26: "Advanced options are not
+  // displaying"). Under Auto it says what is pinned and how to unpin it.
+  const pinned = document.getElementById('oc-fib-auto-pinned');
+  if (pinned) pinned.style.display = auto ? '' : 'none';
 }
 
 async function enableFibBoundaryAuto() {
@@ -5680,6 +5705,7 @@ async function stopFibBoundaryAuto(_event, button) {
 }
 
 let _lastFibBoundaryAuto = {};
+let _fibAutoChainHtml = {};
 
 // What auto is doing RIGHT NOW, in words. Phil, 2026-08-20: "When auto is
 // started, the campaign monitor is completely dead... What am I watching
@@ -5713,30 +5739,35 @@ function _renderFibBoundaryAuto(auto) {
   const panel = document.getElementById('oc-fib-auto-card');
   if (!panel) return;
   const rows = Object.entries(_lastFibBoundaryAuto).filter(([, s]) => s && (s.enabled || (s.log || []).length));
-  if (!rows.length) { panel.innerHTML = ''; return; }
+  _fibAutoChainHtml = {};
+  if (!rows.length) { panel.hidden = true; panel.innerHTML = ''; return; }
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  panel.innerHTML = rows.map(([symbol, s]) => {
-    const log = (s.log || []).filter(r => String(r.day) === today);
-    const net = log.reduce((a, r) => a + Number(r.net || 0), 0);
+  // The BANNER, in exactly Gap Carry's voice: one line, no card-inside-a-card.
+  // Everything tabular -- today's chain, its net -- renders INSIDE the campaign
+  // panel below, which is the one panel this column has.
+  const lines = rows.map(([symbol, s]) => {
     const state = s.enabled ? _fibAutoState(s, today) : { tone: 'off', text: 'Switched off' };
     const at = String(s.state_at || '').slice(0, 10) === today ? String(s.state_at || '').slice(11, 16) : '';
-    const chain = log.length
-      ? `<table class="ocp-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
-        + log.map(r => `<tr><td>${escapeHtml(String(r.seq || ''))}</td><td>${escapeHtml(String(r.mother || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_timestamp || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_reason || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? 0))}</td><td class="${Number(r.net) > 0 ? 'pos' : (Number(r.net) < 0 ? 'neg' : '')}">${escapeHtml(_cascadeOptionsMoney(Number(r.net || 0)))}</td></tr>`).join('')
-        + `</table>`
-      : '';
-    return `<div class="ocp-auto-card ${s.enabled ? 'is-on' : ''}">`
-      + `<div class="ocp-auto-head"><strong>${escapeHtml(symbol)} · Auto mother</strong>`
-      + `<span class="ocp-auto-badge is-${state.tone}">${s.enabled ? 'ON' : 'OFF'}</span>`
-      + `<button type="button" class="cascade-options-control" data-pf-action="openFibAutoChart" data-symbol="${escapeHtml(symbol)}" title="Today's mother, its fib levels and where price is against them">↗ Chart</button></div>`
-      + `<div class="ocp-auto-state is-${state.tone}">${escapeHtml(state.text)}${at ? `<span>${escapeHtml(at)}</span>` : ''}</div>`
-      + (s.alert ? `<div class="ocp-auto-alert">⚠ ${escapeHtml(String(s.alert))}</div>` : '')
-      + (s.last_error ? `<div class="ocp-auto-alert">${escapeHtml(String(s.last_error))}</div>` : '')
-      + `<div class="ocp-auto-today">Today · ${log.length} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}</div>`
-      + chain
-      + `</div>`;
-  }).join('');
+    const log = (s.log || []).filter(r => String(r.day) === today);
+    const net = log.reduce((a, r) => a + Number(r.net || 0), 0);
+    _fibAutoChainHtml[symbol] = {
+      stateText: state.text,
+      tone: state.tone,
+      html: log.length
+        ? `<div class="ocp-section-title" style="margin:14px 0 7px;">Today · auto mother · ${log.length} ended · net ${escapeHtml(_cascadeOptionsMoney(net))}</div>`
+          + `<table class="ocp-auto-chain"><tr><th>#</th><th>Mother</th><th>Ended</th><th>How</th><th>Buys</th><th>Net</th></tr>`
+          + log.map(r => `<tr><td>${escapeHtml(String(r.seq || ''))}</td><td>${escapeHtml(String(r.mother || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_timestamp || '').slice(11, 16))}</td><td>${escapeHtml(String(r.exit_reason || '').replaceAll('_', ' '))}</td><td>${escapeHtml(String(r.buys ?? 0))}</td><td class="${Number(r.net) > 0 ? 'pos' : (Number(r.net) < 0 ? 'neg' : '')}">${escapeHtml(_cascadeOptionsMoney(Number(r.net || 0)))}</td></tr>`).join('')
+          + `</table>`
+        : '',
+    };
+    return `<strong>${escapeHtml(symbol)} auto mother is ${s.enabled ? 'on' : 'off'}.</strong> `
+      + `The 09:15 5m candle daily; a broken mother is replaced by the breakout candle. · ${escapeHtml(state.text)}${at ? ` · ${escapeHtml(at)}` : ''}`;
+  });
+  panel.hidden = false;
+  panel.classList.toggle('is-on', rows.some(([, s]) => s.enabled));
+  panel.innerHTML = lines.join('<br>');
 }
+
 
 // Intraday closes the campaign at 3:15; Normal lets it run to its target,
 // however many days that takes. Phil's own words, 2026-08-16.
