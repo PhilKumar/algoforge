@@ -616,6 +616,14 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
     account = re.sub(r"\D", "", str(payload.get("account") or ""))
     if added and 9 <= len(account) <= 18:
         await _remember_account_number(user_id, account, str(payload.get("bank") or ""))
+    linked = payload.get("linked_accounts")
+    if added and isinstance(linked, list):
+        for raw in linked[:10]:
+            entry = raw if isinstance(raw, dict) else {"number": raw}
+            number = re.sub(r"\D", "", str(entry.get("number") or ""))
+            kind = str(entry.get("kind") or "Linked account")[:80]
+            if 9 <= len(number) <= 18 and number != account:
+                await _remember_account_number(user_id, number, kind)
     return {"added": added, "skipped": len(cleaned) - added}
 
 

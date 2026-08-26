@@ -264,6 +264,38 @@ class StatementParserTests(unittest.TestCase):
         second = {r["ref_id"] for r in self.parse()["rows"]}
         self.assertEqual(first, second)
 
+    def test_a_reverse_sweep_is_a_self_transfer_and_names_its_od_account(self):
+        from sanctuary_statements import categorise, parse_statement
+
+        self.assertEqual(categorise("000012345678: Rev Sweep From"), "Self transfer")
+        blob = (
+            "Account Number,000099887766 ( INR )\n"
+            "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
+            "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
+            "1,05/01/2021,05/01/2021,,000012345678: Rev Sweep From,0.00,5000.00,10000.00\n"
+            "2,06/01/2021,06/01/2021,,Sweep to OD Ac,2500.00,0.00,7500.00\n"
+        ).encode()
+        result = parse_statement("x.csv", blob)
+        self.assertEqual(
+            result["linked_accounts"],
+            [{"number": "000012345678", "kind": "Sweep-linked overdraft (OD)"}],
+        )
+
+    def test_an_inf_transfer_names_its_linked_account(self):
+        from sanctuary_statements import parse_statement
+
+        blob = (
+            "Account Number,000099887766 ( INR )\n"
+            "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
+            "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
+            "1,05/01/2021,05/01/2021,,INF/308164322648/ 000055667788/A NAME,0.00,900.00,1000.00\n"
+        ).encode()
+        result = parse_statement("x.csv", blob)
+        self.assertEqual(
+            result["linked_accounts"],
+            [{"number": "000055667788", "kind": "Linked account (internal transfer)"}],
+        )
+
     def test_the_drcr_dialect_reads_direction_from_the_flag(self):
         from sanctuary_statements import parse_statement
 

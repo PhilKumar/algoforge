@@ -2315,7 +2315,8 @@ document.addEventListener("click", async (e) => {
     let added = 0;
     for (let at = 0; at < rows.length; at += 800) {
       const r = await api("/api/sanctuary/statements/commit", {method: "POST",
-        body: {rows: rows.slice(at, at + 800), account: pv.account || ""}});
+        body: {rows: rows.slice(at, at + 800), account: pv.account || "",
+          linked_accounts: pv.linked_accounts || []}});
       added += r.added;
     }
     toast(added + " entries took their places. 🌿");

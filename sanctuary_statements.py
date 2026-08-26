@@ -41,6 +41,10 @@ _HEADER_NAMES = {
 
 _DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%b-%Y", "%d %b %Y", "%Y-%m-%d")
 _ACCT_RE = re.compile(r"\b(\d{9,18})\b")
+_LINKED_ACCT_RE = re.compile(r"\b(\d{9,18})\s*:\s*rev sweep", re.IGNORECASE)
+# ICICI's INF narration is an internal transfer and names the other account:
+# "INF/<reference>/ <account>/<holder name>".
+_INF_ACCT_RE = re.compile(r"\binf/\d+/\s*(\d{9,18})\b", re.IGNORECASE)
 _MONEY_RE = re.compile(r"^-?[\d,]+\.?\d*$")
 
 # ── Categorisation ───────────────────────────────────────────────
@@ -139,6 +143,7 @@ DEFAULT_RULES = [
     # load-bearing: the ledger view leaves it out of the month's spending.
     {"match": "sweep to od", "category": "Self transfer"},
     {"match": "sweep from od", "category": "Self transfer"},
+    {"match": "rev sweep", "category": "Self transfer"},
 ]
 
 
@@ -308,10 +313,20 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
         digest = hashlib.sha1(f"{row.pop('_fp')}#{occurrence}".encode()).hexdigest()[:16]  # nosec B324 - dedupe key, not security
         row["ref_id"] = f"stmt:{acct_tail}:{digest}"
     rows.sort(key=lambda r: r["entry_date"])
+    linked_kinds: dict[str, str] = {}
+    for row in rows:
+        m = _LINKED_ACCT_RE.search(row["note"])
+        if m:
+            linked_kinds[m.group(1)] = "Sweep-linked overdraft (OD)"
+        m = _INF_ACCT_RE.search(row["note"])
+        if m:
+            linked_kinds.setdefault(m.group(1), "Linked account (internal transfer)")
+    linked = [{"number": n, "kind": k} for n, k in sorted(linked_kinds.items())]
     return {
         "status": "ok",
         "filename": filename,
         "account": account,
+        "linked_accounts": linked,
         "account_tail": acct_tail,
         "date_from": rows[0]["entry_date"],
         "date_to": rows[-1]["entry_date"],
