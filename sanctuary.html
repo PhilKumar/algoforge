@@ -974,6 +974,24 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="notes-list" id="notes"></div>
       <div style="margin-top:12px"><button class="btn ghost small" id="note-add">＋ Add a note</button></div>
     </div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="section-title">The Vault</div>
+      <div class="section-sub">Driving licence, Aadhaar, PRAN, payslips — every file is encrypted the moment it arrives, and only this room can open it. Keep originals elsewhere too: this is for reaching them fast, not the only copy.</div>
+      <input type="file" id="vault-file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden>
+      <div id="vault-drop" class="stmt-drop">Drop a document here, or tap to choose</div>
+      <div id="vault-list" style="margin-top:14px"></div>
+      <div class="vault-family" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)">
+        <div class="section-sub" style="margin-bottom:8px">
+          <b>Family access</b> — a second key that opens a read-only copy of this vault at <span class="num">/vault</span> for any signed-in account. For the ones who may need these papers after you. <span id="vault-family-state"></span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <input class="field" id="vault-family-pass" type="password" placeholder="Family key (8+ characters)" style="flex:1;min-width:200px;max-width:320px">
+          <button class="btn ghost small" id="vault-family-set">Set the key</button>
+          <button class="btn subtle small" id="vault-family-clear">Remove access</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1465,7 +1483,7 @@ async function enter(){
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
   loadDaily(); refreshJournal(); loadSongs();
-  refreshFinance(); loadLoans(); loadNotes();
+  refreshFinance(); loadLoans(); loadNotes(); loadVault();
 }
 
 async function loadDaily(){
@@ -2384,6 +2402,128 @@ $("recur-save").onclick = async () => {
   toast("The monthly rhythm is set. 🌿"); refreshFinance();
 };
 $("note-add").onclick = () => noteForm(null);
+/* ═══ the vault: encrypted papers, and the family door ═══ */
+const VAULT_CATS = ["Identity", "Work", "Vehicle", "Finance", "Family", "Other"];
+const VAULT_ICONS = {Identity: "🪪", Work: "💼", Vehicle: "🚗", Finance: "🏦", Family: "🏡", Other: "📄"};
+async function loadVault(){
+  try {
+    const r = await api("/api/sanctuary/vault");
+    S.vaultDocs = r.documents;
+    if (!r.encryption_ready) {
+      $("vault-list").innerHTML = `<div style="color:var(--danger)">The server has no ENCRYPTION_KEY — the vault will refuse uploads until it does.</div>`;
+      return;
+    }
+    renderVault();
+    const st = await api("/api/sanctuary/vault/family/status");
+    $("vault-family-state").textContent = st.family_access ? "· Access is ON." : "· No key set yet.";
+  } catch { /* locked or offline — the card stays quiet */ }
+}
+function renderVault(){
+  const docs = S.vaultDocs || [];
+  if (!docs.length) { $("vault-list").innerHTML = `<div style="color:var(--muted)">Nothing kept yet. The licence, the Aadhaar, the PRAN letter — drop them in.</div>`; return; }
+  const groups = {};
+  docs.forEach((d) => (groups[d.category] = groups[d.category] || []).push(d));
+  $("vault-list").innerHTML = Object.entries(groups).map(([cat, list]) => `
+    <div class="group" style="margin:14px 0 4px;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">${esc(cat)}</div>` +
+    list.map((d) => `
+    <div class="stmt-review-row" data-doc="${d.id}">
+      <span style="font-size:1.25rem;width:30px;text-align:center">${VAULT_ICONS[d.category] || "📄"}</span>
+      <div class="who">
+        <b>${esc(d.title)}${d.doc_date ? " · " + esc(d.doc_date) : ""}</b>
+        ${d.doc_number ? `<span class="stmt-chip num">${esc(d.doc_number)}</span>
+          <button class="btn subtle small" data-vcopy="${esc(d.doc_number)}">Copy</button>` : ""}
+        <small>${esc(d.note || d.filename)} · ${d.size >= 1024 ? (d.size / 1024).toFixed(0) + " KB" : d.size + " B"}</small>
+      </div>
+      <a class="btn ghost small" href="/api/sanctuary/vault/${d.id}/file" target="_blank" rel="noopener">Open</a>
+      <button class="btn subtle small" data-vedit="${d.id}">Edit</button>
+      <button class="btn subtle small" data-vdel="${d.id}">✕</button>
+    </div>`).join("")).join("");
+}
+function vaultForm(file){
+  const wrap = modal(`<h4>Into the vault</h4>
+    <div class="section-sub" style="margin-bottom:10px">${esc(file.name)} · ${file.size >= 1024 ? (file.size / 1024).toFixed(0) + " KB" : file.size + " B"} — it will rest encrypted.</div>
+    <label>Name</label><input class="field" id="vf-title" value="${esc(file.name.replace(/\.[^.]+$/, ""))}" placeholder="Driving licence">
+    <label>Kind</label><select class="field" id="vf-cat">${VAULT_CATS.map((c) => `<option>${c}</option>`).join("")}</select>
+    <div class="frow"><div style="flex:1"><label>Number on it <span style="font-weight:400">— DL no., PRAN…</span></label>
+      <input class="field" id="vf-num" placeholder="kept encrypted too"></div>
+    <div style="flex:1"><label>Its date <span style="font-weight:400">— expiry, or the payslip's month</span></label>
+      <input class="field" type="date" id="vf-date"></div></div>
+    <label>Note</label><input class="field" id="vf-note" placeholder="renew by June, employer name…">
+    <div class="m-foot"><button class="btn subtle" id="vf-cancel">Leave it</button>
+    <button class="btn" id="vf-save">Keep it safe</button></div>`);
+  wrap.querySelector("#vf-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#vf-save").onclick = async () => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("title", wrap.querySelector("#vf-title").value.trim());
+    fd.append("category", wrap.querySelector("#vf-cat").value);
+    fd.append("doc_number", wrap.querySelector("#vf-num").value.trim());
+    fd.append("doc_date", wrap.querySelector("#vf-date").value);
+    fd.append("note", wrap.querySelector("#vf-note").value.trim());
+    try {
+      await api("/api/sanctuary/vault", {method: "POST", body: fd});
+      wrap.remove(); toast("Kept safe, under lock. 🌿"); loadVault();
+    } catch (e) { toast(e.message || "It would not go in"); }
+  };
+}
+$("vault-drop").onclick = () => $("vault-file").click();
+$("vault-file").onchange = (e) => { if (e.target.files[0]) vaultForm(e.target.files[0]); e.target.value = ""; };
+$("vault-drop").ondragover = (e) => { e.preventDefault(); $("vault-drop").classList.add("over"); };
+$("vault-drop").ondragleave = () => $("vault-drop").classList.remove("over");
+$("vault-drop").ondrop = (e) => { e.preventDefault(); $("vault-drop").classList.remove("over");
+  if (e.dataTransfer.files[0]) vaultForm(e.dataTransfer.files[0]); };
+document.addEventListener("click", async (e) => {
+  const copy = e.target.closest("[data-vcopy]");
+  if (copy) { navigator.clipboard.writeText(copy.dataset.vcopy); toast("Copied."); return; }
+  const del = e.target.closest("[data-vdel]");
+  if (del) {
+    if (await confirmDialog("Remove this document from the vault? The file is destroyed.", "Remove")) {
+      await api("/api/sanctuary/vault/" + del.dataset.vdel, {method: "DELETE"});
+      toast("Gone."); loadVault();
+    }
+    return;
+  }
+  const edit = e.target.closest("[data-vedit]");
+  if (edit) {
+    const d = (S.vaultDocs || []).find((x) => x.id === Number(edit.dataset.vedit));
+    if (!d) return;
+    const wrap = modal(`<h4>Tend this document</h4>
+      <label>Name</label><input class="field" id="ve-title" value="${esc(d.title)}">
+      <label>Kind</label><select class="field" id="ve-cat">${VAULT_CATS.map((c) => `<option ${c === d.category ? "selected" : ""}>${c}</option>`).join("")}</select>
+      <div class="frow"><div style="flex:1"><label>Number on it</label>
+        <input class="field" id="ve-num" value="${esc(d.doc_number)}"></div>
+      <div style="flex:1"><label>Its date</label><input class="field" type="date" id="ve-date" value="${esc(d.doc_date)}"></div></div>
+      <label>Note</label><input class="field" id="ve-note" value="${esc(d.note)}">
+      <div class="m-foot"><button class="btn subtle" id="ve-cancel">Leave it</button>
+      <button class="btn" id="ve-save">Save</button></div>`);
+    wrap.querySelector("#ve-cancel").onclick = () => wrap.remove();
+    wrap.querySelector("#ve-save").onclick = async () => {
+      await api("/api/sanctuary/vault/" + d.id, {method: "PUT", body: {
+        title: wrap.querySelector("#ve-title").value.trim(),
+        category: wrap.querySelector("#ve-cat").value,
+        doc_number: wrap.querySelector("#ve-num").value.trim(),
+        doc_date: wrap.querySelector("#ve-date").value,
+        note: wrap.querySelector("#ve-note").value.trim(),
+      }});
+      wrap.remove(); toast("Tended."); loadVault();
+    };
+  }
+});
+$("vault-family-set").onclick = async () => {
+  const passcode = $("vault-family-pass").value;
+  if (passcode.length < 8) return toast("Use at least 8 characters");
+  await api("/api/sanctuary/vault/family/passcode", {method: "POST", body: {passcode}});
+  $("vault-family-pass").value = "";
+  $("vault-family-state").textContent = "· Access is ON.";
+  toast("The family key is set. Tell them: sign in, then /vault.");
+};
+$("vault-family-clear").onclick = async () => {
+  if (!(await confirmDialog("Remove family access to the vault?", "Remove"))) return;
+  await api("/api/sanctuary/vault/family/passcode", {method: "POST", body: {passcode: ""}});
+  $("vault-family-state").textContent = "· No key set yet.";
+  toast("The family door is closed.");
+};
+
 document.addEventListener("click", (e) => {
   if (e.target.id === "salary-edit") salaryModal();
 });

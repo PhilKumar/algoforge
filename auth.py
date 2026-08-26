@@ -85,6 +85,25 @@ def decrypt_value(ciphertext: str) -> str:
         return ciphertext
 
 
+def encrypt_bytes(blob: bytes) -> bytes | None:
+    """Encrypt raw bytes. Returns None when no key is configured — callers
+    holding sensitive files must refuse to store rather than fall back."""
+    f = _get_fernet()
+    if f is None:
+        return None
+    return f.encrypt(blob)
+
+
+def decrypt_bytes(blob: bytes) -> bytes | None:
+    f = _get_fernet()
+    if f is None:
+        return None
+    try:
+        return f.decrypt(blob)
+    except Exception:
+        return None
+
+
 # ── Session Management ───────────────────────────────────────────
 
 
@@ -373,6 +392,10 @@ VIEWER_WRITE_ALLOWLIST = frozenset(
         "/api/auth/passkeys/register/options",
         "/api/auth/passkeys/register/verify",
         "/api/save-state",
+        # The family vault's door: the POST grants the CALLER a read-only
+        # grant and changes nothing of the owner's. The documents behind it
+        # are served by vault-owner-resolving endpoints, not the share list.
+        "/api/vault/unlock",
     }
 )
 

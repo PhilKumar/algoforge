@@ -473,6 +473,270 @@ async def photo_serve(file_path: str, user: dict = Depends(_unlocked_user)):
     return FileResponse(full)
 
 
+# ── The Vault: identity papers, encrypted at rest ────────────────
+
+FAMILY_ACTION_CLASS = "vault-family"
+_VAULT_CATEGORIES = ("Identity", "Work", "Vehicle", "Finance", "Family", "Other")
+_VAULT_CONTENT_TYPES = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+
+
+def _vault_root(user_id: int) -> str:
+    return os.path.join(config.USER_DATA_ROOT, str(int(user_id)), "vault")
+
+
+def _vault_file_path(user_id: int, token: str) -> str:
+    root = os.path.realpath(_vault_root(user_id))
+    full = os.path.realpath(os.path.join(root, f"{token}.enc"))
+    if not full.startswith(root + os.sep):
+        raise HTTPException(status_code=404, detail="Not found")
+    return full
+
+
+def _clean_document_fields(payload: dict) -> dict:
+    fields: dict = {}
+    if "title" in payload:
+        fields["title"] = str(payload.get("title") or "").strip()[:120]
+        if not fields["title"]:
+            raise HTTPException(status_code=400, detail="The document needs a name")
+    if "category" in payload:
+        category = str(payload.get("category") or "Other").strip()
+        fields["category"] = category if category in _VAULT_CATEGORIES else "Other"
+    for key, limit in (("doc_number", 120), ("note", 500), ("series", 80)):
+        if key in payload:
+            fields[key] = str(payload.get(key) or "").strip()[:limit]
+    if "doc_date" in payload:
+        doc_date = str(payload.get("doc_date") or "")
+        if doc_date and not _DATE_RE.match(doc_date):
+            raise HTTPException(status_code=400, detail="Bad date")
+        fields["doc_date"] = doc_date
+    # The number is sensitive on its own — it rests encrypted like the file.
+    if fields.get("doc_number"):
+        fields["doc_number"] = auth.encrypt_value(fields["doc_number"])
+    return fields
+
+
+def _document_view(doc: dict) -> dict:
+    view = {
+        k: doc[k]
+        for k in (
+            "id",
+            "title",
+            "category",
+            "note",
+            "series",
+            "doc_date",
+            "filename",
+            "content_type",
+            "size",
+            "created_at",
+        )
+    }
+    view["doc_number"] = auth.decrypt_value(doc.get("doc_number") or "")
+    return view
+
+
+@router.get("/api/sanctuary/vault")
+async def vault_list(user: dict = Depends(_unlocked_user)):
+    docs = [_document_view(d) for d in await sanctuary_db.list_documents(int(user["id"]))]
+    return {"documents": docs, "encryption_ready": auth.encryption_enabled()}
+
+
+@router.post("/api/sanctuary/vault")
+async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(_unlocked_user)):
+    if not auth.encryption_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="The vault refuses to store documents unencrypted — ENCRYPTION_KEY is not configured.",
+        )
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in _VAULT_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="PDF, JPG, PNG or WEBP only")
+    blob = await _read_upload(file)
+    if not blob:
+        raise HTTPException(status_code=400, detail="Empty file")
+    encrypted = auth.encrypt_bytes(blob)
+    if encrypted is None:
+        raise HTTPException(status_code=503, detail="Encryption unavailable")
+    form = await request.form()
+    fields = _clean_document_fields(
+        {
+            "title": form.get("title") or (file.filename or "Document"),
+            "category": form.get("category"),
+            "doc_number": form.get("doc_number"),
+            "note": form.get("note"),
+            "series": form.get("series"),
+            "doc_date": form.get("doc_date"),
+        }
+    )
+    token = secrets.token_hex(16)
+    directory = _vault_root(int(user["id"]))
+    os.makedirs(directory, exist_ok=True)
+    fd = os.open(os.path.join(directory, f"{token}.enc"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(encrypted)
+    fields.update(
+        {
+            "filename": (file.filename or "document")[:160],
+            "content_type": content_type,
+            "size": len(blob),
+            "file_token": token,
+        }
+    )
+    doc_id = await sanctuary_db.create_document(int(user["id"]), fields)
+    return {"id": doc_id}
+
+
+def _serve_document(doc: dict, user_id: int):
+    full = _vault_file_path(user_id, doc.get("file_token") or "missing")
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="The file is gone from disk")
+    with open(full, "rb") as handle:
+        blob = auth.decrypt_bytes(handle.read())
+    if blob is None:
+        raise HTTPException(status_code=503, detail="Cannot decrypt — ENCRYPTION_KEY changed?")
+    from fastapi.responses import Response
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", doc.get("filename") or "document")
+    return Response(
+        content=blob,
+        media_type=doc.get("content_type") or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"', "Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/sanctuary/vault/{doc_id}/file")
+async def vault_file(doc_id: int, user: dict = Depends(_unlocked_user)):
+    doc = await sanctuary_db.get_document(int(user["id"]), doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="No such document")
+    return _serve_document(doc, int(user["id"]))
+
+
+@router.put("/api/sanctuary/vault/{doc_id}")
+async def vault_update(doc_id: int, request: Request, user: dict = Depends(_unlocked_user)):
+    fields = _clean_document_fields(await request.json())
+    if not fields or not await sanctuary_db.update_document(int(user["id"]), doc_id, fields):
+        raise HTTPException(status_code=404, detail="No such document")
+    return {"ok": True}
+
+
+@router.delete("/api/sanctuary/vault/{doc_id}")
+async def vault_delete(doc_id: int, user: dict = Depends(_unlocked_user)):
+    doc = await sanctuary_db.delete_document(int(user["id"]), doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="No such document")
+    try:
+        os.unlink(_vault_file_path(int(user["id"]), doc.get("file_token") or "missing"))
+    except OSError:
+        pass
+    return {"ok": True}
+
+
+# ── Family access: the vault outlives its keeper ─────────────────
+#
+# Phil's ask, 2026-08-27: "I want my family to access these docs here
+# after me." The sanctuary itself stays his alone — this is a separate,
+# read-only door. A family member signs in with their own PhilForge
+# account (any role), opens /vault, and gives the family passcode he
+# set. Wrong passcode is 403 with the same slow-down as the sanctuary
+# gate; no passcode set means the door does not exist.
+
+
+async def _vault_owner() -> dict | None:
+    return await core_db.get_admin_user()
+
+
+async def _family_user(request: Request) -> dict:
+    token = auth.get_session_token(request)
+    session = await auth.validate_session(token)
+    user = await core_db.get_user_by_id(session["user_id"]) if session else None
+    if not user or not user.get("is_active"):
+        raise HTTPException(status_code=401, detail="Sign in first")
+    granted = await core_db.has_action_grant(int(user["id"]), auth.session_storage_key(token), FAMILY_ACTION_CLASS)
+    if not granted:
+        raise HTTPException(status_code=423, detail="vault_locked")
+    return user
+
+
+@router.post("/api/sanctuary/vault/family/passcode")
+async def vault_family_passcode(request: Request, user: dict = Depends(_unlocked_user)):
+    """The owner sets (or clears) the family passcode."""
+    payload = await request.json()
+    passcode = str(payload.get("passcode") or "")
+    if not passcode:
+        await sanctuary_db.set_state(int(user["id"]), "vault_family_hash", "")
+        return {"family_access": False}
+    if len(passcode) < 8:
+        raise HTTPException(status_code=400, detail="Use at least 8 characters")
+    await sanctuary_db.set_state(int(user["id"]), "vault_family_hash", auth.hash_password(passcode))
+    return {"family_access": True}
+
+
+@router.get("/api/sanctuary/vault/family/status")
+async def vault_family_status(user: dict = Depends(_unlocked_user)):
+    stored = await sanctuary_db.get_state(int(user["id"]), "vault_family_hash", "")
+    return {"family_access": bool(stored)}
+
+
+@router.post("/api/vault/unlock")
+async def vault_family_unlock(request: Request):
+    token = auth.get_session_token(request)
+    session = await auth.validate_session(token)
+    user = await core_db.get_user_by_id(session["user_id"]) if session else None
+    if not user or not user.get("is_active"):
+        raise HTTPException(status_code=401, detail="Sign in first")
+    user_id = int(user["id"])
+    if _too_many_failures(user_id):
+        raise HTTPException(status_code=429, detail="Too many tries — rest a while and come back")
+    owner = await _vault_owner()
+    stored = await sanctuary_db.get_state(int(owner["id"]), "vault_family_hash", "") if owner else ""
+    payload = await request.json()
+    passcode = str(payload.get("passcode") or "")
+    if not stored or not auth.verify_password(passcode, stored):
+        _unlock_failures.setdefault(user_id, []).append(time.monotonic())
+        await asyncio.sleep(0.6)
+        raise HTTPException(status_code=403, detail="That is not the family key")
+    _unlock_failures.pop(user_id, None)
+    expires_at = (datetime.now(ZoneInfo("UTC")) + timedelta(seconds=UNLOCK_TTL_SECONDS)).isoformat()
+    await core_db.grant_action_class(user_id, auth.session_storage_key(token), FAMILY_ACTION_CLASS, expires_at)
+    return {"unlocked": True, "ttl_seconds": UNLOCK_TTL_SECONDS}
+
+
+@router.get("/api/vault/documents")
+async def vault_family_list(user: dict = Depends(_family_user)):
+    owner = await _vault_owner()
+    if not owner:
+        return {"documents": []}
+    docs = [_document_view(d) for d in await sanctuary_db.list_documents(int(owner["id"]))]
+    return {"documents": docs, "owner": owner.get("username") or ""}
+
+
+@router.get("/api/vault/documents/{doc_id}/file")
+async def vault_family_file(doc_id: int, user: dict = Depends(_family_user)):
+    owner = await _vault_owner()
+    doc = await sanctuary_db.get_document(int(owner["id"]), doc_id) if owner else None
+    if not doc:
+        raise HTTPException(status_code=404, detail="No such document")
+    return _serve_document(doc, int(owner["id"]))
+
+
+@router.get("/vault", response_class=HTMLResponse)
+async def vault_page(request: Request):
+    token = auth.get_session_token(request)
+    session = await auth.validate_session(token)
+    user = await core_db.get_user_by_id(session["user_id"]) if session else None
+    if not user or not user.get("is_active"):
+        return RedirectResponse("/app", status_code=307)
+    page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vault.html")
+    with open(page_path, encoding="utf-8") as handle:
+        return HTMLResponse(handle.read())
+
+
 # ── Finance: categories, months, ledger ──────────────────────────
 
 

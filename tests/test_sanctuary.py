@@ -407,5 +407,73 @@ class StatementParserTests(unittest.TestCase):
         self.assertEqual(second, 1, "the re-upload must add only the new row")
 
 
+class VaultTests(unittest.TestCase):
+    """The vault: encrypted at rest, refusing to store plaintext, and the
+    document number encrypted like the file it belongs to."""
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        os.environ["ENCRYPTION_KEY"] = (
+            __import__("cryptography.fernet", fromlist=["Fernet"]).Fernet.generate_key().decode()
+        )
+        import importlib
+
+        import auth
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        auth.config = config
+        auth._fernet = None
+        self.auth = auth
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+        self.auth._fernet = None
+        os.environ.pop("ENCRYPTION_KEY", None)
+
+    def test_bytes_round_trip_and_ciphertext_differs(self):
+        blob = b"%PDF-1.4 the licence"
+        sealed = self.auth.encrypt_bytes(blob)
+        self.assertIsNotNone(sealed)
+        self.assertNotIn(b"licence", sealed)
+        self.assertEqual(self.auth.decrypt_bytes(sealed), blob)
+
+    def test_no_key_means_refusal_not_plaintext(self):
+        self.auth._fernet = None
+        self.auth.config.ENCRYPTION_KEY = ""
+        self.assertIsNone(self.auth.encrypt_bytes(b"secret"))
+
+    def test_document_row_round_trip(self):
+        async def run():
+            doc_id = await self.sanctuary_db.create_document(
+                1,
+                {
+                    "title": "Driving licence",
+                    "category": "Identity",
+                    "doc_number": self.auth.encrypt_value("TN-00 1234"),
+                    "filename": "dl.pdf",
+                    "content_type": "application/pdf",
+                    "size": 1234,
+                    "file_token": "ab" * 16,
+                },
+            )
+            return await self.sanctuary_db.get_document(1, doc_id)
+
+        doc = asyncio.run(run())
+        self.assertEqual(doc["title"], "Driving licence")
+        self.assertNotEqual(doc["doc_number"], "TN-00 1234", "the number must not rest in clear")
+        self.assertEqual(self.auth.decrypt_value(doc["doc_number"]), "TN-00 1234")
+
+
 if __name__ == "__main__":
     unittest.main()

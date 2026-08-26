@@ -532,3 +532,87 @@ async def set_emi_paid(user_id: int, emi_id: int, paid_on: str) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ── Vault documents ──────────────────────────────────────────────
+
+
+async def create_document(user_id: int, fields: dict) -> int:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """INSERT INTO sanctuary_documents
+               (user_id, title, category, doc_number, note, series, doc_date,
+                filename, content_type, size, file_token, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                int(user_id),
+                fields["title"],
+                fields.get("category", "Other"),
+                fields.get("doc_number", ""),
+                fields.get("note", ""),
+                fields.get("series", ""),
+                fields.get("doc_date", ""),
+                fields.get("filename", ""),
+                fields.get("content_type", ""),
+                int(fields.get("size", 0)),
+                fields.get("file_token", ""),
+                _now_iso(),
+            ),
+        )
+        await db.commit()
+        return int(cursor.lastrowid or 0)
+
+
+async def list_documents(user_id: int) -> list[dict]:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT * FROM sanctuary_documents WHERE user_id = ?
+               ORDER BY category, series, doc_date DESC, id DESC""",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def get_document(user_id: int, doc_id: int) -> dict | None:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM sanctuary_documents WHERE user_id = ? AND id = ?",
+            (int(user_id), int(doc_id)),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def update_document(user_id: int, doc_id: int, fields: dict) -> bool:
+    allowed = {"title", "category", "doc_number", "note", "series", "doc_date"}
+    sets, params = [], []
+    for key, value in fields.items():
+        if key in allowed:
+            sets.append(f"{key} = ?")
+            params.append(value)
+    if not sets:
+        return False
+    params.extend([int(user_id), int(doc_id)])
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            f"UPDATE sanctuary_documents SET {', '.join(sets)} WHERE user_id = ? AND id = ?",  # nosec B608
+            params,
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_document(user_id: int, doc_id: int) -> dict | None:
+    """Delete and return the row so the caller can remove the file blob."""
+    doc = await get_document(user_id, doc_id)
+    if doc is None:
+        return None
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM sanctuary_documents WHERE user_id = ? AND id = ?",
+            (int(user_id), int(doc_id)),
+        )
+        await db.commit()
+    return doc

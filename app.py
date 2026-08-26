@@ -3923,6 +3923,9 @@ async def auth_middleware(request: Request, call_next):
         # anonymous browser to the login page; without this entry the
         # middleware answers the navigation with a JSON 401 instead.
         "/sanctuary",
+        # The vault's family door works the same way — any signed-in
+        # account may reach the page; the passcode decides the rest.
+        "/vault",
         "/logo.jpg",
         "/logo.png",
         "/favicon.ico",

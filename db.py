@@ -313,6 +313,23 @@ _SCHEMA_STATEMENTS = [
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_sanctuary_emis_loan_due ON sanctuary_emis(loan_id, due_date)",
     "CREATE INDEX IF NOT EXISTS idx_sanctuary_emis_user_due ON sanctuary_emis(user_id, due_date)",
+    """CREATE TABLE IF NOT EXISTS sanctuary_documents (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL,
+        title        TEXT    NOT NULL,
+        category     TEXT    NOT NULL DEFAULT 'Other',
+        doc_number   TEXT    NOT NULL DEFAULT '',
+        note         TEXT    NOT NULL DEFAULT '',
+        series       TEXT    NOT NULL DEFAULT '',
+        doc_date     TEXT    NOT NULL DEFAULT '',
+        filename     TEXT    NOT NULL DEFAULT '',
+        content_type TEXT    NOT NULL DEFAULT '',
+        size         INTEGER NOT NULL DEFAULT 0,
+        file_token   TEXT    NOT NULL DEFAULT '',
+        created_at   TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_documents_user ON sanctuary_documents(user_id, category)",
     """CREATE TABLE IF NOT EXISTS sanctuary_moods (
         user_id     INTEGER NOT NULL,
         mood_date   TEXT    NOT NULL,
@@ -820,6 +837,7 @@ _USER_OWNED_TABLES: tuple[str, ...] = (
     "sanctuary_ledger",
     "sanctuary_loans",
     "sanctuary_emis",
+    "sanctuary_documents",
     "sanctuary_moods",
 )
 

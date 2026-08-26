@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Family Vault</title>
+<style>
+  :root{
+    --ink:#22303c; --soft:#5b6b7a; --muted:#8195a5; --card:rgba(255,255,255,.82);
+    --line:#cdd9e2; --line-soft:#e2eaf0; --moss:#177e8c; --danger:#bf4a35; --gold:#b98a2e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{min-height:100%}
+  body{
+    font:16px/1.6 Georgia, 'Times New Roman', serif; color:var(--ink);
+    background:linear-gradient(180deg,#dff0f6 0%,#eef6f2 45%,#f7f3e8 100%);
+    padding:28px 16px 64px;
+  }
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:1.7rem;letter-spacing:.01em;margin-bottom:4px}
+  .sub{color:var(--soft);font-style:italic;margin-bottom:26px}
+  .card{background:var(--card);border:1px solid var(--line-soft);border-radius:16px;
+    padding:20px 22px;box-shadow:0 10px 30px rgba(34,48,60,.08);backdrop-filter:blur(6px)}
+  .gate{max-width:420px;margin:8vh auto 0;text-align:center}
+  .gate p{color:var(--soft);font-size:.95rem;margin:10px 0 16px}
+  .field{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:10px;
+    font:15px inherit;background:#fff;color:var(--ink)}
+  .btn{border:0;border-radius:10px;padding:11px 20px;font:600 15px inherit;cursor:pointer;
+    background:var(--moss);color:#fff}
+  .btn:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:10px;margin-top:12px}
+  .err{color:var(--danger);font-size:.9rem;min-height:1.4em;margin-top:10px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px}
+  .toolbar .field{flex:1;min-width:200px}
+  .group{margin:26px 0 10px;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .doc{display:flex;gap:14px;align-items:center;padding:13px 6px;border-bottom:1px solid var(--line-soft)}
+  .doc:last-child{border-bottom:0}
+  .doc .ico{font-size:1.35rem;width:34px;text-align:center}
+  .doc .meta{flex:1;min-width:0}
+  .doc .meta b{display:block;font-size:1.02rem}
+  .doc .meta small{color:var(--soft)}
+  .doc .num{font-family:ui-monospace,Menlo,monospace;font-size:.85rem;color:var(--soft);white-space:nowrap}
+  .doc a{color:var(--moss);font-weight:600;text-decoration:none;white-space:nowrap}
+  .empty{color:var(--muted);text-align:center;padding:36px 0}
+  .keepsafe{margin-top:26px;color:var(--muted);font-size:.85rem;text-align:center;font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="gate" class="card gate">
+    <h1>The Family Vault</h1>
+    <p>These papers were kept here for you. Enter the family key.</p>
+    <input class="field" id="pass" type="password" placeholder="The family key" autocomplete="off">
+    <div class="row"><button class="btn" id="enter" style="flex:1">Open</button></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="vault" hidden>
+    <h1>The Family Vault</h1>
+    <div class="sub" id="owner-line">Documents kept safe.</div>
+    <div class="card">
+      <div class="toolbar"><input class="field" id="q" type="search" placeholder="Search — licence, Aadhaar, payslip…"></div>
+      <div id="docs"></div>
+    </div>
+    <div class="keepsafe">Everything here is stored encrypted, and this page can only read — never change or remove.</div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ICONS = {Identity: "🪪", Work: "💼", Vehicle: "🚗", Finance: "🏦", Family: "🏡", Other: "📄"};
+let DOCS = [];
+
+async function api(path, options = {}){
+  const response = await fetch(path, {credentials: "same-origin",
+    headers: options.body ? {"Content-Type": "application/json"} : {},
+    method: options.method || "GET",
+    body: options.body ? JSON.stringify(options.body) : undefined});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = (data.error && data.error.detail) || data.detail || "Something went wrong";
+    const err = new Error(reason); err.status = response.status; throw err;
+  }
+  return data;
+}
+
+function renderDocs(){
+  const needle = $("q").value.trim().toLowerCase();
+  const docs = DOCS.filter((d) => !needle ||
+    (d.title + " " + d.category + " " + d.note + " " + d.series).toLowerCase().includes(needle));
+  if (!docs.length) { $("docs").innerHTML = `<div class="empty">Nothing here matches.</div>`; return; }
+  const groups = {};
+  docs.forEach((d) => (groups[d.category] = groups[d.category] || []).push(d));
+  $("docs").innerHTML = Object.entries(groups).map(([cat, list]) => `
+    <div class="group">${esc(cat)}</div>` + list.map((d) => `
+    <div class="doc">
+      <span class="ico">${ICONS[d.category] || "📄"}</span>
+      <span class="meta"><b>${esc(d.title)}${d.doc_date ? " · " + esc(d.doc_date) : ""}</b>
+        <small>${esc(d.note || d.filename)}</small></span>
+      ${d.doc_number ? `<span class="num">${esc(d.doc_number)}</span>` : ""}
+      <a href="/api/vault/documents/${d.id}/file" target="_blank" rel="noopener">Open</a>
+    </div>`).join("")).join("");
+}
+
+async function load(){
+  const r = await api("/api/vault/documents");
+  DOCS = r.documents;
+  $("owner-line").textContent = "Kept by " + (r.owner || "the family") +
+    " — " + DOCS.length + " document" + (DOCS.length === 1 ? "" : "s") + ".";
+  $("gate").hidden = true; $("vault").hidden = false;
+  renderDocs();
+}
+
+$("enter").onclick = async () => {
+  $("err").textContent = ""; $("enter").disabled = true;
+  try {
+    await api("/api/vault/unlock", {method: "POST", body: {passcode: $("pass").value}});
+    await load();
+  } catch (e) {
+    $("err").textContent = e.status === 429 ? "Too many tries — rest a while." : "That is not the family key.";
+  }
+  $("enter").disabled = false;
+};
+$("pass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").onclick(); });
+$("q") && ($("q").oninput = renderDocs);
+
+/* already unlocked in this session? straight in */
+load().catch(() => {});
+</script>
+</body>
+</html>
