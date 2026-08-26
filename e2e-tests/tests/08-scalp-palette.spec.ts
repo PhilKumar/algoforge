@@ -139,3 +139,36 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   await expect(page.locator('[onclick="submitScalpEntry(\'BUY\')"]')).toHaveCount(1);
   await expect(page.locator('[onclick="submitScalpEntry(\'SELL\')"]')).toHaveCount(1);
 });
+
+/**
+ * The desk's panels used to paint themselves: `#scalp-page .scalp-*-card` set
+ * a dark gradient, and an id beats `[data-theme="light"] .ocp-monitor`, so the
+ * light skin arrived with dark boxes on it (Phil, 2026-08-27: "Scalp light
+ * mode not completed properly"). They carry `.ocp-monitor` now and are painted
+ * once, for both themes -- this measures that they actually invert.
+ */
+test('scalp panels follow the light skin', async ({ page }) => {
+  await login(page);
+  await page.evaluate(() => (window as any).showPage('scalp-page', document.getElementById('nav-scalp')));
+
+  const read = () => page.evaluate(() => {
+    const rgb = (s: string) => (s.match(/\d+/g) || []).slice(0, 3).map(Number);
+    const lum = (c: number[]) => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    const out: Record<string, number> = {};
+    for (const cls of ['scalp-entry-card', 'scalp-positions-card', 'scalp-event-card', 'scalp-history-card']) {
+      const el = document.querySelector(`#scalp-page .${cls}`) as HTMLElement;
+      const bg = getComputedStyle(el).backgroundImage + ' ' + getComputedStyle(el).backgroundColor;
+      const first = bg.match(/rgba?\([^)]+\)/);
+      out[cls] = first ? lum(rgb(first[0])) : -1;
+    }
+    return out;
+  });
+
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+  const dark = await read();
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+  const light = await read();
+  for (const cls of Object.keys(light)) {
+    expect(light[cls], `${cls} must lighten in the light skin`).toBeGreaterThan(dark[cls] + 0.2);
+  }
+});
