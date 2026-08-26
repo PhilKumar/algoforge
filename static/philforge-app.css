@@ -472,20 +472,15 @@
   .scalp-stepper { -moz-appearance: textfield; appearance: textfield; }
   .scalp-step-btn { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text); border-radius:4px; width:22px; height:22px; font-size:13px; cursor:pointer; font-weight:700; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
   .scalp-step-btn:hover { background:rgba(255,255,255,0.12); }
-  /* SYMBOL WAS TAKING A THIRD OF THE TABLE. "NIFTY 24250CE" is thirteen
-     characters; at 30% of a fixed 1080px it had 324px to sit in, while the
-     figures either side were squeezed into 8% each and the whole table
-     scrolled sideways in the live column (Phil, 2026-08-27). The width goes
-     to the numbers, and the table asks for less room to begin with. */
-  .scalp-active-table { width:100%; min-width:840px; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+  .scalp-active-table { width:100%; min-width:1080px; border-collapse:collapse; font-size:12px; table-layout:fixed; }
   .scalp-active-table th, .scalp-active-table td { vertical-align:middle; }
-  .scalp-active-col-symbol { width:18%; }
-  .scalp-active-col-entry { width:14%; }
-  .scalp-active-col-ltp { width:12%; }
-  .scalp-active-col-pnl { width:12%; }
-  .scalp-active-col-target { width:15%; }
-  .scalp-active-col-sl { width:15%; }
-  .scalp-active-col-action { width:14%; }
+  .scalp-active-col-symbol { width:30%; }
+  .scalp-active-col-entry { width:16%; }
+  .scalp-active-col-ltp { width:8%; }
+  .scalp-active-col-pnl { width:8%; }
+  .scalp-active-col-target { width:13%; }
+  .scalp-active-col-sl { width:13%; }
+  .scalp-active-col-action { width:12%; }
   .scalp-cell-editor { display:inline-flex; align-items:center; justify-content:center; gap:3px; width:100%; }
   .scalp-range-editor { display:inline-flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; }
   .scalp-action-wrap { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; flex-wrap:wrap; }
@@ -543,16 +538,10 @@
   #stock-terminal-page #stock-terminal-ltp,
   #stock-terminal-page #stock-unit-price { color: var(--accent) !important; }
   @media (max-width: 900px) {
-    /* All seven, so they sum to 100 rather than leaving four to inherit the
-       wide table's shares and overflow to 106%. */
-    .scalp-active-table { min-width:820px; }
-    .scalp-active-col-symbol { width:20%; }
-    .scalp-active-col-entry { width:15%; }
-    .scalp-active-col-ltp { width:11%; }
-    .scalp-active-col-pnl { width:11%; }
-    .scalp-active-col-target { width:14%; }
-    .scalp-active-col-sl { width:14%; }
-    .scalp-active-col-action { width:15%; }
+    .scalp-active-table { min-width:980px; }
+    .scalp-active-col-symbol { width:28%; }
+    .scalp-active-col-entry { width:18%; }
+    .scalp-active-col-action { width:14%; }
   }
   .scalp-toggle {
     display: grid;

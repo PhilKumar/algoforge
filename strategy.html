@@ -4022,6 +4022,50 @@
       </div>
     </div>
     <div class="ocp-recipe">Live premium and margin as you pick &middot; paper or Dhan Super Order &middot; one position at a time &middot; every fill kept below</div>
+    <!-- POSITIONS FIRST, ACROSS THE WHOLE DESK. The fields that need
+         editing in a hurry are in this table, and under the launchpad they
+         were a scroll away when it mattered (Phil, 2026-08-27: "I need to
+         update the fields ASAP.. on that time I cannot go the scroll").
+         The log keeps its place beside the form. -->
+      <div class="ocp-monitor scalp-positions-card" style="padding:14px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+      <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
+        <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
+      </div>
+      </div>
+      <!-- Focusable because it scrolls: in the live pane the table is wider
+         than its column, and a region a mouse can scroll has to be reachable
+         from the keyboard too (axe: scrollable-region-focusable). -->
+      <div style="overflow-x: auto;" tabindex="0" role="region" aria-label="Active positions">
+      <table class="scalp-active-table">
+        <colgroup>
+          <col class="scalp-active-col-symbol">
+          <col class="scalp-active-col-entry">
+          <col class="scalp-active-col-ltp">
+          <col class="scalp-active-col-pnl">
+          <col class="scalp-active-col-target">
+          <col class="scalp-active-col-sl">
+          <col class="scalp-active-col-action">
+        </colgroup>
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+            <th style="padding: 8px 10px; text-align: left;">Symbol</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
+            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&amp;L</th>
+            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Target ₹</th>
+            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">SL ₹</th>
+            <th style="padding: 8px 10px; text-align: center;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="scalp-active-body">
+          <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
+        </tbody>
+      </table>
+      </div>
+      </div>
     <div class="ocp-panes">
       <div class="ocp-pane ocp-pane-form scalp-entry-card">
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
@@ -4148,45 +4192,6 @@
         <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
       </div>
       <div class="ocp-pane ocp-pane-live">
-        <div class="ocp-monitor scalp-positions-card" style="padding:14px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
-          <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
-        </div>
-      </div>
-      <!-- Focusable because it scrolls: in the live pane the table is wider
-           than its column, and a region a mouse can scroll has to be reachable
-           from the keyboard too (axe: scrollable-region-focusable). -->
-      <div style="overflow-x: auto;" tabindex="0" role="region" aria-label="Active positions">
-        <table class="scalp-active-table">
-          <colgroup>
-            <col class="scalp-active-col-symbol">
-            <col class="scalp-active-col-entry">
-            <col class="scalp-active-col-ltp">
-            <col class="scalp-active-col-pnl">
-            <col class="scalp-active-col-target">
-            <col class="scalp-active-col-sl">
-            <col class="scalp-active-col-action">
-          </colgroup>
-          <thead>
-            <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-              <th style="padding: 8px 10px; text-align: left;">Symbol</th>
-              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
-              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
-              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&amp;L</th>
-              <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Target ₹</th>
-              <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">SL ₹</th>
-              <th style="padding: 8px 10px; text-align: center;">Action</th>
-            </tr>
-          </thead>
-          <tbody id="scalp-active-body">
-            <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
-          </tbody>
-        </table>
-      </div>
-        </div>
       <!-- The log as a flow-down section, the same one the strategies use. -->
       <details class="ocp-monitor ocp-monitor-fold scalp-event-card">
         <summary class="ocp-monitor-head">

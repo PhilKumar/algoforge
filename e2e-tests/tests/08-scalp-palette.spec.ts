@@ -98,31 +98,33 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   // card, a head, the form beside the live monitor in `.ocp-panes`, then the
   // log and the archive as their own sections. The old `.scalp-desk-grid`
   // paired the form with the event log; the log is a flow-down section below.
+  // POSITIONS FIRST, then the form beside the log. The table holds the fields
+  // that get edited in a hurry, so it leads the desk at full width rather than
+  // sitting a scroll below the launchpad (Phil, 2026-08-27).
   const geometry = await page.evaluate(() => {
     const panes = document.querySelector('#scalp-page .ocp-panes')!;
-    const entry = document.querySelector('#scalp-page .scalp-entry-card')!.getBoundingClientRect();
-    const positions = document.querySelector('#scalp-page .scalp-positions-card')!.getBoundingClientRect();
+    const positionsEl = document.querySelector('#scalp-page .scalp-positions-card')!;
+    const entryEl = document.querySelector('#scalp-page .scalp-entry-card')!;
     const log = document.querySelector('#scalp-page .scalp-event-card')!;
+    const entry = entryEl.getBoundingClientRect();
+    const logBox = log.getBoundingClientRect();
     const advancedBox = document.querySelector('#scalp-page .scalp-advanced')!.getBoundingClientRect();
     return {
       columns: getComputedStyle(panes).gridTemplateColumns,
       alignItems: getComputedStyle(panes).alignItems,
-      sideBySide: positions.left >= entry.left + entry.width - 5,
-      // The log is its own fold, and it sits UNDER Active Positions in the
-      // live column rather than under the whole desk (Phil, 2026-08-27:
-      // "make the event log goes below Active positions").
+      positionsLeadTheDesk: !!(positionsEl.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING)
+        && !positionsEl.closest('.ocp-panes'),
+      logBesideTheForm: logBox.left >= entry.left + entry.width - 5,
       logIsItsOwnSection: log.tagName === 'DETAILS',
-      logUnderPositions: !!(document.querySelector('#scalp-page .scalp-positions-card')!
-        .compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING),
       logInLiveColumn: !!log.closest('.ocp-pane-live'),
       advancedHeight: advancedBox.height,
     };
   });
   expect(geometry.columns.split(' ')).toHaveLength(2);
   expect(geometry.alignItems).toBe('start');
-  expect(geometry.sideBySide).toBe(true);
+  expect(geometry.positionsLeadTheDesk).toBe(true);
+  expect(geometry.logBesideTheForm).toBe(true);
   expect(geometry.logIsItsOwnSection).toBe(true);
-  expect(geometry.logUnderPositions).toBe(true);
   expect(geometry.logInLiveColumn).toBe(true);
   expect(geometry.advancedHeight).toBeLessThan(50);
 
