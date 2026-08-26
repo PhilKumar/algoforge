@@ -6277,7 +6277,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   /* One setting per line in the fold -- two columns of hairline rows need
      more room than this pane has. */
   .ocp-pane-form #oc-candle-advanced .ocp-switch-grid,
-  .ocp-pane-form #oc-gap-advanced .ocp-switch-grid { grid-template-columns: minmax(0,1fr); }
+  .ocp-pane-form #oc-gap-advanced .ocp-switch-grid,
+  .ocp-pane-form #oc-high-advanced .ocp-switch-grid { grid-template-columns: minmax(0,1fr); }
   .ocp-pane-live > .ocp-monitor:first-child,
   .ocp-pane-live > .ocp-auto-card:first-child { margin-top:0; }
 }

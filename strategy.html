@@ -3237,8 +3237,7 @@
   </div>
 
   <div id="oc-tab-recovery" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-recovery" aria-hidden="true" style="display:none;">
-    <div class="ocp-panes">
-    <div class="ocp-pane ocp-pane-form card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
           <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
@@ -3319,8 +3318,11 @@
         </div>
       </div>
       <div id="oc-high-recipe" class="ocp-recipe" aria-live="polite"></div>
-      <div class="ocp-grid" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
-        <div class="ocp-field">
+
+      <div class="ocp-panes">
+      <div class="ocp-pane ocp-pane-form">
+      <div class="ocp-essentials">
+        <div class="ocp-field ocp-field-mode">
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
           <input type="hidden" id="oc-high-run-mode" value="paper">
           <div id="oc-high-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
@@ -3336,19 +3338,18 @@
             <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="PE" data-pf-action="setRecoverySide" role="radio" title="Puts &mdash; the mirror loses over the same five years" aria-checked="false"><span>&#9660; PE</span></button>
           </div>
         </div>
-        <div class="ocp-field">
-          <label for="oc-high-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
-          <select id="oc-high-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select>
-        </div>
-        <div class="ocp-field">
+        <div class="ocp-field ocp-field-chart">
           <label for="oc-high-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
           <select id="oc-high-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="5m is the only chart the five-year audit found green; 15m loses on both sides and 1H is thin."><option value="5m" selected>5m &middot; measured</option><option value="15m">15m &middot; loses</option><option value="1h">1H &middot; thin</option><option value="1m">1m</option></select>
         </div>
-        <div class="ocp-field">
-          <label for="oc-high-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Strikes in the money</label>
-          <select id="oc-high-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Four strikes in the money is where the five-year audit put the only surviving book — deeper carries less time value to lose."><option value="2">ATM&minus;2</option><option value="4" selected>ATM&minus;4 &middot; measured</option><option value="6">ATM&minus;6</option></select>
+        <div class="ocp-field ocp-field-when">
+          <label for="oc-high-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying &middot; strikes in the money</label>
+          <div style="display:flex;gap:8px;">
+            <select id="oc-high-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="nifty">NIFTY</option><option value="banknifty">BankNifty</option></select>
+            <select id="oc-high-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;" title="Four strikes in the money is where the five-year audit put the only surviving book."><option value="2">ATM&minus;2</option><option value="4" selected>ATM&minus;4 &middot; measured</option><option value="6">ATM&minus;6</option></select>
+          </div>
         </div>
-        <div class="ocp-field ocp-field-actions ocp-actions">
+        <div class="ocp-field ocp-field-actions">
           <button id="oc-high-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
           <button id="oc-high-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
         </div>
@@ -3356,27 +3357,29 @@
 
       <details id="oc-high-advanced" class="ocp-advanced">
         <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-high-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
-        <div class="ocp-grid" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;align-items:end;">
-          <div class="ocp-field">
+        <div class="ocp-advanced-body">
+        <div class="ocp-switch-grid">
+          <div>
             <label for="oc-high-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Ladder shape</label>
             <select id="oc-high-mode" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="ladder">Ladder &mdash; re-arm after every stop</option><option value="fib-zone">Fib zones &mdash; 2-2 and 4-4 only</option></select>
           </div>
-          <div class="ocp-field">
+          <div>
             <label for="oc-high-sl-source" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Stop sits on</label>
             <select id="oc-high-sl-source" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="entry" selected>Entry candle low</option><option value="previous">Previous candle low</option><option value="ultimate">Lowest low since the mother</option></select>
           </div>
-          <div class="ocp-field">
+          <div>
             <label for="oc-high-lots" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots per rung</label>
             <select id="oc-high-lots" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"><option value="1,2" selected>1 then 2</option><option value="1,1">1 flat</option><option value="1,2,3">1, 2, 3</option></select>
           </div>
-          <div class="ocp-field">
+          <div>
             <label for="oc-high-horizon" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Horizon (sessions)</label>
             <input id="oc-high-horizon" type="number" min="1" max="30" value="10" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
           </div>
-          <div class="ocp-field">
+          <div>
             <label for="oc-high-margin" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Margin over losses &#8377;</label>
             <input id="oc-high-margin" type="number" min="0" step="100" value="500" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
           </div>
+        </div>
         </div>
       </details>
 
@@ -3392,7 +3395,7 @@
         </div>
       </div>
       <div id="oc-high-status" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
-    </div>
+      </div><!-- /ocp-pane-form -->
     <section id="oc-high-monitor" class="ocp-pane ocp-pane-live ocp-monitor" aria-live="polite" aria-label="High Entry paper campaign monitor">
       <div class="ocp-monitor-head">
         <div>
@@ -3416,7 +3419,8 @@
         </table></div>
       </div>
     </section>
-    </div><!-- /ocp-panes -->
+      </div><!-- /ocp-panes -->
+    </div><!-- /card -->
 
     <div id="oc-high-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="High Entry campaign chart">
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
