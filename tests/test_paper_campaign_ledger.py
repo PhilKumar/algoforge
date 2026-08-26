@@ -152,6 +152,68 @@ class LedgerWriteTests(unittest.IsolatedAsyncioTestCase):
         app_module._db_mod.save_paper_campaign = boom
         await app_module._archive_paper_campaign(self.USER, "candle_entry", LOST_CAMPAIGN)
 
+    async def test_gap_carry_reads_the_shape_the_engine_reports(self):
+        """The real 25-Aug night, exactly as get_status() hands it over.
+
+        A position is persisted FLAT (entry_premium, exit_timestamp, charges) and
+        reported NESTED (entry.premium, exit.timestamp, charges). Reading one
+        with the other's names fails silently -- the money still lands, so the
+        row looks right while closed_at and the charges come back empty, which
+        is what happened to this night the first time it was archived.
+        """
+        night = {
+            "session": "2026-08-25",
+            "side": "CE",
+            "strike": 24050,
+            "expiry": "2026-09-01",
+            "lots": 1,
+            "lot_size": 65,
+            "quantity": 65,
+            "entry": {
+                "timestamp": "2026-08-25T15:10:00+05:30",
+                "spot": 24260.15,
+                "premium": 332.7,
+                "capital": 21625.5,
+            },
+            "exit": {
+                "timestamp": "2026-08-26T09:20:18.504506+05:30",
+                "spot": 24260.15,
+                "premium": 381.25,
+                "reason": "MORNING_EXIT",
+                "priced": True,
+            },
+            "charges": 92.43,
+            "gross": 3155.75,
+            "net": 3063.32,
+            "open": False,
+        }
+        await app_module._archive_gap_carry_nights(self.USER, {"status": "CLOSED", "history": [night]})
+        self.assertEqual(len(self.saved), 1)
+        row = self.saved[0][1]
+        self.assertEqual(row["net_pnl"], 3063.32)
+        self.assertEqual(row["gross_pnl"], 3155.75)
+        # The three that came back empty when the names were wrong:
+        self.assertEqual(row["closed_at"], "2026-08-26T09:20:18.504506+05:30")
+        self.assertEqual(row["costs_total"], 92.43)
+        self.assertEqual(row["opened_at"], "2026-08-25T15:10:00+05:30")
+        self.assertEqual(row["deployed_inr"], 21625.5)
+        self.assertEqual(row["exit_reason"], "MORNING_EXIT")
+
+    async def test_a_night_settled_at_intrinsic_says_so(self):
+        night = {
+            "session": "2026-08-27",
+            "side": "CE",
+            "strike": 24100,
+            "lots": 1,
+            "entry": {"timestamp": "2026-08-27T15:10:00+05:30", "premium": 100.0, "capital": 6500.0},
+            "exit": {"timestamp": "2026-08-28T09:20:00+05:30", "premium": 40.0, "reason": None, "priced": False},
+            "charges": 12.0,
+            "gross": -3900.0,
+            "net": -3912.0,
+        }
+        await app_module._archive_gap_carry_nights(self.USER, {"status": "CLOSED", "history": [night]})
+        self.assertEqual(self.saved[0][1]["exit_reason"], "at intrinsic")
+
     async def test_gap_carry_archives_each_closed_night(self):
         status = {
             "status": "HOLDING",

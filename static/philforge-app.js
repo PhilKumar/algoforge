@@ -4383,6 +4383,39 @@ function _syncFibLevelsHint() {
 // Read off Dhan's own scrip master (2026-08-05) and the premium sources that
 // actually exist. NSE withdrew the BANKNIFTY/FINNIFTY/MIDCPNIFTY weeklies, so
 // "current week" cannot mean anything on those three.
+// The rule in one line, as every other strategy states it, refreshed whenever a
+// control changes. The advanced-state chip compares against the DEFAULTS the
+// form ships with, not against any one published book -- a changed switch says
+// so, an untouched fold says nothing loud.
+function _syncFibBoundaryRecipe() {
+  const el = id => document.getElementById(id);
+  const recipe = el('oc-fib-recipe');
+  if (!recipe) return;
+  const tf = el('oc-fib-timeframe')?.getAttribute('data-value') || '1m';
+  const side = el('oc-fib-side')?.value || 'CE';
+  const buy = el('oc-fib-buy-mode')?.value || 'levels';
+  const session = el('oc-fib-session')?.value || 'intraday';
+  const target = el('oc-fib-target-mode')?.value || 'fixed';
+  const ramp = el('oc-fib-lot-ramp')?.value || 'same';
+  const deep = el('oc-fib-deep-carry')?.value || 'close';
+  const itm = Number(el('oc-fib-itm')?.value ?? 2);
+  const cap = Number(el('oc-fib-capital-cap')?.value || 75000);
+  const auto = typeof _fibMotherMode === 'function' && _fibMotherMode() === 'auto';
+  const strike = itm > 0 ? `ATM−${itm} ITM` : itm < 0 ? `ATM+${-itm} OTM` : 'ATM';
+  recipe.textContent =
+    `${tf} mother${auto ? ' · auto 09:15 daily' : ''} · fibs off the swing, buys ` +
+    `${buy === 'levels' ? 'every level' : 'where two fibs meet'} on the way down · ` +
+    `${side} ${strike} · ${target} target · ` +
+    `${session === 'intraday' ? 'out by 15:15' : 'carries to target or expiry'} · ` +
+    `${ramp === 'ramp' ? 'lots 1·2·3' : '1 lot a buy'} · cap ₹${cap.toLocaleString('en-IN')}`;
+  const state = el('oc-fib-advanced-state');
+  if (state) {
+    const untouched = side === 'CE' && buy === 'levels' && session === 'intraday'
+      && target === 'fixed' && ramp === 'same' && deep === 'close' && itm === 2 && tf === '1m';
+    state.textContent = untouched ? 'rule as set' : 'changed from defaults';
+  }
+}
+
 function pickFibTimeframe(event, el) {
   const btn = el || event?.currentTarget;
   const row = document.getElementById('oc-fib-timeframe');
@@ -4390,6 +4423,7 @@ function pickFibTimeframe(event, el) {
   row.dataset.value = btn.getAttribute('data-tf') || '1m';
   row.querySelectorAll('.oc-fib-tf').forEach(b => b.classList.toggle('is-active', b === btn));
   _syncFibLevelsHint();
+  _syncFibBoundaryRecipe();
 }
 
 // The picker is a button row, so `.value` no longer exists on it.
@@ -4522,6 +4556,15 @@ async function initOptionsCascadePage() {
     _storedView(PF_VIEW_STATE.fibBoundaryMotherMode, ['manual', 'auto'], 'manual'),
     { persist: false },
   );
+  ['oc-fib-side', 'oc-fib-itm', 'oc-fib-symbol', 'oc-fib-capital-cap'].forEach(id => {
+    const node = document.getElementById(id);
+    if (node && !node._fibRecipeBound) {
+      node._fibRecipeBound = true;
+      node.addEventListener('change', _syncFibBoundaryRecipe);
+      node.addEventListener('input', _syncFibBoundaryRecipe);
+    }
+  });
+  _syncFibBoundaryRecipe();
   ['oc-fib-symbol', 'oc-fib-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel && !sel._fibHintBound) {
@@ -5525,6 +5568,7 @@ function setFibBoundaryMode(_event, button) {
   _syncFibModeHint();
   _syncFibLevelsHint();
   _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+  _syncFibBoundaryRecipe();
 }
 
 // Every level of every fib, or only where two fibs' levels meet. One engine
@@ -5544,6 +5588,7 @@ function setFibBoundaryBuyMode(_event, button) {
     });
   }
   _syncFibLevelsHint();
+  _syncFibBoundaryRecipe();
 }
 
 // THE AUTO MOTHER (Phil, 2026-08-19). Manual: you pick the mother. Auto: the
@@ -5571,6 +5616,7 @@ function _applyFibBoundaryMotherMode(value, options = {}) {
   if (options.persist !== false) _setLocalState(PF_VIEW_STATE.fibBoundaryMotherMode, mode);
   _syncFibMotherModeRow();
   _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+  _syncFibBoundaryRecipe();
 }
 
 function _fibMotherMode() {
@@ -5709,6 +5755,7 @@ function setFibBoundarySession(_event, button) {
     });
   }
   _syncFibLevelsHint();
+  _syncFibBoundaryRecipe();
 }
 
 function _fibIntradayClose() {
@@ -5731,6 +5778,7 @@ function setFibBoundaryDeepCarry(_event, button) {
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
+  _syncFibBoundaryRecipe();
 }
 
 function _fibDeepCarry() {
@@ -5753,6 +5801,7 @@ function setFibBoundaryLotRamp(_event, button) {
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
+  _syncFibBoundaryRecipe();
 }
 
 function _fibLotRamp() {
@@ -5773,6 +5822,7 @@ function setFibBoundaryTarget(_event, button) {
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
+  _syncFibBoundaryRecipe();
 }
 
 function _fibTrailingTarget() {

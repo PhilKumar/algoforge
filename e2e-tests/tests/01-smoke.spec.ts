@@ -1219,6 +1219,11 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
 
   await expect(page.locator('#oc-tab-fib')).toBeVisible();
 
+  // The rule switches live in the Advanced fold now, as they do on every other
+  // strategy panel (Phil, 2026-08-26: uniformity across all four) -- open it
+  // before touching them.
+  await page.evaluate(() => { const d = document.getElementById('oc-fib-advanced') as HTMLDetailsElement; if (d) d.open = true; });
+
   // All five instruments Phil asked for, NIFTY first.
   await expect(page.locator('#oc-fib-symbol option')).toHaveCount(5);
   await expect(page.locator('#oc-fib-symbol')).toHaveValue('NIFTY');
@@ -1652,6 +1657,10 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // Fib Boundary and Fib Space became ONE engine on 2026-08-15. The switch was
   // built into it and wired to nothing -- the page could only ever start one of
   // the two halves.
+  // The rule switches live in the Advanced fold now, as they do on every other
+  // strategy panel (Phil, 2026-08-26: uniformity across all four) -- open it
+  // before touching them.
+  await page.evaluate(() => { const d = document.getElementById('oc-fib-advanced') as HTMLDetailsElement; if (d) d.open = true; });
   await expect(page.locator('#oc-fib-buy-mode')).toHaveValue('levels');
   await expect(page.locator('#oc-fib-levels-hint')).toContainText('L2·L3·L4·L6·L8·L12·L16');
   await page.click('#oc-fib-buy-mode-toggle [data-value="convergence"]');

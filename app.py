@@ -1944,18 +1944,23 @@ async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> 
             continue
         entry = night.get("entry") or {}
         exit_row = night.get("exit") or {}
+        # THE KEYS ARE as_dict's, NOT to_dict's. The position is persisted FLAT
+        # (entry_premium, exit_timestamp, charges) but reported NESTED, and
+        # reading one shape with the other's names is silent: the money still
+        # arrived, so the row looked right while its closed_at and its charges
+        # came back empty. `timestamp`, not `at`; `charges`, not `costs`.
         row = {
             "campaign_key": session,
             "symbol": str(night.get("symbol") or "NIFTY"),
             "contract": f"{night.get('strike', '')} {night.get('side') or 'CE'}",
-            "opened_at": entry.get("at") or session,
-            "closed_at": exit_row.get("at"),
+            "opened_at": entry.get("timestamp") or session,
+            "closed_at": exit_row.get("timestamp"),
             "status": "CLOSED",
             "exit_reason": exit_row.get("reason") or ("at intrinsic" if exit_row.get("priced") is False else None),
             "buys": 1,
-            "deployed_inr": None,
+            "deployed_inr": entry.get("capital"),
             "gross_pnl": night.get("gross"),
-            "costs_total": night.get("costs"),
+            "costs_total": night.get("charges"),
             "net_pnl": night.get("net"),
             "source": "live",
             "payload": dict(night),

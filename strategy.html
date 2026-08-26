@@ -2462,9 +2462,11 @@
   <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
       <div class="ocp-head">
-        <h3 style="margin:0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
+        <div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#38bdf8;">TRENDLINES + FIBS &middot; LADDER DOWN &middot; OUT 3:15</div>
+        <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3></div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="ocp-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a><span id="oc-fib-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       </div>
+      <div id="oc-fib-recipe" class="ocp-recipe" aria-live="polite"></div>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
            the code's own numbers, and the losing measurement stated as
@@ -2597,42 +2599,39 @@
          Fib boundary is different from other strategy panels"). -->
     <div class="ocp-panes">
       <div class="ocp-pane ocp-pane-form">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
-          <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
-          <span id="oc-fib-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
-        </div>
-        <!-- THE AUTO MOTHER (Phil, 2026-08-19): the 09:15 5m candle is the
-             mother every session; a broken mother is replaced by the breakout
-             candle the same day; tomorrow starts itself. Measured 23 months
-             before it was built -- see the ⓘ. -->
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother</label>
-        <input type="hidden" id="oc-fib-mother-mode" value="manual">
-        <div id="oc-fib-mother-mode-toggle" class="scalp-toggle compact" style="width:100%;margin-bottom:10px;" role="radiogroup" aria-label="How the mother is chosen">
-          <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="manual" data-pf-action="setFibBoundaryMotherMode" role="radio" title="You pick the mother candle" aria-checked="true"><span>✎ Manual</span></button>
-          <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="auto" data-pf-action="setFibBoundaryMotherMode" role="radio" title="Every session: the 09:15 5m candle is the mother; a broken mother is replaced by the breakout candle; out by 15:15; tomorrow starts itself" aria-checked="false"><span>⟳ Auto · 09:15 daily</span></button>
-        </div>
-        <div id="oc-fib-mother-manual-row">
-        <label for="oc-fib-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:0 0 4px;">Mother timestamp · IST</label>
-        <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
-             made a 1m mother impossible to type. -->
-        <input id="oc-fib-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label for="oc-fib-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="oc-fib-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div class="oc-fib-rule-only"><label for="oc-fib-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="oc-fib-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option><option value="-1">ATM + 1 (OTM)</option><option value="-2">ATM + 2 (OTM)</option></select></div>
-        </div>
-        <!-- Phil, 2026-08-18: mother timestamp, ladder cap and ITM steps first -- they are what he types; the switches below are settings. -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-          <div class="oc-fib-rule-only">
-            <label for="oc-fib-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
-            <select id="oc-fib-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
-              <option value="CE" selected>Buy CE</option>
-              <option value="PE">Buy PE</option>
-            </select>
+        <div class="ocp-essentials">
+          <div class="ocp-field ocp-field-mode">
+            <!-- THE AUTO MOTHER (Phil, 2026-08-19): the 09:15 5m candle is the
+                 mother every session; a broken mother is replaced by the breakout
+                 candle the same day; tomorrow starts itself. Measured 23 months
+                 before it was built -- see the ⓘ. -->
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother</label>
+            <input type="hidden" id="oc-fib-mother-mode" value="manual">
+            <div id="oc-fib-mother-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="How the mother is chosen">
+              <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="manual" data-pf-action="setFibBoundaryMotherMode" role="radio" title="You pick the mother candle" aria-checked="true"><span>✎ Manual</span></button>
+              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="auto" data-pf-action="setFibBoundaryMotherMode" role="radio" title="Every session: the 09:15 5m candle is the mother; a broken mother is replaced by the breakout candle; out by 15:15; tomorrow starts itself" aria-checked="false"><span>⟳ Auto · 09:15</span></button>
+            </div>
           </div>
-          <div>
+          <div class="ocp-field">
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+            <!-- The Scalp page's toggle, which is what Phil asked for on
+                 2026-08-15: paper to live and back, no separate arming step and
+                 no password + authenticator challenge. -->
+            <input type="hidden" id="oc-fib-mode" value="paper">
+            <div id="oc-fib-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+              <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
+              <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
+            </div>
+          </div>
+          <div id="oc-fib-mother-manual-row" class="ocp-field ocp-field-when" style="grid-column:1 / -1;">
+            <label for="oc-fib-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label>
+            <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
+                 made a 1m mother impossible to type. -->
+            <input id="oc-fib-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
+          </div>
+          <div class="ocp-field">
             <label for="oc-fib-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
-            <select id="oc-fib-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+            <select id="oc-fib-symbol" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
               <option value="NIFTY" selected>NIFTY · 65/lot</option>
               <option value="BANKNIFTY">BANKNIFTY · 30/lot</option>
               <option value="FINNIFTY">FINNIFTY · 60/lot</option>
@@ -2640,90 +2639,106 @@
               <option value="SENSEX">SENSEX · 20/lot</option>
             </select>
           </div>
+          <div class="ocp-field">
+            <label for="oc-fib-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label>
+            <input id="oc-fib-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:9px 11px;box-sizing:border-box;font:13px 'JetBrains Mono',monospace;">
+          </div>
+          <div class="ocp-field ocp-field-actions ocp-actions">
+            <button id="oc-fib-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button>
+            <button id="oc-fib-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest</button>
+          </div>
         </div>
         <div id="oc-fib-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div class="oc-fib-rule-only">
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother chart</label>
-            <div id="oc-fib-timeframe" class="oc-fib-tf-row" role="group" aria-label="Mother chart" data-value="1m" title="The chart the mother candle is read on. Touches are always watched on 1m.">
-              <button type="button" class="oc-fib-tf is-active" data-pf-action="pickFibTimeframe" data-tf="1m">1m</button>
-              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="5m">5m</button>
-              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="15m">15m</button>
-              <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="1h">1H</button>
+        <details id="oc-fib-advanced" class="ocp-advanced">
+          <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-fib-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
+          <div class="ocp-advanced-body">
+            <div style="margin-bottom:8px;font:10px 'JetBrains Mono',monospace;color:var(--muted);">Levels this rule buys: <span id="oc-fib-levels-hint" style="color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span></div>
+            <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
+            <div class="ocp-switch-grid oc-fib-rule-only">
+              <div>
+                <label for="oc-fib-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
+                <select id="oc-fib-side" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+                  <option value="CE" selected>Buy CE</option>
+                  <option value="PE">Buy PE</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother chart</label>
+                <div id="oc-fib-timeframe" class="oc-fib-tf-row" role="group" aria-label="Mother chart" data-value="1m" title="The chart the mother candle is read on. Touches are always watched on 1m.">
+                  <button type="button" class="oc-fib-tf is-active" data-pf-action="pickFibTimeframe" data-tf="1m">1m</button>
+                  <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="5m">5m</button>
+                  <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="15m">15m</button>
+                  <button type="button" class="oc-fib-tf" data-pf-action="pickFibTimeframe" data-tf="1h">1H</button>
+                </div>
+              </div>
+              <div>
+                <label for="oc-fib-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label>
+                <select id="oc-fib-itm" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
+                  <option value="2" selected>ATM − 2 (ITM)</option>
+                  <option value="1">ATM − 1</option>
+                  <option value="0">ATM</option>
+                  <option value="-1">ATM + 1 (OTM)</option>
+                  <option value="-2">ATM + 2 (OTM)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
+                <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
+                     on 2026-08-15: same trendlines, same fibs, and this decides
+                     whether every level of every fib is a rung, or only the places
+                     where two fibs' levels meet. -->
+                <input type="hidden" id="oc-fib-buy-mode" value="levels">
+                <div id="oc-fib-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
+                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
+                <!-- Phil, 2026-08-16: "I need intraday close at 3:15 and normal
+                     option to be selected from console UI." -->
+                <input type="hidden" id="oc-fib-session" value="intraday">
+                <div id="oc-fib-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
+                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
+                </div>
+              </div>
+              <div id="oc-fib-deep-carry-row">
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Intraday only. A ladder that has bought MORE than 4 rungs by 15:15 without reaching its target can be held to the next day's 15:15. Off by default: measured Oct 2024–Aug 2026 it lost more on every chart and both sides. Try it per campaign if you want.">Deep ladder · &gt;4 rungs at 3:15</label>
+                <!-- Phil, 2026-08-18: "Make it permanent and if I wanted to close it as
+                     an intraday, allow me to close it." Built, then measured again
+                     without the look-ahead the first replay had: it loses. Default is
+                     close; the switch is his. -->
+                <input type="hidden" id="oc-fib-deep-carry" value="close">
+                <div id="oc-fib-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
+                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="Sell at 15:15 whatever the depth" aria-checked="true"><span>⏱ Close 3:15</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="A basket with more than 4 rungs bought is held to the next day's 15:15" aria-checked="false"><span>⇢ Hold a day</span></button>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Fixed: the basket is sold when the index reaches the target (a quarter of the way back to the mother; half once L4 or deeper has filled). Trailing: reaching the target only ARMS a trail — the basket rides on and is sold when a 1m candle CLOSES one fib span below the best price seen since. Trailing is the running rule: 5m CE, Oct 2024–Aug 2026, out at 15:15, at most 4 buys — NIFTY +₹92,658, SENSEX +₹1,19,063; fixed lost.">Target</label>
+                <!-- Phil, 2026-08-18: "add the trailing target option to the form". -->
+                <input type="hidden" id="oc-fib-target-mode" value="fixed">
+                <div id="oc-fib-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
+                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" title="Sell the basket when the index reaches the target" aria-checked="true"><span>◎ Fixed</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" title="Reaching the target arms a trail; sold when a 1m close gives back one fib span from the best" aria-checked="false"><span>↗ Trailing</span></button>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Same: every buy is one lot. Ramp: the first buy takes 1 lot, the second 2, the third 3 — the deeper, cheaper turns carry more of the basket. Measured 18 Aug 2026 at ₹75,000 with at most 3 buys: NIFTY +₹1,24,315 against a deeper drawdown of −₹77,748; SENSEX gained nothing. The running rule is Same.">Lots per buy</label>
+                <!-- Phil, 2026-08-18: "incrementing 1 lot on each level with max 3"; put
+                     on the form 2026-08-20. The engine has carried `lot_ramp` since the
+                     measurement; nothing but this control is new. -->
+                <input type="hidden" id="oc-fib-lot-ramp" value="same">
+                <div id="oc-fib-lot-ramp-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots per buy">
+                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="same" data-pf-action="setFibBoundaryLotRamp" role="radio" title="Every buy is one lot — the measured rule" aria-checked="true"><span>≡ Same</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="ramp" data-pf-action="setFibBoundaryLotRamp" role="radio" title="1 lot, then 2, then 3 — deeper buys carry more" aria-checked="false"><span>▲ 1·2·3</span></button>
+                </div>
+              </div>
             </div>
           </div>
-          <div>
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-            <!-- The Scalp page's toggle, which is what Phil asked for on
-                 2026-08-15: paper to live and back, no separate arming step and
-                 no password + authenticator challenge. -->
-            <input type="hidden" id="oc-fib-mode" value="paper">
-            <div id="oc-fib-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
-              <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>▣ Paper</span></button>
-              <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
-            </div>
-          </div>
-        </div>
-        <!-- Two switches a row (Phil, 2026-08-18: "Make 2 in a row... not one in a row with 4 rows"). -->
-        <div class="ocp-switch-grid oc-fib-rule-only">
-        <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">What it buys</label>
-          <!-- THE MERGE'S SWITCH. Fib Boundary and Fib Space became one engine
-               on 2026-08-15: same trendlines, same fibs, and this decides
-               whether every level of every fib is a rung, or only the places
-               where two fibs' levels meet. The engine has taken it since
-               fcdfb34 and nothing outside a test could reach it until now. -->
-          <input type="hidden" id="oc-fib-buy-mode" value="levels">
-          <div id="oc-fib-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Session</label>
-          <!-- Phil, 2026-08-16: "I need intraday close at 3:15 and normal
-               option to be selected from console UI." -->
-          <input type="hidden" id="oc-fib-session" value="intraday">
-          <div id="oc-fib-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
-          </div>
-        </div>
-        <div id="oc-fib-deep-carry-row">
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Intraday only. A ladder that has bought MORE than 4 rungs by 15:15 without reaching its target can be held to the next day's 15:15. Off by default: measured Oct 2024–Aug 2026 it lost more on every chart and both sides. Try it per campaign if you want.">Deep ladder · &gt;4 rungs at 3:15</label>
-          <!-- Phil, 2026-08-18: "Make it permanent and if I wanted to close it as
-               an intraday, allow me to close it." Built, then measured again
-               without the look-ahead the first replay had: it loses. Default is
-               close; the switch is his. -->
-          <input type="hidden" id="oc-fib-deep-carry" value="close">
-          <div id="oc-fib-deep-carry-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Deep ladder at 3:15">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="close" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="Sell at 15:15 whatever the depth" aria-checked="true"><span>⏱ Close 3:15</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="hold" data-pf-action="setFibBoundaryDeepCarry" role="radio" title="A basket with more than 4 rungs bought is held to the next day's 15:15" aria-checked="false"><span>⇢ Hold a day</span></button>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Fixed: the basket is sold when the index reaches the target (a quarter of the way back to the mother; half once L4 or deeper has filled). Trailing: reaching the target only ARMS a trail — the basket rides on and is sold when a 1m candle CLOSES one fib span below the best price seen since. Trailing is the running rule: 5m CE, Oct 2024–Aug 2026, out at 15:15, at most 4 buys — NIFTY +₹92,658, SENSEX +₹1,19,063; fixed lost.">Target</label>
-          <!-- Phil, 2026-08-18: "add the trailing target option to the form". -->
-          <input type="hidden" id="oc-fib-target-mode" value="fixed">
-          <div id="oc-fib-target-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Target rule">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="fixed" data-pf-action="setFibBoundaryTarget" role="radio" title="Sell the basket when the index reaches the target" aria-checked="true"><span>◎ Fixed</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="trailing" data-pf-action="setFibBoundaryTarget" role="radio" title="Reaching the target arms a trail; sold when a 1m close gives back one fib span from the best" aria-checked="false"><span>↗ Trailing</span></button>
-          </div>
-        </div>
-        <div class="oc-fib-rule-only">
-          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;" title="Same: every buy is one lot. Ramp: the first buy takes 1 lot, the second 2, the third 3 — the deeper, cheaper turns carry more of the basket. Measured 18 Aug 2026 at ₹75,000 with at most 3 buys: NIFTY +₹1,24,315 against a deeper drawdown of −₹77,748; SENSEX gained nothing. The running rule is Same.">Lots per buy</label>
-          <!-- Phil, 2026-08-18: "incrementing 1 lot on each level with max 3"; put
-               on the form 2026-08-20. The engine has carried `lot_ramp` since the
-               measurement; nothing but this control is new. -->
-          <input type="hidden" id="oc-fib-lot-ramp" value="same">
-          <div id="oc-fib-lot-ramp-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots per buy">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="same" data-pf-action="setFibBoundaryLotRamp" role="radio" title="Every buy is one lot — the measured rule" aria-checked="true"><span>≡ Same</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="ramp" data-pf-action="setFibBoundaryLotRamp" role="radio" title="1 lot, then 2, then 3 — deeper buys carry more" aria-checked="false"><span>▲ 1·2·3</span></button>
-          </div>
-        </div>
-        </div>
+        </details>
         <div id="oc-fib-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
-        <div class="pf-cascade-campaign-actions ocp-form-actions"><button id="oc-fib-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="oc-fib-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="oc-fib-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
         <div id="oc-fib-blocked"></div>
         <div id="oc-fib-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
