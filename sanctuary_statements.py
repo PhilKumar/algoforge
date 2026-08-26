@@ -388,6 +388,17 @@ _NOT_A_LOAN_RE = re.compile(r"zerodha|clearing corp|mutual fund|cra-nsdl|nps|gro
 _LOAN_NUM_RE = re.compile(r"(\d{6,})")
 
 
+_SCHEME_TOKENS = {"ach", "nach", "ecs", "decs", "decs dr", "dr", "upi", "bil", "onl", "mmt", "imps", "tp"}
+
+
+def _lender_key(note: str) -> str:
+    for part in note.split("/"):
+        cleaned = re.sub(r"[^a-z ]", "", part.strip().lower()).strip()
+        if len(cleaned) >= 4 and cleaned not in _SCHEME_TOKENS:
+            return cleaned[:40]
+    return payee_key(note)
+
+
 def discover_loans(rows: list[dict], today: "datetime.date") -> list[dict]:
     """Find EMI-shaped streams in outflow rows: regular near-monthly debits
     of a steady amount to one loan account. Keyed on the LAST long number in
@@ -415,50 +426,115 @@ def discover_loans(rows: list[dict], today: "datetime.date") -> list[dict]:
             seen_numbers[number] = seen_numbers.get(number, 0) + 1
     groups: dict[str, list] = {}
     for row, numbers in loanish:
-        if numbers:
-            key = max(numbers, key=lambda n: (seen_numbers[n], len(n)))
+        best = max(numbers, key=lambda n: (seen_numbers[n], len(n))) if numbers else None
+        # A number that never repeats is a per-debit reference, not a loan
+        # account (the old Can Fin era stamped a fresh reference on all 68
+        # debits) — those rows key on the lender's name instead.
+        if best is not None and seen_numbers[best] >= 2:
+            key = best
         else:
-            key = payee_key(row["note"])
+            key = _lender_key(row["note"])
         groups.setdefault(key, []).append(row)
+    # The same lender's name arrives long and short across narration formats
+    # ("TP CAN FIN" / "TP CAN FIN HOMES LTD") — fold the shorter into the
+    # longer when one begins with the other.
+    for short in sorted([k for k in groups if not k.isdigit()], key=len):
+        for long in sorted([k for k in groups if not k.isdigit() and k != short], key=len, reverse=True):
+            if len(short) >= 6 and long.startswith(short):
+                groups[long] += groups.pop(short)
+                break
 
     candidates = []
     for key, items in groups.items():
         if len(items) < 4:
             continue
         items.sort(key=lambda r: r["entry_date"])
-        amounts = [r["amount"] for r in items]
-        med = statistics.median(amounts)
-        if med < 500:
-            continue
-        dates = [_dt.strptime(r["entry_date"], "%Y-%m-%d").date() for r in items]
-        gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
-        if not gaps or not 20 <= statistics.median(gaps) <= 45:
-            continue
-        if statistics.median(abs(a - med) for a in amounts) / med > 0.35:
-            continue
-        lender = ""
-        for part in items[-1]["note"].split("/"):
-            cleaned = part.strip()
-            if (
-                cleaned
-                and not cleaned.isdigit()
-                and cleaned.upper() not in ("ACH", "NACH", "ECS", "TP", "UPI", "BIL", "ONL")
-            ):
-                lender = cleaned[:60]
-                break
-        candidates.append(
-            {
-                "key": key,
-                "lender": lender,
-                "count": len(items),
-                "emi": round(med, 2),
-                "first": items[0]["entry_date"],
-                "last": items[-1]["entry_date"],
-                "closed": (today - dates[-1]).days > 75,
-                "debits": [{"due_date": r["entry_date"], "amount": r["amount"]} for r in items],
-                "sample": items[-1]["note"][:120],
-            }
-        )
+        # One mandate can carry several truths at once: two loans running in
+        # parallel at different EMIs, a bulk closure payment, a refund. So
+        # the debits cluster by AMOUNT LEVEL first — each steady level is a
+        # candidate stream of its own — and levels too small to be a loan
+        # (the one-off bulk payment) fall away.
+        levels: list[list[dict]] = []
+        for row in sorted(items, key=lambda r: r["amount"]):
+            placed = next(
+                (
+                    lvl
+                    for lvl in levels
+                    if abs(row["amount"] - statistics.median(x["amount"] for x in lvl))
+                    <= 0.35 * max(statistics.median(x["amount"] for x in lvl), 1)
+                ),
+                None,
+            )
+            (placed.append(row) if placed else levels.append([row]))
+        level_cands = []
+        for level in levels:
+            if len(level) < 4:
+                continue
+            level.sort(key=lambda r: r["entry_date"])
+            med = statistics.median(r["amount"] for r in level)
+            if med < 500:
+                continue
+            dates = [_dt.strptime(r["entry_date"], "%Y-%m-%d").date() for r in level]
+            gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+            if not gaps or not 20 <= statistics.median(gaps) <= 45:
+                continue
+            level_cands.append({"items": level, "emi": med, "first": dates[0], "last": dates[-1]})
+        # Two levels that never overlap in time and sit within 90 days of
+        # each other are one loan whose EMI was rewritten (a restructure, a
+        # moratorium reset). Levels that overlap ran side by side: two loans.
+        level_cands.sort(key=lambda c: c["first"])
+        joined: list[dict] = []
+        for cand in level_cands:
+            prev = next(
+                (j for j in joined if 0 <= (cand["first"] - j["last"]).days <= 90),
+                None,
+            )
+            if prev:
+                prev["items"] += cand["items"]
+                prev["emi"] = cand["emi"]
+                prev["last"] = cand["last"]
+            else:
+                joined.append(cand)
+        for cand in joined:
+            items = sorted(cand["items"], key=lambda r: r["entry_date"])
+            med = cand["emi"]
+            _emit(candidates, key, items, med, today)
+    return _merge_and_sort(candidates)
+
+
+def _emit(candidates: list, key: str, items: list[dict], med: float, today) -> None:
+    from datetime import datetime as _dt
+
+    dates = [_dt.strptime(r["entry_date"], "%Y-%m-%d").date() for r in items]
+    lender = ""
+    for part in items[-1]["note"].split("/"):
+        cleaned = part.strip()
+        if (
+            cleaned
+            and not cleaned.isdigit()
+            and cleaned.upper() not in ("ACH", "NACH", "ECS", "TP", "UPI", "BIL", "ONL")
+        ):
+            lender = cleaned[:60]
+            break
+    candidates.append(
+        {
+            "key": key,
+            "lender": lender,
+            "count": len(items),
+            "emi": round(med, 2),
+            "first": items[0]["entry_date"],
+            "last": items[-1]["entry_date"],
+            "closed": (today - dates[-1]).days > 75,
+            "debits": [{"due_date": r["entry_date"], "amount": r["amount"]} for r in items],
+            "sample": items[-1]["note"][:120],
+        }
+    )
+
+
+def _merge_and_sort(candidates: list[dict]) -> list[dict]:
+    import statistics  # noqa: F401 - parallel to discover_loans' imports
+    from datetime import datetime as _dt
+
     # One loan, two narration eras: same money, spans that touch — merge.
     candidates.sort(key=lambda c: c["first"])
     merged: list[dict] = []

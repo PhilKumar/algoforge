@@ -441,6 +441,52 @@ class LoanDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(found), 1, "one loan, not two")
         self.assertEqual(found[0]["count"], 11)
 
+    def test_unrepeating_references_fall_back_to_the_lender_name(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        # Every debit carries a fresh reference; the lender's name, long and
+        # short across formats, is the only constant. 68 such debits were
+        # invisible until the name became the key.
+        rows = self.rows(
+            [
+                (f"DECS DR/{6631286928 + i * 7}/TP LENDER CO", f"2017-{m:02d}-10", 20600.0)
+                for i, m in enumerate(range(1, 7))
+            ]
+            + [
+                (f"ACH/TP LENDER CO HOMES LTD/{1573707511 + i * 999}", f"2017-{m:02d}-10", 20600.0)
+                for i, m in enumerate(range(7, 13))
+            ]
+        )
+        found = discover_loans(rows, date(2018, 6, 1))
+        self.assertEqual(len(found), 1, "two narration formats, one loan")
+        self.assertEqual(found[0]["count"], 12)
+
+    def test_parallel_loans_on_one_mandate_stay_two(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        rows = self.rows(
+            [("ACH/LENDER/556677889900", f"2024-{m:02d}-05", 20000.0) for m in range(1, 13)]
+            + [("ACH/LENDER/556677889900", f"2024-{m:02d}-15", 5000.0) for m in range(5, 13)]
+        )
+        found = discover_loans(rows, date(2025, 1, 1))
+        self.assertEqual(sorted((c["count"], c["emi"]) for c in found), [(8, 5000.0), (12, 20000.0)])
+
+    def test_a_restructured_emi_is_one_loan_ending_on_its_last_amount(self):
+        from datetime import date
+
+        from sanctuary_statements import discover_loans
+
+        rows = self.rows(
+            [("ACH/LENDER/556677889900", f"2019-{m:02d}-05", 20000.0) for m in range(1, 13)]
+            + [("ACH/LENDER/556677889900", f"2020-{m:02d}-05", 9000.0) for m in range(1, 13)]
+        )
+        found = discover_loans(rows, date(2021, 6, 1))
+        self.assertEqual([(c["count"], c["emi"]) for c in found], [(24, 9000.0)])
+
     def test_a_recent_stream_reads_as_running(self):
         from datetime import date
 
