@@ -2010,6 +2010,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'deleteCandleEntryBacktest',
   'toggleCandleEntryBacktestChart',
   'loadCandleEntryChart',
+  'openFrozenCampaignChart',
   'hideCandleEntryChart',
   'setCandleEntrySession',
   'setCandleEntryMother',
@@ -2886,6 +2887,52 @@ function _paperLedgerMoney(value) {
   return _candleEntrySigned(Number(value));
 }
 
+// A finished campaign, redrawn as it stood when it closed. It borrows the tab's
+// own chart overlay rather than opening a second kind of window, and the strip
+// offers no timeframe switch: this is a record, not a live chart.
+async function openFrozenCampaignChart(event, el) {
+  const node = el || event?.currentTarget;
+  const id = node?.getAttribute('data-campaign-id');
+  const strategy = node?.getAttribute('data-strategy') || 'candle_entry';
+  if (!id) return;
+  const overlay = document.getElementById('oc-candle-chart-overlay');
+  const chart = document.getElementById('oc-candle-chart');
+  const meta = document.getElementById('oc-candle-chart-meta');
+  const title = document.getElementById('oc-candle-chart-title');
+  if (!overlay || !chart) return;
+  _candleEntryCollapseBacktestChart();
+  pfSetCascadeChartOverlayOpen(overlay, true);
+  if (title) title.textContent = 'Closed campaign · frozen';
+  chart.innerHTML = '<div class="pf-cascade-chart-empty">Loading the closed campaign…</div>';
+  if (meta) meta.textContent = '';
+  const strip = document.getElementById('oc-candle-chart-strip');
+  if (strip) strip.innerHTML = '';
+  try {
+    const res = await fetch(`/api/paper-campaigns/${strategy}/${id}/chart`, {
+      credentials: 'same-origin', cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${res.status})`));
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    await pfWaitForCascadeChartLayout();
+    if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(chart, data.chart || {});
+    _candleEntryChartDrawnKey = '';
+    if (title) {
+      title.textContent = `Closed campaign · ${String(data.timeframe || '').toUpperCase()} · frozen`;
+    }
+    if (meta) {
+      const n = ((data.chart || {}).candles || []).length;
+      const net = data.net_pnl == null ? '' : ` · net ${_candleEntrySigned(Number(data.net_pnl))}`;
+      meta.textContent = `${n} closed candles · ${String(data.campaign_status || '').toLowerCase()}${net}`
+        + ' · as it stood when it closed';
+    }
+  } catch (error) {
+    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
+    chart.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Unable to load chart.')}</div>`;
+    if (meta) meta.textContent = 'Chart unavailable';
+  }
+}
+
 async function _refreshPaperLedger(strategy) {
   const ids = _PAPER_LEDGER_UI[strategy];
   if (!ids) return;
@@ -2916,6 +2963,16 @@ async function _refreshPaperLedger(strategy) {
       ? ' <span style="color:var(--warn);" title="Rebuilt from recorded option prices, not captured live">rebuilt</span>'
       : '';
     const when = (v) => (v ? escapeHtml(_cascadeOptionsTimestamp(v).slice(5, 16)) : '—');
+    // A CHART FOR A TRADE THAT IS OVER. Only where the campaign kept the engine
+    // it ended as -- a row rebuilt from prices has no ladder to draw, and is
+    // honest about that rather than offering a button that explains itself only
+    // after you press it.
+    const chartable = strategy === 'candle_entry' && row.has_chart;
+    const chartCell = chartable
+      ? `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
+        + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
+        + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`
+      : `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`
@@ -2924,6 +2981,7 @@ async function _refreshPaperLedger(strategy) {
       + `<td>${row.deployed_inr == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(row.deployed_inr)))}</td>`
       + `<td class="ocp-muted">${escapeHtml(String(row.exit_reason || row.status || '—'))}</td>`
       + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net))}</td>`
+      + `<td>${chartCell}</td>`
       + `</tr>`;
   }).join('');
 }
@@ -4584,6 +4642,37 @@ function _renderFibBoundaryStatus(payload) {
   }
   const autoWatching = Object.values(_lastFibBoundaryAuto || {}).some(row => row && row.enabled);
 
+  // THE LIVE STATE, on the badge every other strategy already had. Fib Boundary
+  // never carried one, so the run's state was the one thing the tab would not
+  // say (Phil, 2026-08-26: "The live status of the run is not displaying").
+  // It can hold several ladders at once, so the badge reports the LOUDEST:
+  // a running campaign beats an ended one, and an armed auto mother beats none.
+  const badge = document.getElementById('oc-fib-badge');
+  if (badge) {
+    const live = campaigns.filter(row => row && row.running);
+    const shown = live[0] || campaigns[0] || null;
+    const state = shown ? String(shown.status || 'waiting').replaceAll('_', ' ').toUpperCase() : '';
+    let text = 'IDLE';
+    let tone = null;
+    let colour = 'var(--muted)';
+    if (live.length) {
+      text = live.length > 1 ? `${state} · ${live.length} ladders` : state;
+      tone = 'info';
+      colour = '#6ee7b7';
+    } else if (shown) {
+      text = `ENDED · ${state}`;
+      tone = 'warning';
+      colour = 'var(--warn)';
+    } else if (autoWatching) {
+      text = 'AUTO · WATCHING';
+      tone = 'info';
+      colour = '#fde68a';
+    }
+    badge.textContent = text;
+    _cascadeSetTone(badge, tone);
+    badge.style.color = colour;
+  }
+
   const roots = _fibxPanelRoots(campaigns.map(row => String(row.symbol || 'NIFTY')));
   if (campaigns.length) campaigns.forEach(row => {
     const root = roots.get(String(row.symbol || 'NIFTY'));
@@ -6132,6 +6221,7 @@ function toggleFibBoundaryBacktestChart() {
 
 window.initOptionsCascadePage = initOptionsCascadePage;
 window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
+window.openFrozenCampaignChart = openFrozenCampaignChart;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;

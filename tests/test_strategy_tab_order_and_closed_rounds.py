@@ -53,9 +53,9 @@ class TabOrderTests(unittest.TestCase):
 
 
 class ClosedPaperTradesTests(unittest.TestCase):
-    def test_candle_entry_has_a_closed_rounds_table(self):
-        self.assertIn('id="candle-entry-closed-rounds"', HTML)
-        self.assertIn("Closed paper rounds", HTML)
+    def test_candle_entry_has_a_closed_campaigns_table(self):
+        self.assertIn('id="oc-candle-closed-rows"', HTML)
+        self.assertIn("Closed paper campaigns", HTML)
 
     def test_the_closed_table_reads_the_ledger_not_the_live_engine(self):
         """The engine holds only the CURRENT campaign; the next mother wipes it.
@@ -73,9 +73,9 @@ class ClosedPaperTradesTests(unittest.TestCase):
         self.assertIn("rebuilt", body)
 
     def test_every_strategy_tab_has_a_closed_table_wired_to_the_ledger(self):
-        for prefix in ("candle-entry", "fibx", "gap-carry"):
-            self.assertIn(f'id="{prefix}-closed-rounds"', HTML, prefix)
-            self.assertIn(f'id="{prefix}-closed-wrap"', HTML, prefix)
+        for prefix in ("oc-candle", "oc-fib", "oc-gap"):
+            self.assertIn(f'id="{prefix}-closed-rows"', HTML, prefix)
+            self.assertIn(f'id="{prefix}-closed"', HTML, prefix)
         for strategy in ("candle_entry", "fib_boundary", "gap_carry"):
             self.assertIn(f"_refreshPaperLedger('{strategy}')", APP_JS, strategy)
 

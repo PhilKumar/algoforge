@@ -1757,6 +1757,25 @@ async def save_paper_campaign(user_id: int, strategy: str, row: dict) -> bool:
         await db.close()
 
 
+async def get_paper_campaign(user_id: int, campaign_id: int) -> dict | None:
+    """One archived campaign, payload included, for redrawing its chart."""
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM paper_campaigns WHERE user_id = ? AND id = ?",
+            (int(user_id), int(campaign_id)),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return None
+        out = dict(row)
+        out["payload"] = _json_loads(out.get("payload"), {})
+        return out
+    finally:
+        await db.close()
+
+
 async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> list[dict]:
     db = await get_db()
     try:
@@ -1764,7 +1783,13 @@ async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> 
         async with db.execute(
             """SELECT id, campaign_key, symbol, contract, opened_at, closed_at,
                       status, exit_reason, buys, deployed_inr, gross_pnl,
-                      costs_total, net_pnl, source
+                      costs_total, net_pnl, source,
+                      -- Can this one be drawn? Only if it kept the engine it
+                      -- ended as; the payload itself is far too big to ship
+                      -- with a list that only needs to know yes or no.
+                      CASE WHEN json_valid(payload)
+                                AND json_extract(payload, '$.engine') IS NOT NULL
+                           THEN 1 ELSE 0 END AS has_chart
                FROM paper_campaigns
                WHERE user_id = ? AND strategy = ?
                ORDER BY COALESCE(closed_at, created_at) DESC, id DESC

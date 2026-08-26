@@ -2463,7 +2463,7 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
       <div class="ocp-head">
         <h3 style="margin:0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Fib Boundary <button type="button" class="pf-info-btn" data-pf-info="oc-fib-info" aria-expanded="false" aria-label="The complete strategy, as the engine runs it" title="The complete strategy, as the engine runs it">i</button></h3>
-        <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;"><a class="ocp-confirmed-link" href="/assets/tearsheet?doc=fib#auto-mother" data-pf-action="openFibTearsheet">Confirmed backtest &middot; 20 Aug 2026 &rarr;</a><span id="oc-fib-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       </div>
       <!-- The complete strategy, as engine/fib_touch_ladder.py runs it —
            the same doc standard as the Cash Cascade: numbered sections,
@@ -2590,8 +2590,13 @@
         </div><!-- /ta -->
       </div>
     </div>
-    <div class="cascade-options-workspace oc-fib-workspace">
-      <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
+    <!-- Two panes, as every other strategy has: the form on the left and
+         everything live on the right. This was a four-child grid, so the
+         monitor flowed UNDERNEATH the form instead of beside it, and the
+         column never collapsed on a narrow screen (Phil, 2026-08-26: "Why
+         Fib boundary is different from other strategy panels"). -->
+    <div class="ocp-panes">
+      <div class="ocp-pane ocp-pane-form">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
           <h3 style="margin:0;font-size:15px;">Start fib-boundary campaign</h3>
           <span id="oc-fib-levels-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">L2·L3·L4·L6·L8·L12·L16</span>
@@ -2724,6 +2729,8 @@
         <div id="oc-fib-status" style="min-height:18px;padding-top:5px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
       </div>
 
+      <div class="ocp-pane ocp-pane-live">
+
       <details id="oc-fib-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-fib-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-fib-backtest-contract" class="cascade-options-contract">Real fixed-strike premiums · CE and PE</div></div>
@@ -2747,7 +2754,8 @@
       <div id="oc-fib-rows" class="oc-fib-rows"><div id="oc-fib-auto-card" class="oc-fib-auto-card"></div></div>
       <div class="ocp-monitor-section" id="oc-fib-closed" hidden>
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
-        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
+        <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-fib-closed-rows"></tbody></table></div>
+      </div>
       </div>
     </div>
 
@@ -3010,7 +3018,7 @@
         <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-rows"></tbody></table></div></div>
         <div class="ocp-monitor-section" id="oc-candle-closed" hidden>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="oc-candle-closed-count"></span></div>
-          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
+          <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-candle-closed-rows"></tbody></table></div>
         </div>
         <details class="ocp-activity">
           <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-candle-event-count">0 updates</span></summary>
@@ -3213,7 +3221,7 @@
           <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-rows"></tbody></table></div></div>
           <div class="ocp-monitor-section" id="oc-gap-closed" hidden>
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="oc-gap-closed-count"></span></div>
-            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
+            <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-gap-closed-rows"></tbody></table></div>
           </div>
           <details class="ocp-activity">
             <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-gap-event-count">0 updates</span></summary>
