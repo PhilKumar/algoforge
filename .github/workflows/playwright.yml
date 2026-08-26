@@ -17,7 +17,10 @@ jobs:
   e2e-philforge:
     name: E2E — PhilForge
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The suite outgrew fifteen minutes on 2026-08-26: it was still running
+    # healthily at two seconds a test when the job was killed mid-file, which
+    # reads as "cancelled" and silently blocks every deploy.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
