@@ -2772,7 +2772,8 @@
            column's business: it belongs beneath the form AND the
            monitor, full width (Phil, 2026-08-26: "Closed paper rounds
            only must be under the form and monitor"). -->
-        <div class="ocp-monitor" id="oc-fib-closed">
+        <div id="oc-fib-events-host"></div>
+      <div class="ocp-monitor" id="oc-fib-closed">
         <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
         <div class="ocp-monitor-section">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-fib-closed-count"></span></div>
@@ -2823,17 +2824,25 @@
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px;"><span class="ocp-section-title" data-fx="rounds-title">Closed paper round · net P&amp;L</span><span data-fx="round-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 rounds</span></div>
           <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="border-bottom:1px solid var(--border-hi);color:var(--muted);text-transform:uppercase;letter-spacing:.55px;font-size:9px;"><th style="padding:8px;text-align:left;">Round</th><th style="padding:8px;text-align:right;">Qty</th><th style="padding:8px;text-align:right;">Avg entry</th><th style="padding:8px;text-align:right;">Exit</th><th style="padding:8px;text-align:right;">Gross</th><th style="padding:8px;text-align:right;">Costs</th><th style="padding:8px;text-align:right;">Net</th><th style="padding:8px;text-align:left;">Reason</th></tr></thead><tbody data-fx="rounds"><tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr></tbody></table></div>
         </div>
-        <!-- THE EVENT LOG FOLDS AWAY, like every other strategy's Activity.
-             Run inline under the closed round it read as one long unbroken
-             wall (Phil, 2026-08-26: "Make this nifty campaign events
-             separate"). Same ocp-activity fold Candle Entry and Gap Carry
-             already use, so the log is one press away instead of always
-             pushing the panel open. -->
-        <details class="ocp-activity" data-fx="events-fold" style="margin-top:14px;">
-          <summary class="ocp-activity-head"><h4 data-fx="events-title">Campaign events</h4><span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">CLOSED BARS</span></summary>
-          <div data-fx="events" style="max-height:260px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div>
-        </details>
+
       </div>
+    </template>
+
+    <!-- THE EVENT LOG IS ITS OWN SECTION, below the panes beside the archive
+         rather than inside the campaign panel (Phil, 2026-08-26: "put the
+         NIFTY campaign events in a separate section like the Closed paper
+         campaigns in a flowdown panel"). One per ladder: two instruments keep
+         two logs, so this is cloned per symbol like the monitor is. -->
+    <template id="oc-fib-events-tpl">
+      <details class="ocp-monitor ocp-monitor-fold" data-fx="events-fold">
+        <summary class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker">This campaign</div><h4 data-fx="events-title">Campaign events</h4></div>
+          <span data-fx="events-tf" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;letter-spacing:.5px;"></span>
+        </summary>
+        <div class="ocp-monitor-section">
+          <div data-fx="events" style="max-height:280px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div>
+        </div>
+      </details>
     </template>
 
     <div id="oc-fib-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Swing ladder geometry chart">
@@ -3052,10 +3061,6 @@
         </div>
         <div id="oc-candle-tiles" class="ocp-tiles"></div>
         <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="oc-candle-rows"></tbody></table></div></div>
-        <details class="ocp-activity">
-          <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-candle-event-count">0 updates</span></summary>
-          <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="oc-candle-events"><tr><td colspan="3" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
-        </details>
       </section>
       <details id="oc-candle-backtest" class="cascade-options-window ocp-backtest-window" style="display:none;" open>
         <summary class="cascade-options-window-head">
@@ -3085,6 +3090,17 @@
              campaign disappeared with the campaign (Phil, 2026-08-26: the
              settled ~Rs 52.6k loss "again dropped"). Its own panel, its own
              visibility, owned by the ledger fetch alone. -->
+      <!-- The event log as its own flow-down section, beside the
+           archive rather than inside the monitor (Phil, 2026-08-26). -->
+      <details class="ocp-monitor ocp-monitor-fold">
+        <summary class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker">This campaign</div><h4>Campaign events</h4></div>
+          <span id="oc-candle-event-count">0 updates</span>
+        </summary>
+        <div class="ocp-monitor-section">
+          <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Time (IST)</th><th>Update</th><th>Details</th></tr></thead><tbody id="oc-candle-events"><tr><td colspan="3" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
+        </div>
+      </details>
         <div class="ocp-monitor" id="oc-candle-closed">
           <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
           <div class="ocp-monitor-section">
@@ -3268,10 +3284,6 @@
           <div id="oc-gap-tiles" class="ocp-tiles"></div>
           <div id="oc-gap-monitor-rule" class="ocp-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
           <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="oc-gap-rows"></tbody></table></div></div>
-          <details class="ocp-activity">
-            <summary class="ocp-activity-head"><h4>Activity</h4><span id="oc-gap-event-count">0 updates</span></summary>
-            <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="oc-gap-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
-          </details>
         </section>
         <section id="oc-gap-backtest" class="ocp-monitor" hidden>
           <div class="ocp-monitor-head"><span class="ocp-monitor-kicker">Replay on recorded prices</span><span id="oc-gap-backtest-updated" class="ocp-monitor-updated"></span></div>
@@ -3288,6 +3300,17 @@
            only must be under the form and monitor"). -->
           <!-- Same lift as Candle Entry: the night archive outlives the carry,
                so it cannot live inside a monitor that hides between runs. -->
+      <!-- The event log as its own flow-down section, beside the
+           archive rather than inside the monitor (Phil, 2026-08-26). -->
+      <details class="ocp-monitor ocp-monitor-fold">
+        <summary class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker">This campaign</div><h4>Campaign events</h4></div>
+          <span id="oc-gap-event-count">0 updates</span>
+        </summary>
+        <div class="ocp-monitor-section">
+            <div class="ocp-events"><table class="ocp-table ocp-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="oc-gap-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
+        </div>
+      </details>
           <div class="ocp-monitor" id="oc-gap-closed">
             <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper nights</h4></div></div>
             <div class="ocp-monitor-section">
@@ -3490,6 +3513,17 @@
            same eight columns, under both columns rather than tucked inside the
            monitor (Phil, 2026-08-26: "Closed trades has to look like the same
            as in Candle Entry ... esp., see High Entry one"). -->
+      <!-- High Entry had no event log on the page at all, though its engine
+           kept one. Same flow-down section as the other three. -->
+      <details class="ocp-monitor ocp-monitor-fold" id="oc-high-events-panel">
+        <summary class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker">This campaign</div><h4>Campaign events</h4></div>
+          <span id="oc-high-event-count" style="font:10px 'JetBrains Mono',monospace;color:var(--muted);">0 updates</span>
+        </summary>
+        <div class="ocp-monitor-section">
+          <div id="oc-high-events" style="max-height:280px;overflow:auto;font:11px/1.55 'JetBrains Mono',monospace;color:var(--muted);">No events yet.</div>
+        </div>
+      </details>
       <div class="ocp-monitor" id="oc-high-closed">
         <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
         <div class="ocp-monitor-section">
@@ -3956,234 +3990,249 @@
   </section>
 
   <!-- Engine Status Bar -->
-  <div class="card-glass pf-page-command scalp-engine-bar" style="padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-      <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
-      <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>
-      <span id="scalp-status-label" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Idle</span>
-      <span style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
-        <span id="ws-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s;"></span>
-        <span id="ws-status-label" style="font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.3px;">Feed Ready</span>
-      </span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <span style="font-size: 11px; color: var(--muted);">Session P&L:</span>
-      <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
-    </div>
-    <div style="display: flex; gap: 8px;">
-      <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
-      <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
-    </div>
-  </div>
-
-  <!-- Active Positions -->
-  <div class="card scalp-positions-card" style="padding: 20px; margin-bottom: 16px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-      <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
-        <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
+  <!-- ONE CARD ROUND THE WHOLE DESK, built the way the four strategy
+       consoles are: a head, the rule in a line, the form beside the live
+       monitor, then the log and the archive as their own sections (Phil,
+       2026-08-26: "the scalp still misses the consolidated one coherent
+       panel like others"). Every id and handler is the one it was. -->
+  <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
+    <div class="ocp-head">
+      <div><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+        <h3 style="margin:0;font-size:16px;">Scalp Engine</h3>
+        <span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#38bdf8;">FAST OPTION DESK &middot; ONE STRIKE AT A TIME</span>
+      </div></div>
+      <div class="scalp-engine-bar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+        <div id="scalp-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s;"></div>
+        <span style="font-size: 13px; font-weight: 600; color: var(--text);">Scalp Engine</span>
+        <span id="scalp-status-label" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Idle</span>
+        <span style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
+          <span id="ws-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s;"></span>
+          <span id="ws-status-label" style="font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.3px;">Feed Ready</span>
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 11px; color: var(--muted);">Session P&L:</span>
+        <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+        <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
+      </div>
       </div>
     </div>
-    <div style="overflow-x: auto;">
-      <table class="scalp-active-table">
-        <colgroup>
-          <col class="scalp-active-col-symbol">
-          <col class="scalp-active-col-entry">
-          <col class="scalp-active-col-ltp">
-          <col class="scalp-active-col-pnl">
-          <col class="scalp-active-col-target">
-          <col class="scalp-active-col-sl">
-          <col class="scalp-active-col-action">
-        </colgroup>
-        <thead>
-          <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-            <th style="padding: 8px 10px; text-align: left;">Symbol</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&amp;L</th>
-            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Target ₹</th>
-            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">SL ₹</th>
-            <th style="padding: 8px 10px; text-align: center;">Action</th>
-          </tr>
-        </thead>
-        <tbody id="scalp-active-body">
-          <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="scalp-desk-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-
-    <!-- Entry Form -->
-    <div class="card scalp-entry-card" style="padding: 20px;">
-      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
-      <div class="scalp-entry-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
-        <!-- Row 1: UNDERLYING | EXPIRY -->
-        <div>
-          <label for="scalp-underlying" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
-          <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
-            <option value="NIFTY">NIFTY</option>
-            <option value="BANKNIFTY">BANKNIFTY</option>
-            <option value="MIDCPNIFTY">MIDCAPNIFTY</option>
-            <option value="SENSEX">SENSEX</option>
-          </select>
-        </div>
-        <div>
-          <label for="scalp-expiry" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
-          <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
-        </div>
-        <!-- Row 2: LIVE PREMIUM | MARGIN REQUIRED -->
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Live Premium</label>
-          <div id="scalp-live-ltp" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--scalp-info); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
-        </div>
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
-          <div id="scalp-margin" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--warn); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
-        </div>
-        <!-- Row 3: OPTION TYPE | STRIKE -->
-        <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
-          <input type="hidden" id="scalp-option-type" value="CE">
-          <div id="scalp-option-toggle" class="scalp-toggle inline">
-            <button type="button" class="scalp-toggle-btn active" data-value="CE" data-tone="bull" onclick="setScalpOptionType('CE')">
-              <strong>CE</strong>
-              <span>- Call</span>
-            </button>
-            <button type="button" class="scalp-toggle-btn" data-value="PE" data-tone="bear" onclick="setScalpOptionType('PE')">
-              <strong>PE</strong>
-              <span>- Put</span>
-            </button>
+    <div class="ocp-recipe">Live premium and margin as you pick &middot; paper or Dhan Super Order &middot; one position at a time &middot; every fill kept below</div>
+    <div class="ocp-panes">
+      <div class="ocp-pane ocp-pane-form scalp-entry-card">
+        <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
+        <div class="scalp-entry-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <!-- Row 1: UNDERLYING | EXPIRY -->
+          <div>
+            <label for="scalp-underlying" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
+            <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
+              <option value="NIFTY">NIFTY</option>
+              <option value="BANKNIFTY">BANKNIFTY</option>
+              <option value="MIDCPNIFTY">MIDCAPNIFTY</option>
+              <option value="SENSEX">SENSEX</option>
+            </select>
+          </div>
+          <div>
+            <label for="scalp-expiry" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
+            <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
+          </div>
+          <!-- Row 2: LIVE PREMIUM | MARGIN REQUIRED -->
+          <div>
+            <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Live Premium</label>
+            <div id="scalp-live-ltp" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--scalp-info); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
+          </div>
+          <div>
+            <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Margin Required</label>
+            <div id="scalp-margin" style="font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--warn); padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; white-space: nowrap;">—</div>
+          </div>
+          <!-- Row 3: OPTION TYPE | STRIKE -->
+          <div>
+            <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Option Type</label>
+            <input type="hidden" id="scalp-option-type" value="CE">
+            <div id="scalp-option-toggle" class="scalp-toggle inline">
+              <button type="button" class="scalp-toggle-btn active" data-value="CE" data-tone="bull" onclick="setScalpOptionType('CE')">
+                <strong>CE</strong>
+                <span>- Call</span>
+              </button>
+              <button type="button" class="scalp-toggle-btn" data-value="PE" data-tone="bear" onclick="setScalpOptionType('PE')">
+                <strong>PE</strong>
+                <span>- Put</span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label for="scalp-strike" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
+              <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTPThrottled()">
+              <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
+            </div>
+          </div>
+          <!-- Row 4: PRODUCT | LOTS -->
+          <div>
+            <label for="scalp-product-type" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Product</label>
+            <select id="scalp-product-type" style="font-size: 13px; padding: 8px 10px;">
+              <option value="INTRADAY">Intraday</option>
+              <option value="MARGIN">Normal - Till Expiry</option>
+            </select>
+          </div>
+          <div>
+            <label for="scalp-lots" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span class="label-suffix">(×<span id="scalp-lot-size-label">65</span>)</span></label>
+            <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
+            <input type="hidden" id="scalp-lot-size" value="65">
           </div>
         </div>
-        <div>
-          <label for="scalp-strike" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
-            <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTPThrottled()">
-            <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
+
+        <details class="scalp-advanced">
+          <summary>
+            <span>Advanced</span>
+            <small>Exit rules + stop-limit entry</small>
+          </summary>
+          <div class="scalp-advanced-body">
+        <!-- Exit Rules: IDs and values are deliberately unchanged. -->
+        <div class="scalp-exit-rules" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+          <div id="scalp-exit-rules-note" style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+              <label for="scalp-sl-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
+              <input type="number" id="scalp-sl-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
+            <div>
+              <label for="scalp-target-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
+              <input type="number" id="scalp-target-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
+            <div>
+              <label for="scalp-sl-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
+              <input type="number" id="scalp-sl-prem" value="100" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
+            <div>
+              <label for="scalp-target-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
+              <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
           </div>
         </div>
-        <!-- Row 4: PRODUCT | LOTS -->
-        <div>
-          <label for="scalp-product-type" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Product</label>
-          <select id="scalp-product-type" style="font-size: 13px; padding: 8px 10px;">
-            <option value="INTRADAY">Intraday</option>
-            <option value="MARGIN">Normal - Till Expiry</option>
-          </select>
+
+        <!-- Stop-Limit Entry (optional) -->
+        <div class="scalp-stop-limit" style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+          <div style="font-size: 10px; font-weight: 700; color: rgba(139,143,255,0.9); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">⏳ Stop-Limit Entry (optional — leave 0 for market order)</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+              <label for="scalp-limit-price" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Trigger Price ₹</label>
+              <input type="number" id="scalp-limit-price" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
+            <div>
+              <label for="scalp-limit-max" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Max Price ₹</label>
+              <input type="number" id="scalp-limit-max" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
+            </div>
+          </div>
+          <div style="font-size: 9px; color: var(--muted); margin-top: 6px; line-height: 1.4;">Enter when premium reaches ₹Trigger–₹Max range. E.g. market at 256, set 262–263 to buy on breakout.</div>
         </div>
-        <div>
-          <label for="scalp-lots" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span class="label-suffix">(×<span id="scalp-lot-size-label">65</span>)</span></label>
-          <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
-          <input type="hidden" id="scalp-lot-size" value="65">
+          </div>
+        </details>
+
+        <!-- Mode + BUY/SELL -->
+        <div class="scalp-entry-actions" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
+          <input type="hidden" id="scalp-mode" value="paper">
+          <div id="scalp-mode-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
+            <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" onclick="setScalpMode('paper')"><span>Paper</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" onclick="setScalpMode('live')"><span>Live</span></button>
+          </div>
+          <button class="btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
+          <button class="btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
+        </div>
+        <div class="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
+        <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
+      </div>
+      <div class="ocp-pane ocp-pane-live scalp-positions-card">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
+          <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
         </div>
       </div>
-
-      <details class="scalp-advanced">
-        <summary>
-          <span>Advanced</span>
-          <small>Exit rules + stop-limit entry</small>
-        </summary>
-        <div class="scalp-advanced-body">
-      <!-- Exit Rules: IDs and values are deliberately unchanged. -->
-      <div class="scalp-exit-rules" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-        <div id="scalp-exit-rules-note" style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-          <div>
-            <label for="scalp-sl-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
-            <input type="number" id="scalp-sl-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-          <div>
-            <label for="scalp-target-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
-            <input type="number" id="scalp-target-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-          <div>
-            <label for="scalp-sl-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
-            <input type="number" id="scalp-sl-prem" value="100" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-          <div>
-            <label for="scalp-target-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
-            <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-        </div>
+      <!-- Focusable because it scrolls: in the live pane the table is wider
+           than its column, and a region a mouse can scroll has to be reachable
+           from the keyboard too (axe: scrollable-region-focusable). -->
+      <div style="overflow-x: auto;" tabindex="0" role="region" aria-label="Active positions">
+        <table class="scalp-active-table">
+          <colgroup>
+            <col class="scalp-active-col-symbol">
+            <col class="scalp-active-col-entry">
+            <col class="scalp-active-col-ltp">
+            <col class="scalp-active-col-pnl">
+            <col class="scalp-active-col-target">
+            <col class="scalp-active-col-sl">
+            <col class="scalp-active-col-action">
+          </colgroup>
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+              <th style="padding: 8px 10px; text-align: left;">Symbol</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">Entry</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">LTP</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace;">P&amp;L</th>
+              <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">Target ₹</th>
+              <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace;">SL ₹</th>
+              <th style="padding: 8px 10px; text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="scalp-active-body">
+            <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No active positions</td></tr>
+          </tbody>
+        </table>
       </div>
-
-      <!-- Stop-Limit Entry (optional) -->
-      <div class="scalp-stop-limit" style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-        <div style="font-size: 10px; font-weight: 700; color: rgba(139,143,255,0.9); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">⏳ Stop-Limit Entry (optional — leave 0 for market order)</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-          <div>
-            <label for="scalp-limit-price" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Trigger Price ₹</label>
-            <input type="number" id="scalp-limit-price" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-          <div>
-            <label for="scalp-limit-max" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Max Price ₹</label>
-            <input type="number" id="scalp-limit-max" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-          </div>
-        </div>
-        <div style="font-size: 9px; color: var(--muted); margin-top: 6px; line-height: 1.4;">Enter when premium reaches ₹Trigger–₹Max range. E.g. market at 256, set 262–263 to buy on breakout.</div>
-      </div>
-        </div>
-      </details>
-
-      <!-- Mode + BUY/SELL -->
-      <div class="scalp-entry-actions" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
-        <input type="hidden" id="scalp-mode" value="paper">
-        <div id="scalp-mode-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
-          <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" onclick="setScalpMode('paper')"><span>Paper</span></button>
-          <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" onclick="setScalpMode('live')"><span>Live</span></button>
-        </div>
-        <button class="btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
-        <button class="btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
-      </div>
-      <div class="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
-      <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
-    </div>
-
-    <!-- Event Log -->
-    <div class="card scalp-event-card" style="padding: 20px; display: flex; flex-direction: column;">
-      <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 12px;">Event Log</h3>
-      <div id="scalp-event-log" style="flex: 1; max-height: 360px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent;">
-        <div style="color: var(--muted); text-align: center; padding: 20px;">No events yet</div>
       </div>
     </div>
-  </div>
-
-  <!-- Closed Trades (session + file) -->
-  <div class="card scalp-history-card" style="padding: 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-      <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Trade History</h3>
-      <span id="scalp-total-pnl-label" style="font-size: 13px; font-weight: 700; color: var(--muted); font-family: 'JetBrains Mono', monospace;">Total: ₹0.00</span>
+    <!-- The log as a flow-down section, the same one the strategies use. -->
+    <details class="ocp-monitor ocp-monitor-fold scalp-event-card">
+      <summary class="ocp-monitor-head">
+        <div><div class="ocp-monitor-kicker">This session</div><h4>Event log</h4></div>
+      </summary>
+      <div class="ocp-monitor-section">
+        <div id="scalp-event-log" style="flex: 1; max-height: 360px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.7; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent;">
+          <div style="color: var(--muted); text-align: center; padding: 20px;">No events yet</div>
+        </div>
+      </div>
+    </details>
+    <div class="ocp-monitor scalp-history-card">
+      <!-- The panel head carries the title, so the running total moves up
+           beside it rather than repeating "Trade History" underneath. -->
+      <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Trade history</h4></div><span id="scalp-total-pnl-label" style="font:700 13px 'JetBrains Mono',monospace;color:var(--muted);">Total: &#8377;0.00</span></div>
+      <div class="ocp-monitor-section">
+      <!-- Focusable because it scrolls -- see the note on Active Positions. -->
+      <div style="overflow-x: auto;" tabindex="0" role="region" aria-label="Trade history">
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
+              <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" aria-label="Select all scalp history trades" onchange="toggleAllScalpHist(this)"></th>
+              <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('date')" id="scalp-th-date">Date</th>
+              <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('symbol')" id="scalp-th-symbol">Symbol</th>
+              <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('dir')" id="scalp-th-dir">Dir</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('entry')" id="scalp-th-entry">Entry</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('exit')" id="scalp-th-exit">Exit</th>
+              <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('time')" id="scalp-th-time">Time</th>
+              <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('lots')" id="scalp-th-lots">Lots</th>
+              <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('pnl')" id="scalp-th-pnl">P&L</th>
+              <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('reason')" id="scalp-th-reason">Reason</th>
+              <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('mode')" id="scalp-th-mode">Mode</th>
+              <th style="padding: 8px 6px; text-align: center;">Del</th>
+            </tr>
+          </thead>
+          <tbody id="scalp-history-body">
+            <tr><td colspan="12" style="text-align: center; padding: 20px; color: var(--muted);">No trades yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Bulk bar -->
+      <div id="scalp-hist-bulk-bar" class="bulk-bar" style="display:none;"></div>
+      <!-- Pagination -->
+      <div id="scalp-hist-pagination" class="pagination-bar" style="display:none;"></div>
+      </div>
     </div>
-    <div style="overflow-x: auto;">
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-        <thead>
-          <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-            <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" aria-label="Select all scalp history trades" onchange="toggleAllScalpHist(this)"></th>
-            <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('date')" id="scalp-th-date">Date</th>
-            <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('symbol')" id="scalp-th-symbol">Symbol</th>
-            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('dir')" id="scalp-th-dir">Dir</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('entry')" id="scalp-th-entry">Entry</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('exit')" id="scalp-th-exit">Exit</th>
-            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('time')" id="scalp-th-time">Time</th>
-            <th style="padding: 8px 10px; text-align: center; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('lots')" id="scalp-th-lots">Lots</th>
-            <th style="padding: 8px 10px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor:pointer;" onclick="_sortScalpHistory('pnl')" id="scalp-th-pnl">P&L</th>
-            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('reason')" id="scalp-th-reason">Reason</th>
-            <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('mode')" id="scalp-th-mode">Mode</th>
-            <th style="padding: 8px 6px; text-align: center;">Del</th>
-          </tr>
-        </thead>
-        <tbody id="scalp-history-body">
-          <tr><td colspan="12" style="text-align: center; padding: 20px; color: var(--muted);">No trades yet</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <!-- Bulk bar -->
-    <div id="scalp-hist-bulk-bar" class="bulk-bar" style="display:none;"></div>
-    <!-- Pagination -->
-    <div id="scalp-hist-pagination" class="pagination-bar" style="display:none;"></div>
   </div>
 
 </div>

@@ -4790,6 +4790,8 @@ function _fibxPanelRoots(symbols) {
   const monitors = document.getElementById('oc-fib-rows');
   const monitorTpl = document.getElementById('oc-fib-rows-tpl');
   const lowerTpl = document.getElementById('oc-fib-lower-tpl');
+  const eventsTpl = document.getElementById('oc-fib-events-tpl');
+  const eventsHost = document.getElementById('oc-fib-events-host');
   if (!monitors || !monitorTpl || !lowerTpl) return new Map();
   const roots = new Map();
   const wanted = symbols.length ? symbols : [''];
@@ -4810,8 +4812,25 @@ function _fibxPanelRoots(symbols) {
       pair = lowerTpl.content.firstElementChild.cloneNode(true);
       slot.appendChild(pair);
     }
-    roots.set(key, { monitor, pair });
+    // THE EVENT LOG IS ITS OWN PANEL now, below the panes beside the archive,
+    // one per ladder -- two instruments keep two logs (Phil, 2026-08-26).
+    let events = null;
+    if (eventsHost && eventsTpl) {
+      events = eventsHost.querySelector(`[data-fx-symbol="${CSS.escape(key)}"]`);
+      if (!events) {
+        events = eventsTpl.content.firstElementChild.cloneNode(true);
+        events.dataset.fxSymbol = key;
+        eventsHost.appendChild(events);
+      }
+    }
+    roots.set(key, { monitor, pair, events });
   });
+  if (eventsHost) {
+    // A ladder that has gone takes its log with it.
+    Array.from(eventsHost.children).forEach(node => {
+      if (!roots.has(String(node.dataset.fxSymbol ?? ''))) node.remove();
+    });
+  }
   // A killed-and-cleared instrument leaves; the survivors keep their DOM.
   Array.from(monitors.children).forEach(node => {
     // The auto banner lives in this column too and belongs to no symbol.
@@ -4962,9 +4981,11 @@ function _renderFibBoundaryRunningTable(campaigns) {
 }
 
 function _renderFibBoundaryCampaign(root, campaign, options = {}) {
-  const { monitor, pair } = root;
+  const { monitor, pair, events } = root;
   const fx = key => monitor.querySelector(`[data-fx="${key}"]`);
   const px = key => (pair ? pair.querySelector(`[data-fx="${key}"]`) : null);
+  // The event log lives in its own panel below now, not in the pair.
+  const ex = key => (events ? events.querySelector(`[data-fx="${key}"]`) : null);
   const badge = fx('badge');
   const contract = fx('contract');
   const summary = fx('summary');
@@ -4975,7 +4996,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   const startBtn = document.getElementById('oc-fib-start');
   const killBtn = fx('kill');
   const armBtn = fx('arm');
-  const eventsTf = px('events-tf');
+  const eventsTf = ex('events-tf');
   const picked = document.getElementById('oc-fib-symbol')?.value || 'NIFTY';
   const chainKey = campaign ? String(campaign.symbol || 'NIFTY') : picked;
   const chain = _fibAutoChainHtml[chainKey];
@@ -5017,7 +5038,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
     if (armBtn) armBtn.style.display = 'none';
     if (pair) {
       _renderFibBoundaryRounds(pair, null);
-      _renderFibBoundaryEvents(pair, []);
+      _renderFibBoundaryEvents(events, []);
     }
     return;
   }
@@ -5070,7 +5091,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   if (title) title.textContent = `${symbol} ${side} monitor`;
   const roundsTitle = px('rounds-title');
   if (roundsTitle) roundsTitle.textContent = `${symbol} closed ${mode.toLowerCase()} round · net P&L`;
-  const eventsTitle = px('events-title');
+  const eventsTitle = ex('events-title');
   if (eventsTitle) eventsTitle.textContent = `${symbol} campaign events`;
   if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
   const isZones = String(campaign.buy_mode || '') === 'convergence' || levels.some(l => l.zone_label);
@@ -5252,7 +5273,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   }
   if (pair) {
     _renderFibBoundaryRounds(pair, campaign);
-    _renderFibBoundaryEvents(pair, campaign.events || []);
+    _renderFibBoundaryEvents(events, campaign.events || []);
   }
 }
 
@@ -5291,8 +5312,8 @@ function _renderFibBoundaryRounds(pair, campaign) {
       + `</tr>`;
   }).join('');
 }
-function _renderFibBoundaryEvents(pair, events) {
-  const el = pair.querySelector('[data-fx="events"]');
+function _renderFibBoundaryEvents(panel, events) {
+  const el = panel ? panel.querySelector('[data-fx="events"]') : null;
   if (!el) return;
   const scrollTop = el.scrollTop;
   el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${event.level != null ? ` <span style="color:#38bdf8;">L${escapeHtml(String(event.level))}</span>` : ''}</div>`).join('') : 'No events yet.';
@@ -20760,6 +20781,24 @@ function renderRecovery(data) {
         + `</tr>`;
     }).join('')
       : '<tr><td colspan="8" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">No closed campaign yet — a finished one is kept here for good.</td></tr>';
+  }
+
+  // THE EVENT LOG, in the flow-down section the other three carry. The engine
+  // kept these all along; the page simply never asked for them.
+  const evEl = document.getElementById('oc-high-events');
+  const evCount = document.getElementById('oc-high-event-count');
+  if (evEl) {
+    const rows = Array.isArray(book.events) ? book.events : [];
+    if (evCount) evCount.textContent = `${rows.length} update${rows.length === 1 ? '' : 's'}`;
+    const keep = evEl.scrollTop;
+    evEl.innerHTML = rows.length
+      ? rows.slice(-40).reverse().map(ev => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">`
+          + `<span style="color:#64748b;">${escapeHtml(_recTime(ev.timestamp))}</span> `
+          + `<strong style="color:var(--text);">${escapeHtml(String(ev.event || '').replaceAll('_', ' '))}</strong>`
+          + `${ev.trade != null ? ` <span style="color:#38bdf8;">trade ${escapeHtml(String(ev.trade))}</span>` : ''}`
+          + `</div>`).join('')
+      : 'No events yet.';
+    evEl.scrollTop = keep;
   }
 
   if (poll) {

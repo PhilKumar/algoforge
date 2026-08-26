@@ -6445,6 +6445,16 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-monitor { margin-top:14px; overflow:hidden; border:1px solid rgba(96,165,250,.26); border-radius:12px; background:linear-gradient(145deg, rgba(15,23,42,.52), rgba(8,47,73,.20)); }
 .ocp-monitor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.14); }
 .ocp-monitor-kicker { color:#7dd3fc; font:800 9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
+/* A PANEL THAT FLOWS DOWN. Same card as the archive panel beside it, but its
+   head is the toggle: the event log is one press away rather than a wall
+   under the campaign (Phil, 2026-08-26: "in a separate section like the
+   Closed paper campaigns in a flowdown panel"). */
+.ocp-monitor-fold > summary { list-style:none; cursor:pointer; }
+.ocp-monitor-fold > summary::-webkit-details-marker { display:none; }
+.ocp-monitor-fold > summary::after { content:"▾"; margin-left:auto; align-self:center; color:var(--muted); font-size:11px; transition: transform .18s ease; }
+.ocp-monitor-fold[open] > summary::after { transform: rotate(180deg); }
+.ocp-monitor-fold > summary:hover { background:rgba(148,163,184,.06); }
+.ocp-monitor-fold:not([open]) > summary { border-bottom:0; }
 .ocp-monitor h4 { margin:3px 0 0; font-size:14px; }
 .ocp-monitor-updated { color:var(--muted); font-size:11px; text-align:right; }
 .ocp-monitor-body { display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
@@ -9242,12 +9252,39 @@ body :is(
   padding: 10px 14px !important;
   gap: 12px !important;
 }
+/* THE SCALP DESK WEARS THE SAME PANEL AS THE FOUR STRATEGY CONSOLES.
+   Cosmetic only, and deliberately done in CSS rather than by rebuilding the
+   markup (Phil, 2026-08-26: "the same cosmetic treatment for scalp page ...
+   mainly without any modifications"): the page's own rules hang off
+   `> div:first-child` and `> h3:first-child`, so moving its structure around
+   would break the layout to change a border. No id, no handler and no element
+   moves here -- only how it is painted. */
 #scalp-page .scalp-positions-card,
 #scalp-page .scalp-entry-card,
 #scalp-page .scalp-event-card,
 #scalp-page .scalp-history-card {
   padding: 14px !important;
+  border: 1px solid rgba(96, 165, 250, .26);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(15, 23, 42, .52), rgba(8, 47, 73, .20));
 }
+/* The section heading, in the consoles' voice: same size, same rule beneath. */
+#scalp-page .scalp-positions-card > div:first-child h3,
+#scalp-page .scalp-history-card > div:first-child h3,
+#scalp-page .scalp-entry-card > h3:first-child,
+#scalp-page .scalp-event-card > h3:first-child {
+  font-size: 14px !important;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+#scalp-page .scalp-entry-card > h3:first-child,
+#scalp-page .scalp-event-card > h3:first-child {
+  border-bottom: 1px solid rgba(148, 163, 184, .14);
+}
+/* Its tables need no rules of their own: `body table` already carries the
+   Campaigns contract for the whole site, and the 9px head this once set was
+   fighting it (the standard is 10px) -- which is what the table-contract spec
+   caught. Left to the platform on purpose. */
 #scalp-page .scalp-positions-card > div:first-child,
 #scalp-page .scalp-history-card > div:first-child {
   margin-bottom: 10px !important;
