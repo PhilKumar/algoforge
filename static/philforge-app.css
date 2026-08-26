@@ -6286,11 +6286,14 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-panes { display:block; margin-top:12px; }
 .ocp-pane-form > .ocp-essentials:first-child { margin-top:0; }
 .ocp-pane { min-width:0; }
-@media (min-width: 1280px) {
-  /* The live column decides the split: the ladder needs ~745px for its nine
-     columns, so between 1280 and 1440 the form gives up width rather than
-     pushing the money behind a sideways scroll. */
-  .ocp-panes { display:grid; grid-template-columns: minmax(0,400px) minmax(0,1fr); gap:18px; align-items:start; }
+@media (min-width: 1080px) {
+  /* THE TWO COLUMNS START AT 1080, NOT 1280. Above the old breakpoint the
+     live column sat beside the form; on a window any narrower it dropped
+     UNDERNEATH it, which is where Phil kept finding the auto mother and its
+     chain (2026-08-26: "Never asked you to put it under the form"). The
+     tables each scroll inside their own wrap, so a 640px live column costs a
+     sideways scroll on the widest table rather than the whole layout. */
+  .ocp-panes { display:grid; grid-template-columns: minmax(0,320px) minmax(0,1fr); gap:18px; align-items:start; }
   /* The strike row carries a select and three choices: in a narrow form
      column the three take their own line instead of overflowing. */
   .ocp-pane-form #oc-candle-advanced .ocp-switch-grid > div:has(#oc-candle-strike-at-toggle) .ocp-box-fields,
@@ -6318,6 +6321,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   .ocp-pane-live > .oc-fib-rows > .ocp-auto-card:first-child { margin-top:0; }
 }
 
+@media (min-width: 1280px) {
+  /* Back to the old split once there is room for it: the ladder needs ~745px
+     for its nine columns, so from here the form gives the width back. */
+  .ocp-panes { grid-template-columns: minmax(0,400px) minmax(0,1fr); }
+}
 @media (min-width: 1440px) {
   .ocp-panes { grid-template-columns: minmax(0,540px) minmax(0,1fr); }
 }
