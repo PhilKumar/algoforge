@@ -370,6 +370,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-acct-chip{font-size:.72rem;color:var(--soft);white-space:nowrap}
 .led-in{color:var(--moss);font-weight:700}
 .led-out{color:var(--danger)}
+.loan-closed{opacity:.62}
+.loan-closed .loan-grid b{color:var(--muted)!important}
+.badge.closed{background:transparent;border:1px solid var(--line);color:var(--muted)}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
@@ -1830,13 +1833,13 @@ function renderRecurring(items){
 async function loadLoans(){ S.loans = (await api("/api/sanctuary/loans")).loans; renderLoans(); }
 function renderLoans(){
   $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `
-    <div class="loan card">
+    <div class="loan card${l.active ? "" : " loan-closed"}">
       <div class="loan-head">
         <div class="loan-name">
           <span class="n">${esc(l.name)}</span>
           ${l.lender ? `<span class="l">${esc(l.lender)}</span>` : ""}
         </div>
-        ${l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
+        ${!l.active ? `<span class="badge closed">CLOSED · repaid in full</span>` : l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
 
       ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? `<div class="loan-grid">
@@ -1872,6 +1875,8 @@ function renderLoans(){
         ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? "" : `<button class="btn small" data-lup="${l.id}">Upload schedule</button>
         ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}`}
         <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
+        ${l.active ? `<button class="btn subtle small" data-lclose="${l.id}" title="Repaid in full — keep the card, quiet it down">Mark closed</button>`
+          : `<button class="btn subtle small" data-lreopen="${l.id}">Reopen</button>`}
         <button class="btn subtle small loan-remove" data-ldel="${l.id}" title="Remove this loan">✕</button>
       </div>
     </div>`).join("")
@@ -2400,6 +2405,15 @@ async function loadStmtReview(){
 
 $("cat-manage").onclick = categoriesModal;
 $("loan-add").onclick = () => loanForm(null);
+document.addEventListener("click", async (e) => {
+  const close = e.target.closest("[data-lclose]");
+  const reopen = e.target.closest("[data-lreopen]");
+  if (!close && !reopen) return;
+  const id = (close || reopen).dataset.lclose || (close || reopen).dataset.lreopen;
+  await api("/api/sanctuary/loans/" + id, {method: "PUT", body: {active: !!reopen}});
+  toast(close ? "Closed, and kept. Its history stays in the ledger." : "Open again.");
+  loadLoans(); refreshFinance();
+});
 $("recur-add").onclick = () => {
   if (!S.recurringDraft) S.recurringDraft = [];
   S.recurringDraft.push({name: "", amount: 0, day: 1, category: "Other", active: true});
