@@ -295,8 +295,8 @@ async def create_loan(user_id: int, fields: dict) -> int:
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             """INSERT INTO sanctuary_loans
-               (user_id, name, lender, emi_amount, due_day, start_date, note, active, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, name, lender, emi_amount, due_day, start_date, note, account_no, details, active, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 int(user_id),
                 fields["name"],
@@ -305,6 +305,8 @@ async def create_loan(user_id: int, fields: dict) -> int:
                 int(fields.get("due_day", 5)),
                 fields.get("start_date", ""),
                 fields.get("note", ""),
+                fields.get("account_no", ""),
+                fields.get("details", ""),
                 1 if fields.get("active", True) else 0,
                 _now_iso(),
             ),
@@ -314,7 +316,7 @@ async def create_loan(user_id: int, fields: dict) -> int:
 
 
 async def update_loan(user_id: int, loan_id: int, fields: dict) -> bool:
-    allowed = {"name", "lender", "emi_amount", "due_day", "start_date", "note", "active"}
+    allowed = {"name", "lender", "emi_amount", "due_day", "start_date", "note", "account_no", "details", "active"}
     sets, params = [], []
     for key, value in fields.items():
         if key not in allowed:

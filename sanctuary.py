@@ -632,7 +632,7 @@ def _clean_loan_fields(payload: dict) -> dict:
         fields["name"] = str(payload.get("name") or "").strip()[:80]
         if not fields["name"]:
             raise HTTPException(status_code=400, detail="Loan needs a name")
-    for key, limit in (("lender", 80), ("note", 500)):
+    for key, limit in (("lender", 80), ("note", 500), ("account_no", 60), ("details", 4000)):
         if key in payload:
             fields[key] = str(payload.get(key) or "")[:limit]
     if "emi_amount" in payload:

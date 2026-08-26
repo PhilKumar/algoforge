@@ -253,6 +253,8 @@ _SCHEMA_STATEMENTS = [
         due_day     INTEGER NOT NULL DEFAULT 5,
         start_date  TEXT    NOT NULL DEFAULT '',
         note        TEXT    NOT NULL DEFAULT '',
+        account_no  TEXT    NOT NULL DEFAULT '',
+        details     TEXT    NOT NULL DEFAULT '',
         active      INTEGER NOT NULL DEFAULT 1,
         created_at  TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
@@ -311,6 +313,13 @@ def _init_db_sync():
     for column, definition in user_column_migrations.items():
         if column not in existing_user_columns:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")  # nosec B608
+
+    # The sanctuary's loans learned to carry their account number and the
+    # details Phil wants at hand; a table created before that needs them added.
+    existing_loan_columns = {row[1] for row in conn.execute("PRAGMA table_info(sanctuary_loans)").fetchall()}
+    for column in ("account_no", "details"):
+        if column not in existing_loan_columns:
+            conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")  # nosec B608
     conn.commit()
     conn.close()
     _initialized = True

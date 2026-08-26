@@ -354,16 +354,40 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
-.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:14px}
-.loan{padding:18px 20px;display:flex;flex-direction:column;gap:8px}
-.loan .head{display:flex;align-items:baseline;gap:8px}
-.loan .head .n{font-family:var(--serif);font-weight:650;font-size:1.12rem}
-.loan .head .l{color:var(--soft);font-size:.82rem}
-.loan .facts{display:flex;gap:16px;flex-wrap:wrap;font-size:.88rem;color:var(--muted)}
-.loan .facts b{color:var(--ink)}
-.loan .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
-.loan .badge{margin-left:auto;font-size:.72rem;font-weight:800;padding:3px 10px;border-radius:999px;
-  background:var(--danger-wash);color:var(--danger)}
+.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:14px}
+.loan{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.loan-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.loan-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+.loan-name .n{font-family:var(--serif);font-weight:650;font-size:1.14rem;line-height:1.25}
+.loan-name .l{font-size:.8rem;color:var(--soft);font-weight:600;letter-spacing:.02em}
+.loan .badge{flex:none;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  padding:4px 11px;border-radius:999px;background:var(--danger-wash);color:var(--danger);white-space:nowrap}
+/* Every figure sits in the same column as the one above it, so the eye can
+   run down the card instead of hunting along ragged lines. */
+.loan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 12px}
+.loan-grid .lf{display:flex;flex-direction:column;gap:3px;min-width:0}
+.loan-grid .lf span{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--soft)}
+.loan-grid .lf b{font-size:.98rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loan-progress{height:5px;border-radius:3px;background:var(--card-2);overflow:hidden}
+.loan-progress i{display:block;height:100%;border-radius:3px;background:var(--moss)}
+.loan-acct{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;border-radius:14px;background:var(--card-2);border:1px solid var(--line-soft)}
+.loan-acct .lbl{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--soft)}
+.loan-acct b{letter-spacing:.08em;font-size:.95rem}
+.loan-acct .acct-actions{margin-left:auto;display:flex;gap:6px}
+.loan-details{font-size:.92rem;border-top:1px solid var(--line-soft);padding-top:10px}
+.loan-details summary{cursor:pointer;font-weight:700;color:var(--moss);list-style:none;display:flex;align-items:center;gap:6px}
+.loan-details summary::-webkit-details-marker{display:none}
+.loan-details summary::before{content:"›";display:inline-block;transition:transform .15s ease;font-weight:800}
+.loan-details[open] summary::before{transform:rotate(90deg)}
+.loan-details div{white-space:pre-wrap;color:var(--muted);padding:8px 0 2px;line-height:1.6}
+.loan .btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:auto;padding-top:2px}
+.loan .btns .loan-remove{margin-left:auto;opacity:.7}
+.loan .btns .loan-remove:hover{opacity:1;color:var(--danger);border-color:var(--danger)}
+@media (max-width:560px){
+  .loan-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .loan{padding:16px 18px}
+}
 .recur-row{display:grid;grid-template-columns:1.3fr .8fr .55fr 1fr .5fr auto;gap:8px;align-items:center;margin-bottom:8px}
 .notes-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .note-card{padding:14px 18px}
@@ -925,6 +949,28 @@ const monthKey = (d) => d.slice(0, 7);
 const niceDate = (iso) => { const [y,m,d] = iso.split("-").map(Number); return d + " " + MONTHS[m-1].slice(0,3) + " " + y; };
 const niceMonth = (key) => { const [y,m] = key.split("-").map(Number); return MONTHS[m-1] + " " + y; };
 const shiftMonth = (key, delta) => { const [y,m] = key.split("-").map(Number); const d = new Date(y, m-1+delta, 1); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); };
+
+function maskAccount(value){
+  const clean = String(value || "").trim();
+  return clean.length > 4 ? "•".repeat(Math.min(clean.length - 4, 12)) + clean.slice(-4) : clean;
+}
+async function copyText(value){
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch (e) {
+    const helper = document.createElement("textarea");  /* clipboard API needs a secure origin */
+    helper.value = value;
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+    helper.remove();
+    return ok;
+  }
+}
 
 let toastTimer = null;
 function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("show");
@@ -1658,25 +1704,49 @@ async function loadLoans(){ S.loans = (await api("/api/sanctuary/loans")).loans;
 function renderLoans(){
   $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `
     <div class="loan card">
-      <div class="head"><span class="n">${esc(l.name)}</span><span class="l">${esc(l.lender)}</span>
-        ${l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}</div>
-      <div class="facts">
-        <span>EMI <b class="num">${inr(l.emi_amount)}</b></span>
-        <span>due day <b>${l.due_day}</b></span>
-        ${l.next_due ? `<span>next <b>${niceDate(l.next_due)}</b></span>` : ""}
-        ${l.schedule_count ? `<span>paid <b>${l.paid_count}/${l.schedule_count}</b></span>` : ""}
-        ${l.remaining_amount ? `<span>to go <b class="num">${inr(l.remaining_amount)}</b></span>` : ""}
-        ${l.outstanding != null ? `<span>outstanding <b class="num">${inr(l.outstanding)}</b></span>` : ""}
+      <div class="loan-head">
+        <div class="loan-name">
+          <span class="n">${esc(l.name)}</span>
+          ${l.lender ? `<span class="l">${esc(l.lender)}</span>` : ""}
+        </div>
+        ${l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
+
+      <div class="loan-grid">
+        <div class="lf"><span>EMI</span><b class="num">${inr(l.emi_amount)}</b></div>
+        <div class="lf"><span>Due day</span><b class="num">${l.due_day}</b></div>
+        <div class="lf"><span>Next due</span><b>${l.next_due ? niceDate(l.next_due) : "—"}</b></div>
+        <div class="lf"><span>Outstanding</span><b class="num">${l.outstanding != null ? inr(l.outstanding) : "—"}</b></div>
+        <div class="lf"><span>Still to pay</span><b class="num">${l.remaining_amount ? inr(l.remaining_amount) : "—"}</b></div>
+        <div class="lf"><span>Instalments</span><b class="num">${l.schedule_count ? l.paid_count + " of " + l.schedule_count : "—"}</b></div>
+      </div>
+
+      ${l.schedule_count ? `<div class="loan-progress" title="${l.paid_count} of ${l.schedule_count} paid">
+        <i style="width:${Math.round((l.paid_count / l.schedule_count) * 100)}%"></i>
+      </div>` : ""}
+
+      ${l.account_no ? `<div class="loan-acct">
+        <span class="lbl">Loan no.</span>
+        <b class="num" data-acct-shown="${l.id}">${esc(maskAccount(l.account_no))}</b>
+        <span class="acct-actions">
+          <button class="btn subtle small" data-acct-show="${l.id}" data-acct-value="${esc(l.account_no)}">Show</button>
+          <button class="btn subtle small" data-acct-copy="${esc(l.account_no)}">Copy</button>
+        </span>
+      </div>` : ""}
+
+      ${l.details ? `<details class="loan-details"><summary>Details</summary><div>${esc(l.details)}</div></details>` : ""}
+
       <div class="btns">
-        <button class="btn small" data-lup="${l.id}">📄 Upload schedule</button>
-        ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">View</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}
+        ${l.overdue_count ? `<button class="btn small" data-settle="${l.id}">✓ ${l.overdue_count} already paid</button>` : ""}
+        <button class="btn small" data-lup="${l.id}">Upload schedule</button>
+        ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}
         <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
-        <button class="btn subtle small" data-ldel="${l.id}">✕</button>
+        <button class="btn subtle small loan-remove" data-ldel="${l.id}" title="Remove this loan">✕</button>
       </div>
     </div>`).join("")
     : `<div style="color:var(--muted);padding:6px 2px">Add the HDFC loan, home loan, personal loans — then upload each one's EMI sheet.</div>`;
 }
+
 function loanForm(loan){
   const wrap = modal(`<h4>${loan ? "Tend this loan" : "A new loan"}</h4>
     <label>Name</label><input class="field" id="lf-name" value="${esc(loan?.name || "")}" placeholder="HDFC Personal Loan">
@@ -1685,6 +1755,10 @@ function loanForm(loan){
       <input class="field num" id="lf-emi" type="number" min="0" value="${loan?.emi_amount || ""}"></div>
     <div style="flex:1"><label>Due day (1–28)</label>
       <input class="field num" id="lf-day" type="number" min="1" max="28" value="${loan?.due_day || 5}"></div></div>
+    <label>Loan / account number</label>
+    <input class="field" id="lf-acct" value="${esc(loan?.account_no || "")}" placeholder="the number the bank calls it by">
+    <label>Details <span style="font-weight:400">— sanction date, rate, tenure, branch, the manager's number…</span></label>
+    <textarea class="field" id="lf-details" style="min-height:110px">${esc(loan?.details || "")}</textarea>
     <label>Note</label><input class="field" id="lf-note" value="${esc(loan?.note || "")}">
     <div class="m-foot"><button class="btn subtle" id="lf-cancel">Leave it</button>
     <button class="btn" id="lf-save">Save</button></div>`);
@@ -1696,6 +1770,8 @@ function loanForm(loan){
       emi_amount: Number(wrap.querySelector("#lf-emi").value || 0),
       due_day: Number(wrap.querySelector("#lf-day").value || 5),
       note: wrap.querySelector("#lf-note").value,
+      account_no: wrap.querySelector("#lf-acct").value.trim(),
+      details: wrap.querySelector("#lf-details").value,
     };
     if (!body.name) return toast("Give the loan a name");
     if (loan) await api("/api/sanctuary/loans/" + loan.id, {method: "PUT", body});
@@ -1947,6 +2023,20 @@ document.addEventListener("click", async (e) => {
   const ledDel = t.closest("[data-led-del]");
   if (ledDel) { if (await confirmDialog("Remove this ledger entry?", "Remove")) {
     await api("/api/sanctuary/finance/entry/" + ledDel.dataset.ledDel, {method: "DELETE"}); refreshFinance(); } return; }
+  const acctShow = t.closest("[data-acct-show]");
+  if (acctShow){
+    const shown = document.querySelector(`[data-acct-shown="${acctShow.dataset.acctShow}"]`);
+    const full = acctShow.dataset.acctValue;
+    const hidden = shown.textContent !== full;
+    shown.textContent = hidden ? full : maskAccount(full);
+    acctShow.textContent = hidden ? "Hide" : "Show";
+    return;
+  }
+  const acctCopy = t.closest("[data-acct-copy]");
+  if (acctCopy){
+    toast(await copyText(acctCopy.dataset.acctCopy) ? "Loan number copied." : "Could not reach the clipboard.");
+    return;
+  }
   const lup = t.closest("[data-lup]");
   if (lup) { uploadScheduleModal(S.loans.find((l) => l.id === Number(lup.dataset.lup))); return; }
   const lview = t.closest("[data-lview]");
