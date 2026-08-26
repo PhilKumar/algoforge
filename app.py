@@ -1829,6 +1829,133 @@ async def _save_specialized_cascade_state(
     last_save[int(user_id)] = now
 
 
+# ── THE PAPER LEDGER ────────────────────────────────────────────────────────
+# A finished campaign used to live nowhere. Each of these strategies keeps its
+# WHOLE state in one app_state row, and the next auto mother overwrites it, so
+# the first live Candle Entry campaign (mother 3 Aug, NIFTY 24400 CE, two rungs)
+# reached expiry on 25 Aug 2026 and was destroyed by its successor inside the
+# hour. Phil, that evening: "Where is that trade that is completed today with
+# expiry?" -- gone, with no backup late enough to hold the settlement.
+#
+# So a campaign is written to its own table the moment it reads terminal. This
+# hangs off the SAVE path, not the auto loop, because the auto loop's logging
+# was already guarded behind conditions that silently never fired.
+_PAPER_TERMINAL_STATES = {"CLOSED", "EXPIRED", "KILLED", "ABANDONED", "RECOVERED"}
+
+# WRITTEN ONCE, NOT ON EVERY POLL. The save path runs every few seconds and a
+# campaign that has ended stays ended, so an unguarded archive opened a database
+# connection per poll -- and Gap Carry re-wrote EVERY settled night each time.
+# The ledger is idempotent, so this costs nothing but the writes; it is the
+# writes that were the problem.
+_paper_ledger_written: set[tuple[int, str, str, str]] = set()
+
+
+def _paper_ledger_fingerprint(row: Mapping[str, Any]) -> str:
+    """What would make this row worth writing again — its money, essentially."""
+    return f"{row.get('status')}|{row.get('net_pnl')}|{row.get('closed_at')}|{row.get('buys')}"
+
+
+def _paper_campaign_row(status: Mapping[str, Any], *, source: str = "live") -> dict | None:
+    """Fold one engine's status into a ledger row, or None if it is not done."""
+    state = str(status.get("status") or "").upper()
+    if state not in _PAPER_TERMINAL_STATES:
+        return None
+    mother = status.get("mother") or {}
+    contract = status.get("contract") or {}
+    exit_row = status.get("exit") or {}
+    fills = status.get("fills") or []
+    key = str(mother.get("timestamp") or exit_row.get("timestamp") or "")
+    if not key:
+        return None
+    strike = contract.get("strike")
+    kind = contract.get("option_type") or "CE"
+    return {
+        "campaign_key": key,
+        "symbol": str(contract.get("underlying") or ""),
+        "contract": f"{strike} {kind}" if strike else "",
+        "opened_at": (fills[0].get("timestamp") if fills else mother.get("timestamp")),
+        "closed_at": exit_row.get("timestamp"),
+        "status": state,
+        "exit_reason": exit_row.get("reason") or (None if fills else "no_buy"),
+        "buys": len(fills),
+        "deployed_inr": status.get("deployed_inr"),
+        "gross_pnl": status.get("gross_pnl"),
+        "costs_total": status.get("costs_total"),
+        "net_pnl": status.get("net_pnl"),
+        "source": source,
+        "payload": {
+            "mother": mother,
+            "contract": contract,
+            "exit": exit_row,
+            "fills": fills,
+            "rounds": status.get("rounds") or [],
+        },
+    }
+
+
+async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[str, Any]) -> None:
+    """Write a finished campaign to the ledger. Never lets a save fail on it."""
+    row = _paper_campaign_row(status)
+    if row is None:
+        return
+    seen = (int(user_id), strategy, row["campaign_key"], _paper_ledger_fingerprint(row))
+    if seen in _paper_ledger_written:
+        return
+    try:
+        fresh = await _db_mod.save_paper_campaign(int(user_id), strategy, row)
+    except Exception as exc:  # a ledger write must not cost the live state save
+        _logger.warning("[LEDGER] %s: could not archive campaign for user %s: %s", strategy, user_id, exc)
+        return
+    _paper_ledger_written.add(seen)
+    if fresh:
+        _logger.info(
+            "[LEDGER] %s: archived campaign %s (%s buys, net %s)",
+            strategy,
+            row["campaign_key"],
+            row["buys"],
+            row["net_pnl"],
+        )
+
+
+async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:
+    """Gap Carry settles a NIGHT, not a campaign, so each closed one is a row.
+
+    Its status carries `history` rather than the mother/fills shape the ladders
+    use, so the generic row builder would quietly archive nothing at all.
+    """
+    for night in status.get("history") or []:
+        session = str(night.get("session") or "")
+        if not session:
+            continue
+        entry = night.get("entry") or {}
+        exit_row = night.get("exit") or {}
+        row = {
+            "campaign_key": session,
+            "symbol": str(night.get("symbol") or "NIFTY"),
+            "contract": f"{night.get('strike', '')} {night.get('side') or 'CE'}",
+            "opened_at": entry.get("at") or session,
+            "closed_at": exit_row.get("at"),
+            "status": "CLOSED",
+            "exit_reason": exit_row.get("reason") or ("at intrinsic" if exit_row.get("priced") is False else None),
+            "buys": 1,
+            "deployed_inr": None,
+            "gross_pnl": night.get("gross"),
+            "costs_total": night.get("costs"),
+            "net_pnl": night.get("net"),
+            "source": "live",
+            "payload": dict(night),
+        }
+        seen = (int(user_id), "gap_carry", session, _paper_ledger_fingerprint(row))
+        if seen in _paper_ledger_written:
+            continue
+        try:
+            await _db_mod.save_paper_campaign(int(user_id), "gap_carry", row)
+        except Exception as exc:
+            _logger.warning("[LEDGER] gap_carry: could not archive %s: %s", session, exc)
+            continue
+        _paper_ledger_written.add(seen)
+
+
 async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) -> None:
     await _save_specialized_cascade_state(
         user_id,
@@ -1837,6 +1964,9 @@ async def _save_candle_entry_open_state(user_id: int, *, force: bool = False) ->
         _candle_entry_open_state_last_save,
         force=force,
     )
+    runtime = _candle_entry_engines.get(int(user_id))
+    if runtime is not None:
+        await _archive_paper_campaign(int(user_id), "candle_entry", runtime.engine.get_status())
 
 
 async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) -> None:
@@ -1874,6 +2004,8 @@ async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) ->
     }
     await _db_mod.set_app_state(_fib_boundary_open_state_key(user_id), json.dumps(payload, default=str))
     _fib_boundary_open_state_last_save[int(user_id)] = now
+    for _symbol, runtime in sorted(runtimes.items()):
+        await _archive_paper_campaign(int(user_id), "fib_boundary", runtime.engine.get_status())
 
 
 async def _restore_candle_entry_open_state(
@@ -11033,6 +11165,32 @@ async def _candle_entry_load_ladder(
     return mother, batches
 
 
+_PAPER_LEDGER_STRATEGIES = {"candle_entry", "fib_boundary", "gap_carry"}
+
+
+@app.get("/api/paper-campaigns/{strategy}")
+async def paper_campaigns_closed(strategy: str, request: Request):
+    """Every finished paper campaign this strategy has ever booked.
+
+    The engines keep only the CURRENT campaign, so before this the page could
+    show a settled trade for as long as the next mother took to replace it, and
+    not one minute longer.
+    """
+    key = str(strategy or "").replace("-", "_").lower()
+    if key not in _PAPER_LEDGER_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy '{strategy}'.")
+    user_id = _request_user_id(request)
+    rows = await _db_mod.list_paper_campaigns(user_id, key, limit=100)
+    booked = [r for r in rows if r.get("net_pnl") is not None]
+    return {
+        "status": "ok",
+        "strategy": key,
+        "campaigns": rows,
+        "count": len(rows),
+        "net_total": round(sum(float(r["net_pnl"]) for r in booked), 2) if booked else None,
+    }
+
+
 @app.get("/api/candle-entry/paper/status")
 async def candle_entry_paper_status(request: Request):
     user_id = _request_user_id(request)
@@ -12366,6 +12524,9 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
         _gap_carry_open_state_last_save,
         force=force,
     )
+    runtime = _gap_carry_engines.get(int(user_id))
+    if runtime is not None:
+        await _archive_gap_carry_nights(int(user_id), runtime.engine.get_status())
 
 
 async def _restore_gap_carry_open_state(

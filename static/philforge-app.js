@@ -2733,7 +2733,6 @@ function _renderCandleEntryMonitor(campaign) {
   // "refreshed" clock said the same minute as "marked" nearly always, and the
   // date repeats the kicker -- both dropped.
   if (updated) updated.textContent = `${_cascadeOptionsTimestamp(latest.timestamp).slice(11, 16)} · ${_cascadeNumber(latest.close)}${!exit && markTime ? ` · marked ${markTime}` : ''}`;
-  _renderCandleEntryClosedRounds(campaign);
   const events = Array.isArray(campaign.events) ? campaign.events : [];
   if (eventCount) eventCount.textContent = `${events.length} update${events.length === 1 ? '' : 's'}`;
   eventsEl.innerHTML = events.length ? events.slice(-18).reverse().map(event => {
@@ -2743,6 +2742,7 @@ function _renderCandleEntryMonitor(campaign) {
 }
 
 async function refreshCandleEntryStatus() {
+  _refreshPaperLedger('candle_entry');
   try {
     const response = await fetch('/api/candle-entry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
@@ -2859,31 +2859,63 @@ async function setCandleEntryAuto(_event, button) {
   }
 }
 
-function _renderCandleEntryClosedRounds(campaign) {
-  const wrap = _cascadeOptionsEl('candle-entry-closed-wrap');
-  const body = _cascadeOptionsEl('candle-entry-closed-rounds');
-  const count = _cascadeOptionsEl('candle-entry-closed-count');
+// THE PAPER LEDGER. The engines keep only the CURRENT campaign -- the next
+// auto mother overwrites the last one -- so a settled trade used to survive
+// only until its successor started. These rows come from the archive instead,
+// which is written the moment a campaign reads terminal.
+const _PAPER_LEDGER_UI = {
+  candle_entry: { wrap: 'candle-entry-closed-wrap', body: 'candle-entry-closed-rounds', count: 'candle-entry-closed-count' },
+  fib_boundary: { wrap: 'fibx-closed-wrap', body: 'fibx-closed-rounds', count: 'fibx-closed-count' },
+  gap_carry: { wrap: 'gap-carry-closed-wrap', body: 'gap-carry-closed-rounds', count: 'gap-carry-closed-count' },
+};
+
+function _paperLedgerMoney(value) {
+  if (value === null || value === undefined) return 'unpriced';
+  return _candleEntrySigned(Number(value));
+}
+
+async function _refreshPaperLedger(strategy) {
+  const ids = _PAPER_LEDGER_UI[strategy];
+  if (!ids) return;
+  const wrap = document.getElementById(ids.wrap);
+  const body = document.getElementById(ids.body);
   if (!wrap || !body) return;
-  const rounds = Array.isArray(campaign && campaign.rounds) ? campaign.rounds : [];
-  wrap.hidden = !rounds.length;
-  if (!rounds.length) { body.innerHTML = ''; return; }
-  if (count) count.textContent = `· ${rounds.length}`;
-  body.innerHTML = rounds.slice().reverse().map(round => {
-    const net = round.net_pnl == null ? null : Number(round.net_pnl);
+  let rows = [];
+  let total = null;
+  try {
+    const res = await fetch(`/api/paper-campaigns/${strategy}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+    rows = Array.isArray(data.campaigns) ? data.campaigns : [];
+    total = data.net_total;
+  } catch (err) {
+    return;
+  }
+  wrap.hidden = !rows.length;
+  if (!rows.length) { body.innerHTML = ''; return; }
+  const count = document.getElementById(ids.count);
+  if (count) {
+    count.textContent = `· ${rows.length}` + (total === null || total === undefined ? '' : ` · net ${_candleEntrySigned(total)}`);
+  }
+  body.innerHTML = rows.map(row => {
+    const net = row.net_pnl == null ? null : Number(row.net_pnl);
     const tone = net == null ? 'var(--muted)' : _candleEntryPnlTone(net);
-    const costs = round.costs && round.costs.total != null ? `₹${_cascadeNumber(round.costs.total)}` : '—';
+    // A row rebuilt from recorded prices says so rather than passing as a live capture.
+    const rebuilt = String(row.source || 'live') !== 'live'
+      ? ' <span style="color:var(--warn);" title="Rebuilt from recorded option prices, not captured live">rebuilt</span>'
+      : '';
+    const when = (v) => (v ? escapeHtml(_cascadeOptionsTimestamp(v).slice(5, 16)) : '—');
     return `<tr>`
-      + `<td>${escapeHtml(String(round.round_id ?? round.round ?? ''))}</td>`
-      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.opened_at).slice(5, 16))}</td>`
-      + `<td>${escapeHtml(_cascadeOptionsTimestamp(round.closed_at).slice(5, 16))}</td>`
-      + `<td>${round.exit_index_price == null ? '—' : escapeHtml(_cascadeNumber(round.exit_index_price))}</td>`
-      + `<td>${round.exit_option_premium == null ? '—' : `₹${escapeHtml(_cascadeNumber(round.exit_option_premium))}`}</td>`
-      + `<td class="candle-entry-muted">${escapeHtml(String(round.exit_reason || '—'))}</td>`
-      + `<td class="candle-entry-muted">${costs}</td>`
-      + `<td style="color:${tone};">${net == null ? 'unpriced' : escapeHtml(_candleEntrySigned(net))}</td>`
+      + `<td>${when(row.opened_at)}${rebuilt}</td>`
+      + `<td>${when(row.closed_at)}</td>`
+      + `<td>${escapeHtml(String(row.contract || '—'))}</td>`
+      + `<td>${escapeHtml(String(row.buys ?? 0))}</td>`
+      + `<td>${row.deployed_inr == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(row.deployed_inr)))}</td>`
+      + `<td class="candle-entry-muted">${escapeHtml(String(row.exit_reason || row.status || '—'))}</td>`
+      + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net))}</td>`
       + `</tr>`;
   }).join('');
 }
+
 
 function _renderCandleEntryAuto(auto) {
   const card = document.getElementById('candle-entry-auto-card');
@@ -4127,6 +4159,7 @@ async function _restoreLastGapCarryBacktest() {
 }
 
 async function refreshGapCarryStatus() {
+  _refreshPaperLedger('gap_carry');
   try {
     const response = await fetch('/api/gap-carry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
@@ -4911,6 +4944,7 @@ function _renderFibBoundaryEvents(pair, events) {
 }
 
 async function refreshFibBoundaryStatus() {
+  _refreshPaperLedger('fib_boundary');
   try {
     const response = await fetch('/api/fib-boundary/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));

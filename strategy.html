@@ -2740,6 +2740,10 @@
            campaign and addressed with data-fx="" inside its own root, because
            42 fixed ids cannot become N of anything. -->
       <div id="fibx-monitors" class="fibx-monitors"><div id="fibx-auto-panel" class="fibx-auto-panel"></div></div>
+      <div class="candle-entry-monitor-section" id="fibx-closed-wrap" hidden>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="fibx-closed-count"></span></div>
+        <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="fibx-closed-rounds"></tbody></table></div>
+      </div>
     </div>
 
     <!-- And one results+events pair per ladder, for the same reason: a single
@@ -3001,7 +3005,7 @@
         <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Rung</th><th>Chart</th><th>Lots</th><th>State</th><th>Buy-stop</th><th>Filled</th><th>Strike</th><th>Premium</th><th>Now</th></tr></thead><tbody id="candle-entry-monitor-rungs"></tbody></table></div></div>
         <div class="candle-entry-monitor-section" id="candle-entry-closed-wrap" hidden>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper rounds <span id="candle-entry-closed-count"></span></div>
-          <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Round</th><th>Opened</th><th>Closed</th><th>Index out</th><th>Premium out</th><th>Exit</th><th>Costs</th><th>Net P&amp;L</th></tr></thead><tbody id="candle-entry-closed-rounds"></tbody></table></div>
+          <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="candle-entry-closed-rounds"></tbody></table></div>
         </div>
         <details class="candle-entry-activity">
           <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="candle-entry-event-count">0 updates</span></summary>
@@ -3202,6 +3206,10 @@
           <div id="gap-carry-monitor-tiles" class="candle-entry-tiles"></div>
           <div id="gap-carry-monitor-rule" class="candle-entry-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
           <div class="candle-entry-monitor-section"><div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Session</th><th>Side</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>P&amp;L</th></tr></thead><tbody id="gap-carry-monitor-rows"></tbody></table></div></div>
+          <div class="candle-entry-monitor-section" id="gap-carry-closed-wrap" hidden>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper nights <span id="gap-carry-closed-count"></span></div>
+            <div class="candle-entry-table-wrap"><table class="candle-entry-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th></tr></thead><tbody id="gap-carry-closed-rounds"></tbody></table></div>
+          </div>
           <details class="candle-entry-activity">
             <summary class="candle-entry-activity-head"><h4>Activity</h4><span id="gap-carry-event-count">0 updates</span></summary>
             <div class="candle-entry-events"><table class="candle-entry-table candle-entry-events-table"><thead><tr><th>Session</th><th>Update</th></tr></thead><tbody id="gap-carry-events"><tr><td colspan="2" class="candle-entry-empty">No campaign updates yet.</td></tr></tbody></table></div>
