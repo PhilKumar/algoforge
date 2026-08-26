@@ -1,0 +1,20 @@
+# Gitleaks, with one exception: the unit-test encryption key.
+#
+# `ENCRYPTION_KEY` has to be set before app.py imports, so every test module
+# that touches the app sets the same throwaway base64 value. Twelve of them
+# already carry it, but gitleaks scans only what a commit ADDS -- so the old
+# files pass and any NEW test file fails, which is how a green suite arrived
+# at a red main (2026-08-26). It is not a credential: it decrypts nothing,
+# it is committed in the clear on purpose, and it is the string the CI
+# workflow itself exports.
+#
+# Scoped to that exact literal rather than to tests/ as a whole, so a REAL
+# secret checked into a test still stops the build.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "The throwaway ENCRYPTION_KEY every test module sets before importing app"
+regexes = [
+  '''dGVzdC1rZXktZm9yLXVuaXQtdGVzdHMtMzJieXRlIQ==''',
+]
