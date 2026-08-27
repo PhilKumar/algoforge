@@ -1967,7 +1967,7 @@ async function loadLoanFinds(){
     host.innerHTML = `<div class="section-title" style="font-size:.95rem;margin-top:18px">Found in your statements</div>
       <div class="section-sub">EMI-shaped streams the years remember. One tap and each becomes a card wearing its real history — closed ones arrive already resting.</div>` +
       r.candidates.map((c) => `
-      <div class="stmt-review-row" data-lfkey="${esc(c.key)}">
+      <div class="stmt-review-row" data-lfkey="${esc(c.key)}" data-lfemi="${c.emi}">
         <div class="who"><b>${esc(c.lender || "Unknown lender")}</b>
           <span class="stmt-chip">${c.count} EMIs × ${inr2(c.emi)}</span>
           <span class="stmt-chip">${esc(c.first)} → ${esc(c.last)}</span>
@@ -1982,16 +1982,22 @@ document.addEventListener("click", async (e) => {
   const adopt = e.target.closest("[data-lf-adopt]");
   const ignore = e.target.closest("[data-lf-ignore]");
   if (!adopt && !ignore) return;
-  const key = (adopt || ignore).closest("[data-lfkey]").dataset.lfkey;
-  if (adopt) {
-    adopt.disabled = true;
-    const r = await api("/api/sanctuary/loans/adopt", {method: "POST", body: {key}});
-    toast(`${r.name} — ${r.paid} EMIs on record${r.closed ? ", resting closed" : ""}. 🌿`);
-  } else {
-    await api("/api/sanctuary/loans/discover/ignore", {method: "POST", body: {key}});
-    toast("Set aside.");
+  const row = (adopt || ignore).closest("[data-lfkey]");
+  const key = row.dataset.lfkey, emi = Number(row.dataset.lfemi);
+  try {
+    if (adopt) {
+      adopt.disabled = true;
+      const r = await api("/api/sanctuary/loans/adopt", {method: "POST", body: {key, emi}});
+      toast(`${r.name} — ${r.paid} EMIs on record${r.closed ? ", resting closed" : ""}. 🌿`);
+    } else {
+      await api("/api/sanctuary/loans/discover/ignore", {method: "POST", body: {key, emi}});
+      toast("Set aside.");
+    }
+    loadLoans(); refreshFinance();
+  } catch (e) {
+    if (adopt) adopt.disabled = false;
+    toast(e.message || "That did not take — try again");
   }
-  loadLoans(); refreshFinance();
 });
 function renderLoans(){
   $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `

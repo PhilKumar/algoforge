@@ -1163,8 +1163,19 @@ async def _loan_candidates(user_id: int) -> list[dict]:
     rows = await sanctuary_db.statement_outflow_rows(user_id)
     candidates = await asyncio.to_thread(sanctuary_statements.discover_loans, rows, _today_ist())
     ignored = set(await sanctuary_db.get_json_state(user_id, "loan_ignored", []))
-    carded = {str(loan.get("account_no") or "") for loan in await sanctuary_db.list_loans(user_id)}
-    return [c for c in candidates if c["key"] not in ignored and c["key"] not in carded]
+    carded = [
+        (str(loan.get("account_no") or ""), float(loan.get("emi_amount") or 0))
+        for loan in await sanctuary_db.list_loans(user_id)
+    ]
+
+    def is_carded(c):
+        return any(acct == c["key"] and abs(emi - c["emi"]) <= 0.03 * max(c["emi"], 1) for acct, emi in carded)
+
+    return [
+        c
+        for c in candidates
+        if c["key"] not in ignored and f"{c['key']}#{c['emi']:.0f}" not in ignored and not is_carded(c)
+    ]
 
 
 @router.get("/api/sanctuary/loans/discover")
@@ -1176,15 +1187,33 @@ async def loans_discover(user: dict = Depends(_unlocked_user)):
     return {"candidates": candidates}
 
 
+def _match_candidate(candidates: list[dict], key: str, emi) -> dict | None:
+    """Two parallel loans share a mandate key — the EMI tells them apart."""
+    matches = [c for c in candidates if c["key"] == key]
+    if emi is not None:
+        matches = [c for c in matches if abs(c["emi"] - float(emi)) <= 0.03 * max(c["emi"], 1)]
+    return matches[0] if matches else None
+
+
 @router.post("/api/sanctuary/loans/adopt")
 async def loans_adopt(request: Request, user: dict = Depends(_unlocked_user)):
     """One tap: the stream becomes a loan card wearing its real history."""
     user_id = int(user["id"])
     payload = await request.json()
     key = str(payload.get("key") or "")
-    cand = next((c for c in await _loan_candidates(user_id) if c["key"] == key), None)
+    try:
+        emi = float(payload["emi"]) if payload.get("emi") is not None else None
+    except (TypeError, ValueError):
+        emi = None
+    cand = _match_candidate(await _loan_candidates(user_id), key, emi)
     if not cand:
         raise HTTPException(status_code=404, detail="That stream is gone or already carded")
+    # The schedule holds one EMI per day, and a bank can debit twice on one
+    # date (the CRED mandate did) — same-day debits fold into one row.
+    by_date: dict[str, float] = {}
+    for debit in cand["debits"]:
+        by_date[debit["due_date"]] = round(by_date.get(debit["due_date"], 0) + debit["amount"], 2)
+    cand["debits"] = [{"due_date": d, "amount": a} for d, a in sorted(by_date.items())]
     years = cand["first"][:4] + ("–" + cand["last"][:4] if cand["last"][:4] != cand["first"][:4] else "")
     name = str(payload.get("name") or "").strip()[:80] or f"{cand['lender'] or 'Loan'} · {years}"
     loan_id = await sanctuary_db.create_loan(
@@ -1201,9 +1230,14 @@ async def loans_adopt(request: Request, user: dict = Depends(_unlocked_user)):
             "active": not cand["closed"],
         },
     )
-    await sanctuary_db.replace_schedule(user_id, loan_id, cand["debits"])
-    await sanctuary_db.settle_past_emis(user_id, loan_id, cand["last"])
-    return {"id": loan_id, "name": name, "paid": cand["count"], "closed": cand["closed"]}
+    try:
+        await sanctuary_db.replace_schedule(user_id, loan_id, cand["debits"])
+        await sanctuary_db.settle_past_emis(user_id, loan_id, cand["last"])
+    except Exception:
+        # A card without its history is worse than no card — undo and say so.
+        await sanctuary_db.delete_loan(user_id, loan_id)
+        raise HTTPException(status_code=500, detail="The schedule would not take — nothing was added") from None
+    return {"id": loan_id, "name": name, "paid": len(cand["debits"]), "closed": cand["closed"]}
 
 
 @router.post("/api/sanctuary/loans/discover/ignore")
@@ -1213,9 +1247,13 @@ async def loans_discover_ignore(request: Request, user: dict = Depends(_unlocked
     key = str(payload.get("key") or "")[:80]
     if not key:
         raise HTTPException(status_code=400, detail="Which one?")
+    try:
+        mark = f"{key}#{float(payload['emi']):.0f}" if payload.get("emi") is not None else key
+    except (TypeError, ValueError):
+        mark = key
     ignored = await sanctuary_db.get_json_state(user_id, "loan_ignored", [])
-    if key not in ignored:
-        ignored.append(key)
+    if mark not in ignored:
+        ignored.append(mark)
     await sanctuary_db.set_json_state(user_id, "loan_ignored", ignored[:200])
     return {"ok": True}
 
