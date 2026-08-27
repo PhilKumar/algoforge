@@ -241,16 +241,31 @@ html[data-theme="dark"] #veil{background:linear-gradient(180deg, rgba(0,0,0,0) 0
   .card,.greet{background:var(--card);backdrop-filter:none;-webkit-backdrop-filter:none;text-shadow:none}
   .card::before{display:none}
 }
+/* ── buttons: frosted chips ──
+   From his reference: a button is a piece of tinted glass, not a painted
+   pill — translucent enough to take colour from what drifts behind it,
+   with a lit top edge and a soft cast. The filled ones keep a heavier
+   tint (.82) so their labels never gamble on the backdrop; the clear
+   ones lean on blur exactly the way the panes do. */
 .btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:10px 20px;font-weight:700;
-  background:var(--moss);color:#f8fbf7;transition:transform .15s ease, box-shadow .15s ease;border:1px solid transparent}
-html[data-theme="dark"] .btn{color:#0c1524}
-.btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+  background:var(--moss); /* fallback for engines without color-mix */
+  background:color-mix(in srgb, var(--moss) 82%, transparent);color:#f8fbf7;
+  border:1px solid rgba(255,255,255,.35);
+  backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);
+  box-shadow:0 6px 18px rgba(30,44,66,.18), inset 0 1px 0 rgba(255,255,255,.45);
+  transition:transform .15s ease, box-shadow .15s ease, background .2s ease}
+html[data-theme="dark"] .btn{color:#0c1524;border-color:rgba(255,255,255,.25);
+  box-shadow:0 6px 18px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.3)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(30,44,66,.24), inset 0 1px 0 rgba(255,255,255,.5)}
 .btn:active{transform:none}
-.btn.ghost{background:transparent;color:var(--moss);border:1px solid var(--line)}
-.btn.warm{background:var(--terracotta)}
+.btn.warm{background:var(--terracotta);background:color-mix(in srgb, var(--terracotta) 82%, transparent)}
 .btn.small{padding:6px 14px;font-size:.85rem}
-.btn.subtle{background:var(--card-2);color:var(--ink);border:1px solid var(--line);font-weight:600}
-/* the dark near-black text is for FILLED buttons only — outline styles keep their own ink */
+/* the clear chips: glass first, colour only in the ink */
+.btn.ghost,.btn.subtle{background:var(--glass-tint);
+  border:1px solid var(--glass-rim);box-shadow:var(--glass-cast), inset 0 1px 0 var(--glass-edge);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.btn.ghost{color:var(--moss);font-weight:700}
+.btn.subtle{color:var(--ink);font-weight:600}
 html[data-theme="dark"] .btn.ghost{color:var(--moss)}
 html[data-theme="dark"] .btn.subtle{color:var(--ink)}
 .btn:disabled{opacity:.5;cursor:default;transform:none}
@@ -304,7 +319,8 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 .greet h2{font-family:var(--serif);font-weight:650;font-size:clamp(1.5rem,4vw,2.2rem);line-height:1.15}
 .topbar-actions{display:flex;gap:10px}
 .iconbtn{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:var(--card);border:1px solid var(--line-soft);box-shadow:var(--shadow);transition:transform .15s ease;
+  background:var(--glass-tint);border:1px solid var(--glass-rim);
+  box-shadow:var(--glass-cast), inset 0 1px 0 var(--glass-edge);transition:transform .15s ease;
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
 .iconbtn:hover{transform:translateY(-2px)}
 .iconbtn svg{width:20px;height:20px}
@@ -339,7 +355,8 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
   padding:5px;width:max-content;margin:0 auto 30px;box-shadow:var(--shadow);
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
 .tab{border-radius:999px;padding:10px 26px;font-weight:800;color:var(--muted);transition:all .18s ease}
-.tab.on{background:var(--card);color:var(--moss);box-shadow:var(--shadow)}
+.tab.on{background:var(--glass-tint);color:var(--moss);
+  box-shadow:var(--glass-cast), inset 0 1px 0 var(--glass-edge);border:1px solid var(--glass-rim)}
 
 /* ── journal ─────────────────────────────────────────────── */
 .composer .kinds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
@@ -489,8 +506,10 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .tile .edit{font-size:.8rem;color:var(--moss);font-weight:700;cursor:pointer}
 .quick{margin-bottom:24px}
 .quick-cats{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}
-.qc{display:flex;flex-direction:column;align-items:center;gap:3px;width:68px;padding:8px 3px;border-radius:13px;
-  border:1px solid var(--line-soft);background:var(--card-2);font-size:.67rem;font-weight:700;color:var(--muted);
+.qc{display:flex;flex-direction:column;align-items:center;gap:3px;width:68px;padding:8px 3px;border-radius:16px;
+  border:1px solid var(--glass-rim);background:var(--glass-tint-2);font-size:.67rem;font-weight:700;color:var(--muted);
+  box-shadow:inset 0 1px 0 var(--glass-edge);
+  backdrop-filter:blur(12px) saturate(1.25);-webkit-backdrop-filter:blur(12px) saturate(1.25);
   line-height:1.25;transition:all .15s ease}
 .qc em{font-style:normal;font-size:17px}
 .qc:hover{transform:translateY(-2px);border-color:var(--moss)}
