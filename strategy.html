@@ -3114,7 +3114,7 @@
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title"><h3 id="oc-candle-chart-title">Two-red ladder chart</h3><div id="oc-candle-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-candle-chart-strip"></div><!-- THE WAY OUT. This dialog shipped with no close control, no Escape and no backdrop click, so a frozen chart could be opened and not left (Phil, 2026-08-26: "Not able to come out"). --><button type="button" class="cascade-options-control" data-pf-action="closeCandleEntryChart" aria-label="Close chart">&#10005;</button></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ rung</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-candle-chart-strip"></div><!-- THE WAY OUT. This dialog shipped with no close control, no Escape and no backdrop click, so a frozen chart could be opened and not left (Phil, 2026-08-26: "Not able to come out"). --><button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="closeCandleEntryChart" title="Close chart" aria-label="Close chart">&#10005;</button></div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-candle-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles on the chart you pick, with every rung the ladder bought, an armed stop, the target and the exit drawn on top.</div></div></div>
       </div>
@@ -3540,7 +3540,7 @@
           <div class="terminal-cascade-chart-actions">
             <div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">&#9644; buy-stop</span><span style="color:#fff;">&#9650; fill</span><span style="color:#fbbf24;">&#9660; exit</span><span style="color:#a78bfa;">&#9635; mother</span></div>
             <div id="oc-high-chart-strip"></div>
-            <button type="button" class="cascade-options-control" data-pf-action="closeRecoveryChart" aria-label="Close chart">&#10005;</button>
+            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="closeRecoveryChart" title="Close chart" aria-label="Close chart">&#10005;</button>
           </div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-high-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>

@@ -12330,6 +12330,22 @@ def _candle_auto_log_campaign(setting: dict, runtime: _CascadeRuntime) -> None:
     setting["log"] = [row for row in log if str(row.get("mother"))[:10] >= keep_from][-200:]
 
 
+# Every state this step can return that means nothing is wrong. A tick in one
+# of these clears a stale `last_error`, so a refusal from days ago cannot sit
+# on the card beside a state that is perfectly fine.
+_CANDLE_ENTRY_AUTO_HEALTHY_STATES = frozenset(
+    {
+        "outside-window",
+        "busy",
+        "too-late",
+        "waiting-for-new-high",
+        "waiting-for-candle",
+        "already-running",
+        "started",
+    }
+)
+
+
 async def _candle_entry_auto_step(
     user: dict,
     setting: dict,
@@ -12446,6 +12462,20 @@ async def _candle_entry_auto_step(
     try:
         await starter(payload)
     except HTTPException as exc:
+        # A CAMPAIGN ALREADY RUNNING IS NOT AN ERROR, here any more than on
+        # Gap Carry. The 409 exists to stop a PERSON replacing a live mother;
+        # the scheduler meeting it means the engine registry this step reads
+        # and the start route disagreed for a tick. Stamping it into
+        # `last_error` pinned an instruction addressed to nobody onto the auto
+        # card -- and it stayed, because the field is cleared only by a
+        # SUCCESSFUL start (Phil, 2026-08-27: "10:16 A Candle Entry campaign
+        # is already running... So Will I see this message on always?" -- the
+        # wording he was reading predated the same day's shortening, which is
+        # how old the complaint on his screen was).
+        if exc.status_code == 409:
+            setting.pop("last_error", None)
+            await _save_candle_entry_auto(uid)
+            return "already-running"
         setting["last_error"] = f"{now.strftime('%H:%M')} {exc.detail}"
         await _save_candle_entry_auto(uid)
         return "start-failed"
@@ -12477,7 +12507,10 @@ async def _run_candle_entry_auto_loop() -> None:
                 if not setting.get("enabled"):
                     continue
                 try:
-                    await _candle_entry_auto_step(user, setting)
+                    state = await _candle_entry_auto_step(user, setting)
+                    # A HEALTHY TICK CLEARS THE OLD COMPLAINT.
+                    if state in _CANDLE_ENTRY_AUTO_HEALTHY_STATES and setting.pop("last_error", None) is not None:
+                        await _save_candle_entry_auto(uid)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

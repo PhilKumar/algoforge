@@ -54,4 +54,4 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260827-one-close-clear-notes-26" in MANIFEST
+    assert "20260827-red-close-and-quiet-auto-27" in MANIFEST

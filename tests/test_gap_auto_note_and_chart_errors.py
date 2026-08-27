@@ -45,7 +45,45 @@ class GapAutoNoteTests(unittest.TestCase):
         # a genuine failure is NOT healthy and keeps its message
         self.assertNotIn("start-failed", healthy)
         self.assertNotIn("exit-failed", healthy)
-        self.assertIn("_GAP_CARRY_AUTO_HEALTHY_STATES", APP.split("async def _gap_carry_auto_loop")[-1])
+        self.assertIn("_GAP_CARRY_AUTO_HEALTHY_STATES", APP.split("async def _run_gap_carry_auto_loop")[-1])
+
+
+class CandleAutoNoteTests(unittest.TestCase):
+    """The same complaint, on the other card (Phil, 2026-08-27).
+
+    "10:16 A Candle Entry campaign is already running. Kill it before
+    replacing its mother." was still on the auto card -- in wording this repo
+    had already shortened that same day, which is how long a `last_error`
+    survives when only a successful start clears it.
+    """
+
+    def test_a_running_campaign_is_not_recorded_as_an_error(self):
+        block = APP[APP.index("starter = start or (lambda p: _start_candle_entry_campaign") :][:2200]
+        self.assertIn("if exc.status_code == 409:", block)
+        self.assertIn('return "already-running"', block)
+        head = block[block.index("if exc.status_code == 409:") :][:400]
+        self.assertIn('setting.pop("last_error", None)', head)
+        # the 409 must be handled BEFORE the line that stamps the message
+        self.assertLess(
+            block.index("if exc.status_code == 409:"),
+            block.index('setting["last_error"] = f"{now.strftime'),
+        )
+
+    def test_a_healthy_tick_clears_a_stale_complaint(self):
+        import app as app_module
+
+        healthy = app_module._CANDLE_ENTRY_AUTO_HEALTHY_STATES
+        for state in ("busy", "waiting-for-new-high", "outside-window", "already-running", "started"):
+            with self.subTest(state=state):
+                self.assertIn(state, healthy)
+        # a genuine failure is NOT healthy and keeps its message
+        self.assertNotIn("start-failed", healthy)
+        self.assertNotIn("find-failed", healthy)
+        self.assertNotIn("no-broker", healthy)
+        loop = APP.split("async def _run_candle_entry_auto_loop")[-1]
+        self.assertIn("_CANDLE_ENTRY_AUTO_HEALTHY_STATES", loop)
+        # and the loop must keep the state to test it -- it used to throw it away
+        self.assertIn("state = await _candle_entry_auto_step(", loop)
 
 
 class ChartFailureTests(unittest.TestCase):
@@ -72,6 +110,31 @@ class OneCloseTests(unittest.TestCase):
                 start = MARKUP.index(f'id="{overlay}"')
                 block = MARKUP[start : start + 3400]
                 self.assertIn('aria-label="Close chart"', block, "no way out of this dialog")
+
+    def test_every_close_is_the_same_red_control(self):
+        """Phil, 2026-08-27: "The X is blue in colour it has to be red.. and
+        the alignment is not correct".
+
+        Two dialogs closed with .cascade-options-control, which is the blue
+        skin AND sizes itself to its text (min-width:0, padding 5px 10px),
+        while every other chart's close is the fixed 32x30 .is-danger box --
+        so the corner showed a blue cross of a different width beside the
+        refresh button.
+        """
+        import re
+
+        closes = re.findall(r"<button[^>]*aria-label=\"Close chart\"[^>]*>", MARKUP)
+        self.assertEqual(len(closes), 6, "a chart dialog gained or lost its close")
+        for tag in closes:
+            with self.subTest(tag=tag[:90]):
+                self.assertIn("terminal-cascade-chart-control", tag)
+                self.assertIn("is-danger", tag)
+                self.assertNotIn("cascade-options-control", tag)
+                self.assertIn('title="Close chart"', tag)
+        # and the strip's own close is cut from the same cloth
+        strip = (ROOT / "static" / "philforge-bench-chart.js").read_text(encoding="utf-8")
+        strip_close = strip[strip.index("data-strip-close aria-label") - 220 :][:320]
+        self.assertIn("terminal-cascade-chart-control is-danger", strip_close)
 
 
 if __name__ == "__main__":
