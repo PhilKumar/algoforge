@@ -15,6 +15,7 @@ view loads, which survives deploys without a background task.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import os
 import re
@@ -595,6 +596,28 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
     content_type = _sniff_content_type(blob, declared)
     if not content_type:
         raise HTTPException(status_code=400, detail="Papers and pictures only — that file is something else")
+    # The same paper offered twice — inside one folder drop, or a folder
+    # re-picked after a deploy — is acknowledged, not stored again.
+    content_sha = hashlib.sha1(blob, usedforsecurity=False).hexdigest()
+    existing = await sanctuary_db.find_document_by_sha(int(user["id"]), content_sha)
+    if not existing:
+        # Rows stored before fingerprints existed: a matching name and size
+        # is worth opening to compare, and either way learns its fingerprint.
+        for old in await sanctuary_db.documents_without_sha(
+            int(user["id"]), (file.filename or "document")[:160], len(blob)
+        ):
+            stored = _read_document_blob(old, int(user["id"]))
+            if stored is not None:
+                await sanctuary_db.set_document_sha(
+                    int(user["id"]),
+                    old["id"],
+                    hashlib.sha1(stored, usedforsecurity=False).hexdigest(),
+                )
+                if stored == blob:
+                    existing = old
+                    break
+    if existing:
+        return {"id": existing["id"], "duplicate": True, "title": existing.get("title") or ""}
     encrypted = auth.encrypt_bytes(blob)
     if encrypted is None:
         raise HTTPException(status_code=503, detail="Encryption unavailable")
@@ -627,6 +650,7 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
             "content_type": content_type,
             "size": len(blob),
             "file_token": token,
+            "content_sha": content_sha,
         }
     )
     doc_id = await sanctuary_db.create_document(int(user["id"]), fields)
@@ -672,14 +696,22 @@ def _read_payslip_pdf(blob: bytes) -> dict | None:
     return sanctuary_docs.read_payslip(text)
 
 
-def _serve_document(doc: dict, user_id: int):
-    full = _vault_file_path(user_id, doc.get("file_token") or "missing")
+def _read_document_blob(doc: dict, user_id: int) -> bytes | None:
+    """The stored paper, decrypted — or None if it is gone or unreadable."""
+    try:
+        full = _vault_file_path(user_id, doc.get("file_token") or "missing")
+    except HTTPException:
+        return None
     if not os.path.isfile(full):
-        raise HTTPException(status_code=404, detail="The file is gone from disk")
+        return None
     with open(full, "rb") as handle:
-        blob = auth.decrypt_bytes(handle.read())
+        return auth.decrypt_bytes(handle.read())
+
+
+def _serve_document(doc: dict, user_id: int):
+    blob = _read_document_blob(doc, user_id)
     if blob is None:
-        raise HTTPException(status_code=503, detail="Cannot decrypt — ENCRYPTION_KEY changed?")
+        raise HTTPException(status_code=404, detail="The file is gone from disk or cannot be decrypted")
     from fastapi.responses import Response
 
     safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", doc.get("filename") or "document")
@@ -704,9 +736,44 @@ async def vault_refile(user: dict = Depends(_unlocked_user)):
 
     Each row keeps the folder it arrived from in its note, so nothing needs
     re-uploading. A document whose title he has edited himself is left alone.
+    While every file is open anyway, each learns its content fingerprint,
+    and a paper stored twice under the same fingerprint is kept only once —
+    the copy that knows what it is, or failing that the oldest.
     """
     user_id = int(user["id"])
     moved = 0
+    removed = 0
+    # ── fingerprints first, so twins can be seen ──
+    docs = await sanctuary_db.list_documents(user_id)
+    by_sha: dict[str, dict] = {}
+    for doc in docs:
+        sha = doc.get("content_sha") or ""
+        if not sha:
+            blob = _read_document_blob(doc, user_id)
+            if blob is None:
+                continue
+            sha = hashlib.sha1(blob, usedforsecurity=False).hexdigest()
+            await sanctuary_db.set_document_sha(user_id, doc["id"], sha)
+            doc["content_sha"] = sha
+            # A payslip stored before the salary reader existed gets its
+            # month filled now, while its pages are open anyway.
+            if (doc.get("content_type") or "") == "application/pdf":
+                await _salary_from_payslip(user_id, blob)
+        keeper = by_sha.get(sha)
+        if keeper is None:
+            by_sha[sha] = doc
+            continue
+        # Two rows, one paper: keep the better-described of the pair.
+        loser = doc
+        if keeper["category"] == "Other" and doc["category"] != "Other":
+            by_sha[sha], loser = doc, keeper
+        gone = await sanctuary_db.delete_document(user_id, loser["id"])
+        if gone:
+            removed += 1
+            try:
+                os.unlink(_vault_file_path(user_id, gone.get("file_token") or "missing"))
+            except OSError:
+                pass
     for doc in await sanctuary_db.list_documents(user_id):
         folder = doc.get("note") or ""
         if folder.count("/") >= 0 and folder.startswith("payslips"):
@@ -724,7 +791,7 @@ async def vault_refile(user: dict = Depends(_unlocked_user)):
         if changed:
             await sanctuary_db.update_document(user_id, doc["id"], changed)
             moved += 1
-    return {"moved": moved}
+    return {"moved": moved, "removed": removed}
 
 
 @router.put("/api/sanctuary/vault/{doc_id}")

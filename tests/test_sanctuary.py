@@ -664,6 +664,44 @@ class VaultTests(unittest.TestCase):
         self.assertNotEqual(doc["doc_number"], "TN-00 1234", "the number must not rest in clear")
         self.assertEqual(self.auth.decrypt_value(doc["doc_number"]), "TN-00 1234")
 
+    def test_same_content_is_found_by_its_fingerprint(self):
+        """The same paper offered twice must be findable, so it is stored once."""
+        import hashlib
+
+        sha = hashlib.sha1(b"%PDF-1.4 the same paper").hexdigest()
+
+        async def run():
+            await self.sanctuary_db.create_document(
+                1, {"title": "Form 16", "filename": "f16.pdf", "size": 23, "content_sha": sha}
+            )
+            hit = await self.sanctuary_db.find_document_by_sha(1, sha)
+            miss = await self.sanctuary_db.find_document_by_sha(1, "0" * 40)
+            other_user = await self.sanctuary_db.find_document_by_sha(2, sha)
+            blank = await self.sanctuary_db.find_document_by_sha(1, "")
+            return hit, miss, other_user, blank
+
+        hit, miss, other_user, blank = asyncio.run(run())
+        self.assertEqual(hit["title"], "Form 16")
+        self.assertIsNone(miss)
+        self.assertIsNone(other_user, "one user's fingerprints must not answer for another")
+        self.assertIsNone(blank, "a blank fingerprint matches nothing, not everything")
+
+    def test_old_rows_without_fingerprint_are_narrowed_by_name_and_size(self):
+        async def run():
+            await self.sanctuary_db.create_document(1, {"title": "Old", "filename": "a.pdf", "size": 10})
+            await self.sanctuary_db.create_document(1, {"title": "Other name", "filename": "b.pdf", "size": 10})
+            await self.sanctuary_db.create_document(
+                1, {"title": "Stamped", "filename": "a.pdf", "size": 10, "content_sha": "ff" * 20}
+            )
+            rows = await self.sanctuary_db.documents_without_sha(1, "a.pdf", 10)
+            await self.sanctuary_db.set_document_sha(1, rows[0]["id"], "ab" * 20)
+            after = await self.sanctuary_db.documents_without_sha(1, "a.pdf", 10)
+            return rows, after
+
+        rows, after = asyncio.run(run())
+        self.assertEqual([r["title"] for r in rows], ["Old"], "name+size narrows, a stamped row is excluded")
+        self.assertEqual(after, [], "once stamped, the row leaves the unfingerprinted set")
+
 
 if __name__ == "__main__":
     unittest.main()

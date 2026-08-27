@@ -653,8 +653,8 @@ async def create_document(user_id: int, fields: dict) -> int:
         cursor = await db.execute(
             """INSERT INTO sanctuary_documents
                (user_id, title, category, doc_number, note, series, doc_date,
-                filename, content_type, size, file_token, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                filename, content_type, size, file_token, content_sha, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 int(user_id),
                 fields["title"],
@@ -667,11 +667,48 @@ async def create_document(user_id: int, fields: dict) -> int:
                 fields.get("content_type", ""),
                 int(fields.get("size", 0)),
                 fields.get("file_token", ""),
+                fields.get("content_sha", ""),
                 _now_iso(),
             ),
         )
         await db.commit()
         return int(cursor.lastrowid or 0)
+
+
+async def find_document_by_sha(user_id: int, content_sha: str) -> dict | None:
+    """The paper already in the vault with this exact content, if any."""
+    if not content_sha:
+        return None
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM sanctuary_documents WHERE user_id = ? AND content_sha = ? LIMIT 1",
+            (int(user_id), content_sha),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def documents_without_sha(user_id: int, filename: str = "", size: int | None = None) -> list[dict]:
+    """Rows stored before fingerprints existed — narrowed when a name is known."""
+    query = "SELECT * FROM sanctuary_documents WHERE user_id = ? AND content_sha = ''"
+    params: list = [int(user_id)]
+    if filename:
+        query += " AND filename = ? AND size = ?"
+        params.extend([filename, int(size or 0)])
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(query, params)
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def set_document_sha(user_id: int, doc_id: int, content_sha: str) -> None:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            "UPDATE sanctuary_documents SET content_sha = ? WHERE user_id = ? AND id = ?",
+            (content_sha, int(user_id), int(doc_id)),
+        )
+        await db.commit()
 
 
 async def list_documents(user_id: int) -> list[dict]:

@@ -104,3 +104,6 @@ data/users/
 # The folder holds Aadhaar, signed loan agreements and card statements.
 HDFC_Loan_Doc/
 bank_statements/
+payslips/
+LifePapers/
+WorkArchive/

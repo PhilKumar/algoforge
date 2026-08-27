@@ -326,6 +326,7 @@ _SCHEMA_STATEMENTS = [
         content_type TEXT    NOT NULL DEFAULT '',
         size         INTEGER NOT NULL DEFAULT 0,
         file_token   TEXT    NOT NULL DEFAULT '',
+        content_sha  TEXT    NOT NULL DEFAULT '',
         created_at   TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
@@ -380,6 +381,12 @@ def _init_db_sync():
     ):
         if column not in existing_loan_columns:
             conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608
+
+    # A document remembers its content's fingerprint, so the same paper
+    # offered twice — in one folder drop or across two — is stored once.
+    existing_doc_columns = {row[1] for row in conn.execute("PRAGMA table_info(sanctuary_documents)").fetchall()}
+    if "content_sha" not in existing_doc_columns:
+        conn.execute("ALTER TABLE sanctuary_documents ADD COLUMN content_sha TEXT NOT NULL DEFAULT ''")
     conn.commit()
     conn.close()
     _initialized = True
