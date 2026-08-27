@@ -35,6 +35,7 @@ import sanctuary_content
 import sanctuary_db
 import sanctuary_docs
 import sanctuary_emi
+import sanctuary_holdings
 import sanctuary_statements
 from image_uploads import ImageValidationError, sanitize_image
 
@@ -1081,6 +1082,39 @@ async def ledger_recategorise_row(row_id: int, request: Request, user: dict = De
     return {"ok": True}
 
 
+@router.get("/api/sanctuary/holdings")
+async def holdings_get(user: dict = Depends(_unlocked_user)):
+    """What he owns, as his broker last stated it."""
+    return await sanctuary_db.get_json_state(int(user["id"]), "holdings", {})
+
+
+@router.post("/api/sanctuary/holdings")
+async def holdings_import(file: UploadFile, user: dict = Depends(_unlocked_user)):
+    """A broker's holdings export, read whole.
+
+    Nothing is fetched live: a holding is worth what the statement said on
+    the day it was exported, and the page says which day, because a figure
+    presented as this morning's when it is three months old is worse than
+    no figure.
+    """
+    blob = await _read_upload(file)
+    if not blob:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        read = await asyncio.to_thread(sanctuary_holdings.parse_holdings, blob)
+    except Exception:  # noqa: BLE001 - an unreadable upload is not a crash
+        read = None
+    if not read:
+        raise HTTPException(
+            status_code=400,
+            detail="No holdings found in that file — it wants the broker's own .xlsx holdings export.",
+        )
+    read["filename"] = (file.filename or "holdings.xlsx")[:120]
+    read["imported_at"] = _today_ist().isoformat()
+    await sanctuary_db.set_json_state(int(user["id"]), "holdings", read)
+    return read
+
+
 @router.get("/api/sanctuary/finance/standing")
 async def finance_standing(user: dict = Depends(_unlocked_user)):
     """Where he stands: every debt still owed, the monthly load, and what
@@ -1125,6 +1159,11 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     months_out = None
     if surplus and surplus > 0 and total_debt > 0:
         months_out = round(total_debt / surplus)
+    # The other side of the ledger. Until now this panel counted only what
+    # he owes; what he owns belongs beside it, or "where I stand" is only
+    # ever half the truth.
+    owned = await sanctuary_db.get_json_state(user_id, "holdings", {})
+    held = round(float(owned.get("present") or 0), 2)
     return {
         "debts": debts,
         "debt_count": len(debts),
@@ -1134,6 +1173,12 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         "flows": complete,
         "surplus_median": surplus,
         "months_to_clear": months_out,
+        "held": held,
+        "held_invested": round(float(owned.get("invested") or 0), 2),
+        "held_gain": round(float(owned.get("gain") or 0), 2),
+        "held_as_on": owned.get("as_on") or "",
+        # Debts minus what he owns: the honest distance to dry land.
+        "net": round(held - total_debt, 2),
     }
 
 

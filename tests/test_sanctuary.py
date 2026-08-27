@@ -1088,5 +1088,82 @@ class VaultTests(unittest.TestCase):
         self.assertEqual(after, [], "once stamped, the row leaves the unfingerprinted set")
 
 
+class HoldingsTests(unittest.TestCase):
+    """A broker's holdings export — what he owns, read from the file he
+    downloads. The workbook is built here, so the figures are invented."""
+
+    def book(self, sheets):
+        """A minimal .xlsx in the shape Zerodha's Console writes."""
+        import zipfile
+
+        NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            for index, rows in enumerate(sheets, start=1):
+                body = "".join(
+                    "<row>" + "".join(f'<c t="inlineStr"><is><t>{c}</t></is></c>' for c in row) + "</row>"
+                    for row in rows
+                )
+                archive.writestr(
+                    f"xl/worksheets/sheet{index}.xml",
+                    f'<?xml version="1.0"?><worksheet {NS}><sheetData>{body}</sheetData></worksheet>',
+                )
+        return buf.getvalue()
+
+    MF = [
+        ["Mutual Funds Holdings Statement as on 2026-08-27"],
+        ["Summary"],
+        ["Invested Value", "50000.0000"],
+        ["Present Value", "60000.0000"],
+        ["Unrealized P&amp;L", "10000.0000"],
+        ["Symbol", "ISIN", "Instrument Type", "Quantity Available", "Average Price", "Previous Closing Price"],
+        ["SOME ELSS FUND - DIRECT PLAN", "INF000X01AA1", "Equity - ELSS", "500.0000", "100.0000", "120.0000"],
+    ]
+
+    def test_a_holdings_sheet_is_read_whole(self):
+        import sanctuary_holdings
+
+        r = sanctuary_holdings.parse_holdings(self.book([self.MF]))
+        self.assertEqual(r["as_on"], "2026-08-27")
+        self.assertEqual((r["invested"], r["present"], r["gain"]), (50000.0, 60000.0, 10000.0))
+        held = r["sheets"][0]["holdings"][0]
+        self.assertEqual(held["name"], "SOME ELSS FUND - DIRECT PLAN")
+        self.assertEqual((held["units"], held["invested"], held["value"]), (500.0, 50000.0, 60000.0))
+
+    def test_the_combined_sheet_is_a_total_not_a_holding(self):
+        """Zerodha repeats every figure under 'Combined'. Counting it would
+        double what he owns."""
+        import sanctuary_holdings
+
+        combined = [
+            ["Combined Holdings Statement as on 2026-08-27"],
+            ["Summary"],
+            ["Invested Value", "50000.0000"],
+            ["Present Value", "60000.0000"],
+        ]
+        r = sanctuary_holdings.parse_holdings(self.book([self.MF, combined]))
+        self.assertEqual(r["present"], 60000.0, "not 120000 — Combined is the same money said twice")
+        self.assertEqual([s["kind"] for s in r["sheets"]], ["Mutual Funds"])
+
+    def test_an_empty_side_is_not_news(self):
+        """His Equity sheet holds nothing; a row of zeroes is noise."""
+        import sanctuary_holdings
+
+        empty = [
+            ["Equity Holdings Statement as on 2026-08-27"],
+            ["Summary"],
+            ["Invested Value", "0.0000"],
+            ["Present Value", "0.0000"],
+        ]
+        r = sanctuary_holdings.parse_holdings(self.book([empty, self.MF]))
+        self.assertEqual([s["kind"] for s in r["sheets"]], ["Mutual Funds"])
+
+    def test_a_file_that_is_not_a_holdings_export_is_refused(self):
+        import sanctuary_holdings
+
+        self.assertIsNone(sanctuary_holdings.parse_holdings(b"not a workbook at all"))
+        self.assertIsNone(sanctuary_holdings.parse_holdings(self.book([[["nothing", "here"]]])))
+
+
 if __name__ == "__main__":
     unittest.main()

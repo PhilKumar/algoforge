@@ -1246,6 +1246,19 @@ html[data-theme="dark"]{color-scheme:dark}
         <button class="btn small" id="recur-save" style="margin-left:8px">Save</button></div>
     </div>
 
+    <!-- What he owns. The page counted only debts until now; this is the
+         other side of the same question. -->
+    <div class="card" id="holdings-card" style="margin-bottom:24px">
+      <div class="section-title">What you own</div>
+      <div class="section-sub">Your broker's own holdings export — units, what they cost, what they are worth. Nothing is fetched live: a holding is worth what the statement said on the day you exported it.</div>
+      <div id="holdings-body"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="file" id="hold-file" accept=".xlsx" hidden>
+        <button class="btn ghost" id="hold-btn">📈 Import a holdings statement</button>
+        <span class="section-sub" style="margin:0">Zerodha Console → Holdings → download the .xlsx.</span>
+      </div>
+    </div>
+
     <div class="side-grid" style="margin-top:0">
     <div class="card">
       <div class="section-title">Important info</div>
@@ -1794,7 +1807,7 @@ async function enter(){
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
   loadDaily(); refreshJournal();
-  refreshFinance(); loadLoans(); loadNotes(); loadVault();
+  refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings();
 }
 
 async function loadDaily(){
@@ -2256,6 +2269,8 @@ async function loadStanding(){
       <div class="sf"><span>Debts still open</span><b class="num">${st.debt_count}${st.unknown_count ? ` <small style="color:var(--muted)">+${st.unknown_count} without a schedule</small>` : ""}</b></div>
       <div class="sf"><span>To clear them all</span><b class="num" style="color:var(--danger)">${inr(st.total_debt)}</b></div>
       <div class="sf"><span>They take, monthly</span><b class="num">${inr(st.monthly_emi)}</b></div>
+      ${st.held ? `<div class="sf"><span>What you own${st.held_as_on ? ` <small style="color:var(--muted)">as on ${esc(st.held_as_on)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.held)}${st.held_gain ? ` <small style="color:var(--moss)">${st.held_gain > 0 ? "+" : ""}${inr(st.held_gain)}</small>` : ""}</b></div>
+      <div class="sf"><span>Owed, less what you own</span><b class="num" style="color:${st.net >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net))}${st.net < 0 ? " to go" : " ahead"}</b></div>` : ""}
       <div class="sf"><span>A month usually leaves you</span><b class="num" style="color:${(st.surplus_median ?? 0) > 0 ? "var(--moss)" : "var(--danger)"}">${st.surplus_median != null ? inr(st.surplus_median) : "—"}</b></div>
       ${years ? `<div class="sf"><span>Surplus needed to clear all debt</span><b class="num">${years} of it</b></div>` : ""}` +
       st.debts.sort((a, b) => b.remaining - a.remaining).slice(0, 5).map((d) => `
@@ -2704,6 +2719,45 @@ function accountForm(id, tail){
   };
 }
 $("acct-add").onclick = () => accountForm(null);
+async function loadHoldings(){
+  const body = $("holdings-body");
+  if (!body) return;
+  try {
+    const h = await api("/api/sanctuary/holdings");
+    if (!h || !h.present) {
+      body.innerHTML = `<div style="color:var(--muted);margin-top:10px">Nothing here yet — import a holdings statement and what you own sits beside what you owe.</div>`;
+      return;
+    }
+    const up = (h.gain || 0) >= 0;
+    body.innerHTML = `<div class="sf" style="margin-top:12px"><span>Worth today${h.as_on ? ` <small style="color:var(--muted)">as on ${esc(h.as_on)}</small>` : ""}</span>
+        <b class="num" style="color:var(--moss)">${inr(h.present)}</b></div>
+      <div class="sf"><span>You put in</span><b class="num">${inr(h.invested)}</b></div>
+      <div class="sf"><span>${up ? "Grown by" : "Down by"}</span>
+        <b class="num" style="color:${up ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(h.gain))}${h.invested ? ` <small>${(h.gain / h.invested * 100).toFixed(1)}%</small>` : ""}</b></div>`
+      + (h.sheets || []).map((sh) => `
+        <div class="known-head" style="margin-top:14px">${esc(sh.kind)}</div>`
+        + (sh.holdings || []).map((x) => `
+          <div class="sf"><span style="padding-left:10px">· ${esc(x.name)}
+            <small style="color:var(--muted);display:block;padding-left:12px">${x.units} units${x.avg_price ? ` · bought at ${inr(x.avg_price)}` : ""}${x.price ? ` · now ${inr(x.price)}` : ""}</small></span>
+            <b class="num" style="font-size:.9rem">${x.value != null ? inr(x.value) : "—"}</b></div>`).join("")).join("");
+  } catch { body.innerHTML = ""; }
+}
+$("hold-btn").onclick = () => $("hold-file").click();
+$("hold-file").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const btn = $("hold-btn");
+  btn.disabled = true; btn.textContent = "Reading…";
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const h = await api("/api/sanctuary/holdings", {method: "POST", body: fd});
+    toast(`${inr(h.present)} held, ${h.gain >= 0 ? "up" : "down"} ${inr(Math.abs(h.gain))}. 🌿`);
+    loadHoldings(); refreshFinance();
+  } catch (err) { toast(err.message || "That statement would not read"); }
+  btn.disabled = false; btn.textContent = "📈 Import a holdings statement";
+};
 $("loan-sched-btn").onclick = () => $("loan-sched-file").click();
 $("loan-sched-file").onchange = async (e) => {
   const file = e.target.files[0];
