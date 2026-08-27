@@ -40,7 +40,7 @@
   --glass-tint-2:rgba(241,246,243,.4);
   --glass-edge:rgba(255,255,255,.6);
   --glass-rim:rgba(43,51,80,.12);
-  --glass-sheen:linear-gradient(150deg,rgba(255,255,255,.42) 0%,rgba(255,255,255,.06) 34%,rgba(255,255,255,0) 62%);
+  --glass-sheen:linear-gradient(150deg,rgba(214,197,255,.38) 0%,rgba(255,214,189,.22) 30%,rgba(255,255,255,.05) 52%,rgba(189,241,222,.16) 86%,rgba(189,241,222,0) 100%);
   --glass-cast:0 1px 1px rgba(30,44,66,.05),0 14px 40px rgba(30,44,66,.14),0 2px 10px rgba(30,44,66,.06);
   --leaf-a:#f7b9c4; --leaf-b:#fde3ba; --leaf-c:#ffffff;
   /* the scene (day) */
@@ -79,7 +79,7 @@ html[data-theme="dark"]{
   --glass-tint-2:rgba(24,34,56,.34);
   --glass-edge:rgba(190,210,240,.24);
   --glass-rim:rgba(0,0,0,.34);
-  --glass-sheen:linear-gradient(150deg,rgba(190,215,255,.16) 0%,rgba(190,215,255,.03) 34%,rgba(255,255,255,0) 62%);
+  --glass-sheen:linear-gradient(150deg,rgba(168,146,255,.2) 0%,rgba(255,171,138,.1) 32%,rgba(190,215,255,.03) 54%,rgba(120,224,190,.09) 88%,rgba(120,224,190,0) 100%);
   --glass-cast:0 1px 1px rgba(0,0,0,.3),0 16px 44px rgba(0,0,0,.46),0 2px 10px rgba(0,0,0,.3);
   --leaf-a:#8ea8d8; --leaf-b:#c9b97e; --leaf-c:#e8ecf6;
   --sky-top:#0a1430; --sky-mid:#17294e; --sky-low:#31426b;
@@ -365,39 +365,69 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 .entry-time{font-weight:600;margin-left:8px;color:var(--soft);opacity:.85}
 .entry-time::before{content:"· "}
 
-/* ── the diary ────────────────────────────────────────────────
-   The same entries, read a day at a time instead of as a stream. The
-   leaf turns on its spine: rotateY with the transform-origin at the
-   left edge, so the page lifts away from the binding the way paper
-   does, and the next day is already beneath it.                     */
-.view-swap{display:inline-flex;border-radius:999px;overflow:hidden;border:1px solid var(--glass-rim);
-  background:var(--card-2);margin-left:auto}
-.view-swap button{border:0;background:transparent;color:var(--muted);font-weight:700;font-size:.82rem;
-  padding:8px 16px;cursor:pointer;transition:background .2s ease,color .2s ease}
-.view-swap button.on{background:var(--moss);color:#f8fbf7}
-html[data-theme="dark"] .view-swap button.on{color:#0c1524}
-.diary{margin-top:4px}
-.diary-book{perspective:1800px;position:relative}
-.diary-leaf{transform-origin:left center;transform-style:preserve-3d;
-  transition:transform .55s cubic-bezier(.4,.02,.3,1), opacity .55s ease;backface-visibility:hidden}
-.diary-leaf.turn-back{transform:rotateY(38deg) translateZ(0);opacity:0}
-.diary-leaf.turn-forward{transform:rotateY(-16deg) translateZ(0);opacity:0}
-/* A diary page is paper, so it takes a warmer, quieter glass than the
-   working panels — and a rule down its spine where the stitching runs. */
-.diary-page{padding:30px 34px 34px;min-height:340px;position:relative;border-radius:8px 26px 26px 8px}
-.diary-page::before{content:"";position:absolute;left:12px;top:22px;bottom:22px;width:1px;
-  background:linear-gradient(180deg,transparent,var(--glass-rim) 12%,var(--glass-rim) 88%,transparent)}
-.diary-day{font-family:var(--serif);font-size:1.5rem;font-weight:650;color:var(--ink)}
-.diary-weekday{font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:800}
-.diary-entry{margin-top:22px;padding-top:18px;border-top:1px solid var(--line-soft)}
-.diary-entry:first-of-type{border-top:0;padding-top:6px}
-.diary-when{font-size:.78rem;font-weight:800;color:var(--soft);letter-spacing:.04em}
-.diary-title{font-family:var(--serif);font-size:1.12rem;font-weight:650;margin-top:3px}
-.diary-body{margin-top:7px;line-height:1.75;white-space:pre-wrap}
-.diary-blank{color:var(--muted);font-style:italic;margin-top:26px}
-.diary-nav{display:flex;align-items:center;gap:14px;justify-content:center;margin-top:16px}
-.diary-where{font-size:.82rem;color:var(--muted);font-weight:700;min-width:150px;text-align:center}
-@media (max-width:520px){.diary-page{padding:24px 20px 26px}}
+/* ── the book ─────────────────────────────────────────────────
+   The journal is not a list with a book mode bolted beside it — it IS a
+   book. Two glass leaves meet at a gutter, a day laid on each, and a leaf
+   turns on the spine: rotateY about the inner edge, so it lifts away from
+   the binding the way paper does.                                    */
+.book{position:relative;perspective:2200px;margin-top:4px}
+.book-spread{display:grid;grid-template-columns:1fr 2px 1fr;align-items:stretch;
+  transform-style:preserve-3d;min-height:380px}
+/* The gutter: two leaves meeting, with the shadow of the fold between. */
+.book-gutter{background:linear-gradient(180deg,transparent,var(--glass-rim) 10%,var(--glass-rim) 90%,transparent);
+  box-shadow:0 0 18px 4px rgba(30,44,66,.1)}
+html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
+.book-leaf{position:relative;padding:32px 34px 36px;min-height:380px;
+  background-color:var(--glass-tint);
+  background-image:var(--glass-sheen);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-rim);
+  transform-style:preserve-3d;backface-visibility:hidden;
+  transition:transform .6s cubic-bezier(.36,.02,.28,1), opacity .6s ease}
+.book-leaf.verso{border-radius:26px 6px 6px 26px;border-right:0;transform-origin:right center;
+  box-shadow:var(--glass-cast),inset 1px 1px 0 var(--glass-edge)}
+.book-leaf.recto{border-radius:6px 26px 26px 6px;border-left:0;transform-origin:left center;
+  box-shadow:var(--glass-cast),inset -1px 1px 0 var(--glass-edge)}
+/* Turning: the leaf on the side he is moving away from swings up off the
+   gutter, and the new day is already beneath it. */
+.book.turning-back .verso{transform:rotateY(52deg);opacity:0}
+.book.turning-forward .recto{transform:rotateY(-52deg);opacity:0}
+.page-turn{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
+  width:44px;height:44px;border-radius:50%;cursor:pointer;font-size:1.4rem;line-height:1;
+  border:1px solid var(--glass-rim);background:var(--card);color:var(--muted);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:var(--glass-cast);transition:transform .2s ease,color .2s ease,opacity .2s ease}
+.page-turn.left{left:-18px}
+.page-turn.right{right:-18px}
+.page-turn:hover:not(:disabled){color:var(--moss);transform:translateY(-50%) scale(1.08)}
+.page-turn:disabled{opacity:.28;cursor:default}
+.book-foot{text-align:center;margin-top:14px}
+/* The footline floats over the scene, so it wears its own sliver of glass. */
+.book-where{display:inline-block;font-size:.8rem;color:var(--muted);font-weight:700;letter-spacing:.04em;
+  padding:6px 16px;border-radius:999px;background:var(--glass-tint);border:1px solid var(--glass-rim);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.book-where:empty{display:none}
+/* what sits on a page */
+.page-weekday{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;color:var(--soft);font-weight:800}
+.page-day{font-family:var(--serif);font-size:1.45rem;font-weight:650;color:var(--ink);margin-top:1px}
+.page-rule{height:1px;margin:14px 0 4px;background:linear-gradient(90deg,var(--glass-rim),transparent)}
+.recto .page-rule{background:linear-gradient(270deg,var(--glass-rim),transparent)}
+.page-entry{margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft)}
+.page-entry:first-of-type{border-top:0;padding-top:0}
+.page-when{font-size:.76rem;font-weight:800;color:var(--soft);letter-spacing:.04em;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.page-title{font-family:var(--serif);font-size:1.1rem;font-weight:650;margin-top:4px}
+.page-body{margin-top:7px;line-height:1.78;white-space:pre-wrap}
+.page-blank{color:var(--muted);font-style:italic;margin-top:30px;text-align:center}
+.page-actions{margin-top:10px;display:flex;gap:6px}
+/* A phone holds one leaf at a time — a spread would be unreadable. */
+@media (max-width:780px){
+  .book-spread{grid-template-columns:1fr;min-height:300px}
+  .book-gutter,.book-leaf.recto{display:none}
+  .book-leaf.verso{border-radius:22px;border-right:1px solid var(--glass-rim);padding:24px 20px 26px}
+  .page-turn.left{left:2px}
+  .page-turn.right{right:2px}
+}
 .kind-chip{font-size:.75rem;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--moss-wash);color:var(--moss)}
 .kind-chip.achievement{background:var(--gold-wash);color:var(--gold)}
 .kind-chip.emotion{background:var(--terra-wash);color:var(--terracotta)}
@@ -1054,21 +1084,19 @@ html[data-theme="dark"]{color-scheme:dark}
       <input class="field" type="month" id="f-month" style="max-width:170px">
       <select class="field" id="f-kind" style="max-width:170px"><option value="">Everything</option></select>
       <input class="field" id="f-q" placeholder="Search words…" style="flex:1;min-width:140px">
-      <div class="view-swap" id="view-swap" role="group" aria-label="How to read the journal">
-        <button class="on" data-view-mode="timeline">Timeline</button>
-        <button data-view-mode="diary">Diary</button>
-      </div>
     </div>
-    <div id="timeline"></div>
-    <div id="diary" class="diary hidden">
-      <div class="diary-book">
-        <div class="diary-leaf" id="diary-leaf"></div>
+
+    <!-- The journal IS the book. Two glass leaves meeting at a spine, days
+         laid across them, turning by arrow, button or thumb. -->
+    <div class="book" id="book">
+      <button class="page-turn left" id="d-older" aria-label="Turn back">‹</button>
+      <div class="book-spread" id="book-spread">
+        <div class="book-leaf verso" id="page-left"></div>
+        <div class="book-gutter" aria-hidden="true"></div>
+        <div class="book-leaf recto" id="page-right"></div>
       </div>
-      <div class="diary-nav">
-        <button class="btn ghost small" id="d-older" aria-label="An earlier day">‹ Earlier</button>
-        <span class="diary-where" id="d-where"></span>
-        <button class="btn ghost small" id="d-newer" aria-label="A later day">Later ›</button>
-      </div>
+      <button class="page-turn right" id="d-newer" aria-label="Turn forward">›</button>
+      <div class="book-foot"><span class="book-where" id="d-where"></span></div>
     </div>
 
     <hr class="divider">
@@ -1709,7 +1737,7 @@ const S = {
   finMonth: monthKey(isoToday()),
   jMonth: monthKey(isoToday()),
   jKind: "", jQuery: "",
-  jView: "timeline", dPage: null,   /* the diary opens at the last page written */
+  dPage: null,   /* the book opens at the last spread written */
   composerKind: "note",
   composerPhotos: [],
   entries: [], moods: {}, daily: null,
@@ -1791,106 +1819,87 @@ async function refreshJournal(){
     api("/api/sanctuary/journal?kind=achievement"),
   ]);
   S.entries = j.entries; S.moods = m.moods;
-  renderTimeline(); renderGarden(); renderAchievements(all.entries); paintMood();
-  /* a new month or filter re-paginates the diary; it re-opens at the last page */
+  renderGarden(); renderAchievements(all.entries); paintMood();
+  /* a new month or filter re-paginates the book; it re-opens at the last spread */
   S.dPage = null;
-  if (S.jView === "diary") renderDiary();
+  renderBook();
 }
 function kindLabel(k){ const f = KINDS.find(([key]) => key === k); return f ? f[1] : k; }
-function renderTimeline(){
-  if (!S.entries.length){
-    $("timeline").innerHTML = `<div class="card" style="text-align:center;color:var(--muted);padding:34px">
-      Nothing here yet for this view. The garden grows one entry at a time. 🌱</div>`;
-    return;
-  }
-  $("timeline").innerHTML = S.entries.map((e) => `
-    <div class="entry">
-      <div class="stem"><div class="dot"></div><div class="vine"></div></div>
-      <div class="entry-card card">
-        <div class="entry-head">
-          <span class="entry-date">${niceDate(e.entry_date)}${niceTime(e.created_at) ? `<span class="entry-time">${niceTime(e.created_at)}</span>` : ""}</span>
-          <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
-          ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
-          <span class="entry-actions">
-            <button class="btn subtle small" data-edit="${e.id}">Edit</button>
-            <button class="btn subtle small" data-del="${e.id}">✕</button>
-          </span>
-        </div>
-        ${e.title ? `<div class="entry-title">${esc(e.title)}</div>` : ""}
-        ${e.body ? `<div class="entry-body">${esc(e.body)}</div>` : ""}
-        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
-          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
-        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
-      </div>
-    </div>`).join("");
-}
-/* ── the diary ──
-   The same entries the timeline shows, gathered into days and read one
-   page at a time. Pages run oldest to newest, the way a diary fills, and
-   it opens at the most recent day he wrote. */
+/* ── the book ──
+   The journal IS a book: two glass leaves meeting at a spine, one day to
+   a leaf, running oldest to newest the way a diary fills. It opens at the
+   spread holding the last day written. A phone shows one leaf. */
 function diaryDays(){
   const byDay = {};
   S.entries.forEach((e) => { (byDay[e.entry_date] = byDay[e.entry_date] || []).push(e); });
   return Object.keys(byDay).sort().map((d) => ({
     date: d,
-    /* within a day the earliest entry is read first, as it was lived */
+    /* within a day the earliest entry reads first, as it was lived */
     entries: byDay[d].slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
   }));
 }
-function renderDiary(){
+function _leafHtml(day){
+  if (!day) return `<div class="page-blank">This page waits for its day. 🌱</div>`;
+  const when = new Date(day.date + "T00:00:00");
+  const weekday = when.toLocaleDateString("en-IN", {weekday: "long", timeZone: "Asia/Kolkata"});
+  return `
+    <div class="page-weekday">${esc(weekday)}</div>
+    <div class="page-day">${niceDate(day.date)}</div>
+    <div class="page-rule"></div>
+    ${day.entries.map((e) => `
+      <div class="page-entry">
+        <div class="page-when">${niceTime(e.created_at) || ""}
+          <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
+          ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
+          <span class="page-actions" style="margin-left:auto">
+            <button class="btn subtle small" data-edit="${e.id}">Edit</button>
+            <button class="btn subtle small" data-del="${e.id}">✕</button></span></div>
+        ${e.title ? `<div class="page-title">${esc(e.title)}</div>` : ""}
+        ${e.body ? `<div class="page-body">${esc(e.body)}</div>` : ""}
+        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
+          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
+        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
+      </div>`).join("")}`;
+}
+/* One leaf per view on a phone, two per spread on a desk. */
+const _leavesShown = () => (window.matchMedia("(max-width:780px)").matches ? 1 : 2);
+function renderBook(){
   const days = diaryDays();
-  const leaf = $("diary-leaf");
+  const per = _leavesShown();
   if (!days.length){
-    leaf.innerHTML = `<div class="card diary-page"><div class="diary-blank">
-      No pages for this month yet. Write something above and it opens here. 🌱</div></div>`;
+    $("page-left").innerHTML = `<div class="page-blank">Nothing written for this view yet.
+      Leave something above and the book opens here. 🌱</div>`;
+    $("page-right").innerHTML = `<div class="page-blank"></div>`;
     $("d-where").textContent = "";
     $("d-older").disabled = $("d-newer").disabled = true;
     return;
   }
-  if (S.dPage == null || S.dPage > days.length - 1) S.dPage = days.length - 1;
+  const spreads = Math.ceil(days.length / per);
+  if (S.dPage == null || S.dPage > spreads - 1) S.dPage = spreads - 1;
   if (S.dPage < 0) S.dPage = 0;
-  const day = days[S.dPage];
-  const when = new Date(day.date + "T00:00:00");
-  const weekday = when.toLocaleDateString("en-IN", {weekday: "long", timeZone: "Asia/Kolkata"});
-  leaf.innerHTML = `<div class="card diary-page">
-    <div class="diary-weekday">${esc(weekday)}</div>
-    <div class="diary-day">${niceDate(day.date)}</div>
-    ${day.entries.map((e) => `
-      <div class="diary-entry">
-        <div class="diary-when">${niceTime(e.created_at) || kindLabel(e.kind)}
-          ${e.mood ? ` <span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
-          <span class="kind-chip ${esc(e.kind)}" style="margin-left:8px">${kindLabel(e.kind)}</span></div>
-        ${e.title ? `<div class="diary-title">${esc(e.title)}</div>` : ""}
-        ${e.body ? `<div class="diary-body">${esc(e.body)}</div>` : ""}
-        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
-          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
-        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
-      </div>`).join("")}
-  </div>`;
-  $("d-where").textContent = `page ${S.dPage + 1} of ${days.length}`;
+  const at = S.dPage * per;
+  $("page-left").innerHTML = _leafHtml(days[at]);
+  if (per === 2) $("page-right").innerHTML = _leafHtml(days[at + 1]);
+  const label = per === 2 && days[at + 1]
+    ? `${niceDate(days[at].date)} · ${niceDate(days[at + 1].date)}`
+    : niceDate(days[at].date);
+  $("d-where").textContent = `${label} — spread ${S.dPage + 1} of ${spreads}`;
   $("d-older").disabled = S.dPage === 0;
-  $("d-newer").disabled = S.dPage === days.length - 1;
+  $("d-newer").disabled = S.dPage === spreads - 1;
 }
 function turnPage(delta){
   const days = diaryDays();
-  const next = (S.dPage == null ? days.length - 1 : S.dPage) + delta;
-  if (next < 0 || next > days.length - 1) return;
-  const leaf = $("diary-leaf");
-  const away = delta > 0 ? "turn-forward" : "turn-back";
-  leaf.classList.add(away);
+  const spreads = Math.ceil(days.length / _leavesShown());
+  const next = (S.dPage == null ? spreads - 1 : S.dPage) + delta;
+  if (next < 0 || next > spreads - 1) return;
+  const book = $("book");
+  const away = delta > 0 ? "turning-forward" : "turning-back";
+  book.classList.add(away);
   setTimeout(() => {
     S.dPage = next;
-    renderDiary();
-    leaf.classList.remove(away);
-  }, 300);
-}
-function setJournalView(mode){
-  S.jView = mode;
-  $("timeline").classList.toggle("hidden", mode !== "timeline");
-  $("diary").classList.toggle("hidden", mode !== "diary");
-  document.querySelectorAll("#view-swap button").forEach((b) =>
-    b.classList.toggle("on", b.dataset.viewMode === mode));
-  if (mode === "diary") renderDiary();
+    renderBook();
+    book.classList.remove(away);
+  }, 320);
 }
 function renderGarden(){
   const key = S.jMonth || monthKey(isoToday());
@@ -2854,24 +2863,21 @@ let qTimer = null;
 $("f-q").addEventListener("input", () => { clearTimeout(qTimer);
   qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
 /* ── turning the diary's pages ── */
-$("view-swap").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-view-mode]");
-  if (b) setJournalView(b.dataset.viewMode);
-});
 $("d-older").onclick = () => turnPage(-1);
 $("d-newer").onclick = () => turnPage(1);
 document.addEventListener("keydown", (e) => {
-  if (S.jView !== "diary" || $("diary").classList.contains("hidden")) return;
+  /* the book listens only while the journal is on screen */
+  if ($("view-journal").classList.contains("hidden")) return;
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || "") || e.target.isContentEditable) return;
   if (e.key === "ArrowLeft") turnPage(-1);
   if (e.key === "ArrowRight") turnPage(1);
 });
 /* On a phone a page is turned the way paper is — with a thumb. */
 let _swipeX = null, _swipeY = null;
-$("diary").addEventListener("touchstart", (e) => {
+$("book").addEventListener("touchstart", (e) => {
   _swipeX = e.touches[0].clientX; _swipeY = e.touches[0].clientY;
 }, {passive: true});
-$("diary").addEventListener("touchend", (e) => {
+$("book").addEventListener("touchend", (e) => {
   if (_swipeX == null) return;
   const dx = e.changedTouches[0].clientX - _swipeX;
   const dy = e.changedTouches[0].clientY - _swipeY;
