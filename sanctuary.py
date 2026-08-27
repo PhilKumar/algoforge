@@ -2418,9 +2418,11 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "month": month,
         "today": today.isoformat(),
         "salary": salary,
+        # salary_source is what the page says out loud now — "the bank saw it
+        # arrive", "from your payslip", "your own figure" — because a figure
+        # that could not name its origin was impossible to tell from a stale
+        # one, and the only way to find out was to delete it and look.
         "salary_source": salary_source,
-        "salary_is_default": salary_source != "statement"
-        and (month not in months_state or "salary" not in (months_state.get(month) or {})),
         "note": (months_state.get(month) or {}).get("note", ""),
         "totals": {
             "inflow": round(inflow, 2),

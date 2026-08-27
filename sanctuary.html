@@ -579,8 +579,14 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .qc.on{background:var(--moss-wash);border-color:var(--moss);color:var(--moss)}
 .quick .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .quick .row .field{width:150px}
-.fin-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-bottom:24px}
-.bars{margin-top:14px}
+/* The two halves sit at the top of their row rather than stretching to
+   the taller one — twenty-six categories used to drag an empty chart card
+   down with them. */
+.fin-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-bottom:24px;align-items:start}
+/* Bounded like the vault's shelf and Important info. A month with
+   twenty-six categories in it scrolls inside its own frame rather than
+   running down the page past everything below. */
+.bars{margin-top:14px;max-height:340px;overflow-y:auto;padding-right:6px}
 .bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin-bottom:9px;font-size:.9rem}
 .bar-row .n{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar-track{height:14px;border-radius:7px;background:var(--card-2);overflow:hidden}
@@ -592,6 +598,28 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   padding:8px 10px;border-bottom:1px solid var(--line)}
 .ledger td,.emi-table td{padding:9px 10px;border-bottom:1px solid var(--line-soft)}
 .ledger td.amt,.emi-table td.amt,.ledger th.amt,.emi-table th.amt{text-align:right}
+/* A row is ONE line. A date that wrapped to three, a sign that fell under
+   its own amount and a UPI reference that took two lines each made the
+   table twice as tall as the reading in it. The columns are declared, the
+   cells never wrap, and the one that has more to say than fits — the note
+   — trails off and carries the whole of it in its tooltip. */
+.ledger table{table-layout:fixed}
+.ledger col.c-date{width:114px}
+.ledger col.c-cat{width:190px}
+.ledger col.c-acct{width:80px}
+.ledger col.c-amt{width:134px}
+.ledger col.c-x{width:44px}
+.ledger td,.ledger th{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ledger td.led-note{color:var(--muted)}
+.ledger td.led-cat{overflow:visible}
+.ledger td.led-cat .led-cat-wrap{display:flex;align-items:center;gap:6px;min-width:0}
+.ledger td.led-cat .led-cat-edit{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ledger td.led-cat .src-chip{flex:none}
+@media (max-width:780px){
+  .ledger col.c-cat{width:150px}
+  .ledger col.c-acct{width:0}
+  .ledger td:nth-child(4),.ledger th:nth-child(4){display:none}
+}
 .stmt-drop{border:1.5px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--soft);
   cursor:pointer;transition:border-color .2s,background .2s}
 .stmt-drop:hover,.stmt-drop.over{border-color:var(--moss);background:rgba(255,255,255,.05)}
@@ -2253,8 +2281,8 @@ function renderFinance(){
   $("tiles").innerHTML = `
     <div class="tile card"><div class="lbl">Pay this month</div>
       <div class="val num">${inr(f.salary)}</div>
-      <div class="sub">${f.salary ? "arrives at month end — it funds next month · " :
-                        "not arrived yet · "}<span class="edit" id="salary-edit">${f.salary_is_default ? "set it" : "change"}</span></div></div>
+      <div class="sub">${f.salary ? `${SALARY_SAID[f.salary_source] || SALARY_SAID.default} · it funds next month · `
+                        : "not arrived yet · "}<span class="edit" id="salary-edit">${f.salary ? "change" : "set it"}</span></div></div>
     <div class="tile card"><div class="lbl">To spend this month</div>
       <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
       <div class="sub">${niceMonth(f.carried_from)}'s pay, which is what ${niceMonth(f.month)} lives on</div></div>
@@ -2314,6 +2342,16 @@ function ledgerFiltered(){
     (!flow || r.dir === flow) &&
     (!needle || (r.note + " " + r.category + " " + r.acct).toLowerCase().includes(needle)));
 }
+/* Where the pay tile's figure came from. It read the same whether he had
+   typed it, a payslip had said it, or the bank had seen it arrive — so a
+   number that looked stale was impossible to tell from a number that was
+   simply true, and the only way to find out was to delete it. */
+const SALARY_SAID = {
+  statement: "the bank saw it arrive",
+  payslip: "from your payslip",
+  manual: "your own figure",
+  default: "your usual pay",
+};
 function renderLedgerTable(){
   const rows = ledgerFiltered();
   const pages = Math.max(1, Math.ceil(rows.length / LED_PAGE));
@@ -2327,12 +2365,15 @@ function renderLedgerTable(){
     ? rows.length + " of " + S.ledgerRows.length + " entries match — " + (flows || "nothing moved")
     : rows.length + " entries — " + (inTotal ? flows : "savings in green, EMIs marked.");
   $("ledger-table").innerHTML =
+    `<colgroup><col class="c-date"><col class="c-cat"><col><col class="c-acct"><col class="c-amt"><col class="c-x"></colgroup>` +
     `<tr><th>Date</th><th>Category</th><th>Note</th><th>A/c</th><th class="amt">Amount</th><th></th></tr>` +
     (slice.length ? slice.map((r) => `<tr>
-      <td class="num">${niceDate(r.entry_date)}</td>
-      <td>${r.source === "emi" ? esc(r.category) : `<span class="led-cat-edit" data-led-cat="${r.id}" title="Change this entry's category">${esc(r.category)} ✎</span>`} <span class="src-chip ${r.source}">${
-        r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source.startsWith("statement") ? "bank" : "you"}</span></td>
-      <td style="color:var(--muted)">${esc(r.note)}</td>
+      <td class="num" title="${esc(niceDate(r.entry_date))}">${niceDate(r.entry_date)}</td>
+      <td class="led-cat"><span class="led-cat-wrap">${r.source === "emi"
+        ? `<span class="led-cat-edit">${esc(r.category)}</span>`
+        : `<span class="led-cat-edit" data-led-cat="${r.id}" title="Change this entry's category">${esc(r.category)} ✎</span>`}<span class="src-chip ${r.source}">${
+        r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source.startsWith("statement") ? "bank" : "you"}</span></span></td>
+      <td class="led-note" title="${esc(r.note)}">${esc(r.note)}</td>
       <td class="led-acct-chip num">${esc(r.acct)}</td>
       <td class="amt num ${r.dir === "in" ? "led-in" : "led-out"}" style="${S.savingNames.has(r.category) ? "color:var(--moss);font-weight:700" : ""}">${r.dir === "in" ? "+" : "−"}${inr2(r.amount)}</td>
       <td>${r.source === "manual" ? `<button class="btn subtle small" data-led-del="${r.id}">✕</button>` : ""}</td>
