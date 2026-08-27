@@ -134,6 +134,22 @@ DEFAULT_RULES = [
     {"match": "hotel", "category": "Eating out"},
     {"match": "tiffin", "category": "Eating out"},
     {"match": "indian clearing corp", "category": "Investments"},
+    # His brokers: ICICI's BRK/ scheme rows, and the IMPS names the broker
+    # prints when money comes back. Both directions are Investments — the
+    # month view treats the category as saving, not spending.
+    {"match": "brk/", "category": "Investments"},
+    {"match": "raisesecur", "category": "Investments"},
+    {"match": "moneylicio", "category": "Investments"},
+    # NEFTCC- is a card bill paid by NEFT; PayZapp is his own wallet.
+    {"match": "neftcc-", "category": "Credit card bill"},
+    {"match": "payzapp", "category": "Self transfer"},
+    # RTGS from "HDFC BANK LTD RA OPS" is a loan being disbursed — the
+    # retail-assets desk, not a purchase. Angel One's CMS payout is the
+    # broker returning money. PHILIPRANJ is his own account at Axis, the
+    # spelling his bank's narration actually prints.
+    {"match": "hdfc bank ltd ra", "category": "HDFC loan"},
+    {"match": "angel one", "category": "Investments"},
+    {"match": "philipranj", "category": "Self transfer"},
     {"match": "salary", "category": "Salary"},
     # His pay arrives named by the employer, never by the word "salary" —
     # "NEFT-...-KYNDRYL SOLUTIONS-..." is what a month's pay looks like.

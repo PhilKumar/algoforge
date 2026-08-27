@@ -2882,6 +2882,19 @@ let qTimer = null;
 $("f-q").addEventListener("input", () => { clearTimeout(qTimer);
   qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
 /* ── turning the diary's pages ── */
+document.addEventListener("click", async (e) => {
+  const re = e.target.closest("#stmt-resort");
+  if (!re) return;
+  re.disabled = true; re.textContent = "Sorting…";
+  try {
+    const r = await api("/api/sanctuary/statements/resort", {method: "POST"});
+    const parts = Object.entries(r.by_category || {}).sort((a, b) => b[1] - a[1])
+      .slice(0, 4).map(([k, n]) => `${n} to ${k}`);
+    toast(r.moved ? `${r.moved} rows found their place — ${parts.join(", ")}${Object.keys(r.by_category).length > 4 ? "…" : ""}. 🌿`
+                  : "The rulebook knows none of what is left — teach it a payee below.");
+    loadStmtReview(); refreshFinance();
+  } catch (err) { toast(err.message || "That did not take"); re.disabled = false; re.textContent = "↻ Sort with the rules again"; }
+});
 $("d-older").onclick = () => turnPage(-1);
 $("d-newer").onclick = () => turnPage(1);
 document.addEventListener("keydown", (e) => {
@@ -3114,7 +3127,10 @@ async function loadStmtReview(){
   try {
     const r = await api("/api/sanctuary/statements/review");
     if (!r.uncategorised) { host.innerHTML = ""; return; }
-    host.innerHTML = `<div class="section-title" style="font-size:.95rem">Sort the unsorted — ${r.uncategorised} left</div>
+    host.innerHTML = `<div class="section-title" style="font-size:.95rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        Sort the unsorted — ${r.uncategorised} left
+        <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort with the rules again</button>
+      </div>
       <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
       <div class="stmt-review-row" data-match="">
         <div class="who"><b>Teach your own</b><small>Any word from the narration — a name in all its spellings, a mandate number, a loan code. "Among" picks where to look: the unsorted pile, or inside a category that needs splitting.</small></div>

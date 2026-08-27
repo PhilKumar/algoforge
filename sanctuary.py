@@ -1331,6 +1331,45 @@ async def statement_review(user: dict = Depends(_unlocked_user)):
     return {"uncategorised": len(rows), "groups": ordered[:120]}
 
 
+@router.post("/api/sanctuary/statements/resort")
+async def statement_resort(user: dict = Depends(_unlocked_user)):
+    """Run every rule over the unsorted pile again.
+
+    A rule only ever touched rows at import time or when it was taught —
+    one added later (Kyndryl as salary, the brokers as investments) never
+    reached rows already sitting in the pile, so the pile could only grow.
+    This walks the unsorted rows through the full rulebook, his taught
+    rules first, and files every row the book now knows. A category a rule
+    names into being is created on the way — Investments as a saving, so
+    the broker money leaves 'spent' rather than swelling it.
+    """
+    user_id = int(user["id"])
+    user_rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    moved: dict[str, int] = {}
+    for row in await sanctuary_db.uncategorised_ledger(user_id):
+        category = sanctuary_statements.categorise(row["note"], user_rules)
+        if category == sanctuary_statements.UNCATEGORISED:
+            continue
+        await sanctuary_db.set_ledger_category(user_id, row["id"], category)
+        moved[category] = moved.get(category, 0) + 1
+    if moved:
+        categories = await _get_categories(user_id)
+        have = {c["name"] for c in categories}
+        savings = {"Investments"}
+        for name in sorted(moved):
+            if name not in have and len(categories) < 100:
+                categories.append(
+                    {
+                        "name": name,
+                        "emoji": "📈" if name in savings else "🏷️",
+                        "kind": "saving" if name in savings else "expense",
+                        "quick": False,
+                    }
+                )
+        await sanctuary_db.set_json_state(user_id, "categories", categories)
+    return {"moved": sum(moved.values()), "by_category": moved}
+
+
 @router.post("/api/sanctuary/statements/rule")
 async def statement_rule(request: Request, user: dict = Depends(_unlocked_user)):
     """Teach a rule: this match means this category, now and from now on."""

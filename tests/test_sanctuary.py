@@ -875,6 +875,24 @@ class SalaryFromBankTests(unittest.TestCase):
             "Salary",
         )
 
+    def test_his_own_idioms_are_default_rules(self):
+        """The brokers, the card bill by NEFT, his wallet and his own Axis
+        account — the shapes his statements actually print, so the resort
+        button can file them without a taught rule."""
+        import sanctuary_statements as st
+
+        for note, want in (
+            ("BRK/Raise Securities/20260323024820", "Investments"),
+            ("MMT/IMPS/609257357027/Withdrawal/RAISESECUR/Axis Bank", "Investments"),
+            ("MMT/IMPS/505410637502/Withdrawal/MONEYLICIO/Yes Bank Ltd", "Investments"),
+            ("CMS/ CMS3125142229/ANGEL ONE LIMITED CLIENT", "Investments"),
+            ("BIL/NEFT/001589486941/NEFTCC-/PHILIPR/CITI0000003", "Credit card bill"),
+            ("MMT/IMPS/818019811931/PayZapp - Phili/PAYZAPP WA/HDFC BANK LTD", "Self transfer"),
+            ("MMT/IMPS/523716694159/PHILIPRANJ/UTIB0005390", "Self transfer"),
+            ("RTGS-HDFCR52023021482685717-HDFC BANK LTD RA OPS-14", "HDFC loan"),
+        ):
+            self.assertEqual(st.categorise(note), want, note)
+
 
 class PayslipReadingTests(unittest.TestCase):
     """A payslip's own text, read for the month it belongs to and what
