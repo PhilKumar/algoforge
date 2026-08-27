@@ -1221,13 +1221,32 @@ async def _loan_candidates(user_id: int) -> list[dict]:
     rows = await sanctuary_db.statement_outflow_rows(user_id)
     candidates = await asyncio.to_thread(sanctuary_statements.discover_loans, rows, _today_ist())
     ignored = set(await sanctuary_db.get_json_state(user_id, "loan_ignored", []))
-    carded = [
-        (str(loan.get("account_no") or ""), float(loan.get("emi_amount") or 0))
-        for loan in await sanctuary_db.list_loans(user_id)
-    ]
+    # A carded stream is recognised by its SCHEDULE, not its key: keys can
+    # be textual (a lender whose references never repeat stores no number on
+    # the card) and cards get renamed and edited. If a loan's EMI dates cover
+    # most of a candidate's debit dates at the same EMI, that stream is
+    # already on the shelf — and deleting the card brings the offer back.
+    carded = []
+    for loan in await sanctuary_db.list_loans(user_id):
+        emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
+        carded.append(
+            (
+                {e["due_date"] for e in emis},
+                float(loan.get("emi_amount") or 0),
+                str(loan.get("account_no") or ""),
+            )
+        )
 
     def is_carded(c):
-        return any(acct == c["key"] and abs(emi - c["emi"]) <= 0.03 * max(c["emi"], 1) for acct, emi in carded)
+        dates = {d["due_date"] for d in c["debits"]}
+        for loan_dates, emi, acct in carded:
+            if abs(emi - c["emi"]) > 0.03 * max(c["emi"], 1):
+                continue
+            if acct and acct == c["key"]:
+                return True
+            if dates and loan_dates and len(dates & loan_dates) >= 0.6 * len(dates):
+                return True
+        return False
 
     return [
         c
