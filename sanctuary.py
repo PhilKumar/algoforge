@@ -32,6 +32,7 @@ import config
 import db as core_db
 import sanctuary_content
 import sanctuary_db
+import sanctuary_docs
 import sanctuary_emi
 import sanctuary_statements
 from image_uploads import ImageValidationError, sanitize_image
@@ -563,8 +564,14 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
     if encrypted is None:
         raise HTTPException(status_code=503, detail="Encryption unavailable")
     form = await request.form()
-    fields = _clean_document_fields(
-        {
+    if str(form.get("auto") or "") == "1":
+        # A whole folder at once: the filename and its parent already say
+        # what each paper is, so nothing needs typing 150 times.
+        read = sanctuary_docs.classify_document(file.filename or "", str(form.get("folder") or ""))
+        payload = dict(read)
+        payload["note"] = str(form.get("folder") or "")
+    else:
+        payload = {
             "title": form.get("title") or (file.filename or "Document"),
             "category": form.get("category"),
             "doc_number": form.get("doc_number"),
@@ -572,7 +579,7 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
             "series": form.get("series"),
             "doc_date": form.get("doc_date"),
         }
-    )
+    fields = _clean_document_fields(payload)
     token = secrets.token_hex(16)
     directory = _vault_root(int(user["id"]))
     os.makedirs(directory, exist_ok=True)

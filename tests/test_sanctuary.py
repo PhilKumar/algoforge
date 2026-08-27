@@ -497,6 +497,38 @@ class LoanDiscoveryTests(unittest.TestCase):
         self.assertFalse(found[0]["closed"])
 
 
+class DocumentNamingTests(unittest.TestCase):
+    """Reading a paper's own filename for its title, kind, series and date."""
+
+    def read(self, name, folder=""):
+        from sanctuary_docs import classify_document
+
+        return classify_document(name, folder)
+
+    def test_a_payslip_is_named_by_its_month(self):
+        r = self.read("Payslips/July 2020.pdf", "Payslips")
+        self.assertEqual((r["category"], r["series"], r["doc_date"]), ("Work", "Payslips", "2020-07-01"))
+
+    def test_a_tight_month_year_still_reads(self):
+        # "Apr2021shiftAll" carries no separators at all.
+        self.assertEqual(self.read("Apr2021shiftAll.pdf", "Payslips")["doc_date"], "2021-04-01")
+
+    def test_the_employer_folder_joins_the_title(self):
+        r = self.read("Payslips/Kyndryl/Sep2021.pdf", "Payslips/Kyndryl")
+        self.assertEqual(r["title"], "Kyndryl · Sep2021")
+        self.assertEqual(r["series"], "Payslips")
+
+    def test_shift_allowances_are_not_swallowed_by_their_parent(self):
+        # They live INSIDE the payslips folder; the word in their own path
+        # must not claim them for Payslips.
+        r = self.read("Payslips/Shift Allowances/Aug2020.pdf", "Payslips/Shift Allowances")
+        self.assertEqual(r["series"], "Shift allowances")
+
+    def test_an_unreadable_name_waits_as_other(self):
+        r = self.read("Onward to paramakudi.pdf")
+        self.assertEqual((r["category"], r["series"]), ("Other", ""))
+
+
 class VaultTests(unittest.TestCase):
     """The vault: encrypted at rest, refusing to store plaintext, and the
     document number encrypted like the file it belongs to."""

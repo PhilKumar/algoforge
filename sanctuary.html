@@ -1040,7 +1040,13 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-title">The Vault</div>
       <div class="section-sub">Driving licence, Aadhaar, PRAN, payslips — every file is encrypted the moment it arrives, and only this room can open it. Keep originals elsewhere too: this is for reaching them fast, not the only copy.</div>
       <input type="file" id="vault-file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden>
+      <input type="file" id="vault-folder" webkitdirectory directory multiple hidden>
       <div id="vault-drop" class="stmt-drop">Drop a document here, or tap to choose</div>
+      <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn ghost small" id="vault-folder-btn">📁 Add a whole folder</button>
+        <span class="section-sub" style="margin:0">Each paper is named, dated and grouped from its own filename — payslips by month, Form 16s, NPS, fees. Anything unreadable waits as Other.</span>
+      </div>
+      <div id="vault-progress" style="margin-top:10px"></div>
       <div id="vault-list" style="margin-top:14px"></div>
       <div class="vault-family" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)">
         <div class="section-sub" style="margin-bottom:8px">
@@ -2736,9 +2742,14 @@ function renderVault(){
   const docs = S.vaultDocs || [];
   if (!docs.length) { $("vault-list").innerHTML = `<div style="color:var(--muted)">Nothing kept yet. The licence, the Aadhaar, the PRAN letter — drop them in.</div>`; return; }
   const groups = {};
-  docs.forEach((d) => (groups[d.category] = groups[d.category] || []).push(d));
-  $("vault-list").innerHTML = Object.entries(groups).map(([cat, list]) => `
-    <div class="group" style="margin:14px 0 4px;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">${esc(cat)}</div>` +
+  docs.forEach((d) => {
+    const key = d.series ? `${d.category} · ${d.series}` : d.category;
+    (groups[key] = groups[key] || []).push(d);
+  });
+  $("vault-list").innerHTML = Object.entries(groups).sort((a, b) => b[1].length - a[1].length).map(([cat, list]) => `
+    <details class="loans-closed" style="margin-top:12px"${list.length <= 6 ? " open" : ""}>
+      <summary>${esc(cat)} — ${list.length}</summary>
+      <div>` +
     list.map((d) => `
     <div class="stmt-review-row" data-doc="${d.id}">
       <span style="font-size:1.25rem;width:30px;text-align:center">${VAULT_ICONS[d.category] || "📄"}</span>
@@ -2751,7 +2762,7 @@ function renderVault(){
       <a class="btn ghost small" href="/api/sanctuary/vault/${d.id}/file" target="_blank" rel="noopener">Open</a>
       <button class="btn subtle small" data-vedit="${d.id}">Edit</button>
       <button class="btn subtle small" data-vdel="${d.id}">✕</button>
-    </div>`).join("")).join("");
+    </div>`).join("") + `</div></details>`).join("");
 }
 function vaultForm(file){
   const wrap = modal(`<h4>Into the vault</h4>
@@ -2780,6 +2791,32 @@ function vaultForm(file){
     } catch (e) { toast(e.message || "It would not go in"); }
   };
 }
+$("vault-folder-btn").onclick = () => $("vault-folder").click();
+$("vault-folder").onchange = async (e) => {
+  const files = [...e.target.files].filter((f) =>
+    /\.(pdf|jpe?g|png|webp)$/i.test(f.name) && f.size > 0 && f.size <= 10 * 1024 * 1024);
+  e.target.value = "";
+  if (!files.length) return toast("No PDFs or pictures in there");
+  if (!(await confirmDialog(`Keep ${files.length} document${files.length === 1 ? "" : "s"} in the vault? Each is encrypted as it arrives.`, "Keep them safe"))) return;
+  const bar = $("vault-progress");
+  let done = 0, failed = 0;
+  for (const file of files) {
+    const rel = file.webkitRelativePath || file.name;
+    const folder = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("auto", "1");
+    fd.append("folder", folder);
+    try { await api("/api/sanctuary/vault", {method: "POST", body: fd}); }
+    catch { failed++; }
+    done++;
+    bar.innerHTML = `<div class="section-sub">Keeping ${done} of ${files.length}…${failed ? ` (${failed} refused)` : ""}</div>
+      <div class="loan-progress"><i style="width:${Math.round(done / files.length * 100)}%"></i></div>`;
+  }
+  bar.innerHTML = "";
+  toast(`${done - failed} kept safe${failed ? `, ${failed} refused` : ""}. 🌿`);
+  loadVault();
+};
 $("vault-drop").onclick = () => $("vault-file").click();
 $("vault-file").onchange = (e) => { if (e.target.files[0]) vaultForm(e.target.files[0]); e.target.value = ""; };
 $("vault-drop").ondragover = (e) => { e.preventDefault(); $("vault-drop").classList.add("over"); };
