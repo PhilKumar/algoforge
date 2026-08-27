@@ -403,9 +403,13 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
   /* every line of the page is one --pitch tall, and every block above the
      writing is a whole number of them, so the words land ON the rules
      instead of drifting between them */
-  --pitch:34px}
+  --pitch:34px;
+  /* A page holds this many ruled lines and not one more. Write past the
+     last one and the writing carries onto the next leaf, the way it does
+     in a book — the page never grows to swallow a long evening. */
+  --leaf-lines:17}
 .book-spread{display:grid;grid-template-columns:1fr 2px 1fr;align-items:stretch;
-  transform-style:preserve-3d;min-height:420px}
+  transform-style:preserve-3d}
 /* The gutter: two leaves meeting, with the shadow of the fold between. */
 .book-gutter{background:linear-gradient(180deg,transparent,var(--glass-rim) 10%,var(--glass-rim) 90%,transparent);
   box-shadow:0 0 18px 4px rgba(30,44,66,.1)}
@@ -414,7 +418,10 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
    from the binding edge, and ONE sheen stretched across both halves —
    each leaf shows its own half of it — so a spread reads as a single
    sheet folded once, not as two panels sitting side by side. */
-.book-leaf{position:relative;padding:calc(var(--pitch) * 1) 30px 34px 74px;min-height:420px;
+.book-leaf{position:relative;padding:var(--pitch) 30px var(--pitch) 74px;
+  /* border-box, so this is exactly --leaf-lines of writing between the two
+     --pitch paddings, plus the two hairline borders */
+  height:calc(var(--pitch) * (var(--leaf-lines) + 2) + 2px);overflow:hidden;
   line-height:var(--pitch);
   background-color:var(--glass-tint);
   background-image:
@@ -467,10 +474,10 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   background-image:linear-gradient(90deg,var(--glass-rim),transparent);
   background-size:100% 1px;background-repeat:no-repeat;background-position:0 50%}
 .recto .page-rule{background-image:linear-gradient(270deg,var(--glass-rim),transparent)}
-.page-entry{margin-top:var(--pitch);padding-top:0;border-top:0}
-/* the first entry follows the date rule, so it opens flush with it —
-   :first-of-type would look at the weekday div and never match */
-.page-rule + .page-entry{margin-top:0}
+/* One ruled line of quiet between two entries. It is a block of its own
+   rather than a margin, because the paginator counts lines and a margin
+   that collapses at a page break would put the writing off the rules. */
+.page-gap{height:var(--pitch)}
 .page-when{font-size:.74rem;font-weight:800;color:var(--soft);letter-spacing:.04em;
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:var(--pitch);line-height:var(--pitch)}
 /* Chips and buttons ride inside one line of the page rather than setting
@@ -492,10 +499,11 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
 .page-actions{display:flex;gap:6px}
 /* A phone holds one leaf at a time — a spread would be unreadable. */
 @media (max-width:780px){
-  .book-spread{grid-template-columns:1fr;min-height:330px}
+  .book{--leaf-lines:13}
+  .book-spread{grid-template-columns:1fr}
   .book-gutter,.book-leaf.recto{display:none}
   .book-leaf.verso{border-radius:22px;border-right:1px solid var(--glass-rim);
-    min-height:330px;padding:var(--pitch) 18px 26px 54px}
+    padding:var(--pitch) 18px var(--pitch) 54px}
   .book-leaf::before{left:38px}
   .page-turn.left{left:2px}
   .page-turn.right{right:2px}
@@ -1981,29 +1989,106 @@ function diaryDays(){
     entries: byDay[d].slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
   }));
 }
-function _leafHtml(day){
-  if (!day) return `<div class="page-blank">This page waits for its day. 🌱</div>`;
+/* ── folding a day onto pages ──
+   A page holds --leaf-lines of writing and no more. Everything that will
+   not fit carries onto the next leaf, mid-sentence if that is where the
+   page ended, which is what a book does and what a growing panel does not.
+   The measuring is done against a hidden leaf of the real width, so the
+   count of lines is the browser's own answer, not an estimate. */
+function _leafMetrics(){
+  const leaf = $("page-left");
+  const cs = getComputedStyle(leaf);
+  const pitch = parseFloat(cs.lineHeight) || 34;
+  const lines = parseInt(getComputedStyle($("book")).getPropertyValue("--leaf-lines"), 10) || 17;
+  const width = leaf.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  return {pitch, lines, width};
+}
+function _linesOf(html, m){
+  let box = document.getElementById("_leaf-measure");
+  if (!box){
+    box = document.createElement("div");
+    box.id = "_leaf-measure";
+    /* it wears the leaf's class so the page's own type rules apply, and
+       overrides only what would stop it growing to its true height */
+    box.className = "book-leaf";
+    box.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden;"
+      + "height:auto;min-height:0;padding:0;border:0;overflow:visible;background:none;"
+      + "backdrop-filter:none;-webkit-backdrop-filter:none";
+    $("book").appendChild(box);
+  }
+  box.style.width = m.width + "px";
+  box.innerHTML = html;
+  return Math.max(1, Math.round(box.offsetHeight / m.pitch));
+}
+const _bodyHtml = (text) => `<div class="page-body">${esc(text)}</div>`;
+/* The largest run of words that still fits `avail` lines. Tokens keep their
+   own whitespace so a break never eats a newline he typed. */
+function _fitWords(tokens, avail, m){
+  let low = 1, high = tokens.length, best = 0;
+  while (low <= high){
+    const mid = (low + high) >> 1;
+    if (_linesOf(_bodyHtml(tokens.slice(0, mid).join("")), m) <= avail){ best = mid; low = mid + 1; }
+    else high = mid - 1;
+  }
+  return best;
+}
+function _dayLeaves(day, m){
   const when = new Date(day.date + "T00:00:00");
   const weekday = when.toLocaleDateString("en-IN", {weekday: "long", timeZone: "Asia/Kolkata"});
-  return `
-    <div class="page-weekday">${esc(weekday)}</div>
-    <div class="page-day">${niceDate(day.date)}</div>
-    <div class="page-rule"></div>
-    ${day.entries.map((e) => `
-      <div class="page-entry">
-        <div class="page-when">${niceTime(e.created_at) || ""}
-          <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
-          ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
-          <span class="page-actions" style="margin-left:auto">
-            <button class="btn subtle small" data-edit="${e.id}">Edit</button>
-            <button class="btn subtle small" data-del="${e.id}">✕</button></span></div>
-        ${e.title ? `<div class="page-title">${esc(e.title)}</div>` : ""}
-        ${e.body ? `<div class="page-body">${esc(e.body)}</div>` : ""}
-        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
-          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
-        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
-      </div>`).join("")}`;
+  const blocks = [{
+    html: `<div class="page-weekday">${esc(weekday)}</div>
+      <div class="page-day">${niceDate(day.date)}</div>
+      <div class="page-rule"></div>`,
+  }];
+  day.entries.forEach((e, i) => {
+    if (i) blocks.push({html: `<div class="page-gap"></div>`});
+    blocks.push({html: `<div class="page-when">${niceTime(e.created_at) || ""}
+      <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
+      ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
+      <span class="page-actions" style="margin-left:auto">
+        <button class="btn subtle small" data-edit="${e.id}">Edit</button>
+        <button class="btn subtle small" data-del="${e.id}">✕</button></span></div>`, keep: true});
+    if (e.title) blocks.push({html: `<div class="page-title">${esc(e.title)}</div>`, keep: true});
+    if (e.body) blocks.push({text: e.body});
+    if (e.photos.length) blocks.push({html: `<div class="entry-photos">${e.photos.map((p) =>
+      `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>`});
+    if (e.music) blocks.push({html: `<div class="entry-music">♪ ${esc(e.music)}</div>`});
+  });
+  /* Every block is MEASURED, never assumed. On a phone the time row wraps
+     its chip and buttons onto a second line, and calling that one line put
+     one page's worth of writing over the edge of the leaf. */
+  blocks.forEach((b) => { if (b.text === undefined) b.lines = _linesOf(b.html, m); });
+
+  const leaves = [];
+  let cur = [], used = 0;
+  const flush = () => { if (cur.length) leaves.push(cur.join("")); cur = []; used = 0; };
+  for (const block of blocks){
+    if (block.text === undefined){
+      /* A time row or a title alone at the foot of a page is a stranded
+         line: it belongs with the writing under it, so it moves too. */
+      const needs = block.lines + (block.keep ? 1 : 0);
+      if (used && used + needs > m.lines) flush();
+      cur.push(block.html);
+      used += block.lines;
+      continue;
+    }
+    let tokens = block.text.split(/(\s+)/).filter((t) => t !== "");
+    while (tokens.length){
+      if (m.lines - used < 2 && used) flush();
+      const take = _fitWords(tokens, m.lines - used, m);
+      if (!take){ flush(); continue; }
+      const run = tokens.slice(0, take).join("");
+      cur.push(_bodyHtml(run));
+      used += _linesOf(_bodyHtml(run), m);
+      tokens = tokens.slice(take);
+      while (tokens.length && /^\s+$/.test(tokens[0])) tokens = tokens.slice(1);
+      if (tokens.length) flush();
+    }
+  }
+  flush();
+  return leaves.length ? leaves : [""];
 }
+const BLANK_LEAF = `<div class="page-blank">This page waits for its day. 🌱</div>`;
 /* One leaf per view on a phone, two per spread on a desk. */
 const _leavesShown = () => (window.matchMedia("(max-width:780px)").matches ? 1 : 2);
 function renderBook(){
@@ -2015,24 +2100,36 @@ function renderBook(){
     $("page-right").innerHTML = `<div class="page-blank"></div>`;
     $("d-where").textContent = "";
     $("d-older").disabled = $("d-newer").disabled = true;
+    S.dLeaves = [];
     return;
   }
-  const spreads = Math.ceil(days.length / per);
+  /* Hidden behind the Finances tab a leaf has no width, so nothing can be
+     measured; the book repaginates when the journal is shown again. */
+  const m = _leafMetrics();
+  if (m.width <= 0) return;
+  const leaves = [];
+  days.forEach((day) => {
+    const pages = _dayLeaves(day, m);
+    pages.forEach((html, i) => leaves.push({date: day.date, page: i + 1, pages: pages.length, html}));
+  });
+  S.dLeaves = leaves;
+  const spreads = Math.ceil(leaves.length / per);
   if (S.dPage == null || S.dPage > spreads - 1) S.dPage = spreads - 1;
   if (S.dPage < 0) S.dPage = 0;
   const at = S.dPage * per;
-  $("page-left").innerHTML = _leafHtml(days[at]);
-  if (per === 2) $("page-right").innerHTML = _leafHtml(days[at + 1]);
-  const label = per === 2 && days[at + 1]
-    ? `${niceDate(days[at].date)} · ${niceDate(days[at + 1].date)}`
-    : niceDate(days[at].date);
-  $("d-where").textContent = `${label} — spread ${S.dPage + 1} of ${spreads}`;
+  $("page-left").innerHTML = leaves[at] ? leaves[at].html : BLANK_LEAF;
+  if (per === 2) $("page-right").innerHTML = leaves[at + 1] ? leaves[at + 1].html : BLANK_LEAF;
+  const says = (leaf) => leaf
+    ? niceDate(leaf.date) + (leaf.pages > 1 ? ` (${leaf.page}/${leaf.pages})` : "") : "";
+  const shown = per === 2 && leaves[at + 1] && leaves[at + 1].date !== leaves[at].date
+    ? `${says(leaves[at])} · ${says(leaves[at + 1])}`
+    : says(leaves[at]);
+  $("d-where").textContent = `${shown} — spread ${S.dPage + 1} of ${spreads}`;
   $("d-older").disabled = S.dPage === 0;
   $("d-newer").disabled = S.dPage === spreads - 1;
 }
 function turnPage(delta){
-  const days = diaryDays();
-  const spreads = Math.ceil(days.length / _leavesShown());
+  const spreads = Math.ceil(((S.dLeaves || []).length || 1) / _leavesShown());
   const next = (S.dPage == null ? spreads - 1 : S.dPage) + delta;
   if (next < 0 || next > spreads - 1) return;
   const book = $("book");
@@ -3152,7 +3249,17 @@ function switchTab(which){
   $("view-finance").classList.toggle("hidden", which !== "finance");
   _film.roam = true;   /* he has moved rooms himself: new framings unlock */
   sceneVideoView(which === "finance" ? "finance" : "journal");
+  /* A hidden leaf has no width and nothing can be measured against it, so
+     the book folds its pages the moment it is on screen. */
+  if (which === "journal" && S.entries) renderBook();
 }
+/* A narrower window wraps the writing differently, which moves where every
+   page ends. Repaginate once the dragging stops. */
+let _refoldAt = null;
+window.addEventListener("resize", () => {
+  clearTimeout(_refoldAt);
+  _refoldAt = setTimeout(() => { if (S.entries && !$("view-journal").classList.contains("hidden")) renderBook(); }, 220);
+});
 $("c-save").onclick = saveEntry;
 $("c-file").addEventListener("change", async (e) => {
   for (const file of e.target.files) {
