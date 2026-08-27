@@ -36,6 +36,7 @@ import sanctuary_db
 import sanctuary_docs
 import sanctuary_emi
 import sanctuary_holdings
+import sanctuary_identity
 import sanctuary_statements
 from image_uploads import ImageValidationError, sanitize_image
 
@@ -865,6 +866,145 @@ async def vault_refile(user: dict = Depends(_unlocked_user)):
 @router.get("/api/sanctuary/vault/refile/status")
 async def vault_refile_status(user: dict = Depends(_unlocked_user)):
     return _REFILE_JOBS.get(int(user["id"])) or {"running": False, "scanned": 0, "total": 0, "moved": 0, "removed": 0}
+
+
+# Reading the registration numbers out of a few hundred encrypted papers
+# takes as long as a refile does, and for the same reason: every PDF has to
+# be decrypted and opened. Same shape, then — a background job the page
+# watches — and the numbers are only ever OFFERED, never written.
+_IDENTITY_JOBS: dict[int, dict] = {}
+# A payslip or a tax paper first; they are where the numbers live. Anything
+# else is only opened if those run out before the numbers are corroborated.
+_IDENTITY_FIRST = ("Payslips", "Tax", "Form 16", "EPF", "NPS", "Salary")
+
+
+def _identity_rank(doc: dict) -> tuple[int, str]:
+    haystack = f"{doc.get('category', '')} {doc.get('series', '')} {doc.get('title', '')} {doc.get('filename', '')}"
+    for index, word in enumerate(_IDENTITY_FIRST):
+        if word.lower() in haystack.lower():
+            return (index, str(doc.get("doc_date") or ""))
+    return (len(_IDENTITY_FIRST), str(doc.get("doc_date") or ""))
+
+
+def _identity_text(blob: bytes) -> str:
+    """The first pages of a PDF as text — the numbers are always on page 1."""
+    import io
+
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(blob)) as pdf:
+        return "\n".join((page.extract_text() or "") for page in pdf.pages[:3])
+
+
+async def _identity_job(user_id: int) -> None:
+    state = _IDENTITY_JOBS[user_id]
+    tally: dict[str, dict] = {}
+    try:
+        docs = [
+            doc
+            for doc in await sanctuary_db.list_documents(user_id)
+            if (doc.get("content_type") or "") == "application/pdf"
+        ]
+        docs.sort(key=_identity_rank)
+        state["total"] = len(docs)
+        for doc in docs:
+            state["scanned"] += 1
+            blob = await asyncio.to_thread(_read_document_blob, doc, user_id)
+            if blob is None:
+                continue
+            try:
+                text = await asyncio.to_thread(_identity_text, blob)
+            except Exception:
+                # A locked Form 16 or a scan with no text layer. Not a failure
+                # of the scan — just a paper that will not say anything.
+                state["unreadable"] += 1
+                continue
+            found = sanctuary_identity.find_identifiers(text)
+            if found:
+                sanctuary_identity.merge_findings(tally, found, doc.get("title") or doc.get("filename") or "a paper")
+                state["found"] = len(sanctuary_identity.best_of(tally))
+            if sanctuary_identity.is_complete(tally):
+                state["stopped_early"] = True
+                break
+        state["numbers"] = sanctuary_identity.best_of(tally)
+        state["others"] = sanctuary_identity.runners_up(tally)
+    finally:
+        state["running"] = False
+
+
+def _blank_identity_job() -> dict:
+    return {
+        "running": False,
+        "scanned": 0,
+        "total": 0,
+        "found": 0,
+        "unreadable": 0,
+        "stopped_early": False,
+        "numbers": [],
+        "others": [],
+    }
+
+
+@router.post("/api/sanctuary/identity/scan")
+async def identity_scan(user: dict = Depends(_unlocked_user)):
+    """Read the vault for the registrations a working life leaves behind.
+
+    Nothing is saved by this call. It reports what the papers say and how
+    many of them agree, and he decides what to keep — a number that lands
+    on Important info without his say-so is a number nobody has checked.
+    """
+    user_id = int(user["id"])
+    state = _IDENTITY_JOBS.get(user_id)
+    if state and state.get("running"):
+        return {"started": False, **state}
+    _IDENTITY_JOBS[user_id] = {**_blank_identity_job(), "running": True}
+    asyncio.create_task(_identity_job(user_id))
+    return {"started": True, **_IDENTITY_JOBS[user_id]}
+
+
+@router.get("/api/sanctuary/identity/scan/status")
+async def identity_scan_status(user: dict = Depends(_unlocked_user)):
+    return _IDENTITY_JOBS.get(int(user["id"])) or _blank_identity_job()
+
+
+@router.post("/api/sanctuary/identity/keep")
+async def identity_keep(request: Request, user: dict = Depends(_unlocked_user)):
+    """Keep the numbers he has ticked, beside the accounts and the cards.
+
+    They join the same encrypted store, as their own kind, so a number the
+    scan read and a number he typed himself are indistinguishable from here
+    on — and re-running the scan never duplicates one he already holds.
+    """
+    payload = await request.json()
+    items = payload.get("numbers")
+    if not isinstance(items, list) or len(items) > 20:
+        raise HTTPException(status_code=400, detail="Bad numbers list")
+    user_id = int(user["id"])
+    stored = await sanctuary_db.get_json_state(user_id, "accounts", [])
+    held = {(auth.decrypt_value(a.get("number") or ""), a.get("kind")) for a in stored}
+    kept = 0
+    for item in items:
+        item = item or {}
+        number = str(item.get("number") or "").strip()[:40]
+        kind = str(item.get("kind") or "")
+        if not number or kind not in dict(sanctuary_identity.KINDS):
+            continue
+        if (number, "id") in held:
+            continue
+        stored.append(
+            {
+                "id": secrets.token_hex(4),
+                "kind": "id",
+                "bank": "",
+                "label": sanctuary_identity.LABELS.get(kind, kind),
+                "number": auth.encrypt_value(number),
+                "note": str(item.get("note") or "")[:300],
+            }
+        )
+        held.add((number, "id"))
+        kept += 1
+    await sanctuary_db.set_json_state(user_id, "accounts", stored)
+    return {"kept": kept}
 
 
 @router.put("/api/sanctuary/vault/{doc_id}")
@@ -1997,7 +2137,10 @@ async def notes_get(user: dict = Depends(_unlocked_user)):
 # never says whose bank it is, and a card he has never spent from leaves no
 # trace at all — so these are his to state, and the number rests encrypted
 # like everything else the family may one day need.
-_ACCOUNT_KINDS = ("bank", "card")
+# "id" is a registration rather than an account — a UAN, a PAN, a provident
+# fund number. It holds a number and belongs on Important info for exactly
+# the same reason the bank accounts do.
+_ACCOUNT_KINDS = ("bank", "card", "id")
 
 
 def _account_view(item: dict) -> dict:
@@ -2117,9 +2260,15 @@ async def known_get(user: dict = Depends(_unlocked_user)):
     # he has named gains its bank, and one he holds but has never imported
     # appears anyway. A card is his word alone — it leaves no statement here.
     cards = []
+    identifiers = []
     for stated in stated_accounts:
         if stated["kind"] == "card":
             cards.append(stated)
+            continue
+        # A registration is nobody's account: it has no tail to match against
+        # a statement and no bank behind it, only the name he filed it under.
+        if stated["kind"] == "id":
+            identifiers.append(stated)
             continue
         proof = corroboration.get(stated["number"]) or {}
         extra = {
@@ -2143,6 +2292,7 @@ async def known_get(user: dict = Depends(_unlocked_user)):
     return {
         "accounts": sorted(accounts.values(), key=lambda a: -a["entries"]),
         "cards": cards,
+        "identifiers": identifiers,
         "loan_accounts": _loan_account_lines(loans),
         "loans_open": sum(1 for loan in loans if loan.get("active")),
         "loans_settled": sum(1 for loan in loans if not loan.get("active")),

@@ -593,7 +593,11 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-chip{font-size:.74rem;padding:2px 9px;border-radius:99px;border:1px solid var(--line-soft);color:var(--soft)}
 /* Which way the money went, said on the chip itself. */
 /* What the sanctuary knows on its own, above his hand-typed notes. */
-.known-wrap{margin:2px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line-soft)}
+/* Bounded like the vault's shelf: registrations, accounts, cards and
+   lenders all live here now, and a dozen rows would otherwise push the
+   notes and the panel beside it down the page. */
+.known-wrap{margin:2px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line-soft);
+  max-height:300px;overflow-y:auto;padding-right:6px}
 .known-head{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:10px 0 2px}
 /* One line per account: name, tail, and what is known of it — all on the
    same row, so a dozen of them never becomes a wall. */
@@ -607,6 +611,19 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .known-who{flex:none}
 .known-row .num{font-size:.82rem;color:var(--muted)}
 .known-row .btn.small{padding:1px 9px;font-size:.72rem;flex:none}
+/* One find from the papers, waiting to be ticked. Written as
+   `.modal label.id-find` because the modal's own `label` rule stacks every
+   label into a block — a plain `.id-find` loses to it and the number ends
+   up under the name instead of beside it. */
+.modal label.id-find{display:flex;align-items:center;gap:10px;margin:0;padding:8px 2px;
+  border-bottom:1px solid var(--line-soft);cursor:pointer;
+  font-size:.95rem;font-weight:400;color:var(--ink)}
+.modal label.id-find:last-of-type{border-bottom:0}
+.modal label.id-find.held{opacity:.55;cursor:default}
+.id-find .id-what{flex:1;min-width:0}
+.id-find .id-what b{font-weight:700}
+.id-find .id-what small{display:block;color:var(--soft);font-size:.76rem;font-weight:400}
+.id-find .num{white-space:nowrap;color:var(--muted);font-size:.85rem}
 /* What he owns: a headline, a line under it, one row per holding. */
 .own-top{display:flex;align-items:baseline;gap:10px;margin-top:2px}
 .own-now{font-family:var(--serif);font-weight:650;font-size:1.7rem;color:var(--moss)}
@@ -1339,9 +1356,11 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-sub">What the family should be able to find.</div>
       <div id="known-block"></div>
       <div class="notes-list" id="notes"></div>
-      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="btn ghost small" id="note-add">＋ Add a note</button>
-        <button class="btn ghost small" id="acct-add">＋ Bank or card</button>
+        <button class="btn ghost small" id="acct-add">＋ Bank, card or number</button>
+        <button class="btn subtle small" id="id-scan" title="Read the payslips and tax papers in the vault for the UAN, PAN and provident fund numbers">🔎 Read my papers</button>
+        <span id="id-scan-state" class="section-sub" style="margin:0"></span>
       </div>
     </div>
 
@@ -2756,11 +2775,13 @@ async function loadKnown(){
       : a.note || "";
     const accounts = (k.accounts || []).map((a) => line(a, "Account", 6, saidOf(a), "kn-" + (a.id || a.tail))).join("");
     const cards = (k.cards || []).map((c) => line(c, "Card", 4, saidOf(c), "kn-" + (c.id || c.tail))).join("");
+    const ids = (k.identifiers || []).map((x) => line(x, "Number", 4, x.note || "", "kn-" + x.id)).join("");
     const loans = (k.loan_accounts || []).map((l) => line(l, "Loan", 4, "", l.id)).join("");
     const settled = k.loans_settled
       ? `<div class="known-row"><small style="margin-left:0">${k.loans_settled} settled loan${k.loans_settled === 1 ? "" : "s"} — on the Loans panel</small></div>` : "";
-    host.innerHTML = (accounts || cards || loans || settled)
+    host.innerHTML = (accounts || cards || ids || loans || settled)
       ? `<div class="known-wrap">
+          ${ids ? `<div class="known-head">Registrations</div>${ids}` : ""}
           ${accounts ? `<div class="known-head">Bank accounts</div>${accounts}` : ""}
           ${cards ? `<div class="known-head">Credit cards</div>${cards}` : ""}
           ${loans ? `<div class="known-head">Loan accounts</div>${loans}` : ""}
@@ -2777,14 +2798,19 @@ function accountForm(id, tail){
   /* Only accounts he has STATED can be edited in place. One the statements
      found carries no id, so tapping it opens a fresh entry already knowing
      which account he means. */
-  const list = (S.known && [...(S.known.accounts || []), ...(S.known.cards || [])].filter((x) => x.id)) || [];
+  const list = (S.known && [...(S.known.accounts || []), ...(S.known.cards || []), ...(S.known.identifiers || [])].filter((x) => x.id)) || [];
   const a = (id && list.find((x) => x.id === id))
     || {kind: "bank", bank: "", label: "", number: "", note: tail ? `the account ending ${tail}` : ""};
-  const wrap = modal(`<h4>${id ? "Tend this account" : "A bank or a card"}</h4>
+  /* The third kind is a registration — a PRAN, an Aadhaar, anything with a
+     number and no bank. It is here because the scan cannot find every one
+     of them: his NPS paper is a blank application, so the PRAN has to be
+     typed. */
+  const wrap = modal(`<h4>${id ? "Tend this entry" : "A bank, a card or a number"}</h4>
     <label>Which</label><select class="field" id="af-kind">
       <option value="bank"${a.kind === "bank" ? " selected" : ""}>Bank account</option>
-      <option value="card"${a.kind === "card" ? " selected" : ""}>Credit card</option></select>
-    <label>Bank</label><input class="field" id="af-bank" value="${esc(a.bank || "")}" placeholder="HDFC, Kotak, ICICI, Axis…">
+      <option value="card"${a.kind === "card" ? " selected" : ""}>Credit card</option>
+      <option value="id"${a.kind === "id" ? " selected" : ""}>Registration — UAN, PAN, PRAN…</option></select>
+    <label id="af-bank-label">Bank</label><input class="field" id="af-bank" value="${esc(a.kind === "id" ? (a.label || "") : (a.bank || ""))}" placeholder="HDFC, Kotak, ICICI, Axis…">
     <label>Number <span style="font-weight:400">— kept encrypted</span></label>
     <input class="field" id="af-num" value="${esc(a.number || "")}" placeholder="the full number">
     <label>Note</label><input class="field" id="af-note" value="${esc(a.note || "")}" placeholder="salary account, the card the loans sit on…">
@@ -2793,6 +2819,15 @@ function accountForm(id, tail){
       <button class="btn subtle" id="af-cancel">Leave it</button>
       <button class="btn" id="af-save">Keep it</button></div>`);
   wrap.querySelector("#af-cancel").onclick = () => wrap.remove();
+  /* A registration has no bank behind it, so the first field asks what the
+     number IS instead of who holds it. */
+  const kindSel = wrap.querySelector("#af-kind");
+  const retitle = () => {
+    const isId = kindSel.value === "id";
+    wrap.querySelector("#af-bank-label").textContent = isId ? "What it is" : "Bank";
+    wrap.querySelector("#af-bank").placeholder = isId ? "PRAN, Aadhaar, UAN…" : "HDFC, Kotak, ICICI, Axis…";
+  };
+  kindSel.onchange = retitle; retitle();
   const send = async (items) => {
     await api("/api/sanctuary/accounts", {method: "PUT", body: {accounts: items}});
     wrap.remove(); loadKnown(); refreshFinance();
@@ -2800,10 +2835,12 @@ function accountForm(id, tail){
   const current = () => list.map((x) => ({id: x.id, kind: x.kind, bank: x.bank, label: x.label, number: x.number, note: x.note}));
   wrap.querySelector("#af-save").onclick = async () => {
     const number = wrap.querySelector("#af-num").value.trim();
-    const bank = wrap.querySelector("#af-bank").value.trim();
-    if (!bank && !number) return toast("It needs a bank name or a number to be worth keeping");
-    const item = {id: id || "", kind: wrap.querySelector("#af-kind").value,
-      bank, label: a.label || "", number, note: wrap.querySelector("#af-note").value.trim()};
+    const named = wrap.querySelector("#af-bank").value.trim();
+    const kind = kindSel.value;
+    if (!named && !number) return toast("It needs a name or a number to be worth keeping");
+    const item = {id: id || "", kind,
+      bank: kind === "id" ? "" : named, label: kind === "id" ? named : (a.label || ""),
+      number, note: wrap.querySelector("#af-note").value.trim()};
     const items = current();
     const at = id ? items.findIndex((x) => x.id === id) : -1;
     if (at >= 0) items[at] = item; else items.push(item);
@@ -2815,6 +2852,80 @@ function accountForm(id, tail){
   };
 }
 $("acct-add").onclick = () => accountForm(null);
+
+/* ── the registrations, read out of his own papers ──
+   A UAN is only ever copied off a payslip when it is already needed. The
+   scan opens the payslips and tax papers already in the vault, reads the
+   numbers, and OFFERS them — nothing lands on the panel until he ticks it,
+   because a number nobody has checked is worse than a number nobody has. */
+$("id-scan").onclick = async () => {
+  const btn = $("id-scan");
+  const state = $("id-scan-state");
+  btn.disabled = true;
+  try {
+    await api("/api/sanctuary/identity/scan", {method: "POST", body: {}});
+    let job;
+    for (let tick = 0; tick < 900; tick++) {
+      await new Promise((r) => setTimeout(r, 1200));
+      job = await api("/api/sanctuary/identity/scan/status");
+      state.textContent = job.running
+        ? `reading ${job.scanned} of ${job.total}…${job.found ? ` ${job.found} found` : ""}`
+        : "";
+      if (!job.running) break;
+    }
+    state.textContent = "";
+    if (!job || !(job.numbers || []).length) {
+      toast(job && job.unreadable
+        ? `Nothing readable — ${job.unreadable} of ${job.scanned} papers would not open.`
+        : "No registration numbers in the papers here.");
+      return;
+    }
+    identityReview(job);
+  } catch (err) {
+    state.textContent = "";
+    toast(err.message || "The scan would not run");
+  }
+  btn.disabled = false;
+};
+
+function identityReview(job){
+  const held = new Set(((S.known || {}).identifiers || []).map((x) => String(x.number || "")));
+  /* The winners are ticked; the ones that lost their vote are offered
+     unticked, because one of them is usually his personnel number from the
+     other employer and the rest are an insurer's PAN off some policy. */
+  const all = [...(job.numbers || []), ...(job.others || [])];
+  const firstLoser = (job.numbers || []).length;
+  const rows = all.map((n, i) => {
+    const already = held.has(n.number);
+    const loser = i >= firstLoser;
+    const said = already ? "already on the panel"
+      : `${n.papers} paper${n.papers === 1 ? "" : "s"} say so · first seen in ${esc(n.source)}`;
+    return (i === firstLoser ? `<div class="known-head" style="margin-top:12px">Also found — tick only what is yours</div>` : "")
+      + `<label class="id-find${already ? " held" : ""}">
+      <input type="checkbox" data-idpick="${i}"${already || loser ? "" : " checked"}${already ? " disabled" : ""}>
+      <span class="id-what"><b>${esc(n.label)}</b><small>${said}</small></span>
+      <b class="num">${esc(maskAccount(n.number))}</b>
+    </label>`;
+  }).join("");
+  const wrap = modal(`<h4>What the papers say</h4>
+    <div class="section-sub" style="margin-bottom:10px">Read from ${job.scanned} paper${job.scanned === 1 ? "" : "s"}${job.stopped_early ? ", stopping once each number had two behind it" : ""}${job.unreadable ? ` · ${job.unreadable} would not open` : ""}. Untick anything that is not yours.</div>
+    ${rows}
+    <div class="m-foot">
+      <button class="btn subtle" id="idr-cancel">Not now</button>
+      <button class="btn" id="idr-keep">Keep the ticked</button></div>`);
+  wrap.querySelector("#idr-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#idr-keep").onclick = async () => {
+    const picked = [...wrap.querySelectorAll("[data-idpick]")]
+      .filter((box) => box.checked && !box.disabled)
+      .map((box) => all[Number(box.dataset.idpick)]);
+    if (!picked.length) { wrap.remove(); return; }
+    try {
+      const r = await api("/api/sanctuary/identity/keep", {method: "POST", body: {numbers: picked}});
+      wrap.remove(); loadKnown();
+      toast(`${r.kept} kept on Important info. 🌿`);
+    } catch (err) { toast(err.message || "That did not take"); }
+  };
+}
 async function loadHoldings(){
   const body = $("holdings-body");
   if (!body) return;

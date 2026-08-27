@@ -854,6 +854,79 @@ class KnownAccountsTests(unittest.TestCase):
         self.assertEqual((rows["503204"]["first"], rows["503204"]["last"]), ("2026-03-01", "2026-03-05"))
 
 
+class IdentityReadingTests(unittest.TestCase):
+    """Reading the registrations off a payslip. Every number below is made
+    up — his own never appear in this repository."""
+
+    def find(self, text):
+        import sanctuary_identity
+
+        return {item["kind"]: item["number"] for item in sanctuary_identity.find_identifiers(text)}
+
+    def test_an_older_payslip_gives_up_everything(self):
+        text = (
+            "|Emp No : 08255T PERNR : 12345678 |Department : |\n"
+            "|Pay period : 01.09.2020 - 30.09.2020 |PF No. : PY/KRP/12345/123456 |\n"
+            "| |UAN No : 100200300400 | |\n"
+        )
+        self.assertEqual(
+            self.find(text),
+            {"uan": "100200300400", "pf": "PY/KRP/12345/123456", "pernr": "12345678"},
+        )
+
+    def test_a_masked_number_is_refused(self):
+        """The newer payslips print 'UAN Number : ******1234'. Storing that
+        would leave the panel looking answered when it is not."""
+        text = "UAN Number : ******1234\nBank Account No : ******123456\nEmployee ID : 1234567\n"
+        found = self.find(text)
+        self.assertNotIn("uan", found, "a masked UAN is not a UAN")
+        self.assertEqual(found.get("employee_id"), "1234567", "the unmasked ones still come through")
+
+    def test_the_lenders_pan_is_not_his(self):
+        """His Form 12BB names the housing company's PAN four lines below
+        his own. Taking the wrong one would put a stranger's number on the
+        card the family is told to trust."""
+        text = (
+            "1. Permanent Account Number of the employee: AAAAA1111A\n"
+            "(iv) Permanent Account Number of the lender BBBBB2222B\n"
+        )
+        self.assertEqual(self.find(text).get("pan"), "AAAAA1111A")
+
+    def test_a_page_of_only_someone_elses_pan_yields_nothing(self):
+        text = "Permanent Account Number (PAN) of the Lender BBBBB2222B\nCanfin Homes Ltd., Pan :BBBBB2222B\n"
+        self.assertNotIn("pan", self.find(text))
+
+    def test_the_papers_vote_and_the_scan_stops_when_they_agree(self):
+        import sanctuary_identity
+
+        tally: dict = {}
+        for month in ("Sep", "Oct", "Nov"):
+            sanctuary_identity.merge_findings(
+                tally,
+                [
+                    {"kind": "uan", "label": "UAN", "number": "100200300400"},
+                    {"kind": "pan", "label": "PAN", "number": "AAAAA1111A"},
+                    {"kind": "pf", "label": "Provident fund", "number": "PY/KRP/12345/123456"},
+                ],
+                f"{month} 2020",
+            )
+        # one stray payslip belonging to somebody else
+        sanctuary_identity.merge_findings(tally, [{"kind": "uan", "label": "UAN", "number": "999888777666"}], "a stray")
+        best = {item["kind"]: (item["number"], item["papers"]) for item in sanctuary_identity.best_of(tally)}
+        self.assertEqual(best["uan"], ("100200300400", 3), "the number the most papers agree on wins")
+        self.assertEqual(best["pan"][1], 3)
+        self.assertTrue(sanctuary_identity.is_complete(tally), "three papers each is enough to stop reading")
+
+    def test_one_paper_alone_is_not_enough_to_stop(self):
+        import sanctuary_identity
+
+        tally: dict = {}
+        sanctuary_identity.merge_findings(
+            tally, [{"kind": "uan", "label": "UAN", "number": "100200300400"}], "one payslip"
+        )
+        self.assertFalse(sanctuary_identity.is_complete(tally))
+
+
 class ImportantInfoTests(unittest.TestCase):
     """What Important info is allowed to say — the numbers a family would
     have to telephone, and never a number that is not one."""
