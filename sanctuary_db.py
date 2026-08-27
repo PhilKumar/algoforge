@@ -315,6 +315,49 @@ async def statement_outflow_rows(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def ledger_rows_by_sources(user_id: int, sources: tuple) -> list[dict]:
+    placeholders = ",".join("?" for _ in sources)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            f"""SELECT id, entry_date, category, amount, note, source FROM sanctuary_ledger
+               WHERE user_id = ? AND source IN ({placeholders}) ORDER BY entry_date""",  # nosec B608 - placeholders only
+            (int(user_id), *sources),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def merge_duplicate_pair(user_id: int, manual_id: int, bank_id: int) -> bool:
+    """The bank row adopts the hand-entered row's words; the duplicate goes."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM sanctuary_ledger WHERE user_id = ? AND id = ?",
+            (int(user_id), int(manual_id)),
+        )
+        manual = await cursor.fetchone()
+        cursor = await db.execute(
+            "SELECT * FROM sanctuary_ledger WHERE user_id = ? AND id = ? AND source LIKE 'statement%'",
+            (int(user_id), int(bank_id)),
+        )
+        bank = await cursor.fetchone()
+        if not manual or not bank:
+            return False
+        note = bank["note"]
+        if manual["note"]:
+            note = f"{manual['note']} — {bank['note']}"[:500]
+        await db.execute(
+            "UPDATE sanctuary_ledger SET category = ?, note = ? WHERE user_id = ? AND id = ?",
+            (manual["category"], note, int(user_id), int(bank_id)),
+        )
+        await db.execute(
+            "DELETE FROM sanctuary_ledger WHERE user_id = ? AND id = ?",
+            (int(user_id), int(manual_id)),
+        )
+        await db.commit()
+        return True
+
+
 async def search_ledger(user_id: int, query: str, limit: int = 400) -> list[dict]:
     """Every year at once: rows whose note or category carries the query."""
     needle = f"%{query.strip()}%"

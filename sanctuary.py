@@ -885,6 +885,64 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     }
 
 
+@router.get("/api/sanctuary/finance/duplicates")
+async def finance_duplicates(user: dict = Depends(_unlocked_user)):
+    """Hand-entered rows the statements later told again. Each hand row is
+    paired with its closest bank row by amount and date; pairs the owner
+    ruled 'truly separate' stay dismissed."""
+    from datetime import datetime as _dt
+
+    user_id = int(user["id"])
+    hand = await sanctuary_db.ledger_rows_by_sources(user_id, ("manual", "recurring"))
+    bank = await sanctuary_db.ledger_rows_by_sources(user_id, ("statement",))
+    dismissed = set(await sanctuary_db.get_json_state(user_id, "dup_dismissed", []))
+
+    def day(row):
+        return _dt.strptime(row["entry_date"], "%Y-%m-%d").date()
+
+    taken: set[int] = set()
+    pairs = []
+    for m in hand:
+        best = None
+        for b in bank:
+            if b["id"] in taken or abs(b["amount"] - m["amount"]) >= 0.01:
+                continue
+            distance = abs((day(b) - day(m)).days)
+            if distance <= 3 and (best is None or distance < best[0]):
+                best = (distance, b)
+        if not best:
+            continue
+        b = best[1]
+        if f"{m['id']}:{b['id']}" in dismissed:
+            continue
+        taken.add(b["id"])
+        pairs.append({"hand": m, "bank": b})
+    return {"pairs": pairs}
+
+
+@router.post("/api/sanctuary/finance/duplicates/resolve")
+async def finance_duplicates_resolve(request: Request, user: dict = Depends(_unlocked_user)):
+    user_id = int(user["id"])
+    payload = await request.json()
+    try:
+        hand_id, bank_id = int(payload.get("hand_id")), int(payload.get("bank_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Which pair?") from None
+    action = str(payload.get("action") or "")
+    if action == "merge":
+        if not await sanctuary_db.merge_duplicate_pair(user_id, hand_id, bank_id):
+            raise HTTPException(status_code=404, detail="That pair is gone")
+        return {"ok": True}
+    if action == "keep":
+        dismissed = await sanctuary_db.get_json_state(user_id, "dup_dismissed", [])
+        mark = f"{hand_id}:{bank_id}"
+        if mark not in dismissed:
+            dismissed.append(mark)
+        await sanctuary_db.set_json_state(user_id, "dup_dismissed", dismissed[:1000])
+        return {"ok": True}
+    raise HTTPException(status_code=400, detail="merge or keep")
+
+
 @router.get("/api/sanctuary/finance/search")
 async def ledger_search(q: str = "", user: dict = Depends(_unlocked_user)):
     query = q.strip()

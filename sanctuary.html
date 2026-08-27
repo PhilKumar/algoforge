@@ -978,6 +978,7 @@ html[data-theme="dark"]{color-scheme:dark}
       <input type="file" id="stmt-file" accept=".xls,.csv" multiple hidden>
       <div id="stmt-drop" class="stmt-drop">Drop statements here, or tap to choose</div>
       <div id="stmt-previews"></div>
+      <div id="stmt-dups" style="margin-top:14px"></div>
       <div id="stmt-review" style="margin-top:14px"></div>
     </div>
 
@@ -1679,7 +1680,7 @@ async function refreshFinance(){
   if (typeof loadStmtReview === "function" && !refreshFinance._reviewQueued) {
     /* one review fetch per paint, after the handlers below exist */
     refreshFinance._reviewQueued = true;
-    setTimeout(() => { refreshFinance._reviewQueued = false; loadStmtReview(); }, 0);
+    setTimeout(() => { refreshFinance._reviewQueued = false; loadStmtReview(); loadStmtDups(); }, 0);
   }
 }
 function renderFinance(){
@@ -2548,6 +2549,40 @@ document.addEventListener("change", (e) => {
     e.target.replaceWith(input);
     input.focus();
   }
+});
+async function loadStmtDups(){
+  const host = $("stmt-dups");
+  try {
+    const r = await api("/api/sanctuary/finance/duplicates");
+    if (!r.pairs.length) { host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="section-title" style="font-size:.95rem">Told twice — ${r.pairs.length} pair${r.pairs.length === 1 ? "" : "s"}</div>
+      <div class="section-sub">You wrote it down, and later the bank told it too. Merging keeps the bank's record wearing your words — nothing of yours is lost.</div>` +
+      r.pairs.map((pr) => `
+      <div class="stmt-review-row" data-dup-hand="${pr.hand.id}" data-dup-bank="${pr.bank.id}">
+        <div class="who">
+          <b>${esc(pr.hand.category)}</b> ${pr.hand.note ? `— ${esc(pr.hand.note)}` : ""}
+          <span class="stmt-chip">${inr2(pr.hand.amount)}</span>
+          <span class="stmt-chip">${esc(pr.hand.entry_date)}${pr.hand.entry_date !== pr.bank.entry_date ? " / bank " + esc(pr.bank.entry_date) : ""}</span>
+          ${pr.hand.source === "recurring" ? `<span class="stmt-chip" style="color:var(--gold,#b98a2e)">recurring — consider switching it off, the bank brings it now</span>` : ""}
+          <small>${esc(pr.bank.note)}</small>
+        </div>
+        <button class="btn ghost small" data-dup-merge>One payment — merge</button>
+        <button class="btn subtle small" data-dup-keep>Truly separate</button>
+      </div>`).join("");
+  } catch { host.innerHTML = ""; }
+}
+document.addEventListener("click", async (e) => {
+  const merge = e.target.closest("[data-dup-merge]");
+  const keep = e.target.closest("[data-dup-keep]");
+  if (!merge && !keep) return;
+  const row = (merge || keep).closest("[data-dup-hand]");
+  try {
+    await api("/api/sanctuary/finance/duplicates/resolve", {method: "POST", body: {
+      hand_id: Number(row.dataset.dupHand), bank_id: Number(row.dataset.dupBank),
+      action: merge ? "merge" : "keep"}});
+    toast(merge ? "One story now, in your words." : "Kept apart.");
+    loadStmtDups(); refreshFinance();
+  } catch (err) { toast(err.message || "That did not take"); }
 });
 async function loadStmtReview(){
   const host = $("stmt-review");
