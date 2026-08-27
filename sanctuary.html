@@ -2167,7 +2167,11 @@ document.addEventListener("click", (e) => {
   sel.addEventListener("change", () => {
     if (sel.value !== "__new__") return;
     const input = document.createElement("input");
-    input.className = "field"; input.id = "lc-cat"; input.placeholder = "Name the category"; input.maxLength = 60;
+    input.className = "field"; input.id = "lc-cat"; input.placeholder = "Name the category — Esc to go back"; input.maxLength = 60;
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") { ev.stopPropagation(); sel.value = row.category; input.replaceWith(sel); }
+    });
+    input.addEventListener("blur", () => { if (!input.value.trim()) { sel.value = row.category; input.replaceWith(sel); } });
     sel.replaceWith(input); input.focus();
   });
   wrap.querySelector("#lc-cancel").onclick = () => wrap.remove();
@@ -3070,11 +3074,20 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("change", (e) => {
   if (e.target.matches(".stmt-review-row select") && e.target.value === "__new__") {
+    const sel = e.target;
     const input = document.createElement("input");
     input.className = "field stmt-new-cat";
-    input.placeholder = "Name the category";
+    input.placeholder = "Name the category — Esc to go back";
     input.maxLength = 60;
-    e.target.replaceWith(input);
+    /* The swap must be a door, not a wall: Esc — or wandering off with
+       nothing typed — puts the dropdown back. He pressed Esc and nothing
+       happened; the select had been destroyed with no way home. */
+    const restore = () => { sel.value = "Uncategorised"; input.replaceWith(sel); };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") { ev.stopPropagation(); restore(); }
+    });
+    input.addEventListener("blur", () => { if (!input.value.trim()) restore(); });
+    sel.replaceWith(input);
     input.focus();
   }
 });
