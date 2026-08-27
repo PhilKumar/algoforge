@@ -1230,29 +1230,51 @@ async def _loan_candidates(user_id: int) -> list[dict]:
     for loan in await sanctuary_db.list_loans(user_id):
         emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
         carded.append(
-            (
-                {e["due_date"] for e in emis},
-                float(loan.get("emi_amount") or 0),
-                str(loan.get("account_no") or ""),
-            )
+            {
+                "loan": loan,
+                "dates": {e["due_date"] for e in emis},
+                "emi": float(loan.get("emi_amount") or 0),
+                "acct": str(loan.get("account_no") or ""),
+            }
         )
 
-    def is_carded(c):
+    def match(c):
         dates = {d["due_date"] for d in c["debits"]}
-        for loan_dates, emi, acct in carded:
-            if abs(emi - c["emi"]) > 0.03 * max(c["emi"], 1):
+        for entry in carded:
+            if abs(entry["emi"] - c["emi"]) > 0.03 * max(c["emi"], 1):
                 continue
-            if acct and acct == c["key"]:
-                return True
-            if dates and loan_dates and len(dates & loan_dates) >= 0.6 * len(dates):
-                return True
-        return False
+            if entry["acct"] and entry["acct"] == c["key"]:
+                return entry
+            if dates and entry["dates"] and len(dates & entry["dates"]) >= 0.6 * len(dates):
+                return entry
+        return None
 
-    return [
-        c
-        for c in candidates
-        if c["key"] not in ignored and f"{c['key']}#{c['emi']:.0f}" not in ignored and not is_carded(c)
-    ]
+    fresh = []
+    for c in candidates:
+        if c["key"] in ignored or f"{c['key']}#{c['emi']:.0f}" in ignored:
+            continue
+        entry = match(c)
+        if entry is None:
+            fresh.append(c)
+            continue
+        # Already on the shelf — but a card he typed himself carries no loan
+        # number, and the statements know it. Fill that gap silently: having
+        # the number at hand is the whole reason he asked for it stored.
+        loan = entry["loan"]
+        if c["key"].isdigit() and not loan.get("account_no"):
+            detail = f"Mandate found in the statements: {c['sample']}"
+            existing = loan.get("details") or ""
+            await sanctuary_db.update_loan(
+                user_id,
+                loan["id"],
+                {
+                    "account_no": c["key"],
+                    "details": f"{existing}\n\n{detail}" if existing else detail,
+                },
+            )
+            entry["acct"] = c["key"]
+            loan["account_no"] = c["key"]
+    return fresh
 
 
 @router.get("/api/sanctuary/loans/discover")

@@ -388,35 +388,46 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
-.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:14px}
-.loan{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.loans{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:14px;
+  align-items:start /* each card its own height — a short card must not stretch to its neighbour's */}
+.loan{padding:16px 18px;display:flex;flex-direction:column;gap:11px;position:relative}
 .loan-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .loan-name{display:flex;flex-direction:column;gap:2px;min-width:0}
-.loan-name .n{font-family:var(--serif);font-weight:650;font-size:1.14rem;line-height:1.25}
+.loan-name .n{font-family:var(--serif);font-weight:650;font-size:1.04rem;line-height:1.3}
 .loan-name .l{font-size:.8rem;color:var(--soft);font-weight:600;letter-spacing:.02em}
 .loan .badge{flex:none;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
   padding:4px 11px;border-radius:999px;background:var(--danger-wash);color:var(--danger);white-space:nowrap}
 /* Every figure sits in the same column as the one above it, so the eye can
    run down the card instead of hunting along ragged lines. */
-.loan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 12px}
+.loan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px}
 .loan-grid .lf{display:flex;flex-direction:column;gap:3px;min-width:0}
 .loan-grid .lf span{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--soft)}
-.loan-grid .lf b{font-size:.98rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.loan-progress{height:5px;border-radius:3px;background:var(--card-2);overflow:hidden}
+.loan-grid .lf b{font-size:.92rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loan-progress{height:4px;border-radius:3px;background:var(--card-2);overflow:hidden}
 .loan-progress i{display:block;height:100%;border-radius:3px;background:var(--moss)}
-.loan-acct{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:10px 14px;border-radius:14px;background:var(--card-2);border:1px solid var(--line-soft)}
+.loan-acct{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;
+  padding:6px 10px;border-radius:10px;background:var(--card-2);border:1px solid var(--line-soft);
+  font-size:.86rem;min-width:0}
+.loan-acct b{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .loan-acct .lbl{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--soft)}
-.loan-acct b{letter-spacing:.08em;font-size:.95rem}
-.loan-acct .acct-actions{margin-left:auto;display:flex;gap:6px}
+.loan-acct b{letter-spacing:.06em;font-size:.86rem}
+.loan-acct .acct-actions{margin-left:auto;display:flex;gap:5px;flex:none}
+.loan-acct .acct-actions .btn{padding:4px 9px;font-size:.74rem}
 .loan-details{font-size:.92rem;border-top:1px solid var(--line-soft);padding-top:10px}
 .loan-details summary{cursor:pointer;font-weight:700;color:var(--moss);list-style:none;display:flex;align-items:center;gap:6px}
 .loan-details summary::-webkit-details-marker{display:none}
 .loan-details summary::before{content:"›";display:inline-block;transition:transform .15s ease;font-weight:800}
 .loan-details[open] summary::before{transform:rotate(90deg)}
 .loan-details div{white-space:pre-wrap;color:var(--muted);padding:8px 0 2px;line-height:1.6}
-.loan .btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:auto;padding-top:2px}
-.loan .btns .loan-remove{margin-left:auto;opacity:.7}
+.loan .btns{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding-top:2px}
+.loan .btns .btn{padding:6px 11px;font-size:.78rem}
+/* The remove sits in the card's corner, so five actions never become two
+   rows and the destructive one is not shoulder to shoulder with the rest. */
+.loan .btns .loan-remove{position:absolute;top:12px;right:12px;margin:0;
+  width:26px;height:26px;padding:0;display:flex;align-items:center;justify-content:center;
+  border-radius:50%;font-size:.8rem}
+.loan-head{padding-right:34px}
+.loan .btns .loan-remove{opacity:.55}
 .loan .btns .loan-remove:hover{opacity:1;color:var(--danger);border-color:var(--danger)}
 @media (max-width:560px){
   .loan-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
