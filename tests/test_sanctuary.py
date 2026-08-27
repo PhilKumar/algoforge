@@ -921,6 +921,10 @@ class SalaryFromBankTests(unittest.TestCase):
             ("UPI/SUSHAANTH HOMOE/551005321873/medicine", "Health"),
             ("UPI/CHINNADURAI MUR/551031307144/snacks", "Eating out"),
             ("Int.Pd:3712258400:01-01-2021 to 31-03-2021", "Interest"),
+            ("ACH/KISETSUSAISONFINANCE/ICIC70221062430/KISETSUSAI", "Kisetsu loan"),
+            ("DECS DR/2630439134/TP CAN FIN", "Home loan"),
+            ("BIL/ONL/001675706445/Alpha Educ/760315248/Oliver 1st term", "School fees"),
+            ("UPI/phil.shiny@/912713537635/To self", "Self transfer"),
         ):
             self.assertEqual(st.categorise(note), want, note)
 
@@ -934,6 +938,10 @@ class SalaryFromBankTests(unittest.TestCase):
         self.assertNotEqual(st.categorise("UPI/349645/UPI/shoes.425/HDFC BANK LTD/PINELABPOSDQR42"), "Health")
         self.assertNotEqual(st.categorise("NACH-10-CR-DIVISLABORATORIES-000000002702843"), "Health")
         self.assertEqual(st.categorise("UPI/032011257798/UPI/paytmqr28100505/Paytm Payments/"), "Uncategorised")
+        # His second handle's remarks say Coin — money going INTO an
+        # investment, not a transfer to himself. It must not be swept up
+        # by the rule that claims "phil.shiny@".
+        self.assertEqual(st.categorise("UPI/300403051101/Coin/phil.shiny-1@ok/Kotak"), "Uncategorised")
 
 
 class PayslipReadingTests(unittest.TestCase):

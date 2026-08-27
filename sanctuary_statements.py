@@ -105,6 +105,18 @@ DEFAULT_RULES = [
     {"match": "groww", "category": "Investments"},
     {"match": "canfinhomes", "category": "Home loan"},
     {"match": "can fin homes", "category": "Home loan"},
+    {"match": "tp can fin", "category": "Home loan"},
+    # Kisetsu Saison is the lender behind his CRED loans; the ACH mandate
+    # and the CRED disbursement are two ends of the same debt.
+    {"match": "kisetsusaison", "category": "Kisetsu loan"},
+    {"match": "paidviacred", "category": "Kisetsu loan"},
+    {"match": "citi bank card loan", "category": "Citi loan"},
+    # His sons' school bills its fees under the trust's name, never "school".
+    {"match": "alpha educ", "category": "School fees"},
+    # His own UPI handle. The "-1@" handle is a different one and is left
+    # alone: its remarks say Coin, which is money going INTO an investment.
+    {"match": "phil.shiny@", "category": "Self transfer"},
+    {"match": "phillipshin", "category": "Self transfer"},
     {"match": "tangedco", "category": "EB bill"},
     {"match": "indane", "category": "Gas cylinder"},
     {"match": "bharatgas", "category": "Gas cylinder"},
@@ -644,6 +656,93 @@ def _card_loan_date(text: str) -> str:
     return datetime.strptime(re.sub(r"\s+", " ", text.strip()), "%d %b %Y").date().isoformat()
 
 
+# An NBFC's own statement of account: a repayment schedule whose rows run
+# "1 0 03/05/2025 5035 03/05/2025 0 0" — number, LPI due, due date, EMI,
+# receipt date — closing with a Foreclosure row when he settled it early.
+_NBFC_ROW_RE = re.compile(r"^(\d{1,3})\s+[\d.]+\s+(\d{2}/\d{2}/\d{4})\s+([\d,]+(?:\.\d+)?)\s+(\d{2}/\d{2}/\d{4})")
+_NBFC_FORECLOSE_RE = re.compile(
+    r"^Foreclosure\s+[\d.]+\s+\S+\s+([\d,]+(?:\.\d+)?)\s+(\d{2}/\d{2}/\d{4})", re.IGNORECASE
+)
+_NBFC_FIELD_RE = {
+    "rate": re.compile(r"Rate of Interest\s+([\d.]+)", re.IGNORECASE),
+    "tenure": re.compile(r"Tenure\s+(\d+)", re.IGNORECASE),
+}
+# The money sits on its OWN line, under a header naming three columns:
+#   Loan Amount   Principal Paid   Principal Outstanding
+#   Rs. 109903.00 Rs. 109903.00    Rs. 0.00
+# Reading the header's line for figures finds none, and reading the whole
+# text for "Principal Outstanding" finds the wrong one.
+_NBFC_MONEY_ROW_RE = re.compile(r"Rs\.\s*([\d,]+\.?\d*)\s+Rs\.\s*([\d,]+\.?\d*)\s+Rs\.\s*([\d,]+\.?\d*)")
+
+
+def _parse_nbfc_statement(lines: list[str], text: str) -> dict | None:
+    """A lender's statement of account, read as a schedule."""
+    if "repayment schedule" not in text.lower():
+        return None
+    emis = []
+    for line in lines:
+        row = _NBFC_ROW_RE.match(line)
+        if row:
+            amount = _parse_money(row.group(3)) or 0.0
+            emis.append(
+                {
+                    "due_date": datetime.strptime(row.group(2), "%d/%m/%Y").date().isoformat(),
+                    "amount": amount,
+                    "principal": amount,  # the statement splits no principal out
+                    "interest": 0.0,
+                }
+            )
+            continue
+        closed = _NBFC_FORECLOSE_RE.match(line)
+        if closed:
+            amount = _parse_money(closed.group(1)) or 0.0
+            emis.append(
+                {
+                    "due_date": datetime.strptime(closed.group(2), "%d/%m/%Y").date().isoformat(),
+                    "amount": amount,
+                    "principal": amount,
+                    "interest": 0.0,
+                    "note": "foreclosure",
+                }
+            )
+    if not emis:
+        return None
+    emis.sort(key=lambda e: e["due_date"])
+    found = {}
+    for key, pattern in _NBFC_FIELD_RE.items():
+        hit = pattern.search(text)
+        if hit:
+            found[key] = _parse_money(hit.group(1))
+    for index, line in enumerate(lines):
+        if "principal outstanding" in line.lower():
+            for ahead in lines[index : index + 4]:
+                money = _NBFC_MONEY_ROW_RE.search(ahead)
+                if money:
+                    found["principal"] = _parse_money(money.group(1))
+                    found["outstanding"] = _parse_money(money.group(3))
+                    break
+            break
+    principal = found.get("principal") or sum(e["amount"] for e in emis)
+    remaining = principal
+    for emi in emis:
+        remaining = max(0.0, round(remaining - emi["principal"], 2))
+        emi["outstanding"] = remaining
+    return {
+        "loan_number": "",
+        "booked": emis[0]["due_date"],
+        "kind": "Loan",
+        "principal": principal,
+        "rate": found.get("rate") or 0.0,
+        "tenure": int(found.get("tenure") or len(emis)),
+        "outstanding": found.get("outstanding") if found.get("outstanding") is not None else remaining,
+        "card_tail": "",
+        "emi": emis[0]["amount"],
+        "first": emis[0]["due_date"],
+        "last": emis[-1]["due_date"],
+        "emis": emis,
+    }
+
+
 def parse_card_loan_schedule(text: str, filename: str = "") -> dict | None:
     """Read a card's linked-loan table into a debt and its instalments.
 
@@ -658,7 +757,9 @@ def parse_card_loan_schedule(text: str, filename: str = "") -> dict | None:
         if head:
             break
     if not head:
-        return None
+        # Not a card's linked-loan table — an NBFC's statement of account
+        # is the other shape a lender hands him, and it is a schedule too.
+        return _parse_nbfc_statement(lines, text or "")
 
     emis = []
     for line in lines:

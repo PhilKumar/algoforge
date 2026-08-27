@@ -566,8 +566,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
 .led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
 .led-cat-edit:hover{color:var(--moss)}
-.vault-pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0 2px;
-  font-size:.78rem;color:var(--soft);font-weight:700}
+.vault-pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 2px 0;
+  font-size:.72rem;color:var(--soft);font-weight:700;opacity:.75}
+.vault-pager .btn{padding:2px 10px;font-size:.75rem}
 .vault-row{display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--line-soft)}
 .vault-row:last-child{border-bottom:0}
 .vault-row .vi{font-size:1.05rem;width:22px;text-align:center;flex:none}
@@ -1234,13 +1235,13 @@ html[data-theme="dark"]{color-scheme:dark}
         <button class="btn ghost" id="loan-add">＋ Add a loan</button>
         <input type="file" id="loan-sched-file" accept="application/pdf" hidden>
         <button class="btn ghost" id="loan-sched-btn" title="A lender's own EMI table — a card's linked loan, an NBFC's statement of account">📄 Import an EMI schedule</button>
-        <span class="section-sub" style="margin:0;flex-basis:100%">A loan drawn on a credit card never shows up as a stream until its debits have run for months. Its own schedule says everything at once.</span>
+        <span class="section-sub" style="margin:0;flex-basis:100%">A card loan never shows as a stream for months; its own schedule says it at once.</span>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:24px">
       <div class="section-title">Every month, on its own</div>
-      <div class="section-sub">NPS, PF, MF SIP, school fees, music class — set them once and they post themselves each month.</div>
+      <div class="section-sub">Set once, and they post themselves each month.</div>
       <div id="recur-list"></div>
       <div style="margin-top:12px"><button class="btn ghost small" id="recur-add">＋ Add recurring</button>
         <button class="btn small" id="recur-save" style="margin-left:8px">Save</button></div>
@@ -1250,19 +1251,19 @@ html[data-theme="dark"]{color-scheme:dark}
          other side of the same question. -->
     <div class="card" id="holdings-card" style="margin-bottom:24px">
       <div class="section-title">What you own</div>
-      <div class="section-sub">Your broker's own holdings export — units, what they cost, what they are worth. Nothing is fetched live: a holding is worth what the statement said on the day you exported it.</div>
+      <div class="section-sub">What the last statement said, on the day you exported it.</div>
       <div id="holdings-body"></div>
       <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <input type="file" id="hold-file" accept=".xlsx" hidden>
         <button class="btn ghost" id="hold-btn">📈 Import a holdings statement</button>
-        <span class="section-sub" style="margin:0">Zerodha Console → Holdings → download the .xlsx.</span>
+        <span class="section-sub" style="margin:0">Zerodha Console → Holdings → .xlsx</span>
       </div>
     </div>
 
     <div class="side-grid" style="margin-top:0">
     <div class="card">
       <div class="section-title">Important info</div>
-      <div class="section-sub">Policy numbers, account notes, things the family should be able to find.</div>
+      <div class="section-sub">What the family should be able to find.</div>
       <div id="known-block"></div>
       <div class="notes-list" id="notes"></div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
@@ -1273,13 +1274,13 @@ html[data-theme="dark"]{color-scheme:dark}
 
     <div class="card">
       <div class="section-title">The Vault</div>
-      <div class="section-sub">Driving licence, Aadhaar, PRAN, payslips — every file is encrypted the moment it arrives, and only this room can open it. Keep originals elsewhere too: this is for reaching them fast, not the only copy.</div>
+      <div class="section-sub">Every file encrypted as it arrives. Keep your originals elsewhere too.</div>
       <input type="file" id="vault-file" hidden>
       <input type="file" id="vault-folder" webkitdirectory directory multiple hidden>
       <div id="vault-drop" class="stmt-drop">Drop a document here, or tap to choose</div>
       <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button class="btn ghost small" id="vault-folder-btn">📁 Add a whole folder</button>
-        <span class="section-sub" style="margin:0">Each paper is named, dated and grouped from its own filename — payslips by month, Form 16s, NPS, fees. Anything unreadable waits as Other.</span>
+        <span class="section-sub" style="margin:0">Named and grouped from each filename; anything unreadable waits as Other.</span>
       </div>
       <div id="vault-progress" style="margin-top:10px"></div>
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
@@ -3292,7 +3293,7 @@ async function loadVault(){
     $("vault-family-state").textContent = st.family_access ? "· Access is ON." : "· No key set yet.";
   } catch { /* locked or offline — the card stays quiet */ }
 }
-const VAULT_PER_PAGE = 10;
+const VAULT_PER_PAGE = 12;
 function renderVault(){
   const docs = S.vaultDocs || [];
   if (!docs.length) { $("vault-list").innerHTML = `<div style="color:var(--muted)">Nothing kept yet. The licence, the Aadhaar, the PRAN letter — drop them in.</div>`; return; }

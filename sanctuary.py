@@ -1864,6 +1864,24 @@ async def schedule_parse(
         first_due,
         password,
     )
+    # A card's linked-loan table is a schedule too, and it is the file the
+    # bank actually hands him — but it prints no running balance, so the
+    # generic reader finds nothing and says "no schedule here". Rather than
+    # asking him to remember which of two buttons reads which file, this
+    # one falls back to the card reader and computes the balance itself.
+    if not result.get("rows"):
+        card = await asyncio.to_thread(_read_card_schedule_pdf, blob, file.filename or "")
+        if card:
+            result = {
+                "status": "ok",
+                "rows": card["emis"],
+                "needs_first_due": False,
+                "source": "card-linked-loan",
+                "note": (
+                    f"{card['kind']} of ₹{card['principal']:,.0f} over {card['tenure']} months "
+                    f"at {card['rate']}%, ₹{card['outstanding']:,.0f} still owed."
+                ),
+            }
     return result
 
 
