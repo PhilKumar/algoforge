@@ -508,6 +508,72 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   .page-turn.left{left:2px}
   .page-turn.right{right:2px}
 }
+/* ── the planner ────────────────────────────────────────────────
+   The book's paper, turned forward. Same pitch, same margin rule, same
+   hand for the writing — a task he noted should look like a task he
+   WROTE, not a row in a table. */
+.plan-sheet{position:relative;padding:var(--plan-pitch) 28px var(--plan-pitch) 74px;
+  background-image:
+    repeating-linear-gradient(180deg,transparent 0 calc(var(--plan-pitch) - 1px),
+      var(--page-rule) calc(var(--plan-pitch) - 1px) var(--plan-pitch)),
+    var(--glass-sheen);
+  background-origin:content-box,padding-box;
+  background-repeat:repeat,no-repeat;
+  --plan-pitch:34px}
+.plan-sheet::before{content:"";position:absolute;top:0;bottom:0;left:54px;width:1px;
+  background:var(--page-margin);pointer-events:none}
+/* Every block here is one or two ruled lines tall, exactly as on a leaf of
+   the book — a 26px padding and a 47px input row had the whole list
+   drifting a pixel further off the ruling with every row. */
+.plan-head{display:flex;align-items:center;gap:12px;height:var(--plan-pitch);line-height:var(--plan-pitch)}
+.plan-head .section-title{margin:0;font-size:1.25rem;line-height:var(--plan-pitch)}
+.plan-count{font-size:.8rem;color:var(--soft);margin-left:auto}
+.plan-write{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;
+  height:calc(var(--plan-pitch) * 2)}
+.plan-write .btn{flex:none;line-height:20px;padding:6px 16px}
+.plan-input{flex:1;min-width:220px;font-family:var(--hand);font-size:1.5rem;
+  background:transparent;border:0;border-bottom:1px solid var(--glass-rim);border-radius:0;
+  padding:0 2px;height:var(--plan-pitch);line-height:var(--plan-pitch);color:var(--ink)}
+.plan-input::placeholder{color:var(--soft);opacity:.75}
+.plan-input:focus{box-shadow:none;border-bottom-color:var(--moss)}
+/* What it understood, said back before he commits to it. */
+.plan-read{min-height:var(--plan-pitch);line-height:var(--plan-pitch);font-size:.86rem;color:var(--soft)}
+.plan-read b{color:var(--ink);font-weight:700}
+.plan-read .plan-when{color:var(--moss);font-weight:700}
+.plan-read .plan-said{font-style:italic}
+.plan-list{margin-top:0}
+.plan-group{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--soft);
+  font-weight:800;line-height:var(--plan-pitch)}
+.plan-group.overdue{color:var(--danger)}
+.plan-row{display:flex;align-items:center;gap:10px;line-height:var(--plan-pitch);
+  height:var(--plan-pitch);overflow:hidden}
+.plan-tick{flex:none;width:18px;height:18px;border-radius:6px;cursor:pointer;
+  border:1.5px solid var(--line);background:transparent;display:flex;align-items:center;
+  justify-content:center;font-size:12px;color:transparent;transition:all .15s ease}
+.plan-tick:hover{border-color:var(--moss)}
+.plan-row.is-done .plan-tick{background:var(--moss);border-color:var(--moss);color:#0c1524}
+.plan-what{flex:1;min-width:0;font-family:var(--hand);font-size:1.45rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text}
+.plan-row.is-done .plan-what{text-decoration:line-through;opacity:.5}
+.plan-due{flex:none;font-size:.78rem;font-weight:700;color:var(--soft);white-space:nowrap}
+.plan-due.overdue{color:var(--danger)}
+.plan-due.soon{color:var(--moss)}
+.plan-kind{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;opacity:.75;margin-right:4px}
+.plan-x{flex:none;opacity:0;transition:opacity .15s ease;cursor:pointer;
+  background:none;border:0;color:var(--soft);font-size:.9rem;padding:0 4px;line-height:20px}
+.plan-row:hover .plan-x,.plan-row:focus-within .plan-x{opacity:.7}
+.plan-empty{color:var(--muted);font-family:var(--hand);font-size:1.4rem;line-height:var(--plan-pitch)}
+/* `details.` because .loans-closed sets its own margin later in the file
+   and would otherwise win, pushing the fold 18px off the ruling. */
+details.plan-done-wrap{margin-top:0}
+.plan-done-wrap > summary{line-height:var(--plan-pitch);margin:0;padding:0;height:var(--plan-pitch)}
+.plan-done-wrap .plan-what{font-size:1.25rem}
+@media (max-width:780px){
+  .plan-sheet{padding:22px 16px 22px 54px}
+  .plan-sheet::before{left:38px}
+  .plan-input{font-size:1.35rem}
+  .plan-what{font-size:1.3rem}
+}
 .kind-chip{font-size:.75rem;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--moss-wash);color:var(--moss)}
 .kind-chip.achievement{background:var(--gold-wash);color:var(--gold)}
 .kind-chip.emotion{background:var(--terra-wash);color:var(--terracotta)}
@@ -1254,6 +1320,29 @@ html[data-theme="dark"]{color-scheme:dark}
     </div>
 
     <hr class="divider">
+    <!-- The planner: the same ruled paper as the book, but forward-facing.
+         One line in — "call the bank before next wednesday" — and it reads
+         the task and the date out of it, showing what it understood before
+         he commits to it. -->
+    <div class="card plan-sheet" id="planner">
+      <div class="plan-head">
+        <div class="section-title">What's coming</div>
+        <span class="plan-count" id="plan-count"></span>
+      </div>
+      <div class="plan-write">
+        <input class="field plan-input" id="plan-text" autocomplete="off"
+               placeholder="Call the bank before next wednesday…">
+        <button class="btn" id="plan-add">Note it 🌿</button>
+      </div>
+      <div class="plan-read" id="plan-read"></div>
+      <div class="plan-list" id="plan-list"></div>
+      <details class="loans-closed plan-done-wrap" id="plan-done-wrap">
+        <summary>Done <span id="plan-done-count"></span></summary>
+        <div class="plan-list" id="plan-done"></div>
+      </details>
+    </div>
+
+    <hr class="divider">
     <!-- The two ways of looking back at a month sit side by side: how the
          days felt, and what they were worth keeping. Achievements moved up
          here when the music shelf came out, rather than leaving the garden
@@ -1944,7 +2033,7 @@ async function enter(){
   $("q-date").value = isoToday();
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
-  loadDaily(); refreshJournal();
+  loadDaily(); refreshJournal(); loadPlans();
   refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings();
 }
 
@@ -2169,6 +2258,89 @@ function turnPage(delta){
     book.classList.remove(away);
   }, 320);
 }
+/* ═══════════ the planner ═══════════
+   One line in. The server reads the task and the date out of it, and says
+   what it understood while he is still typing — so a misread is caught
+   before it is kept, not after a school fee is missed. */
+const KIND_SAID = {on: "on", by: "by", after: "after"};
+function planDue(p){
+  if (!p.due) return "someday";
+  const when = new Date(p.due + "T00:00:00");
+  const nice = when.toLocaleDateString("en-IN", {weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata"});
+  /* "on" is what a date means unless told otherwise, so it goes unsaid;
+     only a deadline or a gate is worth a word in front of the day. */
+  return (p.kind === "by" || p.kind === "after")
+    ? `<span class="plan-kind">${KIND_SAID[p.kind]}</span>${nice}` : nice;
+}
+async function loadPlans(){
+  try {
+    const r = await api("/api/sanctuary/plans");
+    S.plans = r.plans; S.planToday = r.today; S.planHorizons = r.horizons;
+    renderPlans();
+  } catch (err) {
+    console.error("[sanctuary] the planner would not load", err);
+    $("plan-list").innerHTML = `<div class="plan-empty" style="color:var(--danger)">The planner did not answer. Reload?</div>`;
+  }
+}
+function planRow(p){
+  return `<div class="plan-row${p.done ? " is-done" : ""}" data-plan="${p.id}">
+    <button class="plan-tick" data-plan-tick="${p.id}" title="${p.done ? "Put it back" : "Done"}">✓</button>
+    <span class="plan-what" data-plan-edit="${p.id}" title="${esc(p.said ? "you wrote: " + p.said : p.title)}">${esc(p.title)}</span>
+    <span class="plan-due ${p.horizon === "overdue" ? "overdue" : (p.horizon === "today" || p.horizon === "tomorrow") ? "soon" : ""}">${planDue(p)}</span>
+    <button class="plan-x" data-plan-del="${p.id}" title="Remove">✕</button>
+  </div>`;
+}
+function renderPlans(){
+  const all = S.plans || [];
+  const open = all.filter((p) => !p.done);
+  const done = all.filter((p) => p.done);
+  const byHorizon = {};
+  open.forEach((p) => { (byHorizon[p.horizon] = byHorizon[p.horizon] || []).push(p); });
+  $("plan-list").innerHTML = open.length
+    ? (S.planHorizons || []).filter((h) => byHorizon[h]).map((h) =>
+        `<div class="plan-group ${h === "overdue" ? "overdue" : ""}">${esc(h)}</div>`
+        + byHorizon[h].map(planRow).join("")).join("")
+    : `<div class="plan-empty">Nothing waiting. Write the next thing above. 🌱</div>`;
+  $("plan-done").innerHTML = done.map(planRow).join("");
+  $("plan-done-wrap").classList.toggle("hidden", !done.length);
+  $("plan-done-count").textContent = done.length ? "— " + done.length : "";
+  const late = open.filter((p) => p.horizon === "overdue").length;
+  $("plan-count").textContent = open.length
+    ? `${open.length} waiting${late ? ` · ${late} overdue` : ""}` : "";
+}
+/* The reading, shown as he types. Debounced, because it is a round trip. */
+let _planReadAt = null;
+function planPreview(){
+  clearTimeout(_planReadAt);
+  const text = $("plan-text").value.trim();
+  if (!text) { $("plan-read").innerHTML = ""; S.planRead = null; return; }
+  _planReadAt = setTimeout(async () => {
+    try {
+      const r = await api("/api/sanctuary/plans/read", {method: "POST", body: {text}});
+      /* A reading that comes back after he has moved on is not his line
+         any more — it used to land on a cleared field and sit there. */
+      if ($("plan-text").value.trim() !== text) return;
+      S.planRead = r;
+      $("plan-read").innerHTML = r.due
+        ? `<b>${esc(r.title)}</b> — <span class="plan-when">${KIND_SAID[r.kind]} ${esc(niceDate(r.due))}</span>
+           <span class="plan-said">(from “${esc(r.said)}”)</span>`
+        : `<b>${esc(r.title)}</b> — no date in that, it will wait under <span class="plan-when">someday</span>`;
+    } catch { $("plan-read").innerHTML = ""; }
+  }, 260);
+}
+async function planKeep(){
+  const text = $("plan-text").value.trim();
+  if (!text) return;
+  try {
+    await api("/api/sanctuary/plans", {method: "POST", body: {text}});
+    $("plan-text").value = ""; $("plan-read").innerHTML = ""; S.planRead = null;
+    await loadPlans();
+    $("plan-text").focus();
+  } catch (err) { toast(err.message || "That would not stick"); }
+}
+$("plan-add").onclick = planKeep;
+$("plan-text").oninput = planPreview;
+$("plan-text").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); planKeep(); } };
 function renderGarden(){
   const key = S.jMonth || monthKey(isoToday());
   $("garden-month").textContent = niceMonth(key) + " — each day a leaf, colored by how your heart was.";
@@ -3137,6 +3309,79 @@ document.addEventListener("click", (e) => {
   const edit = e.target.closest("[data-acct-edit]");
   if (edit) accountForm(edit.dataset.acctEdit, edit.dataset.acctTail);
 });
+/* the planner's rows */
+document.addEventListener("click", async (e) => {
+  const tick = e.target.closest("[data-plan-tick]");
+  if (tick){
+    const p = (S.plans || []).find((x) => x.id === Number(tick.dataset.planTick));
+    if (!p) return;
+    /* The row strikes through at once; the server is told after, and a
+       refusal puts it back rather than leaving a lie on the page. */
+    const row = tick.closest(".plan-row");
+    row.classList.toggle("is-done", !p.done);
+    try { await api("/api/sanctuary/plans/" + p.id, {method: "PUT", body: {done: !p.done}}); await loadPlans(); }
+    catch (err) { row.classList.toggle("is-done", p.done); toast(err.message || "That did not take"); }
+    return;
+  }
+  const del = e.target.closest("[data-plan-del]");
+  if (del){
+    const p = (S.plans || []).find((x) => x.id === Number(del.dataset.planDel));
+    if (!p) return;
+    if (!(await confirmDialog(`Remove “${p.title}” from the planner?`, "Remove"))) return;
+    try { await api("/api/sanctuary/plans/" + p.id, {method: "DELETE"}); await loadPlans(); }
+    catch (err) { toast(err.message || "That did not take"); }
+    return;
+  }
+  const open = e.target.closest("[data-plan-edit]");
+  if (open){
+    const p = (S.plans || []).find((x) => x.id === Number(open.dataset.planEdit));
+    if (p) planForm(p);
+  }
+});
+/* Tending one task: its words, its date, and which kind of date it is. */
+function planForm(p){
+  const wrap = modal(`<h4>This one</h4>
+    <label>What</label><input class="field" id="pf-title" value="${esc(p.title)}">
+    <label>When ${p.said ? `<span style="font-weight:400">— you wrote “${esc(p.said)}”</span>` : ""}</label>
+    <input class="field" id="pf-when" value="${esc(p.due || "")}" placeholder="a date, or write it in words">
+    <label>Which kind</label><select class="field" id="pf-kind">
+      <option value="on"${p.kind === "on" ? " selected" : ""}>On that day</option>
+      <option value="by"${p.kind === "by" ? " selected" : ""}>By then — a deadline</option>
+      <option value="after"${p.kind === "after" ? " selected" : ""}>Not before then</option></select>
+    <div class="section-sub" id="pf-read" style="margin:8px 0 0"></div>
+    <div class="m-foot">
+      <button class="btn subtle" id="pf-cancel">Leave it</button>
+      <button class="btn" id="pf-save">Keep it</button></div>`);
+  wrap.querySelector("#pf-cancel").onclick = () => wrap.remove();
+  /* The date field takes words too — "before next wednesday" here reads
+     exactly as it does on the line above. */
+  let readAt = null, reading = null;
+  const when = wrap.querySelector("#pf-when");
+  when.oninput = () => {
+    clearTimeout(readAt);
+    const text = when.value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text) || !text){ reading = null; wrap.querySelector("#pf-read").textContent = ""; return; }
+    readAt = setTimeout(async () => {
+      try {
+        const r = await api("/api/sanctuary/plans/read", {method: "POST", body: {text}});
+        reading = r;
+        wrap.querySelector("#pf-read").textContent = r.due
+          ? `reads as ${KIND_SAID[r.kind]} ${niceDate(r.due)}` : "no date in that — it will wait under someday";
+      } catch { /* the field keeps whatever he typed */ }
+    }, 260);
+  };
+  wrap.querySelector("#pf-save").onclick = async () => {
+    const typed = when.value.trim();
+    const body = {title: wrap.querySelector("#pf-title").value.trim(),
+      kind: wrap.querySelector("#pf-kind").value};
+    if (/^\d{4}-\d{2}-\d{2}$/.test(typed)) { body.due = typed; body.said = ""; }
+    else if (!typed) { body.due = ""; body.said = ""; }
+    else if (reading && reading.due) { body.due = reading.due; body.said = typed; body.kind = reading.kind; }
+    else return toast("That date would not read — try a day, or a plain 2026-10-15");
+    try { await api("/api/sanctuary/plans/" + p.id, {method: "PUT", body}); wrap.remove(); loadPlans(); }
+    catch (err) { toast(err.message || "That did not take"); }
+  };
+}
 function renderNotes(){
   $("notes").innerHTML = S.notes.length ? S.notes.map((n, i) => `
     <div class="note-card card"><div class="h" data-note-open="${i}">

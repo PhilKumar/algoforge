@@ -297,6 +297,23 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_sanctuary_loans_user ON sanctuary_loans(user_id)",
+    # The planner. `said` keeps the words he actually wrote — "before next
+    # wednesday" — so a date read wrongly can be SEEN to have been read
+    # wrongly, instead of standing there as a bare date nobody chose.
+    """CREATE TABLE IF NOT EXISTS sanctuary_plans (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL,
+        title       TEXT    NOT NULL,
+        due_date    TEXT    NOT NULL DEFAULT '',
+        due_kind    TEXT    NOT NULL DEFAULT 'on',
+        said        TEXT    NOT NULL DEFAULT '',
+        note        TEXT    NOT NULL DEFAULT '',
+        done        INTEGER NOT NULL DEFAULT 0,
+        done_at     TEXT    NOT NULL DEFAULT '',
+        created_at  TEXT    NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sanctuary_plans_user ON sanctuary_plans(user_id, done, due_date)",
     """CREATE TABLE IF NOT EXISTS sanctuary_emis (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id        INTEGER NOT NULL,

@@ -37,6 +37,7 @@ import sanctuary_docs
 import sanctuary_emi
 import sanctuary_holdings
 import sanctuary_identity
+import sanctuary_plan
 import sanctuary_statements
 from image_uploads import ImageValidationError, sanitize_image
 
@@ -90,6 +91,10 @@ DEFAULT_CATEGORIES = [
 
 def _today_ist() -> date:
     return datetime.now(IST).date()
+
+
+def _now_ist() -> datetime:
+    return datetime.now(IST)
 
 
 def _month_key(day: date) -> str:
@@ -2189,6 +2194,107 @@ async def accounts_put(request: Request, user: dict = Depends(_unlocked_user)):
             }
         )
     await sanctuary_db.set_json_state(int(user["id"]), "accounts", cleaned)
+    return {"ok": True}
+
+
+# ── the planner ──────────────────────────────────────────────────────────
+def _plan_view(row: dict, today: date) -> dict:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "due": row["due_date"],
+        "kind": row["due_kind"],
+        "said": row["said"],
+        "note": row["note"],
+        "done": bool(row["done"]),
+        "done_at": row["done_at"],
+        "horizon": sanctuary_plan.horizon(row["due_date"], today) if not row["done"] else "done",
+    }
+
+
+@router.get("/api/sanctuary/plans")
+async def plans_get(user: dict = Depends(_unlocked_user)):
+    today = _today_ist()
+    rows = await sanctuary_db.list_plans(int(user["id"]))
+    return {
+        "today": today.isoformat(),
+        "horizons": list(sanctuary_plan.HORIZONS),
+        "plans": [_plan_view(row, today) for row in rows],
+    }
+
+
+@router.post("/api/sanctuary/plans/read")
+async def plans_read(request: Request, user: dict = Depends(_unlocked_user)):
+    """What one written line means, without keeping it.
+
+    The page asks this as he types so the date it understood is on screen
+    BEFORE he commits to it. A planner that silently decides what "before
+    next wednesday" meant is a planner he cannot trust with a school fee.
+    """
+    payload = await request.json()
+    return sanctuary_plan.read_plan(str(payload.get("text") or "")[:300], _today_ist())
+
+
+@router.post("/api/sanctuary/plans")
+async def plans_add(request: Request, user: dict = Depends(_unlocked_user)):
+    payload = await request.json()
+    text = str(payload.get("text") or "")[:300]
+    read = sanctuary_plan.read_plan(text, _today_ist())
+    # He may correct the reading in the form before keeping it; his
+    # correction is the record, and the phrase it came from travels with it.
+    title = str(payload.get("title") or read["title"]).strip()[:300]
+    if not title:
+        raise HTTPException(status_code=400, detail="It needs something to do")
+    due = str(payload.get("due", read["due"]) or "")[:10]
+    if due and not _DATE_RE.match(due):
+        raise HTTPException(status_code=400, detail="Bad date")
+    kind = str(payload.get("kind") or read["kind"])
+    plan_id = await sanctuary_db.add_plan(
+        int(user["id"]),
+        {
+            "title": title,
+            "due_date": due,
+            "due_kind": kind if kind in sanctuary_plan.KINDS else "on",
+            "said": str(payload.get("said", read["said"]) or "")[:80],
+            "note": str(payload.get("note") or "")[:500],
+        },
+    )
+    return {"id": plan_id, "title": title, "due": due, "kind": kind, "said": read["said"]}
+
+
+@router.put("/api/sanctuary/plans/{plan_id}")
+async def plans_update(plan_id: int, request: Request, user: dict = Depends(_unlocked_user)):
+    payload = await request.json()
+    fields: dict = {}
+    if "title" in payload:
+        title = str(payload.get("title") or "").strip()[:300]
+        if not title:
+            raise HTTPException(status_code=400, detail="It needs something to do")
+        fields["title"] = title
+    if "due" in payload:
+        due = str(payload.get("due") or "")[:10]
+        if due and not _DATE_RE.match(due):
+            raise HTTPException(status_code=400, detail="Bad date")
+        fields["due_date"] = due
+        # A date he set himself is his own words now, not the reader's.
+        fields.setdefault("said", str(payload.get("said") or ""))
+    if "kind" in payload:
+        kind = str(payload.get("kind") or "on")
+        fields["due_kind"] = kind if kind in sanctuary_plan.KINDS else "on"
+    if "note" in payload:
+        fields["note"] = str(payload.get("note") or "")[:500]
+    if "done" in payload:
+        fields["done"] = 1 if payload.get("done") else 0
+        fields["done_at"] = _now_ist().isoformat() if payload.get("done") else ""
+    if not await sanctuary_db.update_plan(int(user["id"]), plan_id, fields):
+        raise HTTPException(status_code=404, detail="No such plan")
+    return {"ok": True}
+
+
+@router.delete("/api/sanctuary/plans/{plan_id}")
+async def plans_delete(plan_id: int, user: dict = Depends(_unlocked_user)):
+    if not await sanctuary_db.delete_plan(int(user["id"]), plan_id):
+        raise HTTPException(status_code=404, detail="No such plan")
     return {"ok": True}
 
 

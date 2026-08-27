@@ -854,6 +854,88 @@ class KnownAccountsTests(unittest.TestCase):
         self.assertEqual((rows["503204"]["first"], rows["503204"]["last"]), ("2026-03-01", "2026-03-05"))
 
 
+class PlannerReadingTests(unittest.TestCase):
+    """One written line in, a task and a date out. Thursday 27 Aug 2026 is
+    'today' throughout, so every expectation below is a real calendar date
+    and not a relative guess."""
+
+    TODAY = date(2026, 8, 27)
+
+    def read(self, text):
+        import sanctuary_plan
+
+        return sanctuary_plan.read_plan(text, self.TODAY)
+
+    def test_the_phrases_he_actually_writes(self):
+        cases = [
+            ("call the bank before next wednesday", "call the bank", "2026-09-02", "by"),
+            ("school fees before 15th of October", "school fees", "2026-10-15", "by"),
+            ("renew the policy after this month", "renew the policy", "2026-08-31", "after"),
+            ("Oliver's results tomo", "Oliver's results", "2026-08-28", "on"),
+            ("send the photos next week", "send the photos", "2026-08-31", "on"),
+            ("review insurance next year", "review insurance", "2027-01-01", "on"),
+            ("holiday planning in 3 weeks", "holiday planning", "2026-09-17", "on"),
+            ("talk to Beulah day after tomorrow", "talk to Beulah", "2026-08-29", "on"),
+            ("pay rent before the 5th", "pay rent", "2026-09-05", "by"),
+        ]
+        for text, title, due, kind in cases:
+            with self.subTest(text=text):
+                read = self.read(text)
+                self.assertEqual((read["title"], read["due"], read["kind"]), (title, due, kind))
+
+    def test_next_wednesday_is_next_weeks_wednesday(self):
+        """Said on a Thursday, 'next wednesday' is six days away, not the
+        one in this same week."""
+        self.assertEqual(self.read("x next wednesday")["due"], "2026-09-02")
+        self.assertEqual(self.read("x on wednesday")["due"], "2026-09-02")
+
+    def test_the_longest_phrase_wins(self):
+        """'15th of October' must not lose to the bare '15th' inside it."""
+        self.assertEqual(self.read("fees before 15th of October")["due"], "2026-10-15")
+
+    def test_a_verb_that_looks_like_a_month_is_left_alone(self):
+        """'march the kids to school tomo' is due tomorrow, not in March."""
+        read = self.read("march the kids to school tomo")
+        self.assertEqual(read["due"], "2026-08-28")
+        self.assertEqual(read["title"], "march the kids to school")
+
+    def test_may_is_a_word_before_it_is_a_month(self):
+        read = self.read("I may need to call the plumber")
+        self.assertEqual(read["due"], "")
+        self.assertEqual(read["title"], "I may need to call the plumber")
+
+    def test_an_unreadable_line_keeps_all_of_itself(self):
+        """A wrong date on a school fee is worse than no date, so a line
+        with nothing to read stays whole and waits under someday."""
+        read = self.read("think about the thing we discussed")
+        self.assertEqual((read["title"], read["due"]), ("think about the thing we discussed", ""))
+
+    def test_the_object_of_the_task_is_not_stripped(self):
+        """Trimming the dangling preposition must not eat the word the task
+        is about — 'clear this' and 'do it' are whole tasks."""
+        self.assertEqual(self.read("clear this by 2nd")["title"], "clear this")
+        self.assertEqual(self.read("do it before friday")["title"], "do it")
+
+    def test_a_past_date_this_year_means_next_year(self):
+        """In late August, '15 March' is next March."""
+        self.assertEqual(self.read("audit on 15 March")["due"], "2027-03-15")
+
+    def test_the_words_he_wrote_travel_with_the_date(self):
+        read = self.read("call the bank before next wednesday")
+        self.assertEqual(read["said"], "before next wednesday")
+
+    def test_horizons_sort_the_week_the_way_it_feels(self):
+        import sanctuary_plan as plan
+
+        self.assertEqual(plan.horizon("2026-08-26", self.TODAY), "overdue")
+        self.assertEqual(plan.horizon("2026-08-27", self.TODAY), "today")
+        self.assertEqual(plan.horizon("2026-08-28", self.TODAY), "tomorrow")
+        self.assertEqual(plan.horizon("2026-08-30", self.TODAY), "this week")
+        self.assertEqual(plan.horizon("2026-09-02", self.TODAY), "next week")
+        self.assertEqual(plan.horizon("2026-12-01", self.TODAY), "later")
+        self.assertEqual(plan.horizon("", self.TODAY), "someday")
+
+
 class IdentityReadingTests(unittest.TestCase):
     """Reading the registrations off a payslip. Every number below is made
     up — his own never appear in this repository."""

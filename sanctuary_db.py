@@ -799,3 +799,71 @@ async def delete_document(user_id: int, doc_id: int) -> dict | None:
         )
         await db.commit()
     return doc
+
+
+# ── the planner ──────────────────────────────────────────────────────────
+# Tasks he wrote in one line, with the date the reader pulled out of it and
+# the words it read. A done task is kept, not deleted: a planner that
+# forgets what was finished cannot show him a week's worth of work.
+_PLAN_FIELDS = ("title", "due_date", "due_kind", "said", "note")
+
+
+async def list_plans(user_id: int, include_done: bool = True) -> list[dict]:
+    sql = "SELECT * FROM sanctuary_plans WHERE user_id = ?"
+    if not include_done:
+        sql += " AND done = 0"
+    # Undated tasks sort last rather than first, which is where an empty
+    # string would otherwise put them.
+    sql += " ORDER BY done, CASE WHEN due_date = '' THEN 1 ELSE 0 END, due_date, id"
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(sql, (int(user_id),))
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def add_plan(user_id: int, fields: dict) -> int:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """INSERT INTO sanctuary_plans
+               (user_id, title, due_date, due_kind, said, note, done, done_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 0, '', ?)""",
+            (
+                int(user_id),
+                str(fields.get("title") or "")[:300],
+                str(fields.get("due_date") or "")[:10],
+                str(fields.get("due_kind") or "on")[:10],
+                str(fields.get("said") or "")[:80],
+                str(fields.get("note") or "")[:500],
+                _now_iso(),
+            ),
+        )
+        await db.commit()
+        return int(cursor.lastrowid)
+
+
+async def update_plan(user_id: int, plan_id: int, fields: dict) -> bool:
+    sets, params = [], []
+    for key in (*_PLAN_FIELDS, "done", "done_at"):
+        if key in fields:
+            sets.append(f"{key} = ?")
+            params.append(fields[key])
+    if not sets:
+        return False
+    params.extend([int(user_id), int(plan_id)])
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            f"UPDATE sanctuary_plans SET {', '.join(sets)} WHERE user_id = ? AND id = ?",  # nosec B608
+            params,
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_plan(user_id: int, plan_id: int) -> bool:
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM sanctuary_plans WHERE user_id = ? AND id = ?",
+            (int(user_id), int(plan_id)),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
