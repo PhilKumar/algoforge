@@ -360,6 +360,44 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 .entry-card{flex:1;padding:18px 20px}
 .entry-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .entry-date{font-weight:800;font-size:.85rem;color:var(--soft)}
+/* The hour sits quietly beside the day — lighter, unbolded, so the date
+   still leads and the time is there when he wants it. */
+.entry-time{font-weight:600;margin-left:8px;color:var(--soft);opacity:.85}
+.entry-time::before{content:"· "}
+
+/* ── the diary ────────────────────────────────────────────────
+   The same entries, read a day at a time instead of as a stream. The
+   leaf turns on its spine: rotateY with the transform-origin at the
+   left edge, so the page lifts away from the binding the way paper
+   does, and the next day is already beneath it.                     */
+.view-swap{display:inline-flex;border-radius:999px;overflow:hidden;border:1px solid var(--glass-rim);
+  background:var(--card-2);margin-left:auto}
+.view-swap button{border:0;background:transparent;color:var(--muted);font-weight:700;font-size:.82rem;
+  padding:8px 16px;cursor:pointer;transition:background .2s ease,color .2s ease}
+.view-swap button.on{background:var(--moss);color:#f8fbf7}
+html[data-theme="dark"] .view-swap button.on{color:#0c1524}
+.diary{margin-top:4px}
+.diary-book{perspective:1800px;position:relative}
+.diary-leaf{transform-origin:left center;transform-style:preserve-3d;
+  transition:transform .55s cubic-bezier(.4,.02,.3,1), opacity .55s ease;backface-visibility:hidden}
+.diary-leaf.turn-back{transform:rotateY(38deg) translateZ(0);opacity:0}
+.diary-leaf.turn-forward{transform:rotateY(-16deg) translateZ(0);opacity:0}
+/* A diary page is paper, so it takes a warmer, quieter glass than the
+   working panels — and a rule down its spine where the stitching runs. */
+.diary-page{padding:30px 34px 34px;min-height:340px;position:relative;border-radius:8px 26px 26px 8px}
+.diary-page::before{content:"";position:absolute;left:12px;top:22px;bottom:22px;width:1px;
+  background:linear-gradient(180deg,transparent,var(--glass-rim) 12%,var(--glass-rim) 88%,transparent)}
+.diary-day{font-family:var(--serif);font-size:1.5rem;font-weight:650;color:var(--ink)}
+.diary-weekday{font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:800}
+.diary-entry{margin-top:22px;padding-top:18px;border-top:1px solid var(--line-soft)}
+.diary-entry:first-of-type{border-top:0;padding-top:6px}
+.diary-when{font-size:.78rem;font-weight:800;color:var(--soft);letter-spacing:.04em}
+.diary-title{font-family:var(--serif);font-size:1.12rem;font-weight:650;margin-top:3px}
+.diary-body{margin-top:7px;line-height:1.75;white-space:pre-wrap}
+.diary-blank{color:var(--muted);font-style:italic;margin-top:26px}
+.diary-nav{display:flex;align-items:center;gap:14px;justify-content:center;margin-top:16px}
+.diary-where{font-size:.82rem;color:var(--muted);font-weight:700;min-width:150px;text-align:center}
+@media (max-width:520px){.diary-page{padding:24px 20px 26px}}
 .kind-chip{font-size:.75rem;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--moss-wash);color:var(--moss)}
 .kind-chip.achievement{background:var(--gold-wash);color:var(--gold)}
 .kind-chip.emotion{background:var(--terra-wash);color:var(--terracotta)}
@@ -1016,10 +1054,28 @@ html[data-theme="dark"]{color-scheme:dark}
       <input class="field" type="month" id="f-month" style="max-width:170px">
       <select class="field" id="f-kind" style="max-width:170px"><option value="">Everything</option></select>
       <input class="field" id="f-q" placeholder="Search words…" style="flex:1;min-width:140px">
+      <div class="view-swap" id="view-swap" role="group" aria-label="How to read the journal">
+        <button class="on" data-view-mode="timeline">Timeline</button>
+        <button data-view-mode="diary">Diary</button>
+      </div>
     </div>
     <div id="timeline"></div>
+    <div id="diary" class="diary hidden">
+      <div class="diary-book">
+        <div class="diary-leaf" id="diary-leaf"></div>
+      </div>
+      <div class="diary-nav">
+        <button class="btn ghost small" id="d-older" aria-label="An earlier day">‹ Earlier</button>
+        <span class="diary-where" id="d-where"></span>
+        <button class="btn ghost small" id="d-newer" aria-label="A later day">Later ›</button>
+      </div>
+    </div>
 
     <hr class="divider">
+    <!-- The two ways of looking back at a month sit side by side: how the
+         days felt, and what they were worth keeping. Achievements moved up
+         here when the music shelf came out, rather than leaving the garden
+         alone beside an empty half. -->
     <div class="side-grid">
       <div class="card">
         <div class="section-title">Mood garden</div>
@@ -1027,21 +1083,10 @@ html[data-theme="dark"]{color-scheme:dark}
         <div class="garden" id="garden"></div>
       </div>
       <div class="card">
-        <div class="section-title">Music I love</div>
-        <div class="section-sub">Songs that carry you.</div>
-        <div id="songs"></div>
-        <div class="row" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <input class="field" id="s-title" placeholder="Song" style="flex:1;min-width:110px">
-          <input class="field" id="s-artist" placeholder="Artist" style="flex:1;min-width:100px">
-          <input class="field" id="s-link" placeholder="Link (optional)" style="flex:1;min-width:110px">
-          <button class="btn small" id="s-add">Add ♪</button>
-        </div>
+        <div class="section-title">Achievements</div>
+        <div class="section-sub">Milestones worth keeping in the light. Mark an entry as 🏆 Achievement and it blooms here.</div>
+        <div class="achv" id="achv"></div>
       </div>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <div class="section-title">Achievements</div>
-      <div class="section-sub">Milestones worth keeping in the light. Mark an entry as 🏆 Achievement and it blooms here.</div>
-      <div class="achv" id="achv"></div>
     </div>
   </div>
 
@@ -1207,6 +1252,15 @@ const monthKey = (d) => d.slice(0, 7);
 const niceDate = (iso) => { const [y,m,d] = iso.split("-").map(Number); return d + " " + MONTHS[m-1].slice(0,3) + " " + y; };
 const niceMonth = (key) => { const [y,m] = key.split("-").map(Number); return MONTHS[m-1] + " " + y; };
 const shiftMonth = (key, delta) => { const [y,m] = key.split("-").map(Number); const d = new Date(y, m-1+delta, 1); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); };
+/* The hour an entry was written. Stamps rest in UTC, so they are read back
+   in Chennai time — 10:30 UTC is a quarter past four here, and an evening
+   entry must never come back looking like a morning one. */
+const niceTime = (stamp) => {
+  if (!stamp) return "";
+  const when = new Date(stamp);
+  if (isNaN(when.getTime())) return "";
+  return when.toLocaleTimeString("en-IN", {hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata"});
+};
 
 function maskAccount(value){
   const clean = String(value || "").trim();
@@ -1655,9 +1709,10 @@ const S = {
   finMonth: monthKey(isoToday()),
   jMonth: monthKey(isoToday()),
   jKind: "", jQuery: "",
+  jView: "timeline", dPage: null,   /* the diary opens at the last page written */
   composerKind: "note",
   composerPhotos: [],
-  entries: [], moods: {}, songs: [], daily: null,
+  entries: [], moods: {}, daily: null,
   fin: null, loans: [], notes: [],
   recurringDraft: null,
 };
@@ -1682,7 +1737,7 @@ async function enter(){
   $("q-date").value = isoToday();
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
-  loadDaily(); refreshJournal(); loadSongs();
+  loadDaily(); refreshJournal();
   refreshFinance(); loadLoans(); loadNotes(); loadVault();
 }
 
@@ -1737,6 +1792,9 @@ async function refreshJournal(){
   ]);
   S.entries = j.entries; S.moods = m.moods;
   renderTimeline(); renderGarden(); renderAchievements(all.entries); paintMood();
+  /* a new month or filter re-paginates the diary; it re-opens at the last page */
+  S.dPage = null;
+  if (S.jView === "diary") renderDiary();
 }
 function kindLabel(k){ const f = KINDS.find(([key]) => key === k); return f ? f[1] : k; }
 function renderTimeline(){
@@ -1750,7 +1808,7 @@ function renderTimeline(){
       <div class="stem"><div class="dot"></div><div class="vine"></div></div>
       <div class="entry-card card">
         <div class="entry-head">
-          <span class="entry-date">${niceDate(e.entry_date)}</span>
+          <span class="entry-date">${niceDate(e.entry_date)}${niceTime(e.created_at) ? `<span class="entry-time">${niceTime(e.created_at)}</span>` : ""}</span>
           <span class="kind-chip ${esc(e.kind)}">${kindLabel(e.kind)}</span>
           ${e.mood ? `<span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
           <span class="entry-actions">
@@ -1765,6 +1823,74 @@ function renderTimeline(){
         ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
       </div>
     </div>`).join("");
+}
+/* ── the diary ──
+   The same entries the timeline shows, gathered into days and read one
+   page at a time. Pages run oldest to newest, the way a diary fills, and
+   it opens at the most recent day he wrote. */
+function diaryDays(){
+  const byDay = {};
+  S.entries.forEach((e) => { (byDay[e.entry_date] = byDay[e.entry_date] || []).push(e); });
+  return Object.keys(byDay).sort().map((d) => ({
+    date: d,
+    /* within a day the earliest entry is read first, as it was lived */
+    entries: byDay[d].slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
+  }));
+}
+function renderDiary(){
+  const days = diaryDays();
+  const leaf = $("diary-leaf");
+  if (!days.length){
+    leaf.innerHTML = `<div class="card diary-page"><div class="diary-blank">
+      No pages for this month yet. Write something above and it opens here. 🌱</div></div>`;
+    $("d-where").textContent = "";
+    $("d-older").disabled = $("d-newer").disabled = true;
+    return;
+  }
+  if (S.dPage == null || S.dPage > days.length - 1) S.dPage = days.length - 1;
+  if (S.dPage < 0) S.dPage = 0;
+  const day = days[S.dPage];
+  const when = new Date(day.date + "T00:00:00");
+  const weekday = when.toLocaleDateString("en-IN", {weekday: "long", timeZone: "Asia/Kolkata"});
+  leaf.innerHTML = `<div class="card diary-page">
+    <div class="diary-weekday">${esc(weekday)}</div>
+    <div class="diary-day">${niceDate(day.date)}</div>
+    ${day.entries.map((e) => `
+      <div class="diary-entry">
+        <div class="diary-when">${niceTime(e.created_at) || kindLabel(e.kind)}
+          ${e.mood ? ` <span title="${MOOD_WORDS[e.mood-1]}">${MOOD_FACES[e.mood-1]}</span>` : ""}
+          <span class="kind-chip ${esc(e.kind)}" style="margin-left:8px">${kindLabel(e.kind)}</span></div>
+        ${e.title ? `<div class="diary-title">${esc(e.title)}</div>` : ""}
+        ${e.body ? `<div class="diary-body">${esc(e.body)}</div>` : ""}
+        ${e.photos.length ? `<div class="entry-photos">${e.photos.map((p) =>
+          `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>` : ""}
+        ${e.music ? `<div class="entry-music">♪ ${esc(e.music)}</div>` : ""}
+      </div>`).join("")}
+  </div>`;
+  $("d-where").textContent = `page ${S.dPage + 1} of ${days.length}`;
+  $("d-older").disabled = S.dPage === 0;
+  $("d-newer").disabled = S.dPage === days.length - 1;
+}
+function turnPage(delta){
+  const days = diaryDays();
+  const next = (S.dPage == null ? days.length - 1 : S.dPage) + delta;
+  if (next < 0 || next > days.length - 1) return;
+  const leaf = $("diary-leaf");
+  const away = delta > 0 ? "turn-forward" : "turn-back";
+  leaf.classList.add(away);
+  setTimeout(() => {
+    S.dPage = next;
+    renderDiary();
+    leaf.classList.remove(away);
+  }, 300);
+}
+function setJournalView(mode){
+  S.jView = mode;
+  $("timeline").classList.toggle("hidden", mode !== "timeline");
+  $("diary").classList.toggle("hidden", mode !== "diary");
+  document.querySelectorAll("#view-swap button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.viewMode === mode));
+  if (mode === "diary") renderDiary();
 }
 function renderGarden(){
   const key = S.jMonth || monthKey(isoToday());
@@ -1829,18 +1955,6 @@ function editEntry(id){
     wrap.remove(); toast("Tended. 🌿"); refreshJournal();
   };
 }
-async function loadSongs(){
-  S.songs = (await api("/api/sanctuary/songs")).songs; renderSongs();
-}
-function renderSongs(){
-  $("songs").innerHTML = S.songs.length ? S.songs.map((s, i) => `
-    <div class="song"><span>♪</span><span class="t">${esc(s.title)}</span>
-      <span class="a">${esc(s.artist)}</span>
-      ${s.link ? `<a href="${esc(s.link)}" target="_blank" rel="noopener">listen</a>` : ""}
-      <button class="del" data-song="${i}">✕</button></div>`).join("")
-    : `<div style="color:var(--muted)">Add the songs that feel like home.</div>`;
-}
-
 /* ═══════════ finance ═══════════ */
 async function refreshFinance(){
   S.fin = await api("/api/sanctuary/finance?month=" + S.finMonth);
@@ -2643,9 +2757,6 @@ document.addEventListener("click", async (e) => {
     S.moods[isoToday()] = {mood}; paintMood(); renderGarden();
     toast(MOOD_WORDS[mood-1] + " — noted gently. 🌿"); return;
   }
-  const sdel = t.closest("[data-song]");
-  if (sdel) { S.songs.splice(Number(sdel.dataset.song), 1);
-    await api("/api/sanctuary/songs", {method: "PUT", body: {songs: S.songs}}); renderSongs(); return; }
   /* finance */
   const qc = t.closest(".qc");
   if (qc) {
@@ -2742,14 +2853,32 @@ $("f-kind").addEventListener("change", () => { S.jKind = $("f-kind").value; refr
 let qTimer = null;
 $("f-q").addEventListener("input", () => { clearTimeout(qTimer);
   qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
-$("s-add").onclick = async () => {
-  const song = {title: $("s-title").value.trim(), artist: $("s-artist").value.trim(), link: $("s-link").value.trim()};
-  if (!song.title) return;
-  S.songs.push(song);
-  await api("/api/sanctuary/songs", {method: "PUT", body: {songs: S.songs}});
-  $("s-title").value = ""; $("s-artist").value = ""; $("s-link").value = "";
-  renderSongs(); toast("Added to the shelf ♪");
-};
+/* ── turning the diary's pages ── */
+$("view-swap").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-view-mode]");
+  if (b) setJournalView(b.dataset.viewMode);
+});
+$("d-older").onclick = () => turnPage(-1);
+$("d-newer").onclick = () => turnPage(1);
+document.addEventListener("keydown", (e) => {
+  if (S.jView !== "diary" || $("diary").classList.contains("hidden")) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || "") || e.target.isContentEditable) return;
+  if (e.key === "ArrowLeft") turnPage(-1);
+  if (e.key === "ArrowRight") turnPage(1);
+});
+/* On a phone a page is turned the way paper is — with a thumb. */
+let _swipeX = null, _swipeY = null;
+$("diary").addEventListener("touchstart", (e) => {
+  _swipeX = e.touches[0].clientX; _swipeY = e.touches[0].clientY;
+}, {passive: true});
+$("diary").addEventListener("touchend", (e) => {
+  if (_swipeX == null) return;
+  const dx = e.changedTouches[0].clientX - _swipeX;
+  const dy = e.changedTouches[0].clientY - _swipeY;
+  _swipeX = null;
+  /* scrolling down the page is not a page turn */
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) turnPage(dx < 0 ? 1 : -1);
+}, {passive: true});
 $("m-label").onclick = () => monthJump();
 function monthJump(){
   let year = Number(S.finMonth.slice(0, 4));
