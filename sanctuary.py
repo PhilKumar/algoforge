@@ -1287,9 +1287,17 @@ async def statement_review(user: dict = Depends(_unlocked_user)):
     groups: dict[str, dict] = {}
     for row in rows:
         key = sanctuary_statements.payee_key(row["note"])
-        group = groups.setdefault(key, {"match": key, "count": 0, "total": 0.0, "sample": row["note"]})
+        group = groups.setdefault(
+            key,
+            {"match": key, "count": 0, "total": 0.0, "sample": row["note"], "in_total": 0.0, "out_total": 0.0},
+        )
         group["count"] += 1
         group["total"] = round(group["total"] + row["amount"], 2)
+        # Which way the money went. A payee can be both — money sent to the
+        # broker and money coming back — so both sides are kept, and the
+        # page can say so instead of showing one ambiguous figure.
+        side = "in_total" if row["source"] == "statement-in" else "out_total"
+        group[side] = round(group[side] + row["amount"], 2)
     ordered = sorted(groups.values(), key=lambda g: -g["total"])
     return {"uncategorised": len(rows), "groups": ordered[:120]}
 

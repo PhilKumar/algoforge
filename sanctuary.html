@@ -366,6 +366,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-card .head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
 .stmt-card .head b{font-size:.95rem}
 .stmt-chip{font-size:.74rem;padding:2px 9px;border-radius:99px;border:1px solid var(--line-soft);color:var(--soft)}
+/* Which way the money went, said on the chip itself. */
+.stmt-chip.came-in{color:var(--moss-deep);border-color:var(--moss);background:var(--moss-wash)}
+.stmt-chip.went-out{color:var(--terracotta);border-color:var(--terracotta);background:var(--terra-wash)}
 .stmt-review-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
 .stmt-review-row .who{flex:1;min-width:180px}
 .stmt-review-row .who small{display:block;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
@@ -2733,6 +2736,16 @@ document.addEventListener("click", async (e) => {
     loadStmtDups(); refreshFinance();
   } catch (err) { toast(err.message || "That did not take"); }
 });
+/* Which way the money went. A payee is usually one or the other, so it
+   gets one chip that says so; the few who are both (money sent to the
+   broker, money coming back) get a chip each, and their count is split. */
+function stmtWayChips(g){
+  const inT = g.in_total || 0, outT = g.out_total || 0;
+  if (inT && outT) return `<span class="stmt-chip came-in">came in ${inr2(inT)}</span>`
+    + ` <span class="stmt-chip went-out">went out ${inr2(outT)}</span>`;
+  if (inT) return `<span class="stmt-chip came-in">${g.count} × came in ${inr2(inT)}</span>`;
+  return `<span class="stmt-chip went-out">${g.count} × went out ${inr2(outT || g.total)}</span>`;
+}
 async function loadStmtReview(){
   const host = $("stmt-review");
   try {
@@ -2749,7 +2762,7 @@ async function loadStmtReview(){
       </div>` +
       r.groups.slice(0, 25).map((g) => `
         <div class="stmt-review-row" data-match="${esc(g.match)}">
-          <div class="who"><b>${esc(g.match)}</b> <span class="stmt-chip">${g.count} × ${inr2(g.total)}</span>
+          <div class="who"><b>${esc(g.match)}</b> ${stmtWayChips(g)}
             <small>${esc(g.sample)}</small></div>
           <select class="field">${stmtCatOpts("Uncategorised")}</select>
           <button class="btn ghost" data-stmt-teach>This is where they go</button>
