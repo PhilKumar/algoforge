@@ -524,6 +524,14 @@ class DocumentNamingTests(unittest.TestCase):
         r = self.read("Payslips/Shift Allowances/Aug2020.pdf", "Payslips/Shift Allowances")
         self.assertEqual(r["series"], "Shift allowances")
 
+    def test_his_own_folder_names_file_their_papers(self):
+        # The folders he keeps are the strongest signal in the whole folder.
+        self.assertEqual(self.read("Evin1.pdf", "IT Submission")["series"], "Tax declarations")
+        self.assertEqual(self.read("6thStd_1st_term_fees.pdf", "2022_IT_Proof_Submission")["series"], "School fees")
+        self.assertEqual(self.read("e-Nomination.pdf", "EPF")["series"], "EPF")
+        self.assertEqual(self.read("Invoice Dec.pdf", "Broadband")["series"], "Utilities")
+        self.assertEqual(self.read("2016_ITRV.pdf")["series"], "Tax returns")
+
     def test_a_file_with_no_extension_is_read_by_its_first_bytes(self):
         import sanctuary
 
@@ -536,7 +544,10 @@ class DocumentNamingTests(unittest.TestCase):
         self.assertEqual(sanctuary._sniff_content_type(b"\x00\x01\x02\xfe", ""), "")
 
     def test_an_unreadable_name_waits_as_other(self):
-        r = self.read("Onward to paramakudi.pdf")
+        # A name that says nothing must not be guessed at — it waits for a
+        # tap. ("Onward to paramakudi" is no longer such a name: the travel
+        # rule reads it, which is the point of the rules.)
+        r = self.read("Export.pdf")
         self.assertEqual((r["category"], r["series"]), ("Other", ""))
 
 
