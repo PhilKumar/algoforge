@@ -2864,12 +2864,27 @@ function vaultForm(file){
 }
 $("vault-q").oninput = () => renderVault();
 $("vault-refile").onclick = async () => {
-  const r = await api("/api/sanctuary/vault/refile", {method: "POST"});
-  const bits = [];
-  if (r.moved) bits.push(`${r.moved} papers found better homes`);
-  if (r.removed) bits.push(`${r.removed} stored twice, kept once`);
-  toast(bits.length ? bits.join(" · ") + ". 🌿" : "Everything is already where it belongs.");
-  loadVault();
+  /* The filing happens in the background — a few hundred encrypted papers
+     take minutes on the small box, far past what a request may hold open.
+     The button waits on the status until the work settles. */
+  const btn = $("vault-refile");
+  btn.disabled = true;
+  try {
+    await api("/api/sanctuary/vault/refile", {method: "POST"});
+    let s = {running: true};
+    while (s.running) {
+      await new Promise((ok) => setTimeout(ok, 2000));
+      s = await api("/api/sanctuary/vault/refile/status");
+      btn.textContent = s.running ? `Filing… ${s.scanned}/${s.total || "?"}` : "Re-file all";
+    }
+    const bits = [];
+    if (s.moved) bits.push(`${s.moved} papers found better homes`);
+    if (s.removed) bits.push(`${s.removed} stored twice, kept once`);
+    toast(bits.length ? bits.join(" · ") + ". 🌿" : "Everything is already where it belongs.");
+    loadVault();
+  } catch (e) { toast(e.message || "The filing could not start"); }
+  btn.textContent = "Re-file all";
+  btn.disabled = false;
 };
 $("vault-folder-btn").onclick = () => $("vault-folder").click();
 $("vault-folder").onchange = async (e) => {

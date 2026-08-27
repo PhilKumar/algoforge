@@ -730,68 +730,93 @@ async def vault_file(doc_id: int, user: dict = Depends(_unlocked_user)):
     return _serve_document(doc, int(user["id"]))
 
 
+# One refile at a time per user; the page polls this while it runs. Opening
+# and reading a few hundred encrypted papers takes minutes on the small box —
+# done inside the request, nginx gave up at 60s and the button looked dead.
+_REFILE_JOBS: dict[int, dict] = {}
+
+
+async def _refile_job(user_id: int) -> None:
+    state = _REFILE_JOBS[user_id]
+    try:
+        # ── fingerprints first, so twins can be seen ──
+        docs = await sanctuary_db.list_documents(user_id)
+        state["total"] = len(docs)
+        by_sha: dict[str, dict] = {}
+        for doc in docs:
+            state["scanned"] += 1
+            sha = doc.get("content_sha") or ""
+            if not sha:
+                blob = await asyncio.to_thread(_read_document_blob, doc, user_id)
+                if blob is None:
+                    continue
+                sha = hashlib.sha1(blob, usedforsecurity=False).hexdigest()
+                await sanctuary_db.set_document_sha(user_id, doc["id"], sha)
+                doc["content_sha"] = sha
+                # A payslip stored before the salary reader existed gets its
+                # month filled now, while its pages are open anyway. Only a
+                # payslip is worth the PDF reader's time.
+                if (doc.get("content_type") or "") == "application/pdf" and doc.get("series") == "Payslips":
+                    await _salary_from_payslip(user_id, blob)
+            keeper = by_sha.get(sha)
+            if keeper is None:
+                by_sha[sha] = doc
+                continue
+            # Two rows, one paper: keep the better-described of the pair.
+            loser = doc
+            if keeper["category"] == "Other" and doc["category"] != "Other":
+                by_sha[sha], loser = doc, keeper
+            gone = await sanctuary_db.delete_document(user_id, loser["id"])
+            if gone:
+                state["removed"] += 1
+                try:
+                    os.unlink(_vault_file_path(user_id, gone.get("file_token") or "missing"))
+                except OSError:
+                    pass
+        for doc in await sanctuary_db.list_documents(user_id):
+            folder = doc.get("note") or ""
+            if folder.count("/") >= 0 and folder.startswith("payslips"):
+                folder = "/".join(folder.split("/")[1:])
+            read = sanctuary_docs.classify_document(doc.get("filename") or "", folder)
+            changed = {}
+            if read["category"] != doc["category"]:
+                changed["category"] = read["category"]
+            if read["series"] != doc["series"]:
+                changed["series"] = read["series"]
+            if read["doc_date"] and not doc["doc_date"]:
+                changed["doc_date"] = read["doc_date"]
+            if folder != (doc.get("note") or ""):
+                changed["note"] = folder
+            if changed:
+                await sanctuary_db.update_document(user_id, doc["id"], changed)
+                state["moved"] += 1
+    finally:
+        state["running"] = False
+
+
 @router.post("/api/sanctuary/vault/refile")
 async def vault_refile(user: dict = Depends(_unlocked_user)):
     """Read every document's name again, for when the reading improves.
 
     Each row keeps the folder it arrived from in its note, so nothing needs
     re-uploading. A document whose title he has edited himself is left alone.
-    While every file is open anyway, each learns its content fingerprint,
-    and a paper stored twice under the same fingerprint is kept only once —
-    the copy that knows what it is, or failing that the oldest.
+    While every file is open anyway, each learns its content fingerprint, and
+    a paper stored twice under one fingerprint is kept only once — the copy
+    that knows what it is, or failing that the oldest. The work runs in the
+    background and the page watches /refile/status until it settles.
     """
     user_id = int(user["id"])
-    moved = 0
-    removed = 0
-    # ── fingerprints first, so twins can be seen ──
-    docs = await sanctuary_db.list_documents(user_id)
-    by_sha: dict[str, dict] = {}
-    for doc in docs:
-        sha = doc.get("content_sha") or ""
-        if not sha:
-            blob = _read_document_blob(doc, user_id)
-            if blob is None:
-                continue
-            sha = hashlib.sha1(blob, usedforsecurity=False).hexdigest()
-            await sanctuary_db.set_document_sha(user_id, doc["id"], sha)
-            doc["content_sha"] = sha
-            # A payslip stored before the salary reader existed gets its
-            # month filled now, while its pages are open anyway.
-            if (doc.get("content_type") or "") == "application/pdf":
-                await _salary_from_payslip(user_id, blob)
-        keeper = by_sha.get(sha)
-        if keeper is None:
-            by_sha[sha] = doc
-            continue
-        # Two rows, one paper: keep the better-described of the pair.
-        loser = doc
-        if keeper["category"] == "Other" and doc["category"] != "Other":
-            by_sha[sha], loser = doc, keeper
-        gone = await sanctuary_db.delete_document(user_id, loser["id"])
-        if gone:
-            removed += 1
-            try:
-                os.unlink(_vault_file_path(user_id, gone.get("file_token") or "missing"))
-            except OSError:
-                pass
-    for doc in await sanctuary_db.list_documents(user_id):
-        folder = doc.get("note") or ""
-        if folder.count("/") >= 0 and folder.startswith("payslips"):
-            folder = "/".join(folder.split("/")[1:])
-        read = sanctuary_docs.classify_document(doc.get("filename") or "", folder)
-        changed = {}
-        if read["category"] != doc["category"]:
-            changed["category"] = read["category"]
-        if read["series"] != doc["series"]:
-            changed["series"] = read["series"]
-        if read["doc_date"] and not doc["doc_date"]:
-            changed["doc_date"] = read["doc_date"]
-        if folder != (doc.get("note") or ""):
-            changed["note"] = folder
-        if changed:
-            await sanctuary_db.update_document(user_id, doc["id"], changed)
-            moved += 1
-    return {"moved": moved, "removed": removed}
+    state = _REFILE_JOBS.get(user_id)
+    if state and state.get("running"):
+        return {"started": False, **state}
+    _REFILE_JOBS[user_id] = {"running": True, "scanned": 0, "total": 0, "moved": 0, "removed": 0}
+    asyncio.create_task(_refile_job(user_id))
+    return {"started": True, **_REFILE_JOBS[user_id]}
+
+
+@router.get("/api/sanctuary/vault/refile/status")
+async def vault_refile_status(user: dict = Depends(_unlocked_user)):
+    return _REFILE_JOBS.get(int(user["id"])) or {"running": False, "scanned": 0, "total": 0, "moved": 0, "removed": 0}
 
 
 @router.put("/api/sanctuary/vault/{doc_id}")
