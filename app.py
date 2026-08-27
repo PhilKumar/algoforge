@@ -12891,6 +12891,12 @@ async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> N
         await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or _GAP_CARRY_POLL_SEC)
 
 
+# States that mean the scheduler is doing its job, whatever happened before.
+_GAP_CARRY_AUTO_HEALTHY_STATES = frozenset(
+    {"entered", "exited", "holding", "waiting-for-clock", "day-done", "day-skipped", "already-carried"}
+)
+
+
 async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = None) -> str:
     """One tick of the unattended rule. The EXIT is checked before the entry."""
     now = now or datetime.now(IST)
@@ -12951,6 +12957,18 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
     try:
         await _start_gap_carry_campaign(uid, payload, broker_client=broker_client)
     except HTTPException as exc:
+        # A CARRY ALREADY ON IS NOT AN ERROR. The 409 exists to stop a person
+        # starting a second campaign by hand; the scheduler meeting it simply
+        # means the night is already carried. Recording it as `last_error`
+        # pinned "A campaign is already running. Kill it first." to the banner
+        # -- an instruction addressed to nobody -- and it stayed there for days
+        # because the field is only cleared by a SUCCESSFUL entry (Phil,
+        # 2026-08-27: "A campaign is already running. Kill it first. - Why?").
+        if exc.status_code == 409:
+            setting["entry_day"] = today
+            setting.pop("last_error", None)
+            await _save_gap_carry_auto(uid)
+            return "already-carried"
         setting["last_error"] = str(exc.detail)
         setting["entry_day"] = today
         await _save_gap_carry_auto(uid)
@@ -12978,6 +12996,12 @@ async def _run_gap_carry_auto_loop() -> None:
                     state = await _gap_carry_auto_step(user, setting)
                     setting["state"] = state
                     setting["state_at"] = datetime.now(IST).isoformat()
+                    # A HEALTHY TICK CLEARS THE OLD COMPLAINT. `last_error`
+                    # used to survive until the next successful entry, so a
+                    # refusal from days ago sat on the banner beside a state
+                    # that was perfectly fine.
+                    if state in _GAP_CARRY_AUTO_HEALTHY_STATES and setting.pop("last_error", None) is not None:
+                        await _save_gap_carry_auto(uid)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

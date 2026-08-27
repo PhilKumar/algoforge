@@ -7316,6 +7316,15 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      — one in the bar and one floating on the plot (Phil, 2026-08-15). */
   .pf-cascade-chart-dialog:has([data-strip-zoom-out]) .pf-bench-zoom { display: none; }
 
+  /* And exactly ONE close, for the same reason and by the same means. A
+     dialog with a hand-written ✕ in its toolbar was getting a second from
+     pfChartStrip, so the corner carried two crosses in different colours
+     (Phil, 2026-08-27: "Why two X buttons?"). Where the toolbar supplies one,
+     the strip's stands down -- keyed on the attribute, so it holds for the
+     hand-written toolbars too, which is the lesson the zoom rule above
+     already learned. */
+  .pf-cascade-chart-dialog:has(button[aria-label="Close chart"]:not([data-strip-close])) [data-strip-close] { display: none; }
+
   /* The zoom cluster every canvas host carries — floats over the plot's
      top-right corner so no caller has to build it. */
   .pf-bench-zoom {

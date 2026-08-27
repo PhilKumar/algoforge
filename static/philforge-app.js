@@ -2012,6 +2012,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadCandleEntryChart',
   'openFrozenCampaignChart',
   'hideCandleEntryChart',
+  'hideGapCarryChart',
   'setCandleEntrySession',
   'setCandleEntryMother',
   'setCandleEntryBox',
@@ -3545,7 +3546,9 @@ async function loadCandleEntryChart() {
       active: timeframe,
       onTimeframe: (tf) => { _candleEntryChartTf = tf; loadCandleEntryChart(); },
       onRefresh: () => loadCandleEntryChart(),
-      onClose: () => hideCandleEntryChart(),
+      // No onClose here: this dialog has its own ✕ in the markup, which is
+      // there even when the chart fails and the strip is never drawn. Passing
+      // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
     });
   }
   if (chart && !chart.querySelector('#pf-bench-canvas-host')) {
@@ -4341,7 +4344,9 @@ async function loadGapCarryChart() {
       active: timeframe,
       onTimeframe: (tf) => { _gapCarryChartTf = tf; loadGapCarryChart(); },
       onRefresh: () => loadGapCarryChart(),
-      onClose: () => hideGapCarryChart(),
+      // No onClose here: this dialog has its own ✕ in the markup, which is
+      // there even when the chart fails and the strip is never drawn. Passing
+      // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
     });
   }
   if (chart && !chart.querySelector('#pf-bench-canvas-host')) {
@@ -6158,7 +6163,9 @@ async function loadFibBoundaryChart(_event, button) {
       active: timeframe,
       onTimeframe: (tf) => { _fibxChartTf = tf; loadFibBoundaryChart(); },
       onRefresh: () => loadFibBoundaryChart(),
-      onClose: () => hideFibBoundaryChart(),
+      // No onClose here: this dialog has its own ✕ in the markup, which is
+      // there even when the chart fails and the strip is never drawn. Passing
+      // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
     });
   }
   // No "Loading…" flash over a chart that is already showing — the old frame
@@ -20679,8 +20686,15 @@ async function loadRecoveryChart(_event, el) {
     if (wanted) qs.set('campaign_id', wanted);
     if (_recoveryChartTf) qs.set('timeframe', _recoveryChartTf);
     const res = await fetch(`/api/recovery/paper/chart?${qs.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Chart unavailable.');
+    // THE REFUSAL IS IN THE ENVELOPE, NOT AT THE TOP. This app wraps its
+    // errors as {error: {detail}}, so reading `data.detail` alone found
+    // nothing and every failure came out as the same "Chart unavailable." --
+    // the route says why (no run, no campaign named, candles unavailable) and
+    // none of it reached the page (Phil, 2026-08-27: "Chart unavailable for
+    // High entry... Why?"). `_apiErrorMessage` reads both shapes.
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(_apiErrorMessage(data, `Chart unavailable (${res.status} ${res.statusText || 'failed'}).`));
+    if (!data) throw new Error('The chart service answered with something this page could not read.');
     _recoveryChartCampaign = data.campaign_id || wanted;
     _recoveryChartTf = data.timeframe;
     if (title) title.textContent = `High Entry · ${String(data.side || 'CE')} · ${String(data.timeframe).toUpperCase()} chart`;
@@ -20692,7 +20706,9 @@ async function loadRecoveryChart(_event, el) {
         active: data.timeframe,
         onTimeframe: tf => { _recoveryChartTf = tf; loadRecoveryChart(); },
         onRefresh: () => loadRecoveryChart(),
-        onClose: () => closeRecoveryChart(),
+        // No onClose here: this dialog has its own ✕ in the markup, which is
+      // there even when the chart fails and the strip is never drawn. Passing
+      // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
       });
     }
     // pfBenchDrawChart is THE renderer -- the same one the Test Bench, Candle

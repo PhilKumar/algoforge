@@ -2853,7 +2853,7 @@
              carry a second one. -->
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title"><h3 id="oc-fib-chart-title">Swing ladder chart</h3><div id="oc-fib-chart-meta">Loading chart…</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-fib-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#38bdf8;">▬ level</span><span style="color:#fff;">▲ buy</span><span style="color:#fbbf24;">▼ exit</span><span style="color:#a78bfa;">▣ mother</span></div><div id="oc-fib-chart-strip"></div><!-- ONE close, in the markup, so it is there even when the chart fails to load and the strip never renders (Phil, 2026-08-27). The strip no longer injects a second: see the onClose call sites. --><button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideFibBoundaryChart" title="Close chart" aria-label="Close chart">&#10005;</button></div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-fib-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Actual closed 1-minute candles, with the swing it anchored on, every fib level and each buy drawn on top. Geometry always uses native exchange OHLC.</div></div></div>
       </div>
@@ -3323,7 +3323,7 @@
       <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
         <div class="terminal-cascade-chart-toolbar">
           <div class="terminal-cascade-chart-title"><h3 id="oc-gap-chart-title">Gap Carry chart</h3><div id="oc-gap-chart-meta">Loading chart&hellip;</div></div>
-          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#fb923c;">▬ EMA20</span><span style="color:#c084fc;">▬ RSI</span><span style="color:#fff;">▲ buy</span><span style="color:#fde68a;">▼ sell</span></div><div id="oc-gap-chart-strip"></div></div>
+          <div class="terminal-cascade-chart-actions"><div class="terminal-cascade-chart-legend"><span style="color:#fb923c;">▬ EMA20</span><span style="color:#c084fc;">▬ RSI</span><span style="color:#fff;">▲ buy</span><span style="color:#fde68a;">▼ sell</span></div><div id="oc-gap-chart-strip"></div><!-- ONE close, in the markup, so it is there even when the chart fails to load and the strip never renders (Phil, 2026-08-27). The strip no longer injects a second: see the onClose call sites. --><button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideGapCarryChart" title="Close chart" aria-label="Close chart">&#10005;</button></div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-gap-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed NIFTY candles with the EMA20 the rule reads, the RSI underneath it, and the night&rsquo;s buy and sell drawn on top.</div></div></div>
       </div>
