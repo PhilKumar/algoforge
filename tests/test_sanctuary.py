@@ -551,6 +551,79 @@ class DocumentNamingTests(unittest.TestCase):
         self.assertEqual((r["category"], r["series"]), ("Other", ""))
 
 
+class KnownAccountsTests(unittest.TestCase):
+    """The accounts the sanctuary can prove he banks through, read back
+    from the reference each imported row carries."""
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def test_accounts_are_read_from_the_import_reference(self):
+        async def run():
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-03-01",
+                        "category": "Uncategorised",
+                        "amount": 10.0,
+                        "note": "a",
+                        "source": "statement",
+                        "ref_id": "stmt:503204:aa",
+                    },
+                    {
+                        "entry_date": "2026-03-05",
+                        "category": "Uncategorised",
+                        "amount": 20.0,
+                        "note": "b",
+                        "source": "statement",
+                        "ref_id": "stmt:503204:bb",
+                    },
+                    {
+                        "entry_date": "2025-01-05",
+                        "category": "Salary",
+                        "amount": 30.0,
+                        "note": "c",
+                        "source": "statement-in",
+                        "ref_id": "stmt:258400:cc",
+                    },
+                    # typed by hand — it belongs to no account
+                    {
+                        "entry_date": "2026-02-02",
+                        "category": "Milk",
+                        "amount": 40.0,
+                        "note": "d",
+                        "source": "manual",
+                        "ref_id": "",
+                    },
+                ],
+            )
+            return await self.sanctuary_db.statement_account_summary(1)
+
+        rows = {r["tail"]: r for r in asyncio.run(run())}
+        self.assertEqual(set(rows), {"503204", "258400"}, "a hand-typed row is not an account")
+        self.assertEqual(rows["503204"]["entries"], 2)
+        self.assertEqual((rows["503204"]["first"], rows["503204"]["last"]), ("2026-03-01", "2026-03-05"))
+
+
 class SalaryFromBankTests(unittest.TestCase):
     """A month with no payslip still knows its pay: the employer's credit
     in the bank statement is the salary."""

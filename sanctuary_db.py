@@ -326,6 +326,26 @@ async def statement_outflow_rows(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def statement_account_summary(user_id: int) -> list[dict]:
+    """Every account a statement was imported from, by its last six digits.
+
+    The ref_id an imported row carries is 'stmt:<tail>:<digest>', so the
+    accounts he has actually banked through can be read back without
+    keeping a separate list that could fall out of step.
+    """
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT substr(ref_id, 6, instr(substr(ref_id, 6), ':') - 1) AS tail,
+                      COUNT(*) AS entries, MIN(entry_date) AS first, MAX(entry_date) AS last
+               FROM sanctuary_ledger
+               WHERE user_id = ? AND ref_id LIKE 'stmt:%'
+               GROUP BY tail""",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
 async def ledger_rows_by_sources(user_id: int, sources: tuple) -> list[dict]:
     placeholders = ",".join("?" for _ in sources)
     async with aiosqlite.connect(config.DB_PATH) as db:

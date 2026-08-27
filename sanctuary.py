@@ -1546,6 +1546,20 @@ async def loans_adopt(request: Request, user: dict = Depends(_unlocked_user)):
     cand = _match_candidate(await _loan_candidates(user_id), key, emi)
     if not cand:
         raise HTTPException(status_code=404, detail="That stream is gone or already carded")
+    # The offer list filters what is already carded, but a page open since
+    # before the last adoption still shows the old list — two taps three
+    # minutes apart put the Kotak car loan on the shelf three times. The
+    # schedule is checked again HERE, against the shelf as it stands now.
+    wanted = {d["due_date"] for d in cand["debits"]}
+    for loan in await sanctuary_db.list_loans(user_id):
+        if abs(float(loan.get("emi_amount") or 0) - cand["emi"]) > 0.03 * max(cand["emi"], 1):
+            continue
+        held = {e["due_date"] for e in await sanctuary_db.emis_for_loan(user_id, loan["id"])}
+        if wanted and held and len(wanted & held) >= 0.6 * len(wanted):
+            raise HTTPException(
+                status_code=409,
+                detail=f"“{loan['name']}” is already this loan — same instalments, same dates.",
+            )
     # The schedule holds one EMI per day, and a bank can debit twice on one
     # date (the CRED mandate did) — same-day debits fold into one row.
     by_date: dict[str, float] = {}
@@ -1750,6 +1764,43 @@ async def emi_mark_unpaid(emi_id: int, user: dict = Depends(_unlocked_user)):
 @router.get("/api/sanctuary/notes")
 async def notes_get(user: dict = Depends(_unlocked_user)):
     return {"notes": await sanctuary_db.get_json_state(int(user["id"]), "notes", [])}
+
+
+@router.get("/api/sanctuary/known")
+async def known_get(user: dict = Depends(_unlocked_user)):
+    """The accounts and lenders the sanctuary already knows about.
+
+    Important info was a page he had to type himself, so a bank he had
+    never written down looked missing even when its loan was on the shelf.
+    This says what the statements and cards already prove — every account
+    a statement was imported from, and every lender with a card — so the
+    family can find them without him having written a word.
+    """
+    user_id = int(user["id"])
+    accounts: dict[str, dict] = {}
+    for row in await sanctuary_db.statement_account_summary(user_id):
+        tail = row["tail"]
+        if tail == "unknown":
+            continue
+        accounts[tail] = {
+            "tail": tail,
+            "entries": row["entries"],
+            "first": row["first"],
+            "last": row["last"],
+        }
+    lenders: list[dict] = []
+    for loan in await sanctuary_db.list_loans(user_id):
+        lenders.append(
+            {
+                "name": loan["name"],
+                "lender": loan.get("lender") or "",
+                "account_no": loan.get("account_no") or "",
+                "emi": float(loan.get("emi_amount") or 0),
+                "open": bool(loan.get("active")),
+            }
+        )
+    lenders.sort(key=lambda item: (not item["open"], item["name"].lower()))
+    return {"accounts": sorted(accounts.values(), key=lambda a: -a["entries"]), "lenders": lenders}
 
 
 @router.put("/api/sanctuary/notes")

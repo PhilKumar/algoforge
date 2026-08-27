@@ -367,6 +367,11 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-card .head b{font-size:.95rem}
 .stmt-chip{font-size:.74rem;padding:2px 9px;border-radius:99px;border:1px solid var(--line-soft);color:var(--soft)}
 /* Which way the money went, said on the chip itself. */
+/* What the sanctuary knows on its own, above his hand-typed notes. */
+.known-wrap{margin:2px 0 16px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)}
+.known-head{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:10px 0 4px}
+.known-row{padding:3px 0}
+.known-row small{display:block;color:var(--soft);font-size:.78rem}
 .stmt-chip.came-in{color:var(--moss-deep);border-color:var(--moss);background:var(--moss-wash)}
 .stmt-chip.went-out{color:var(--terracotta);border-color:var(--terracotta);background:var(--terra-wash)}
 .stmt-review-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
@@ -1056,6 +1061,7 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card">
       <div class="section-title">Important info</div>
       <div class="section-sub">Policy numbers, account notes, things the family should be able to find.</div>
+      <div id="known-block"></div>
       <div class="notes-list" id="notes"></div>
       <div style="margin-top:12px"><button class="btn ghost small" id="note-add">＋ Add a note</button></div>
     </div>
@@ -2361,7 +2367,28 @@ function categoriesModal(){
   };
 }
 /* notes */
-async function loadNotes(){ S.notes = (await api("/api/sanctuary/notes")).notes; renderNotes(); }
+async function loadNotes(){ S.notes = (await api("/api/sanctuary/notes")).notes; renderNotes(); loadKnown(); }
+/* What the sanctuary already knows without him typing it: the accounts his
+   statements came from, and every lender on the shelf. A bank he never
+   wrote a note about used to look absent even with its loan sitting there. */
+async function loadKnown(){
+  const host = $("known-block");
+  if (!host) return;
+  try {
+    const k = await api("/api/sanctuary/known");
+    const accounts = (k.accounts || []).map((a) =>
+      `<div class="known-row"><b class="num">••${esc(a.tail)}</b>
+        <small>${a.entries} entries · ${esc(a.first)} to ${esc(a.last)}</small></div>`).join("");
+    const lenders = (k.lenders || []).map((l) =>
+      `<div class="known-row"><b>${esc(l.name)}</b>
+        <small>${l.open ? "still running" : "settled"}${l.account_no ? ` · ${esc(l.account_no)}` : ""}${l.emi ? ` · ${inr(l.emi)} a month` : ""}</small></div>`).join("");
+    host.innerHTML = (accounts || lenders)
+      ? `<div class="known-wrap">
+          ${accounts ? `<div class="known-head">Accounts the statements came from</div>${accounts}` : ""}
+          ${lenders ? `<div class="known-head">Who he has borrowed from</div>${lenders}` : ""}
+         </div>` : "";
+  } catch { host.innerHTML = ""; }
+}
 function renderNotes(){
   $("notes").innerHTML = S.notes.length ? S.notes.map((n, i) => `
     <div class="note-card card"><div class="h" data-note-open="${i}">
