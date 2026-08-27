@@ -126,11 +126,15 @@ html[data-theme="dark"] #scene .day-only{display:none}
    every frame forced all eighteen glass panes above it to recompute their
    backdrop-filter, which is more than a phone should be asked to do for
    scenery. A fresh angle per visit costs nothing at all. */
-.scene-video[data-angle="0"]{transform:scale(1.06) translate3d(-1.4%, .6%, 0)}
-.scene-video[data-angle="1"]{transform:scale(1.12) translate3d(1.6%, -1%, 0)}
+/* Angle 0 is the establishing shot: no scale, no offset, so object-fit
+   cover shows the widest frame the clip holds — the bench, the whole sea,
+   the fireflies. Every arrival lands here. The others are the closer
+   framings, and only moving between rooms reaches them. */
+.scene-video[data-angle="0"]{transform:none}
+.scene-video[data-angle="1"]{transform:scale(1.06) translate3d(-1.4%, .6%, 0)}
 .scene-video[data-angle="2"]{transform:scale(1.04) translate3d(.8%, 1.4%, 0)}
-.scene-video[data-angle="3"]{transform:scale(1.15) translate3d(-.6%, -1.6%, 0)}
-.scene-video[data-angle="4"]{transform:scale(1.09) translate3d(2%, .9%, 0)}
+.scene-video[data-angle="3"]{transform:scale(1.09) translate3d(2%, .9%, 0)}
+.scene-video[data-angle="4"]{transform:scale(1.12) translate3d(1.6%, -1%, 0)}
 @media (prefers-reduced-motion: reduce){.scene-video{display:none}}
 #veil{position:fixed;inset:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg, rgba(0,0,0,0) 0 58%, rgba(20,30,40,.05) 74%, rgba(20,30,40,.12) 100%)}
@@ -1626,9 +1630,11 @@ function _filmSpawn(key){
   const el = document.createElement("video");
   el.muted = true; el.playsInline = true; el.preload = "auto";
   el.className = "scene-video";
-  /* A different crop each time this room is spawned, so the same footage
-     never opens on the same composition twice running. */
-  _film.angle = ((_film.angle == null ? Math.floor(Math.random() * 5) : _film.angle) + 1) % 5;
+  /* The page always OPENS on the establishing shot — he asked to land on
+     the whole scene, not a crop of it. Only moving between rooms after
+     that reaches the closer framings, and it cycles rather than randomises
+     so a refresh is never a surprise. */
+  _film.angle = _film.angle == null ? 0 : (_film.angle + 1) % 5;
   el.dataset.angle = String(_film.angle);
   el.addEventListener("error", () => {
     _film.dead[key] = true;
