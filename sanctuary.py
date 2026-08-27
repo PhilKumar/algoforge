@@ -2002,6 +2002,11 @@ _ACCOUNT_KINDS = ("bank", "card")
 
 def _account_view(item: dict) -> dict:
     number = auth.decrypt_value(item.get("number") or "")
+    # decrypt_value hands the ciphertext back when the key cannot open it,
+    # which used to reach the page as an account ending "xKVg==". Better to
+    # show nothing than to show a number that is not one.
+    if number.startswith("gAAAAA"):
+        number = ""
     return {
         "id": item.get("id") or "",
         "kind": item.get("kind") or "bank",
@@ -2042,6 +2047,26 @@ async def accounts_put(request: Request, user: dict = Depends(_unlocked_user)):
         )
     await sanctuary_db.set_json_state(int(user["id"]), "accounts", cleaned)
     return {"ok": True}
+
+
+def _loan_account_lines(loans: list[dict]) -> list[dict]:
+    """The lenders still owed, each with the number they answer to.
+
+    Only the running ones are named. A settled loan is a closed door, and
+    its number on this card would read as a debt that is still open.
+    """
+    lines = [
+        {
+            "id": f"loan-{loan.get('id')}",
+            "lender": str(loan.get("lender") or loan.get("name") or "Loan"),
+            "name": str(loan.get("name") or ""),
+            "number": str(loan.get("account_no") or ""),
+            "active": True,
+        }
+        for loan in loans
+        if loan.get("active") and loan.get("account_no")
+    ]
+    return sorted(lines, key=lambda x: x["lender"].lower())
 
 
 @router.get("/api/sanctuary/known")
@@ -2109,13 +2134,16 @@ async def known_get(user: dict = Depends(_unlocked_user)):
             seen.update(extra)
         else:
             accounts[stated["tail"] or stated["id"]] = {**stated, **extra, "entries": 0, "first": "", "last": ""}
-    # The loans are NOT repeated here. They have their own panel, in full,
-    # and listing twelve of them turned this card into a wall to scroll
-    # past. Only the count travels, as a pointer to where they live.
+    # The loans travel with their account numbers now. The count alone was
+    # a pointer to another panel, which is no use to someone holding a
+    # death certificate and a list of lenders to telephone — the number the
+    # bank answers to is the whole point of this card. Only the ones still
+    # running are named; a settled loan is a closed door.
     loans = await sanctuary_db.list_loans(user_id)
     return {
         "accounts": sorted(accounts.values(), key=lambda a: -a["entries"]),
         "cards": cards,
+        "loan_accounts": _loan_account_lines(loans),
         "loans_open": sum(1 for loan in loans if loan.get("active")),
         "loans_settled": sum(1 for loan in loans if not loan.get("active")),
     }

@@ -8,7 +8,7 @@
 <link rel="icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,560;0,9..144,650;1,9..144,420;1,9..144,560&family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,600;0,6..12,700;0,6..12,800;1,6..12,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,560;0,9..144,650;1,9..144,420;1,9..144,560&family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,600;0,6..12,700;0,6..12,800;1,6..12,400&family=Alex+Brush&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <style>
 /* ═══════ Sanctuary — a living shore: seaside morning / moonlit night ═══════ */
 :root{
@@ -58,6 +58,12 @@
   --dog:#c08a52; --dog-2:#8a5f36; --rope:#9c8a68; --swingkid:#7c5aa8;
   --serif:"Fraunces",Georgia,"Times New Roman",serif;
   --sans:"Nunito Sans","Avenir Next",system-ui,-apple-system,sans-serif;
+  /* The hand that writes in the diary, and the paper it writes on. Alex
+     Brush is a joined script with a small x-height, so the page sets it
+     large and gives it a taller rule than a print face would want. */
+  --hand:"Alex Brush","Caveat","Snell Roundhand",cursive;
+  --page-rule:rgba(43,51,80,.11);
+  --page-margin:rgba(198,124,94,.34);
 }
 html[data-theme="dark"]{
   --ground:#0e1526; --ground-2:#0a101e;
@@ -68,6 +74,8 @@ html[data-theme="dark"]{
   --gold:#e6c877; --gold-wash:rgba(230,200,119,.15);
   --danger:#f08a77; --danger-wash:rgba(240,138,119,.15);
   --line:rgba(162,176,198,.22); --line-soft:rgba(162,176,198,.11);
+  --page-rule:rgba(210,226,255,.11);
+  --page-margin:rgba(239,157,130,.32);
   --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px rgba(0,0,0,.4);
   --shadow-lift:0 2px 8px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55);
   /* Night glass is darker but no more opaque: the tint deepens so pale
@@ -391,23 +399,43 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
    book. Two glass leaves meet at a gutter, a day laid on each, and a leaf
    turns on the spine: rotateY about the inner edge, so it lifts away from
    the binding the way paper does.                                    */
-.book{position:relative;perspective:2200px;margin-top:4px}
+.book{position:relative;perspective:2200px;margin-top:4px;
+  /* every line of the page is one --pitch tall, and every block above the
+     writing is a whole number of them, so the words land ON the rules
+     instead of drifting between them */
+  --pitch:34px}
 .book-spread{display:grid;grid-template-columns:1fr 2px 1fr;align-items:stretch;
-  transform-style:preserve-3d;min-height:380px}
+  transform-style:preserve-3d;min-height:420px}
 /* The gutter: two leaves meeting, with the shadow of the fold between. */
 .book-gutter{background:linear-gradient(180deg,transparent,var(--glass-rim) 10%,var(--glass-rim) 90%,transparent);
   box-shadow:0 0 18px 4px rgba(30,44,66,.1)}
 html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
-.book-leaf{position:relative;padding:32px 34px 36px;min-height:380px;
+/* A leaf is ruled paper: faint lines at the pitch, a margin standing in
+   from the binding edge, and ONE sheen stretched across both halves —
+   each leaf shows its own half of it — so a spread reads as a single
+   sheet folded once, not as two panels sitting side by side. */
+.book-leaf{position:relative;padding:calc(var(--pitch) * 1) 30px 34px 74px;min-height:420px;
+  line-height:var(--pitch);
   background-color:var(--glass-tint);
-  background-image:var(--glass-sheen);
+  background-image:
+    repeating-linear-gradient(180deg,transparent 0 calc(var(--pitch) - 1px),
+      var(--page-rule) calc(var(--pitch) - 1px) var(--pitch)),
+    var(--glass-sheen);
+  background-origin:content-box,padding-box;
+  background-repeat:repeat,no-repeat;
+  background-size:auto,calc(200% + 2px) 100%;
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
   border:1px solid var(--glass-rim);
   transform-style:preserve-3d;backface-visibility:hidden;
   transition:transform .6s cubic-bezier(.36,.02,.28,1), opacity .6s ease}
+/* the margin rule — the line you were told never to write past */
+.book-leaf::before{content:"";position:absolute;top:0;bottom:0;left:54px;width:1px;
+  background:var(--page-margin);pointer-events:none}
 .book-leaf.verso{border-radius:26px 6px 6px 26px;border-right:0;transform-origin:right center;
+  background-position:0 0,0 0;
   box-shadow:var(--glass-cast),inset 1px 1px 0 var(--glass-edge)}
 .book-leaf.recto{border-radius:6px 26px 26px 6px;border-left:0;transform-origin:left center;
+  background-position:0 0,100% 0;
   box-shadow:var(--glass-cast),inset -1px 1px 0 var(--glass-edge)}
 /* Turning: the leaf on the side he is moving away from swings up off the
    gutter, and the new day is already beneath it. */
@@ -428,24 +456,47 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   padding:6px 16px;border-radius:999px;background:var(--glass-tint);border:1px solid var(--glass-rim);
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
 .book-where:empty{display:none}
-/* what sits on a page */
-.page-weekday{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;color:var(--soft);font-weight:800}
-.page-day{font-family:var(--serif);font-size:1.45rem;font-weight:650;color:var(--ink);margin-top:1px}
-.page-rule{height:1px;margin:14px 0 4px;background:linear-gradient(90deg,var(--glass-rim),transparent)}
-.recto .page-rule{background:linear-gradient(270deg,var(--glass-rim),transparent)}
-.page-entry{margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft)}
-.page-entry:first-of-type{border-top:0;padding-top:0}
-.page-when{font-size:.76rem;font-weight:800;color:var(--soft);letter-spacing:.04em;
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.page-title{font-family:var(--serif);font-size:1.1rem;font-weight:650;margin-top:4px}
-.page-body{margin-top:7px;line-height:1.78;white-space:pre-wrap}
-.page-blank{color:var(--muted);font-style:italic;margin-top:30px;text-align:center}
-.page-actions{margin-top:10px;display:flex;gap:6px}
+/* What sits on a page. Every height and margin below is a whole number of
+   --pitch, which is what keeps the writing on the rules; changing one to
+   an odd value throws every line beneath it off the paper. */
+.page-weekday{font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;color:var(--soft);font-weight:800;
+  line-height:var(--pitch)}
+.page-day{font-family:var(--serif);font-size:1.4rem;font-weight:650;color:var(--ink);
+  line-height:var(--pitch);margin:0}
+.page-rule{height:var(--pitch);margin:0;
+  background-image:linear-gradient(90deg,var(--glass-rim),transparent);
+  background-size:100% 1px;background-repeat:no-repeat;background-position:0 50%}
+.recto .page-rule{background-image:linear-gradient(270deg,var(--glass-rim),transparent)}
+.page-entry{margin-top:var(--pitch);padding-top:0;border-top:0}
+/* the first entry follows the date rule, so it opens flush with it —
+   :first-of-type would look at the weekday div and never match */
+.page-rule + .page-entry{margin-top:0}
+.page-when{font-size:.74rem;font-weight:800;color:var(--soft);letter-spacing:.04em;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:var(--pitch);line-height:var(--pitch)}
+/* Chips and buttons ride inside one line of the page rather than setting
+   their own height, or the ruling drifts a few pixels at every entry. */
+.page-when .kind-chip{line-height:20px;padding:2px 10px}
+.page-actions .btn.small{line-height:20px;padding:3px 12px}
+.page-title{font-family:var(--hand);font-size:2rem;font-weight:400;letter-spacing:.005em;
+  line-height:var(--pitch);margin:0;color:var(--ink)}
+.page-body{font-family:var(--hand);font-size:1.75rem;font-weight:400;letter-spacing:.012em;
+  line-height:var(--pitch);margin:0;white-space:pre-wrap;color:var(--ink)}
+.book-leaf .entry-photos{margin:var(--pitch) 0 0}
+.book-leaf .entry-photos img{width:calc(var(--pitch) * 4);height:calc(var(--pitch) * 4)}
+.book-leaf .entry-music{font-family:var(--hand);font-size:1.5rem;font-style:normal;
+  line-height:var(--pitch);margin:0}
+/* The waiting page floats free of the ruling — it is not writing. */
+.page-blank{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  padding:0 44px;text-align:center;color:var(--muted);
+  font-family:var(--hand);font-size:1.7rem;line-height:1.5}
+.page-actions{display:flex;gap:6px}
 /* A phone holds one leaf at a time — a spread would be unreadable. */
 @media (max-width:780px){
-  .book-spread{grid-template-columns:1fr;min-height:300px}
+  .book-spread{grid-template-columns:1fr;min-height:330px}
   .book-gutter,.book-leaf.recto{display:none}
-  .book-leaf.verso{border-radius:22px;border-right:1px solid var(--glass-rim);padding:24px 20px 26px}
+  .book-leaf.verso{border-radius:22px;border-right:1px solid var(--glass-rim);
+    min-height:330px;padding:var(--pitch) 18px 26px 54px}
+  .book-leaf::before{left:38px}
   .page-turn.left{left:2px}
   .page-turn.right{right:2px}
 }
@@ -548,7 +599,25 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
    same row, so a dozen of them never becomes a wall. */
 .known-row{display:flex;align-items:baseline;gap:6px;padding:2px 0;cursor:pointer;border-radius:8px}
 .known-row[data-acct-edit]:hover{background:var(--moss-wash)}
-.known-row small{margin-left:auto;color:var(--soft);font-size:.76rem;white-space:nowrap}
+.known-row small{margin-left:auto;color:var(--soft);font-size:.76rem;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+/* The number rides on the same row as the name, so nine accounts are nine
+   lines rather than eighteen. */
+.known-row{align-items:center;padding:3px 0;flex-wrap:wrap}
+.known-who{flex:none}
+.known-row .num{font-size:.82rem;color:var(--muted)}
+.known-row .btn.small{padding:1px 9px;font-size:.72rem;flex:none}
+/* What he owns: a headline, a line under it, one row per holding. */
+.own-top{display:flex;align-items:baseline;gap:10px;margin-top:2px}
+.own-now{font-family:var(--serif);font-weight:650;font-size:1.7rem;color:var(--moss)}
+.own-when{font-size:.78rem;color:var(--soft)}
+.own-line{font-size:.9rem;color:var(--muted);margin-top:2px}
+.own-list{margin-top:4px}
+.own-row{display:flex;align-items:baseline;gap:10px;padding:3px 0;font-size:.88rem;
+  border-bottom:1px solid var(--line-soft)}
+.own-row:last-child{border-bottom:0}
+.own-row .own-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.own-row .own-units{color:var(--soft);font-size:.76rem;white-space:nowrap}
 .stmt-chip.came-in{color:var(--moss-deep);border-color:var(--moss);background:var(--moss-wash)}
 .stmt-chip.went-out{color:var(--terracotta);border-color:var(--terracotta);background:var(--terra-wash)}
 .stmt-review-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
@@ -566,6 +635,12 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
 .led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
 .led-cat-edit:hover{color:var(--moss)}
+/* The shelf is a window onto the papers, not a list that pushes the page
+   down. Twenty kinds of document scroll inside this frame. */
+#vault-list{margin-top:12px;max-height:340px;overflow-y:auto;padding-right:6px}
+#vault-list > details:first-child{margin-top:0}
+#vault-drop{padding:14px}
+.vault-family{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft)}
 .vault-pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 2px 0;
   font-size:.72rem;color:var(--soft);font-weight:700;opacity:.75}
 .vault-pager .btn{padding:2px 10px;font-size:.75rem}
@@ -1251,12 +1326,10 @@ html[data-theme="dark"]{color-scheme:dark}
          other side of the same question. -->
     <div class="card" id="holdings-card" style="margin-bottom:24px">
       <div class="section-title">What you own</div>
-      <div class="section-sub">What the last statement said, on the day you exported it.</div>
       <div id="holdings-body"></div>
-      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div style="margin-top:14px">
         <input type="file" id="hold-file" accept=".xlsx" hidden>
-        <button class="btn ghost" id="hold-btn">📈 Import a holdings statement</button>
-        <span class="section-sub" style="margin:0">Zerodha Console → Holdings → .xlsx</span>
+        <button class="btn ghost small" id="hold-btn" title="Zerodha Console → Holdings → download the .xlsx">📈 Import a holdings statement</button>
       </div>
     </div>
 
@@ -1274,30 +1347,28 @@ html[data-theme="dark"]{color-scheme:dark}
 
     <div class="card">
       <div class="section-title">The Vault</div>
-      <div class="section-sub">Every file encrypted as it arrives. Keep your originals elsewhere too.</div>
+      <div class="section-sub">Every file encrypted as it arrives.</div>
       <input type="file" id="vault-file" hidden>
       <input type="file" id="vault-folder" webkitdirectory directory multiple hidden>
       <div id="vault-drop" class="stmt-drop">Drop a document here, or tap to choose</div>
-      <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button class="btn ghost small" id="vault-folder-btn">📁 Add a whole folder</button>
-        <span class="section-sub" style="margin:0">Named and grouped from each filename; anything unreadable waits as Other.</span>
-      </div>
-      <div id="vault-progress" style="margin-top:10px"></div>
-      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-        <input class="field" id="vault-q" type="search" placeholder="Find a paper — Form 16, PRAN, Sep 2022…" style="flex:1;min-width:200px">
+      <div id="vault-progress"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <input class="field" id="vault-q" type="search" placeholder="Find a paper — Form 16, PRAN, Sep 2022…" style="flex:1;min-width:170px">
+        <button class="btn ghost small" id="vault-folder-btn" title="Every file in a folder, named and grouped from its filename">📁 Folder</button>
         <button class="btn subtle small" id="vault-refile" title="Read every filename again, for when the reading improves">Re-file all</button>
       </div>
-      <div id="vault-list" style="margin-top:14px"></div>
-      <div class="vault-family" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)">
-        <div class="section-sub" style="margin-bottom:8px">
-          <b>Family access</b> — a second key that opens a read-only copy of this vault at <span class="num">/vault</span> for any signed-in account. For the ones who may need these papers after you. <span id="vault-family-state"></span>
-        </div>
+      <!-- The shelf scrolls inside its own frame. However many kinds of
+           paper he keeps, the panel beside it stays the same height. -->
+      <div id="vault-list"></div>
+      <details class="loans-closed vault-family">
+        <summary>Family access <span id="vault-family-state"></span></summary>
+        <div class="section-sub" style="margin:6px 0 8px">A second key that opens a read-only copy of this vault at <span class="num">/vault</span>, for the ones who may need these papers after you.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <input class="field" id="vault-family-pass" type="password" placeholder="Family key (8+ characters)" style="flex:1;min-width:200px;max-width:320px">
+          <input class="field" id="vault-family-pass" type="password" placeholder="Family key (8+ characters)" style="flex:1;min-width:180px;max-width:320px">
           <button class="btn ghost small" id="vault-family-set">Set the key</button>
           <button class="btn subtle small" id="vault-family-clear">Remove access</button>
         </div>
-      </div>
+      </details>
     </div>
     </div>
   </div>
@@ -2663,24 +2734,37 @@ async function loadKnown(){
        tapping it opens the form so he can put the bank's name to it. */
     /* A card is known by its last four, the way the bank prints it; an
        account by six, which is what a statement's reference carries. */
-    const line = (a, fallback, digits) => {
-      const said = a.entries ? `${a.entries} ${a.entries === 1 ? "entry" : "entries"}`
-        : a.transfers ? `seen in ${a.transfers} transfer${a.transfers === 1 ? "" : "s"}`
-        : a.note || "not imported";
+    /* One row each, and the number itself on that row — masked, with Show
+       and Copy. A family that has to telephone a lender needs the digits,
+       not a count of how many lenders there were. Where we hold the whole
+       number the row shows it and drops the last-four tail, which was the
+       same fact said twice. */
+    const line = (a, fallback, digits, said, key) => {
+      const full = String(a.number || "");
       const tail = (a.tail || "").slice(-digits);
+      const shown = full
+        ? `<b class="num" data-acct-shown="${esc(key)}">${esc(maskAccount(full))}</b>
+           <button class="btn subtle small" data-acct-show="${esc(key)}" data-acct-value="${esc(full)}">Show</button>
+           <button class="btn subtle small" data-acct-copy="${esc(full)}">Copy</button>`
+        : `<span class="num">${tail ? "••" + esc(tail) : ""}</span>`;
       return `<div class="known-row" data-acct-edit="${esc(a.id || "")}" data-acct-tail="${esc(a.tail || "")}">
-        <b>${esc(a.bank || a.label || fallback)}</b><span class="num">${tail ? " ••" + esc(tail) : ""}</span>
-        <small>${esc(said)}</small></div>`;
+        <b class="known-who">${esc(a.bank || a.lender || a.label || fallback)}</b>${shown}
+        ${said ? `<small>${esc(said)}</small>` : ""}</div>`;
     };
-    const accounts = (k.accounts || []).map((a) => line(a, "Account", 6)).join("");
-    const cards = (k.cards || []).map((c) => line(c, "Card", 4)).join("");
-    const loans = (k.loans_open || k.loans_settled)
-      ? `<div class="known-row"><b>Loans</b><small>${k.loans_open} still running · ${k.loans_settled} settled — on the Loans panel</small></div>` : "";
-    host.innerHTML = (accounts || cards || loans)
+    const saidOf = (a) => a.entries ? `${a.entries} ${a.entries === 1 ? "entry" : "entries"}`
+      : a.transfers ? `seen in ${a.transfers} transfer${a.transfers === 1 ? "" : "s"}`
+      : a.note || "";
+    const accounts = (k.accounts || []).map((a) => line(a, "Account", 6, saidOf(a), "kn-" + (a.id || a.tail))).join("");
+    const cards = (k.cards || []).map((c) => line(c, "Card", 4, saidOf(c), "kn-" + (c.id || c.tail))).join("");
+    const loans = (k.loan_accounts || []).map((l) => line(l, "Loan", 4, "", l.id)).join("");
+    const settled = k.loans_settled
+      ? `<div class="known-row"><small style="margin-left:0">${k.loans_settled} settled loan${k.loans_settled === 1 ? "" : "s"} — on the Loans panel</small></div>` : "";
+    host.innerHTML = (accounts || cards || loans || settled)
       ? `<div class="known-wrap">
           ${accounts ? `<div class="known-head">Bank accounts</div>${accounts}` : ""}
           ${cards ? `<div class="known-head">Credit cards</div>${cards}` : ""}
-          ${loans}
+          ${loans ? `<div class="known-head">Loan accounts</div>${loans}` : ""}
+          ${settled}
          </div>` : "";
   } catch (err) {
     console.error("[sanctuary] the known block would not load", err);
@@ -2737,21 +2821,31 @@ async function loadHoldings(){
   try {
     const h = await api("/api/sanctuary/holdings");
     if (!h || !h.present) {
-      body.innerHTML = `<div style="color:var(--muted);margin-top:10px">Nothing here yet — import a holdings statement and what you own sits beside what you owe.</div>`;
+      body.innerHTML = `<div style="color:var(--muted);margin-top:6px">Nothing imported yet.</div>`;
       return;
     }
+    /* One headline, one line under it, and each fund a single row behind a
+       fold. It used to spend four lines on three numbers and two lines on
+       every holding, which read as a wall rather than a total. */
     const up = (h.gain || 0) >= 0;
-    body.innerHTML = `<div class="sf" style="margin-top:12px"><span>Worth today${h.as_on ? ` <small style="color:var(--muted)">as on ${esc(h.as_on)}</small>` : ""}</span>
-        <b class="num" style="color:var(--moss)">${inr(h.present)}</b></div>
-      <div class="sf"><span>You put in</span><b class="num">${inr(h.invested)}</b></div>
-      <div class="sf"><span>${up ? "Grown by" : "Down by"}</span>
-        <b class="num" style="color:${up ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(h.gain))}${h.invested ? ` <small>${(h.gain / h.invested * 100).toFixed(1)}%</small>` : ""}</b></div>`
-      + (h.sheets || []).map((sh) => `
-        <div class="known-head" style="margin-top:14px">${esc(sh.kind)}</div>`
-        + (sh.holdings || []).map((x) => `
-          <div class="sf"><span style="padding-left:10px">· ${esc(x.name)}
-            <small style="color:var(--muted);display:block;padding-left:12px">${x.units} units${x.avg_price ? ` · bought at ${inr(x.avg_price)}` : ""}${x.price ? ` · now ${inr(x.price)}` : ""}</small></span>
-            <b class="num" style="font-size:.9rem">${x.value != null ? inr(x.value) : "—"}</b></div>`).join("")).join("");
+    const pct = h.invested ? ` (${up ? "+" : "−"}${Math.abs(h.gain / h.invested * 100).toFixed(1)}%)` : "";
+    body.innerHTML = `
+      <div class="own-top">
+        <b class="num own-now">${inr(h.present)}</b>
+        <span class="own-when">${h.as_on ? `as on ${esc(h.as_on)}` : "worth today"}</span>
+      </div>
+      <div class="own-line">Put in <b class="num">${inr(h.invested)}</b> · ${up ? "up" : "down"}
+        <b class="num" style="color:${up ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(h.gain))}${pct}</b></div>`
+      + (h.sheets || []).map((sh) => {
+        const rows = (sh.holdings || []).map((x) => `
+          <div class="own-row"><span class="own-name">${esc(x.name)}</span>
+            <span class="own-units">${x.units}${x.price ? ` × ${inr(x.price)}` : ""}</span>
+            <b class="num">${x.value != null ? inr(x.value) : "—"}</b></div>`).join("");
+        if (!rows) return "";
+        return `<details class="loans-closed" style="margin-top:10px">
+          <summary>${esc(sh.kind)} — ${(sh.holdings || []).length}</summary>
+          <div class="own-list">${rows}</div></details>`;
+      }).join("");
   } catch { body.innerHTML = ""; }
 }
 $("hold-btn").onclick = () => $("hold-file").click();
@@ -2788,6 +2882,9 @@ $("loan-sched-file").onchange = async (e) => {
   btn.disabled = false; btn.textContent = "📄 Import an EMI schedule";
 };
 document.addEventListener("click", (e) => {
+  /* Show and Copy live inside these rows; tapping one must not also throw
+     the edit form open on top of the number he was reading. */
+  if (e.target.closest("[data-acct-show],[data-acct-copy]")) return;
   const edit = e.target.closest("[data-acct-edit]");
   if (edit) accountForm(edit.dataset.acctEdit, edit.dataset.acctTail);
 });
@@ -2892,7 +2989,7 @@ document.addEventListener("click", async (e) => {
   }
   const acctCopy = t.closest("[data-acct-copy]");
   if (acctCopy){
-    toast(await copyText(acctCopy.dataset.acctCopy) ? "Loan number copied." : "Could not reach the clipboard.");
+    toast(await copyText(acctCopy.dataset.acctCopy) ? "Number copied." : "Could not reach the clipboard.");
     return;
   }
   const lup = t.closest("[data-lup]");

@@ -854,6 +854,39 @@ class KnownAccountsTests(unittest.TestCase):
         self.assertEqual((rows["503204"]["first"], rows["503204"]["last"]), ("2026-03-01", "2026-03-05"))
 
 
+class ImportantInfoTests(unittest.TestCase):
+    """What Important info is allowed to say — the numbers a family would
+    have to telephone, and never a number that is not one."""
+
+    def test_running_loans_carry_their_account_number(self):
+        import sanctuary
+
+        lines = sanctuary._loan_account_lines(
+            [
+                {"id": 2, "lender": "Zebra Finance", "account_no": "111111", "active": 1},
+                {"id": 1, "lender": "Alpha Bank", "account_no": "222222", "active": 1},
+                # settled, and one still running but with no number known
+                {"id": 3, "lender": "Closed Lender", "account_no": "333333", "active": 0},
+                {"id": 4, "lender": "Nameless", "account_no": "", "active": 1},
+            ]
+        )
+        self.assertEqual(
+            [(x["lender"], x["number"]) for x in lines],
+            [("Alpha Bank", "222222"), ("Zebra Finance", "111111")],
+            "only running loans with a number, sorted by lender",
+        )
+        self.assertEqual(lines[0]["id"], "loan-1", "the row id keys the Show button")
+
+    def test_a_number_that_will_not_decrypt_is_not_shown(self):
+        """decrypt_value hands the ciphertext back when the key cannot open
+        it, which used to reach the page as an account ending 'xKVg=='."""
+        import sanctuary
+
+        view = sanctuary._account_view({"kind": "bank", "bank": "HDFC", "number": "gAAAAABqkAkQnotakey"})
+        self.assertEqual(view["number"], "")
+        self.assertEqual(view["tail"], "")
+
+
 class SalaryFromBankTests(unittest.TestCase):
     """A month with no payslip still knows its pay: the employer's credit
     in the bank statement is the salary."""
