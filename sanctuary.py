@@ -1991,22 +1991,15 @@ async def known_get(user: dict = Depends(_unlocked_user)):
             seen.update(extra)
         else:
             accounts[stated["tail"] or stated["id"]] = {**stated, **extra, "entries": 0, "first": "", "last": ""}
-    lenders: list[dict] = []
-    for loan in await sanctuary_db.list_loans(user_id):
-        lenders.append(
-            {
-                "name": loan["name"],
-                "lender": loan.get("lender") or "",
-                "account_no": loan.get("account_no") or "",
-                "emi": float(loan.get("emi_amount") or 0),
-                "open": bool(loan.get("active")),
-            }
-        )
-    lenders.sort(key=lambda item: (not item["open"], item["name"].lower()))
+    # The loans are NOT repeated here. They have their own panel, in full,
+    # and listing twelve of them turned this card into a wall to scroll
+    # past. Only the count travels, as a pointer to where they live.
+    loans = await sanctuary_db.list_loans(user_id)
     return {
         "accounts": sorted(accounts.values(), key=lambda a: -a["entries"]),
         "cards": cards,
-        "lenders": lenders,
+        "loans_open": sum(1 for loan in loans if loan.get("active")),
+        "loans_settled": sum(1 for loan in loans if not loan.get("active")),
     }
 
 

@@ -625,6 +625,41 @@ class CarryForwardTests(unittest.TestCase):
     def tearDown(self):
         os.unlink(self._db_path)
 
+    def test_unsorted_rows_carry_their_direction(self):
+        """The review row says which way each payee's money went, so the
+        query MUST return `source` — omitting it took the whole panel down
+        with a 500 that the page then hid as 'nothing to sort'."""
+
+        async def run():
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-08-01",
+                        "category": "Uncategorised",
+                        "amount": 100.0,
+                        "note": "BRK/NA/1",
+                        "source": "statement",
+                        "ref_id": "stmt:111111:x1",
+                    },
+                    {
+                        "entry_date": "2026-08-02",
+                        "category": "Uncategorised",
+                        "amount": 200.0,
+                        "note": "MMT/Withdrawal/BROKER",
+                        "source": "statement-in",
+                        "ref_id": "stmt:111111:x2",
+                    },
+                ],
+            )
+            return await self.sanctuary_db.uncategorised_ledger(1)
+
+        rows = asyncio.run(run())
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertIn("source", row, "the review row cannot tell in from out without it")
+        self.assertEqual({r["source"] for r in rows}, {"statement", "statement-in"})
+
     def test_the_month_before_january_is_last_december(self):
         import sanctuary
 

@@ -371,10 +371,13 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-chip{font-size:.74rem;padding:2px 9px;border-radius:99px;border:1px solid var(--line-soft);color:var(--soft)}
 /* Which way the money went, said on the chip itself. */
 /* What the sanctuary knows on its own, above his hand-typed notes. */
-.known-wrap{margin:2px 0 16px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)}
-.known-head{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:10px 0 4px}
-.known-row{padding:3px 0}
-.known-row small{display:block;color:var(--soft);font-size:.78rem}
+.known-wrap{margin:2px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line-soft)}
+.known-head{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:10px 0 2px}
+/* One line per account: name, tail, and what is known of it — all on the
+   same row, so a dozen of them never becomes a wall. */
+.known-row{display:flex;align-items:baseline;gap:6px;padding:2px 0;cursor:pointer;border-radius:8px}
+.known-row[data-acct-edit]:hover{background:var(--moss-wash)}
+.known-row small{margin-left:auto;color:var(--soft);font-size:.76rem;white-space:nowrap}
 .stmt-chip.came-in{color:var(--moss-deep);border-color:var(--moss);background:var(--moss-wash)}
 .stmt-chip.went-out{color:var(--terracotta);border-color:var(--terracotta);background:var(--terra-wash)}
 .stmt-review-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
@@ -1808,7 +1811,7 @@ function renderFinance(){
         }<span class="edit" id="salary-edit">${f.salary_is_default ? "set for this month" : "change"}</span></div></div>
     <div class="tile card"><div class="lbl">From last month</div>
       <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
-      <div class="sub">what ${niceMonth(f.carried_from)} still held · the pay that lands on the 30th is this month's money</div></div>
+      <div class="sub">what ${niceMonth(f.carried_from)} still held</div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
@@ -2391,31 +2394,43 @@ async function loadKnown(){
   try {
     const k = await api("/api/sanctuary/known");
     S.known = k;
-    const nameOf = (a) => a.bank || a.label || "Account";
-    const accounts = (k.accounts || []).map((a) =>
-      `<div class="known-row"><b>${esc(nameOf(a))}</b> <span class="num">${a.tail ? "••" + esc(a.tail) : ""}</span>
-        <small>${a.entries ? `${a.entries} entries · ${esc(a.first)} to ${esc(a.last)}`
-                : a.transfers ? `no statement imported · but seen in ${a.transfers} transfer${a.transfers === 1 ? "" : "s"}, last ${esc(a.transfer_last)}`
-                : "no statement imported yet"}${a.id ? ` · <span class="edit" data-acct-edit="${esc(a.id)}">edit</span>` : ""}</small></div>`).join("");
-    const cards = (k.cards || []).map((c) =>
-      `<div class="known-row"><b>${esc(c.bank || c.label || "Card")}</b> <span class="num">${c.tail ? "••" + esc(c.tail) : ""}</span>
-        <small>${esc(c.note || "credit card")} · <span class="edit" data-acct-edit="${esc(c.id)}">edit</span></small></div>`).join("");
-    const lenders = (k.lenders || []).map((l) =>
-      `<div class="known-row"><b>${esc(l.name)}</b>
-        <small>${l.open ? "still running" : "settled"}${l.account_no ? ` · ${esc(l.account_no)}` : ""}${l.emi ? ` · ${inr(l.emi)} a month` : ""}</small></div>`).join("");
-    host.innerHTML = (accounts || cards || lenders)
+    /* One line each. An account found in a statement is editable too —
+       tapping it opens the form so he can put the bank's name to it. */
+    /* A card is known by its last four, the way the bank prints it; an
+       account by six, which is what a statement's reference carries. */
+    const line = (a, fallback, digits) => {
+      const said = a.entries ? `${a.entries} ${a.entries === 1 ? "entry" : "entries"}`
+        : a.transfers ? `seen in ${a.transfers} transfer${a.transfers === 1 ? "" : "s"}`
+        : a.note || "not imported";
+      const tail = (a.tail || "").slice(-digits);
+      return `<div class="known-row" data-acct-edit="${esc(a.id || "")}" data-acct-tail="${esc(a.tail || "")}">
+        <b>${esc(a.bank || a.label || fallback)}</b><span class="num">${tail ? " ••" + esc(tail) : ""}</span>
+        <small>${esc(said)}</small></div>`;
+    };
+    const accounts = (k.accounts || []).map((a) => line(a, "Account", 6)).join("");
+    const cards = (k.cards || []).map((c) => line(c, "Card", 4)).join("");
+    const loans = (k.loans_open || k.loans_settled)
+      ? `<div class="known-row"><b>Loans</b><small>${k.loans_open} still running · ${k.loans_settled} settled — on the Loans panel</small></div>` : "";
+    host.innerHTML = (accounts || cards || loans)
       ? `<div class="known-wrap">
           ${accounts ? `<div class="known-head">Bank accounts</div>${accounts}` : ""}
           ${cards ? `<div class="known-head">Credit cards</div>${cards}` : ""}
-          ${lenders ? `<div class="known-head">Who he has borrowed from</div>${lenders}` : ""}
+          ${loans}
          </div>` : "";
-  } catch { host.innerHTML = ""; }
+  } catch (err) {
+    console.error("[sanctuary] the known block would not load", err);
+    host.innerHTML = "";
+  }
 }
 /* A bank or a card in his own words. The number rests encrypted, like every
    other number the family may one day need to read. */
-function accountForm(id){
-  const list = (S.known && [...(S.known.accounts || []), ...(S.known.cards || [])]) || [];
-  const a = list.find((x) => x.id === id) || {kind: "bank", bank: "", label: "", number: "", note: ""};
+function accountForm(id, tail){
+  /* Only accounts he has STATED can be edited in place. One the statements
+     found carries no id, so tapping it opens a fresh entry already knowing
+     which account he means. */
+  const list = (S.known && [...(S.known.accounts || []), ...(S.known.cards || [])].filter((x) => x.id)) || [];
+  const a = (id && list.find((x) => x.id === id))
+    || {kind: "bank", bank: "", label: "", number: "", note: tail ? `the account ending ${tail}` : ""};
   const wrap = modal(`<h4>${id ? "Tend this account" : "A bank or a card"}</h4>
     <label>Which</label><select class="field" id="af-kind">
       <option value="bank"${a.kind === "bank" ? " selected" : ""}>Bank account</option>
@@ -2435,11 +2450,13 @@ function accountForm(id){
   };
   const current = () => list.map((x) => ({id: x.id, kind: x.kind, bank: x.bank, label: x.label, number: x.number, note: x.note}));
   wrap.querySelector("#af-save").onclick = async () => {
+    const number = wrap.querySelector("#af-num").value.trim();
+    const bank = wrap.querySelector("#af-bank").value.trim();
+    if (!bank && !number) return toast("It needs a bank name or a number to be worth keeping");
     const item = {id: id || "", kind: wrap.querySelector("#af-kind").value,
-      bank: wrap.querySelector("#af-bank").value.trim(), label: a.label || "",
-      number: wrap.querySelector("#af-num").value.trim(), note: wrap.querySelector("#af-note").value.trim()};
+      bank, label: a.label || "", number, note: wrap.querySelector("#af-note").value.trim()};
     const items = current();
-    const at = items.findIndex((x) => x.id === id);
+    const at = id ? items.findIndex((x) => x.id === id) : -1;
     if (at >= 0) items[at] = item; else items.push(item);
     try { await send(items); toast("Kept. 🌿"); } catch (e) { toast(e.message || "That did not take"); }
   };
@@ -2468,7 +2485,7 @@ $("loan-sched-file").onchange = async (e) => {
 };
 document.addEventListener("click", (e) => {
   const edit = e.target.closest("[data-acct-edit]");
-  if (edit) accountForm(edit.dataset.acctEdit);
+  if (edit) accountForm(edit.dataset.acctEdit, edit.dataset.acctTail);
 });
 function renderNotes(){
   $("notes").innerHTML = S.notes.length ? S.notes.map((n, i) => `
@@ -2875,7 +2892,14 @@ async function loadStmtReview(){
           <select class="field">${stmtCatOpts("Uncategorised")}</select>
           <button class="btn ghost" data-stmt-teach>This is where they go</button>
         </div>`).join("");
-  } catch { host.innerHTML = ""; }
+  } catch (err) {
+    /* A panel that hides itself when the server errs is indistinguishable
+       from a panel with nothing to show — 3,833 rows went quiet that way. */
+    console.error("[sanctuary] the unsorted list would not load", err);
+    host.innerHTML = `<div class="section-title" style="font-size:.95rem">Sort the unsorted</div>
+      <div class="section-sub">This list would not load — ${esc(err.message || "the server did not answer")}.
+      Nothing is lost; try again in a moment.</div>`;
+  }
 }
 
 $("cat-manage").onclick = categoriesModal;

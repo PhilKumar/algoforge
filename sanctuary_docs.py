@@ -67,8 +67,17 @@ _RULES = (
     ("home loan", "Finance", "Home loan"),
     ("homeloan", "Finance", "Home loan"),
     ("loan", "Finance", "Loan papers"),
+    # Every fee rule sits above the generic "receipt" below, or a child's
+    # school receipt is filed as a household bill — which is where all of
+    # his sons' term receipts had gone.
     ("fees_receipt", "Family", "School fees"),
     ("fee receipt", "Family", "School fees"),
+    ("fees receipt", "Family", "School fees"),
+    ("term fees", "Family", "School fees"),
+    ("school fee", "Family", "School fees"),
+    ("tuition", "Family", "School fees"),
+    ("fees", "Family", "School fees"),
+    ("std_", "Family", "School fees"),
     ("child", "Family", "School fees"),
     ("policy", "Finance", "Insurance"),
     ("insurance", "Finance", "Insurance"),
@@ -90,9 +99,6 @@ _RULES = (
     ("bills", "Finance", "Bills"),
     ("receipt", "Finance", "Bills"),
     # ── read from his own folder names and the words his papers use ──
-    ("term fees", "Family", "School fees"),
-    ("fees", "Family", "School fees"),
-    ("std_", "Family", "School fees"),
     ("itrv", "Finance", "Tax returns"),
     ("itr ", "Finance", "Tax returns"),
     ("it submission", "Finance", "Tax declarations"),
@@ -187,7 +193,7 @@ _PERIOD_RE = re.compile(r"payslip\s+for\s+the\s+month\s+of\s+(\w+)\s+((?:19|20)\
 _EMPLOYER_RE = re.compile(r"^([A-Za-z][A-Za-z .&]+(?:Ltd|Limited|Pvt|Inc)\.?)", re.MULTILINE)
 _GROSS_RE = re.compile(r"\|Total\s*\|\s*([\d.,]+)\s*\|Total\s*\|\s*([\d.,]+)", re.IGNORECASE)
 # The transfer row opens with its own date and carries the arithmetic:
-# "30.09.2022 ICICI BANK 035001503204 95,170.45 = ... - ... + ...". The pay
+# "30.09.2022 ICICI BANK <account> 95,170.45 = ... - ... + ...". The pay
 # PERIOD is printed earlier, so a bare date search finds the wrong one.
 _TRANSFER_ROW_RE = re.compile(r"(\d{2})\.(\d{2})\.((?:19|20)\d{2})[^\n|]*?=", re.MULTILINE)
 

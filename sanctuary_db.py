@@ -433,7 +433,7 @@ async def uncategorised_ledger(user_id: int) -> list[dict]:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """SELECT id, entry_date, amount, note FROM sanctuary_ledger
+            """SELECT id, entry_date, amount, note, source FROM sanctuary_ledger
                WHERE user_id = ? AND category = 'Uncategorised'
                ORDER BY entry_date DESC""",
             (int(user_id),),
