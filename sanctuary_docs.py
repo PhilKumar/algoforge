@@ -169,3 +169,74 @@ def classify_document(filename: str, folder: str = "") -> dict:
     if series == "Payslips" and employer:
         title = f"{employer} · {title}"
     return {"title": title, "category": category, "series": series, "doc_date": doc_date}
+
+
+# ── Reading a payslip ────────────────────────────────────────────
+
+_TAKE_HOME_RE = re.compile(r"take\s*home\s*pay\s*([\d.,]+)", re.IGNORECASE)
+_PERIOD_RE = re.compile(r"payslip\s+for\s+the\s+month\s+of\s+(\w+)\s+((?:19|20)\d{2})", re.IGNORECASE)
+_EMPLOYER_RE = re.compile(r"^([A-Za-z][A-Za-z .&]+(?:Ltd|Limited|Pvt|Inc)\.?)", re.MULTILINE)
+_GROSS_RE = re.compile(r"\|Total\s*\|\s*([\d.,]+)\s*\|Total\s*\|\s*([\d.,]+)", re.IGNORECASE)
+# The transfer row opens with its own date and carries the arithmetic:
+# "30.09.2022 ICICI BANK 035001503204 95,170.45 = ... - ... + ...". The pay
+# PERIOD is printed earlier, so a bare date search finds the wrong one.
+_TRANSFER_ROW_RE = re.compile(r"(\d{2})\.(\d{2})\.((?:19|20)\d{2})[^\n|]*?=", re.MULTILINE)
+
+
+def _money(text: str) -> float | None:
+    """Read a figure written either way round.
+
+    The older IBM payslips print European style -- "68.026,49" is sixty-eight
+    thousand, not sixty-eight -- while the newer ones print "95,170.45". The
+    LAST separator is the decimal point in both, so it decides.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    last_dot, last_comma = raw.rfind("."), raw.rfind(",")
+    if last_comma > last_dot:
+        raw = raw.replace(".", "").replace(",", ".")
+    else:
+        raw = raw.replace(",", "")
+    try:
+        return round(float(raw), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def read_payslip(text: str) -> dict | None:
+    """Lift the month and the take-home from a payslip's own text.
+
+    Returns None unless BOTH a month and a take-home figure are found —
+    a payslip that half-parses must not quietly set a salary to nonsense.
+    """
+    if not text or "payslip" not in text.lower():
+        return None
+    period = _PERIOD_RE.search(text)
+    take_home = _TAKE_HOME_RE.search(text)
+    if not period or not take_home:
+        return None
+    month = _MONTHS.get(period.group(1).lower())
+    net = _money(take_home.group(1))
+    if not month or not net:
+        return None
+    result = {
+        "month": f"{int(period.group(2)):04d}-{month:02d}",
+        "net": net,
+        "employer": "",
+        "gross": None,
+        "deductions": None,
+        "paid_on": "",
+    }
+    employer = _EMPLOYER_RE.search(text)
+    if employer:
+        result["employer"] = employer.group(1).strip()[:60]
+    totals = _GROSS_RE.search(text)
+    if totals:
+        result["gross"] = _money(totals.group(1))
+        result["deductions"] = _money(totals.group(2))
+    transfer = _TRANSFER_ROW_RE.search(text)
+    if transfer:
+        day, mon, year = transfer.groups()
+        result["paid_on"] = f"{year}-{mon}-{day}"
+    return result

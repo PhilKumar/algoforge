@@ -630,7 +630,46 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
         }
     )
     doc_id = await sanctuary_db.create_document(int(user["id"]), fields)
-    return {"id": doc_id}
+    salary = None
+    if content_type == "application/pdf":
+        salary = await _salary_from_payslip(int(user["id"]), blob)
+    return {"id": doc_id, "salary": salary}
+
+
+async def _salary_from_payslip(user_id: int, blob: bytes) -> dict | None:
+    """A payslip knows the month it belongs to and what actually arrived.
+
+    Whatever it says fills that month's salary, so the tiles stop waiting to
+    be told what the paper already knows. A month the owner set by hand is
+    left alone — his correction outranks the reader.
+    """
+    try:
+        read = await asyncio.to_thread(_read_payslip_pdf, blob)
+    except Exception:  # noqa: BLE001 - an unreadable upload is not an error
+        return None
+    if not read:
+        return None
+    months = await sanctuary_db.get_json_state(user_id, "months", {})
+    entry = dict(months.get(read["month"]) or {})
+    if entry.get("salary_source") == "manual":
+        return None
+    entry["salary"] = read["net"]
+    entry["salary_source"] = "payslip"
+    if read.get("employer"):
+        entry["salary_note"] = read["employer"]
+    months[read["month"]] = entry
+    await sanctuary_db.set_json_state(user_id, "months", months)
+    return {"month": read["month"], "net": read["net"], "employer": read.get("employer", "")}
+
+
+def _read_payslip_pdf(blob: bytes) -> dict | None:
+    import io
+
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(blob)) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+    return sanctuary_docs.read_payslip(text)
 
 
 def _serve_document(doc: dict, user_id: int):
@@ -825,6 +864,9 @@ async def month_put(request: Request, user: dict = Depends(_unlocked_user)):
     entry = months.get(month) or {}
     if "salary" in payload:
         entry["salary"] = max(0.0, float(payload.get("salary") or 0))
+        # Marked as his, so a payslip uploaded later cannot overwrite what he
+        # deliberately typed.
+        entry["salary_source"] = "manual"
     if "note" in payload:
         entry["note"] = str(payload.get("note") or "")[:1000]
     months[month] = entry

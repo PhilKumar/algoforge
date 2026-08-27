@@ -551,6 +551,52 @@ class DocumentNamingTests(unittest.TestCase):
         self.assertEqual((r["category"], r["series"]), ("Other", ""))
 
 
+class PayslipReadingTests(unittest.TestCase):
+    """A payslip's own text, read for the month it belongs to and what
+    actually reached the bank."""
+
+    HEAD = "Kyndryl Solutions Pvt. Ltd.\nPAYSLIP FOR THE MONTH OF September 2022\n"
+
+    def read(self, text):
+        from sanctuary_docs import read_payslip
+
+        return read_payslip(text)
+
+    def test_a_payslip_gives_its_month_and_take_home(self):
+        r = self.read(
+            self.HEAD + "|30.09.2022 ICICI BANK 0350 95,170.45 = 109,659.45 - 14,489.00 + 0.00 |\n"
+            "|Take Home Pay 95,170.45 |"
+        )
+        self.assertEqual(r["month"], "2022-09")
+        self.assertEqual(r["net"], 95170.45)
+        self.assertEqual(r["paid_on"], "2022-09-30")
+        self.assertEqual(r["employer"], "Kyndryl Solutions Pvt. Ltd.")
+
+    def test_the_european_format_of_the_older_slips_is_not_read_as_rupees_68(self):
+        # IBM's older payslips print "68.026,49" — sixty-eight THOUSAND. Read
+        # naively that is Rs 68, a thousandfold lie in a salary field.
+        r = self.read(
+            "IBM India Pvt. Ltd.\nPAYSLIP FOR THE MONTH OF April 2016\n"
+            "|30.04.2016 ICICI BANK 0350 68.026,49 = 75.739,49 - 7.713,00 + 0,00 |\n"
+            "|Take Home Pay 68.026,49 |"
+        )
+        self.assertEqual(r["net"], 68026.49)
+        self.assertEqual(r["paid_on"], "2016-04-30")
+
+    def test_the_transfer_date_is_not_the_pay_period_start(self):
+        r = self.read(
+            self.HEAD + "|Pay period : 01.09.2022 - 30.09.2022 |\n"
+            "|30.09.2022 ICICI BANK 0350 95,170.45 = 1.00 - 0.00 + 0.00 |\n"
+            "|Take Home Pay 95,170.45 |"
+        )
+        self.assertEqual(r["paid_on"], "2022-09-30")
+
+    def test_half_a_payslip_reads_as_none(self):
+        self.assertIsNone(self.read(self.HEAD + "|no figures here|"))
+        self.assertIsNone(self.read("Take Home Pay 95,170.45"))
+        self.assertIsNone(self.read("a shopping list"))
+
+
 class VaultTests(unittest.TestCase):
     """The vault: encrypted at rest, refusing to store plaintext, and the
     document number encrypted like the file it belongs to."""
