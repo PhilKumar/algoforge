@@ -317,6 +317,14 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 .alert .msg b{font-weight:800}
 .alert .due{font-size:.85rem;color:var(--muted)}
 .monthnav{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:20px}
+.mpick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.mpick button{padding:9px 4px;border-radius:11px;border:1px solid var(--line-soft);
+  background:var(--card-2);font:600 .88rem inherit;color:var(--ink);cursor:pointer}
+.mpick button:hover{border-color:var(--moss);color:var(--moss)}
+.mpick button.on{background:var(--moss);border-color:var(--moss);color:#fff}
+.mpick button.has{border-color:var(--moss)}
+.myear{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:4px}
+.myear b{font-family:var(--serif);font-size:1.15rem}
 .monthnav h3{font-family:var(--serif);font-weight:650;font-size:1.5rem;min-width:220px;text-align:center;
   background:var(--card);border-radius:999px;padding:6px 20px;border:1px solid var(--line-soft);
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
@@ -373,6 +381,19 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
 .led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
 .led-cat-edit:hover{color:var(--moss)}
+.vault-row{display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--line-soft)}
+.vault-row:last-child{border-bottom:0}
+.vault-row .vi{font-size:1.05rem;width:22px;text-align:center;flex:none}
+.vault-row .vt{flex:1;min-width:0;font-size:.9rem;font-weight:600}
+.vault-row .vt small{display:block;font-weight:400;color:var(--soft);font-size:.76rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vault-row .btn{padding:4px 10px;font-size:.76rem;flex:none}
+.vault-year{margin:2px 0}
+.vault-year > summary{cursor:pointer;list-style:none;font-size:.8rem;font-weight:700;color:var(--soft);
+  padding:6px 2px;display:flex;gap:7px;align-items:center}
+.vault-year > summary::-webkit-details-marker{display:none}
+.vault-year > summary::before{content:"›";font-weight:900;transition:transform .15s ease}
+.vault-year[open] > summary::before{transform:rotate(90deg)}
 .standing-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:22px;align-items:start}
 @media (max-width:860px){.standing-grid{grid-template-columns:1fr}}
 .standing-figures .sf{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
@@ -935,7 +956,7 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="alerts" id="alerts"></div>
     <div class="monthnav">
       <button class="iconbtn" id="m-prev" title="Previous month">‹</button>
-      <h3 id="m-label"></h3>
+      <h3 id="m-label" title="Tap to jump to any month" style="cursor:pointer"></h3>
       <button class="iconbtn" id="m-next" title="Next month">›</button>
     </div>
     <div class="tiles" id="tiles"></div>
@@ -1047,6 +1068,10 @@ html[data-theme="dark"]{color-scheme:dark}
         <span class="section-sub" style="margin:0">Each paper is named, dated and grouped from its own filename — payslips by month, Form 16s, NPS, fees. Anything unreadable waits as Other.</span>
       </div>
       <div id="vault-progress" style="margin-top:10px"></div>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+        <input class="field" id="vault-q" type="search" placeholder="Find a paper — Form 16, PRAN, Sep 2022…" style="flex:1;min-width:200px">
+        <button class="btn subtle small" id="vault-refile" title="Read every filename again, for when the reading improves">Re-file all</button>
+      </div>
       <div id="vault-list" style="margin-top:14px"></div>
       <div class="vault-family" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)">
         <div class="section-sub" style="margin-bottom:8px">
@@ -1793,6 +1818,8 @@ function renderFinance(){
   ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   S.led = S.led || {q: "", cat: "", acct: "", flow: "", page: 1};
   S.led.page = 1;
+  S.monthsKnown = Object.assign({}, S.monthsKnown || {}, f.months_known || {});
+  Object.keys(f.salary_months || {}).forEach((m) => { S.monthsKnown[m] = S.monthsKnown[m] || 1; });
   const monthCats = [...new Set(S.ledgerRows.map((r) => r.category))].sort();
   $("led-cat").innerHTML = `<option value="">Every category</option>` +
     monthCats.map((c) => `<option ${c === S.led.cat ? "selected" : ""}>${esc(c)}</option>`).join("");
@@ -2509,6 +2536,34 @@ $("s-add").onclick = async () => {
   $("s-title").value = ""; $("s-artist").value = ""; $("s-link").value = "";
   renderSongs(); toast("Added to the shelf ♪");
 };
+$("m-label").onclick = () => monthJump();
+function monthJump(){
+  let year = Number(S.finMonth.slice(0, 4));
+  const wrap = modal(`<h4>Which month?</h4>
+    <div class="section-sub" id="mj-sub">Months with something in them are ringed.</div>
+    <div class="myear"><button class="btn subtle small" id="mj-back">‹</button>
+      <b id="mj-year"></b>
+      <button class="btn subtle small" id="mj-fwd">›</button></div>
+    <div class="mpick" id="mj-grid"></div>
+    <div class="m-foot"><button class="btn subtle" id="mj-cancel">Leave it</button></div>`);
+  const known = new Set(Object.keys(S.monthsKnown || {}));
+  const draw = () => {
+    wrap.querySelector("#mj-year").textContent = year;
+    wrap.querySelector("#mj-grid").innerHTML = MONTHS.map((m, i) => {
+      const key = year + "-" + String(i + 1).padStart(2, "0");
+      return `<button data-mj="${key}" class="${key === S.finMonth ? "on" : known.has(key) ? "has" : ""}">${m.slice(0, 3)}</button>`;
+    }).join("");
+  };
+  draw();
+  wrap.querySelector("#mj-back").onclick = () => { year--; draw(); };
+  wrap.querySelector("#mj-fwd").onclick = () => { year++; draw(); };
+  wrap.querySelector("#mj-cancel").onclick = () => wrap.remove();
+  wrap.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-mj]");
+    if (!b) return;
+    S.finMonth = b.dataset.mj; wrap.remove(); refreshFinance();
+  });
+}
 $("m-prev").onclick = () => { S.finMonth = shiftMonth(S.finMonth, -1); refreshFinance(); };
 $("m-next").onclick = () => { S.finMonth = shiftMonth(S.finMonth, 1); refreshFinance(); };
 $("q-add").onclick = async () => {
@@ -2741,29 +2796,41 @@ async function loadVault(){
 function renderVault(){
   const docs = S.vaultDocs || [];
   if (!docs.length) { $("vault-list").innerHTML = `<div style="color:var(--muted)">Nothing kept yet. The licence, the Aadhaar, the PRAN letter — drop them in.</div>`; return; }
+  const q = ($("vault-q") && $("vault-q").value.trim().toLowerCase()) || "";
+  const shown = docs.filter((d) => !q ||
+    (d.title + " " + d.category + " " + d.series + " " + d.note + " " + d.filename).toLowerCase().includes(q));
+  /* Group by kind, and inside a group of any size by year, so a hundred
+     payslips are one line until a year is asked for. */
   const groups = {};
-  docs.forEach((d) => {
+  shown.forEach((d) => {
     const key = d.series ? `${d.category} · ${d.series}` : d.category;
     (groups[key] = groups[key] || []).push(d);
   });
-  $("vault-list").innerHTML = Object.entries(groups).sort((a, b) => b[1].length - a[1].length).map(([cat, list]) => `
-    <details class="loans-closed" style="margin-top:12px"${list.length <= 6 ? " open" : ""}>
-      <summary>${esc(cat)} — ${list.length}</summary>
-      <div>` +
-    list.map((d) => `
-    <div class="stmt-review-row" data-doc="${d.id}">
-      <span style="font-size:1.25rem;width:30px;text-align:center">${VAULT_ICONS[d.category] || "📄"}</span>
-      <div class="who">
-        <b>${esc(d.title)}${d.doc_date ? " · " + esc(d.doc_date) : ""}</b>
-        ${d.doc_number ? `<span class="stmt-chip num">${esc(d.doc_number)}</span>
-          <button class="btn subtle small" data-vcopy="${esc(d.doc_number)}">Copy</button>` : ""}
-        <small>${esc(d.note || d.filename)} · ${d.size >= 1024 ? (d.size / 1024).toFixed(0) + " KB" : d.size + " B"}</small>
-      </div>
+  const row = (d) => `
+    <div class="vault-row" data-doc="${d.id}">
+      <span class="vi">${VAULT_ICONS[d.category] || "📄"}</span>
+      <span class="vt">${esc(d.title)}${d.doc_number ? ` <span class="stmt-chip num">${esc(d.doc_number)}</span>` : ""}
+        <small>${esc(d.note || d.filename)}${d.size ? " · " + (d.size >= 1024 ? Math.round(d.size / 1024) + " KB" : d.size + " B") : ""}</small></span>
       <a class="btn ghost small" href="/api/sanctuary/vault/${d.id}/file" target="_blank" rel="noopener">Open</a>
       <button class="btn subtle small" data-vedit="${d.id}">Edit</button>
       <button class="btn subtle small" data-vdel="${d.id}">✕</button>
-    </div>`).join("") + `</div></details>`).join("");
+    </div>`;
+  $("vault-list").innerHTML = Object.entries(groups)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([name, list]) => {
+      list.sort((a, b) => (b.doc_date || "").localeCompare(a.doc_date || "") || a.title.localeCompare(b.title));
+      const byYear = {};
+      list.forEach((d) => { (byYear[(d.doc_date || "").slice(0, 4) || "undated"] = byYear[(d.doc_date || "").slice(0, 4) || "undated"] || []).push(d); });
+      const years = Object.keys(byYear).sort().reverse();
+      const inner = (list.length > 12 && years.length > 1)
+        ? years.map((y) => `<details class="vault-year"><summary>${y === "undated" ? "No date" : y} — ${byYear[y].length}</summary>
+            <div>${byYear[y].map(row).join("")}</div></details>`).join("")
+        : list.map(row).join("");
+      return `<details class="loans-closed" style="margin-top:12px"${q || list.length <= 8 ? " open" : ""}>
+        <summary>${esc(name)} — ${list.length}</summary><div>${inner}</div></details>`;
+    }).join("") || `<div style="color:var(--muted)">Nothing matches.</div>`;
 }
+
 function vaultForm(file){
   const wrap = modal(`<h4>Into the vault</h4>
     <div class="section-sub" style="margin-bottom:10px">${esc(file.name)} · ${file.size >= 1024 ? (file.size / 1024).toFixed(0) + " KB" : file.size + " B"} — it will rest encrypted.</div>
@@ -2794,6 +2861,12 @@ function vaultForm(file){
     } catch (e) { toast(e.message || "It would not go in"); }
   };
 }
+$("vault-q").oninput = () => renderVault();
+$("vault-refile").onclick = async () => {
+  const r = await api("/api/sanctuary/vault/refile", {method: "POST"});
+  toast(r.moved ? `${r.moved} papers found better homes. 🌿` : "Everything is already where it belongs.");
+  loadVault();
+};
 $("vault-folder-btn").onclick = () => $("vault-folder").click();
 $("vault-folder").onchange = async (e) => {
   const all = [...e.target.files];
@@ -2813,7 +2886,11 @@ $("vault-folder").onchange = async (e) => {
   let done = 0, failed = 0, salaried = 0;
   for (const file of files) {
     const rel = file.webkitRelativePath || file.name;
-    const folder = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    /* webkitRelativePath opens with the folder HE picked, and that name then
+       colours every file inside it — a folder called "payslips" made a Form
+       16 a payslip. Only the folders BELOW the one he chose say anything. */
+    const parts = rel.split("/");
+    const folder = parts.slice(1, -1).join("/");
     const fd = new FormData();
     fd.append("file", file);
     fd.append("auto", "1");

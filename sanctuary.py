@@ -698,6 +698,35 @@ async def vault_file(doc_id: int, user: dict = Depends(_unlocked_user)):
     return _serve_document(doc, int(user["id"]))
 
 
+@router.post("/api/sanctuary/vault/refile")
+async def vault_refile(user: dict = Depends(_unlocked_user)):
+    """Read every document's name again, for when the reading improves.
+
+    Each row keeps the folder it arrived from in its note, so nothing needs
+    re-uploading. A document whose title he has edited himself is left alone.
+    """
+    user_id = int(user["id"])
+    moved = 0
+    for doc in await sanctuary_db.list_documents(user_id):
+        folder = doc.get("note") or ""
+        if folder.count("/") >= 0 and folder.startswith("payslips"):
+            folder = "/".join(folder.split("/")[1:])
+        read = sanctuary_docs.classify_document(doc.get("filename") or "", folder)
+        changed = {}
+        if read["category"] != doc["category"]:
+            changed["category"] = read["category"]
+        if read["series"] != doc["series"]:
+            changed["series"] = read["series"]
+        if read["doc_date"] and not doc["doc_date"]:
+            changed["doc_date"] = read["doc_date"]
+        if folder != (doc.get("note") or ""):
+            changed["note"] = folder
+        if changed:
+            await sanctuary_db.update_document(user_id, doc["id"], changed)
+            moved += 1
+    return {"moved": moved}
+
+
 @router.put("/api/sanctuary/vault/{doc_id}")
 async def vault_update(doc_id: int, request: Request, user: dict = Depends(_unlocked_user)):
     fields = _clean_document_fields(await request.json())
@@ -1672,6 +1701,10 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         label = f"EMI · {emi['loan_name']}"
         by_category[label] = by_category.get(label, 0) + emi["amount"]
 
+    # Which months hold anything at all — the jump picker rings them, so
+    # eight years of history is reachable without a hundred taps.
+    known = await sanctuary_db.months_with_anything(user_id)
+
     alert_through = (today + timedelta(days=ALERT_WINDOW_DAYS)).isoformat()
     alerts = [
         {
@@ -1708,6 +1741,8 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             "saved": round(saved, 2),
             "left": round(salary - spent - emi_total - saved, 2),
         },
+        "months_known": known,
+        "salary_months": {m: 1 for m, v in months_state.items() if (v or {}).get("salary")},
         "by_category": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda kv: -kv[1])},
         "ledger": ledger,
         "emis": emis,

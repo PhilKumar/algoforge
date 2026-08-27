@@ -285,6 +285,17 @@ async def recategorise_matching(user_id: int, match: str, category: str, from_ca
         return cursor.rowcount
 
 
+async def months_with_anything(user_id: int) -> dict[str, int]:
+    """Every month that holds a ledger row or a salary — for the jump picker."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT substr(entry_date, 1, 7) AS month, COUNT(*)
+               FROM sanctuary_ledger WHERE user_id = ? GROUP BY month""",
+            (int(user_id),),
+        )
+        return {row[0]: row[1] for row in await cursor.fetchall()}
+
+
 async def monthly_flows(user_id: int, months: int = 12) -> list[dict]:
     """Per-month money in and money out, Self transfers excluded on both
     sides — moved money is neither income nor spending."""
