@@ -524,6 +524,17 @@ class DocumentNamingTests(unittest.TestCase):
         r = self.read("Payslips/Shift Allowances/Aug2020.pdf", "Payslips/Shift Allowances")
         self.assertEqual(r["series"], "Shift allowances")
 
+    def test_a_file_with_no_extension_is_read_by_its_first_bytes(self):
+        import sanctuary
+
+        self.assertEqual(sanctuary._sniff_content_type(b"%PDF-1.4 x", ""), "application/pdf")
+        self.assertEqual(
+            sanctuary._sniff_content_type(b"\x89PNG\r\n\x1a\nx", "application/octet-stream"),
+            "image/png",
+        )
+        self.assertEqual(sanctuary._sniff_content_type("a note".encode(), ""), "text/plain")
+        self.assertEqual(sanctuary._sniff_content_type(b"\x00\x01\x02\xfe", ""), "")
+
     def test_an_unreadable_name_waits_as_other(self):
         r = self.read("Onward to paramakudi.pdf")
         self.assertEqual((r["category"], r["series"]), ("Other", ""))

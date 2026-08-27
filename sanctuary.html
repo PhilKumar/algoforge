@@ -1039,7 +1039,7 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card">
       <div class="section-title">The Vault</div>
       <div class="section-sub">Driving licence, Aadhaar, PRAN, payslips — every file is encrypted the moment it arrives, and only this room can open it. Keep originals elsewhere too: this is for reaching them fast, not the only copy.</div>
-      <input type="file" id="vault-file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden>
+      <input type="file" id="vault-file" hidden>
       <input type="file" id="vault-folder" webkitdirectory directory multiple hidden>
       <div id="vault-drop" class="stmt-drop">Drop a document here, or tap to choose</div>
       <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -2793,11 +2793,19 @@ function vaultForm(file){
 }
 $("vault-folder-btn").onclick = () => $("vault-folder").click();
 $("vault-folder").onchange = async (e) => {
-  const files = [...e.target.files].filter((f) =>
-    /\.(pdf|jpe?g|png|webp)$/i.test(f.name) && f.size > 0 && f.size <= 10 * 1024 * 1024);
+  const all = [...e.target.files];
+  /* Zip archives and anything over 10 MB stay behind, and the count says so
+     rather than letting them vanish silently. A file with no extension is
+     offered anyway — the server reads its first bytes. */
+  const files = all.filter((f) => f.size > 0 && f.size <= 10 * 1024 * 1024
+    && !/\.(zip|rar|7z|tar|gz|exe|app|dmg)$/i.test(f.name));
+  const skipped = all.length - files.length;
   e.target.value = "";
-  if (!files.length) return toast("No PDFs or pictures in there");
-  if (!(await confirmDialog(`Keep ${files.length} document${files.length === 1 ? "" : "s"} in the vault? Each is encrypted as it arrives.`, "Keep them safe"))) return;
+  if (!files.length) return toast("Nothing in there the vault can hold");
+  if (!(await confirmDialog(
+    `Keep ${files.length} document${files.length === 1 ? "" : "s"} in the vault? Each is encrypted as it arrives.`
+    + (skipped ? `\n\n${skipped} left behind — archives, or larger than 10 MB.` : ""),
+    "Keep them safe"))) return;
   const bar = $("vault-progress");
   let done = 0, failed = 0;
   for (const file of files) {
@@ -2814,7 +2822,7 @@ $("vault-folder").onchange = async (e) => {
       <div class="loan-progress"><i style="width:${Math.round(done / files.length * 100)}%"></i></div>`;
   }
   bar.innerHTML = "";
-  toast(`${done - failed} kept safe${failed ? `, ${failed} refused` : ""}. 🌿`);
+  toast(`${done - failed} kept safe${failed ? `, ${failed} refused` : ""}${skipped ? `, ${skipped} skipped` : ""}. 🌿`);
   loadVault();
 };
 $("vault-drop").onclick = () => $("vault-file").click();

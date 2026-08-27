@@ -483,7 +483,41 @@ _VAULT_CONTENT_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+    # A household's papers are not only PDFs: the tax workings arrive as
+    # spreadsheets, letters as documents, notes as plain text.
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.oasis.opendocument.text": ".odt",
+    "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
 }
+
+# A file saved without an extension arrives typed as octet-stream or as
+# nothing at all; its first bytes still say what it is.
+_MAGIC = (
+    (b"%PDF-", "application/pdf"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"RIFF", "image/webp"),
+    (b"\xd0\xcf\x11\xe0", "application/vnd.ms-excel"),
+    (b"PK\x03\x04", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+)
+
+
+def _sniff_content_type(blob: bytes, declared: str) -> str:
+    if declared in _VAULT_CONTENT_TYPES:
+        return declared
+    for magic, kind in _MAGIC:
+        if blob.startswith(magic):
+            return kind
+    try:
+        blob[:2048].decode("utf-8")
+        return "text/plain"
+    except UnicodeDecodeError:
+        return ""
 
 
 def _vault_root(user_id: int) -> str:
@@ -554,12 +588,13 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
             status_code=503,
             detail="The vault refuses to store documents unencrypted — ENCRYPTION_KEY is not configured.",
         )
-    content_type = (file.content_type or "").split(";")[0].strip().lower()
-    if content_type not in _VAULT_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail="PDF, JPG, PNG or WEBP only")
+    declared = (file.content_type or "").split(";")[0].strip().lower()
     blob = await _read_upload(file)
     if not blob:
         raise HTTPException(status_code=400, detail="Empty file")
+    content_type = _sniff_content_type(blob, declared)
+    if not content_type:
+        raise HTTPException(status_code=400, detail="Papers and pictures only — that file is something else")
     encrypted = auth.encrypt_bytes(blob)
     if encrypted is None:
         raise HTTPException(status_code=503, detail="Encryption unavailable")
