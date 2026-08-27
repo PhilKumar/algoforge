@@ -1592,6 +1592,86 @@ async def loans_adopt(request: Request, user: dict = Depends(_unlocked_user)):
     return {"id": loan_id, "name": name, "paid": len(cand["debits"]), "closed": cand["closed"]}
 
 
+@router.post("/api/sanctuary/loans/schedule")
+async def loans_schedule_import(file: UploadFile, user: dict = Depends(_unlocked_user)):
+    """A lender's own schedule, read straight onto the shelf.
+
+    A loan drawn on a credit card never appears as a discoverable stream
+    until its debits have run for months, and even then the dates are
+    guessed. The card issues the truth — every instalment to the last one,
+    the rate, and what is still owed — so this reads it whole. Importing
+    the same schedule twice updates that loan rather than adding another.
+    """
+    user_id = int(user["id"])
+    blob = await _read_upload(file)
+    if not blob:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        read = await asyncio.to_thread(_read_card_schedule_pdf, blob, file.filename or "")
+    except Exception:  # noqa: BLE001 - an unreadable upload is not a crash
+        read = None
+    if not read:
+        raise HTTPException(
+            status_code=400,
+            detail="No loan schedule found in that file — it wants the lender's own EMI table.",
+        )
+
+    number = read["loan_number"]
+    card = f"card ••{read['card_tail']}" if read["card_tail"] else "a card"
+    name = f"{read['kind']} on {card} · {read['booked'][:4]}"
+    details = (
+        f"From the lender's own schedule: ₹{read['principal']:,.0f} over {read['tenure']} months "
+        f"at {read['rate']}%, booked {read['booked']}. Outstanding ₹{read['outstanding']:,.0f}. "
+        f"Loan number {number}."
+    )
+    fields = {
+        "name": name,
+        "lender": read["kind"],
+        "emi_amount": read["emi"],
+        "due_day": min(max(int(read["first"][8:10]), 1), 28),
+        "start_date": read["first"],
+        "account_no": number,
+        "note": f"drawn on {card}",
+        "details": details,
+        "active": read["outstanding"] > 0,
+    }
+    existing = next(
+        (loan for loan in await sanctuary_db.list_loans(user_id) if str(loan.get("account_no") or "") == number),
+        None,
+    )
+    if existing:
+        await sanctuary_db.update_loan(user_id, existing["id"], fields)
+        loan_id = existing["id"]
+    else:
+        loan_id = await sanctuary_db.create_loan(user_id, fields)
+    try:
+        await sanctuary_db.replace_schedule(user_id, loan_id, read["emis"])
+        await sanctuary_db.settle_past_emis(user_id, loan_id, _today_ist().isoformat())
+    except Exception:
+        if not existing:
+            await sanctuary_db.delete_loan(user_id, loan_id)
+        raise HTTPException(status_code=500, detail="The schedule would not take — nothing was changed") from None
+    return {
+        "id": loan_id,
+        "name": name,
+        "updated": bool(existing),
+        "instalments": len(read["emis"]),
+        "emi": read["emi"],
+        "outstanding": read["outstanding"],
+        "card_tail": read["card_tail"],
+    }
+
+
+def _read_card_schedule_pdf(blob: bytes, filename: str) -> dict | None:
+    import io
+
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(blob)) as pdf:
+        text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+    return sanctuary_statements.parse_card_loan_schedule(text, filename)
+
+
 @router.post("/api/sanctuary/loans/discover/ignore")
 async def loans_discover_ignore(request: Request, user: dict = Depends(_unlocked_user)):
     user_id = int(user["id"])
@@ -1766,6 +1846,57 @@ async def notes_get(user: dict = Depends(_unlocked_user)):
     return {"notes": await sanctuary_db.get_json_state(int(user["id"]), "notes", [])}
 
 
+# The banks and cards he holds. A statement proves an account exists but
+# never says whose bank it is, and a card he has never spent from leaves no
+# trace at all — so these are his to state, and the number rests encrypted
+# like everything else the family may one day need.
+_ACCOUNT_KINDS = ("bank", "card")
+
+
+def _account_view(item: dict) -> dict:
+    number = auth.decrypt_value(item.get("number") or "")
+    return {
+        "id": item.get("id") or "",
+        "kind": item.get("kind") or "bank",
+        "bank": item.get("bank") or "",
+        "label": item.get("label") or "",
+        "number": number,
+        "tail": number[-6:] if number else "",
+        "note": item.get("note") or "",
+    }
+
+
+@router.get("/api/sanctuary/accounts")
+async def accounts_get(user: dict = Depends(_unlocked_user)):
+    stored = await sanctuary_db.get_json_state(int(user["id"]), "accounts", [])
+    return {"accounts": [_account_view(a) for a in stored]}
+
+
+@router.put("/api/sanctuary/accounts")
+async def accounts_put(request: Request, user: dict = Depends(_unlocked_user)):
+    payload = await request.json()
+    items = payload.get("accounts")
+    if not isinstance(items, list) or len(items) > 60:
+        raise HTTPException(status_code=400, detail="Bad accounts list")
+    cleaned = []
+    for item in items:
+        item = item or {}
+        number = str(item.get("number") or "").strip()[:40]
+        kind = str(item.get("kind") or "bank")
+        cleaned.append(
+            {
+                "id": str(item.get("id") or secrets.token_hex(4)),
+                "kind": kind if kind in _ACCOUNT_KINDS else "bank",
+                "bank": str(item.get("bank") or "").strip()[:60],
+                "label": str(item.get("label") or "").strip()[:80],
+                "number": auth.encrypt_value(number) if number else "",
+                "note": str(item.get("note") or "").strip()[:300],
+            }
+        )
+    await sanctuary_db.set_json_state(int(user["id"]), "accounts", cleaned)
+    return {"ok": True}
+
+
 @router.get("/api/sanctuary/known")
 async def known_get(user: dict = Depends(_unlocked_user)):
     """The accounts and lenders the sanctuary already knows about.
@@ -1787,7 +1918,24 @@ async def known_get(user: dict = Depends(_unlocked_user)):
             "entries": row["entries"],
             "first": row["first"],
             "last": row["last"],
+            "kind": "bank",
+            "bank": "",
+            "label": "",
+            "id": "",
         }
+    # What he has told us marries into what the statements prove: an account
+    # he has named gains its bank, and one he holds but has never imported
+    # appears anyway. A card is his word alone — it leaves no statement here.
+    cards = []
+    for stated in [_account_view(a) for a in await sanctuary_db.get_json_state(user_id, "accounts", [])]:
+        if stated["kind"] == "card":
+            cards.append(stated)
+            continue
+        seen = accounts.get(stated["tail"])
+        if seen:
+            seen.update({"bank": stated["bank"], "label": stated["label"], "id": stated["id"]})
+        else:
+            accounts[stated["tail"] or stated["id"]] = {**stated, "entries": 0, "first": "", "last": ""}
     lenders: list[dict] = []
     for loan in await sanctuary_db.list_loans(user_id):
         lenders.append(
@@ -1800,7 +1948,11 @@ async def known_get(user: dict = Depends(_unlocked_user)):
             }
         )
     lenders.sort(key=lambda item: (not item["open"], item["name"].lower()))
-    return {"accounts": sorted(accounts.values(), key=lambda a: -a["entries"]), "lenders": lenders}
+    return {
+        "accounts": sorted(accounts.values(), key=lambda a: -a["entries"]),
+        "cards": cards,
+        "lenders": lenders,
+    }
 
 
 @router.put("/api/sanctuary/notes")

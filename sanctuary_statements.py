@@ -564,3 +564,83 @@ def _merge_and_sort(candidates: list[dict]) -> list[dict]:
             merged.append(cand)
     merged.sort(key=lambda c: (-c["closed"], c["last"]), reverse=True)
     return merged
+
+
+# ── A card's own loan schedule ───────────────────────────────────
+#
+# A credit card that lends against itself issues a schedule of its own:
+# HDFC's "LINKED LOANS" table names the loan, what it cost, what is still
+# owed, and every instalment to the last one. Read straight, it puts a debt
+# on the shelf with its real dates instead of a stream guessed from debits.
+
+_CARD_LOAN_HEAD_RE = re.compile(
+    r"(\d{10,25})\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+([A-Za-z]+)\s+"
+    r"([\d,]+\.\d{2})\s+([\d.]+)\s+(\d+)\s+([\d,]+\.\d{2})"
+)
+_CARD_LOAN_EMI_RE = re.compile(r"^([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s*$")
+_CARD_TAIL_RE = re.compile(r"(?:^|[_\s-])(\d{4})(?:[_\s-]|$)")
+
+
+def _card_loan_date(text: str) -> str:
+    return datetime.strptime(re.sub(r"\s+", " ", text.strip()), "%d %b %Y").date().isoformat()
+
+
+def parse_card_loan_schedule(text: str, filename: str = "") -> dict | None:
+    """Read a card's linked-loan table into a debt and its instalments.
+
+    Returns None unless the header AND at least one instalment are found —
+    a half-read schedule would put a wrong debt on the shelf, which is
+    worse than leaving him to type it.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    head = None
+    for line in lines:
+        head = _CARD_LOAN_HEAD_RE.search(line)
+        if head:
+            break
+    if not head:
+        return None
+
+    emis = []
+    for line in lines:
+        row = _CARD_LOAN_EMI_RE.match(line)
+        if not row:
+            continue
+        principal = _parse_money(row.group(1)) or 0.0
+        interest = _parse_money(row.group(2)) or 0.0
+        emis.append(
+            {
+                "due_date": _card_loan_date(row.group(3)),
+                "amount": round(principal + interest, 2),
+                "principal": principal,
+                "interest": interest,
+            }
+        )
+    if not emis:
+        return None
+    emis.sort(key=lambda e: e["due_date"])
+
+    # The card is named by the file the bank hands over ("LINKED LOANS_1234_…"),
+    # never inside the table itself.
+    stem = (filename or "").rsplit("/", 1)[-1]
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", stem)
+    tail = ""
+    for part in re.split(r"[_\s]+", stem):
+        if re.fullmatch(r"\d{4}", part):
+            tail = part
+            break
+
+    return {
+        "loan_number": head.group(1).lstrip("0") or head.group(1),
+        "booked": _card_loan_date(head.group(2)),
+        "kind": head.group(3).title(),
+        "principal": _parse_money(head.group(4)),
+        "rate": float(head.group(5)),
+        "tenure": int(head.group(6)),
+        "outstanding": _parse_money(head.group(7)),
+        "card_tail": tail,
+        "emi": emis[0]["amount"],
+        "first": emis[0]["due_date"],
+        "last": emis[-1]["due_date"],
+        "emis": emis,
+    }

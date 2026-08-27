@@ -1046,7 +1046,12 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="loans" id="loans"></div>
       <div id="loans-closed"></div>
       <div id="loan-found"></div>
-      <div style="margin-top:14px"><button class="btn ghost" id="loan-add">＋ Add a loan</button></div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn ghost" id="loan-add">＋ Add a loan</button>
+        <input type="file" id="loan-sched-file" accept="application/pdf" hidden>
+        <button class="btn ghost" id="loan-sched-btn" title="A lender's own EMI table — a card's linked loan, an NBFC's statement of account">📄 Import an EMI schedule</button>
+        <span class="section-sub" style="margin:0;flex-basis:100%">A loan drawn on a credit card never shows up as a stream until its debits have run for months. Its own schedule says everything at once.</span>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:24px">
@@ -1063,7 +1068,10 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-sub">Policy numbers, account notes, things the family should be able to find.</div>
       <div id="known-block"></div>
       <div class="notes-list" id="notes"></div>
-      <div style="margin-top:12px"><button class="btn ghost small" id="note-add">＋ Add a note</button></div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn ghost small" id="note-add">＋ Add a note</button>
+        <button class="btn ghost small" id="acct-add">＋ Bank or card</button>
+      </div>
     </div>
 
     <div class="card">
@@ -2376,19 +2384,85 @@ async function loadKnown(){
   if (!host) return;
   try {
     const k = await api("/api/sanctuary/known");
+    S.known = k;
+    const nameOf = (a) => a.bank || a.label || "Account";
     const accounts = (k.accounts || []).map((a) =>
-      `<div class="known-row"><b class="num">••${esc(a.tail)}</b>
-        <small>${a.entries} entries · ${esc(a.first)} to ${esc(a.last)}</small></div>`).join("");
+      `<div class="known-row"><b>${esc(nameOf(a))}</b> <span class="num">${a.tail ? "••" + esc(a.tail) : ""}</span>
+        <small>${a.entries ? `${a.entries} entries · ${esc(a.first)} to ${esc(a.last)}`
+                            : "no statement imported yet"}${a.id ? ` · <span class="edit" data-acct-edit="${esc(a.id)}">edit</span>` : ""}</small></div>`).join("");
+    const cards = (k.cards || []).map((c) =>
+      `<div class="known-row"><b>${esc(c.bank || c.label || "Card")}</b> <span class="num">${c.tail ? "••" + esc(c.tail) : ""}</span>
+        <small>${esc(c.note || "credit card")} · <span class="edit" data-acct-edit="${esc(c.id)}">edit</span></small></div>`).join("");
     const lenders = (k.lenders || []).map((l) =>
       `<div class="known-row"><b>${esc(l.name)}</b>
         <small>${l.open ? "still running" : "settled"}${l.account_no ? ` · ${esc(l.account_no)}` : ""}${l.emi ? ` · ${inr(l.emi)} a month` : ""}</small></div>`).join("");
-    host.innerHTML = (accounts || lenders)
+    host.innerHTML = (accounts || cards || lenders)
       ? `<div class="known-wrap">
-          ${accounts ? `<div class="known-head">Accounts the statements came from</div>${accounts}` : ""}
+          ${accounts ? `<div class="known-head">Bank accounts</div>${accounts}` : ""}
+          ${cards ? `<div class="known-head">Credit cards</div>${cards}` : ""}
           ${lenders ? `<div class="known-head">Who he has borrowed from</div>${lenders}` : ""}
          </div>` : "";
   } catch { host.innerHTML = ""; }
 }
+/* A bank or a card in his own words. The number rests encrypted, like every
+   other number the family may one day need to read. */
+function accountForm(id){
+  const list = (S.known && [...(S.known.accounts || []), ...(S.known.cards || [])]) || [];
+  const a = list.find((x) => x.id === id) || {kind: "bank", bank: "", label: "", number: "", note: ""};
+  const wrap = modal(`<h4>${id ? "Tend this account" : "A bank or a card"}</h4>
+    <label>Which</label><select class="field" id="af-kind">
+      <option value="bank"${a.kind === "bank" ? " selected" : ""}>Bank account</option>
+      <option value="card"${a.kind === "card" ? " selected" : ""}>Credit card</option></select>
+    <label>Bank</label><input class="field" id="af-bank" value="${esc(a.bank || "")}" placeholder="HDFC, Kotak, ICICI, Axis…">
+    <label>Number <span style="font-weight:400">— kept encrypted</span></label>
+    <input class="field" id="af-num" value="${esc(a.number || "")}" placeholder="the full number">
+    <label>Note</label><input class="field" id="af-note" value="${esc(a.note || "")}" placeholder="salary account, the card the loans sit on…">
+    <div class="m-foot">
+      ${id ? `<button class="btn subtle" id="af-del">Remove</button>` : ""}
+      <button class="btn subtle" id="af-cancel">Leave it</button>
+      <button class="btn" id="af-save">Keep it</button></div>`);
+  wrap.querySelector("#af-cancel").onclick = () => wrap.remove();
+  const send = async (items) => {
+    await api("/api/sanctuary/accounts", {method: "PUT", body: {accounts: items}});
+    wrap.remove(); loadKnown(); refreshFinance();
+  };
+  const current = () => list.map((x) => ({id: x.id, kind: x.kind, bank: x.bank, label: x.label, number: x.number, note: x.note}));
+  wrap.querySelector("#af-save").onclick = async () => {
+    const item = {id: id || "", kind: wrap.querySelector("#af-kind").value,
+      bank: wrap.querySelector("#af-bank").value.trim(), label: a.label || "",
+      number: wrap.querySelector("#af-num").value.trim(), note: wrap.querySelector("#af-note").value.trim()};
+    const items = current();
+    const at = items.findIndex((x) => x.id === id);
+    if (at >= 0) items[at] = item; else items.push(item);
+    try { await send(items); toast("Kept. 🌿"); } catch (e) { toast(e.message || "That did not take"); }
+  };
+  if (id) wrap.querySelector("#af-del").onclick = async () => {
+    if (!(await confirmDialog("Remove this from Important info?", "Remove"))) return;
+    try { await send(current().filter((x) => x.id !== id)); toast("Gone."); } catch (e) { toast(e.message || "That did not take"); }
+  };
+}
+$("acct-add").onclick = () => accountForm(null);
+$("loan-sched-btn").onclick = () => $("loan-sched-file").click();
+$("loan-sched-file").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const btn = $("loan-sched-btn");
+  btn.disabled = true; btn.textContent = "Reading…";
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await api("/api/sanctuary/loans/schedule", {method: "POST", body: fd});
+    toast(`${r.updated ? "Brought up to date" : "On the shelf"} — ${r.instalments} instalments of ${inr(r.emi)}`
+      + `${r.outstanding ? `, ${inr(r.outstanding)} still owed` : ", settled"}. 🌿`);
+    loadLoans(); refreshFinance(); loadKnown();
+  } catch (err) { toast(err.message || "That schedule would not read"); }
+  btn.disabled = false; btn.textContent = "📄 Import an EMI schedule";
+};
+document.addEventListener("click", (e) => {
+  const edit = e.target.closest("[data-acct-edit]");
+  if (edit) accountForm(edit.dataset.acctEdit);
+});
 function renderNotes(){
   $("notes").innerHTML = S.notes.length ? S.notes.map((n, i) => `
     <div class="note-card card"><div class="h" data-note-open="${i}">

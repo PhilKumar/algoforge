@@ -551,6 +551,55 @@ class DocumentNamingTests(unittest.TestCase):
         self.assertEqual((r["category"], r["series"]), ("Other", ""))
 
 
+class CardLoanScheduleTests(unittest.TestCase):
+    """A credit card's linked-loan table, read into a debt with real dates.
+
+    The figures here are invented — the shape is what the bank prints.
+    """
+
+    TABLE = """Loan EMI Table
+Principal Tenure Outstanding
+Loan Number Loan Booked Date Loan Type Interest Rate (%)
+Amount (Rs.) (months) Principal (Rs.)
+0000000000999888777 14 Oct 2025 INSTALOAN 300000.00 11.88 3 250000.00
+Principal Amount (Rs) Interest Amount (Rs) EMI Date
+7370.00 9900.00 13 Nov 2025
+7443.00 5867.00 13 Dec 2025
+7500.00 5800.00 13 Jan 2026
+This is a system generated document and does not require signature."""
+
+    def read(self, text=None, filename="LINKED LOANS_1234_27-08-26_13.35.pdf"):
+        import sanctuary_statements
+
+        return sanctuary_statements.parse_card_loan_schedule(text if text is not None else self.TABLE, filename)
+
+    def test_the_header_is_read_whole(self):
+        r = self.read()
+        self.assertEqual(r["loan_number"], "999888777")
+        self.assertEqual(r["booked"], "2025-10-14")
+        self.assertEqual((r["principal"], r["rate"], r["tenure"]), (300000.0, 11.88, 3))
+        self.assertEqual(r["outstanding"], 250000.0)
+
+    def test_each_instalment_is_principal_plus_interest(self):
+        r = self.read()
+        self.assertEqual(len(r["emis"]), 3)
+        self.assertEqual(r["emis"][0]["amount"], 17270.0, "7370 principal + 9900 interest")
+        self.assertEqual((r["first"], r["last"]), ("2025-11-13", "2026-01-13"))
+        self.assertEqual(r["emi"], 17270.0)
+
+    def test_the_card_is_named_by_the_file_the_bank_hands_over(self):
+        self.assertEqual(self.read()["card_tail"], "1234")
+        self.assertEqual(self.read(filename="schedule.pdf")["card_tail"], "", "no four-digit token, no card claimed")
+
+    def test_a_half_read_table_is_refused(self):
+        """A schedule with a header but no instalments would put a wrong
+        debt on the shelf — worse than leaving him to type it."""
+        header_only = "\n".join(self.TABLE.splitlines()[:5])
+        self.assertIsNone(self.read(header_only))
+        self.assertIsNone(self.read("a letter about nothing at all"))
+        self.assertIsNone(self.read(""))
+
+
 class KnownAccountsTests(unittest.TestCase):
     """The accounts the sanctuary can prove he banks through, read back
     from the reference each imported row carries."""
