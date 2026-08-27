@@ -587,6 +587,16 @@ This is a system generated document and does not require signature."""
         self.assertEqual((r["first"], r["last"]), ("2025-11-13", "2026-01-13"))
         self.assertEqual(r["emi"], 17270.0)
 
+    def test_every_row_knows_what_is_still_owed(self):
+        """The bank prints no running balance, so it is computed — what was
+        borrowed less every principal rupee paid through that row. The loan
+        card reads its OUTSTANDING from exactly this column; without it the
+        card showed a dash."""
+        r = self.read()
+        self.assertEqual(r["emis"][0]["outstanding"], 292630.0, "300000 - 7370 principal")
+        self.assertEqual(r["emis"][1]["outstanding"], 285187.0, "then - 7443")
+        self.assertEqual(r["emis"][2]["outstanding"], 277687.0, "then - 7500")
+
     def test_the_card_is_named_by_the_file_the_bank_hands_over(self):
         self.assertEqual(self.read()["card_tail"], "1234")
         self.assertEqual(self.read(filename="schedule.pdf")["card_tail"], "", "no four-digit token, no card claimed")

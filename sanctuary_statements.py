@@ -620,6 +620,16 @@ def parse_card_loan_schedule(text: str, filename: str = "") -> dict | None:
         return None
     emis.sort(key=lambda e: e["due_date"])
 
+    # The table prints no running balance, but it does print each
+    # instalment's principal — so the balance is computed: what was
+    # borrowed, less every principal rupee paid through that row. The
+    # loan card reads its OUTSTANDING from exactly this column.
+    principal_total = _parse_money(head.group(4)) or 0.0
+    remaining = principal_total
+    for emi in emis:
+        remaining = max(0.0, round(remaining - emi["principal"], 2))
+        emi["outstanding"] = remaining
+
     # The card is named by the file the bank hands over ("LINKED LOANS_1234_…"),
     # never inside the table itself.
     stem = (filename or "").rsplit("/", 1)[-1]
