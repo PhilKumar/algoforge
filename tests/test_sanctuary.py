@@ -916,8 +916,24 @@ class SalaryFromBankTests(unittest.TestCase):
             ("MMT/IMPS/818019811931/PayZapp - Phili/PAYZAPP WA/HDFC BANK LTD", "Self transfer"),
             ("MMT/IMPS/523716694159/PHILIPRANJ/UTIB0005390", "Self transfer"),
             ("RTGS-HDFCR52023021482685717-HDFC BANK LTD RA OPS-14", "HDFC loan"),
+            # the word he typed at the counter is the truest thing in the row
+            ("UPI/MADHEENA CHICKE/551722241235/chicken", "Groceries"),
+            ("UPI/SUSHAANTH HOMOE/551005321873/medicine", "Health"),
+            ("UPI/CHINNADURAI MUR/551031307144/snacks", "Eating out"),
+            ("Int.Pd:3712258400:01-01-2021 to 31-03-2021", "Interest"),
         ):
             self.assertEqual(st.categorise(note), want, note)
+
+    def test_the_traps_that_look_like_rules_but_are_not(self):
+        """Patterns I measured and refused: 'lab' catches PineLabs POS
+        terminals and Divi's Laboratories, and one handle called
+        'paytmqr' stands behind 445 rows of every kind of shop."""
+        import sanctuary_statements as st
+
+        # neither may be dragged into Health by a three-letter "lab"
+        self.assertNotEqual(st.categorise("UPI/349645/UPI/shoes.425/HDFC BANK LTD/PINELABPOSDQR42"), "Health")
+        self.assertNotEqual(st.categorise("NACH-10-CR-DIVISLABORATORIES-000000002702843"), "Health")
+        self.assertEqual(st.categorise("UPI/032011257798/UPI/paytmqr28100505/Paytm Payments/"), "Uncategorised")
 
 
 class PayslipReadingTests(unittest.TestCase):

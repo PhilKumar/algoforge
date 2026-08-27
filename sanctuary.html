@@ -562,6 +562,8 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
 .led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
 .led-cat-edit:hover{color:var(--moss)}
+.vault-pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0 2px;
+  font-size:.78rem;color:var(--soft);font-weight:700}
 .vault-row{display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--line-soft)}
 .vault-row:last-child{border-bottom:0}
 .vault-row .vi{font-size:1.05rem;width:22px;text-align:center;flex:none}
@@ -1760,6 +1762,7 @@ const S = {
   composerKind: "note",
   composerPhotos: [],
   entries: [], moods: {}, daily: null,
+  vaultPage: {},   /* which page each vault group is showing */
   fin: null, loans: [], notes: [],
   recurringDraft: null,
 };
@@ -2885,6 +2888,17 @@ let qTimer = null;
 $("f-q").addEventListener("input", () => { clearTimeout(qTimer);
   qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
 /* ── turning the diary's pages ── */
+document.addEventListener("click", (e) => {
+  const pg = e.target.closest("[data-vpage]");
+  if (!pg) return;
+  const key = pg.dataset.vpage;
+  S.vaultPage[key] = Math.max(0, (S.vaultPage[key] || 0) + Number(pg.dataset.vstep));
+  /* which groups were open must survive the redraw, or turning a page
+     would fold the shelf shut under his hand */
+  const open = [...document.querySelectorAll("#vault-list details")].map((d) => d.open);
+  renderVault();
+  document.querySelectorAll("#vault-list details").forEach((d, i) => { if (open[i]) d.open = true; });
+});
 document.addEventListener("click", async (e) => {
   const re = e.target.closest("#stmt-resort");
   if (!re) return;
@@ -3206,6 +3220,7 @@ async function loadVault(){
     $("vault-family-state").textContent = st.family_access ? "· Access is ON." : "· No key set yet.";
   } catch { /* locked or offline — the card stays quiet */ }
 }
+const VAULT_PER_PAGE = 10;
 function renderVault(){
   const docs = S.vaultDocs || [];
   if (!docs.length) { $("vault-list").innerHTML = `<div style="color:var(--muted)">Nothing kept yet. The licence, the Aadhaar, the PRAN letter — drop them in.</div>`; return; }
@@ -3235,11 +3250,28 @@ function renderVault(){
       const byYear = {};
       list.forEach((d) => { (byYear[(d.doc_date || "").slice(0, 4) || "undated"] = byYear[(d.doc_date || "").slice(0, 4) || "undated"] || []).push(d); });
       const years = Object.keys(byYear).sort().reverse();
-      const inner = (list.length > 12 && years.length > 1)
+      /* A page at a time, never the whole shelf. A hundred payslips used to
+         unroll the moment their kind was opened and push everything below
+         them off the screen; now a group shows one page and says how much
+         more is behind it. */
+      const paged = (items, key) => {
+        const at = S.vaultPage[key] || 0;
+        const from = at * VAULT_PER_PAGE;
+        const slice = items.slice(from, from + VAULT_PER_PAGE);
+        const pages = Math.ceil(items.length / VAULT_PER_PAGE);
+        const nav = pages > 1 ? `<div class="vault-pager">
+            <button class="btn subtle small" data-vpage="${esc(key)}" data-vstep="-1"${at === 0 ? " disabled" : ""}>‹</button>
+            <span>${from + 1}–${Math.min(from + VAULT_PER_PAGE, items.length)} of ${items.length}</span>
+            <button class="btn subtle small" data-vpage="${esc(key)}" data-vstep="1"${at >= pages - 1 ? " disabled" : ""}>›</button>
+          </div>` : "";
+        return slice.map(row).join("") + nav;
+      };
+      const inner = (list.length > VAULT_PER_PAGE && years.length > 1)
         ? years.map((y) => `<details class="vault-year"><summary>${y === "undated" ? "No date" : y} — ${byYear[y].length}</summary>
-            <div>${byYear[y].map(row).join("")}</div></details>`).join("")
-        : list.map(row).join("");
-      return `<details class="loans-closed" style="margin-top:12px"${q || list.length <= 8 ? " open" : ""}>
+            <div>${paged(byYear[y], name + "|" + y)}</div></details>`).join("")
+        : paged(list, name);
+      /* Closed is the resting state — only a live search opens a group. */
+      return `<details class="loans-closed" style="margin-top:12px"${q ? " open" : ""}>
         <summary>${esc(name)} — ${list.length}</summary><div>${inner}</div></details>`;
     }).join("") || `<div style="color:var(--muted)">Nothing matches.</div>`;
 }

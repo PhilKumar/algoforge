@@ -150,6 +150,35 @@ DEFAULT_RULES = [
     {"match": "hdfc bank ltd ra", "category": "HDFC loan"},
     {"match": "angel one", "category": "Investments"},
     {"match": "philipranj", "category": "Self transfer"},
+    # ── what his own UPI remarks say ──
+    # A UPI narration ends in the note he typed at the counter — "chicken",
+    # "medicine", "snacks". That word is the truest thing in the row, and
+    # these cover the ones he writes over and over. Deliberately NOT "lab"
+    # (it catches PineLabs POS terminals and Divi's Laboratories) nor
+    # "paytmqr" (445 rows, but every kind of shop behind one handle).
+    {"match": "chicken", "category": "Groceries"},
+    {"match": "mutton", "category": "Groceries"},
+    {"match": "vegetable", "category": "Groceries"},
+    {"match": "fruits", "category": "Groceries"},
+    {"match": "grocery", "category": "Groceries"},
+    {"match": "provision", "category": "Groceries"},
+    {"match": "snacks", "category": "Eating out"},
+    {"match": "breakfast", "category": "Eating out"},
+    {"match": "lunch", "category": "Eating out"},
+    {"match": "dinner", "category": "Eating out"},
+    {"match": "medicine", "category": "Health"},
+    {"match": "apple medi", "category": "Health"},
+    {"match": "saloon", "category": "Personal care"},
+    {"match": "salon", "category": "Personal care"},
+    {"match": "barber", "category": "Personal care"},
+    {"match": "plumber", "category": "Home repairs"},
+    {"match": "carpenter", "category": "Home repairs"},
+    {"match": "electrician", "category": "Home repairs"},
+    # "Int.Pd:<account>:<period>" is the bank paying him interest; the plain
+    # word "interest" below never appears in that shape.
+    {"match": "int.pd", "category": "Interest"},
+    {"match": "goog-payment", "category": "Refund"},
+    {"match": "/self/self", "category": "Self transfer"},
     {"match": "salary", "category": "Salary"},
     # His pay arrives named by the employer, never by the word "salary" —
     # "NEFT-...-KYNDRYL SOLUTIONS-..." is what a month's pay looks like.
@@ -268,6 +297,16 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
         return {"status": "error", "error": "No transaction table found in this file."}
 
     acct_tail = account[-6:] if account else "unknown"
+    # A statement header prints its own IFSC ("KKBK0000234"), and the first
+    # four letters name the bank. Captured here, an account never has to be
+    # labelled by hand again.
+    own_bank = ""
+    header_text = " ".join(" ".join(str(x) for x in row) for row in grid[: header_at + 1])
+    ifsc_here = re.search(r"\b([A-Z]{4}0[A-Z0-9]{6})\b", header_text.upper())
+    if ifsc_here:
+        own_bank = _BANK_BY_IFSC.get(ifsc_here.group(1)[:4], "")
+    elif "OPTRANSACTIONHISTORY" in header_text.upper():
+        own_bank = "ICICI"
     rows: list[dict] = []
     deposits_count = 0
     deposits_total = 0.0
@@ -346,6 +385,7 @@ def _rows_to_result(filename: str, grid: list[list[str]]) -> dict:
         "status": "ok",
         "filename": filename,
         "account": account,
+        "bank": own_bank,
         "linked_accounts": linked,
         "account_tail": acct_tail,
         "date_from": rows[0]["entry_date"],
@@ -361,7 +401,10 @@ def _grid_from_xls(blob: bytes) -> list[list[str]]:
 
     book = xlrd.open_workbook(file_contents=blob)
     sheet = book.sheet_by_index(0)
-    grid = []
+    # ICICI's export names its own sheet "OpTransactionHistory" and prints
+    # no IFSC anywhere, so the sheet name is the only thing that says whose
+    # bank this is. It rides in as a first row the header scan ignores.
+    grid = [[f"__sheet__ {sheet.name}"]]
     for r in range(sheet.nrows):
         row = []
         for c in range(sheet.ncols):

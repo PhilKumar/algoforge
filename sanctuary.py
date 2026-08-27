@@ -1279,26 +1279,35 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
 
 
 async def _remember_account_number(user_id: int, account: str, bank: str) -> None:
-    """File the statement's account number under Important info, once."""
-    notes = await sanctuary_db.get_json_state(user_id, "notes", [])
-    title = f"Bank account ··{account[-4:]}"
-    if any(n.get("title") == title or account in str(n.get("body", "")) for n in notes):
+    """File the statement's account among his accounts, once.
+
+    This used to write a loose note titled "Bank account ··8400", so four
+    imports left four notes saying nothing but a number. An account belongs
+    in the accounts list, where the panel already shows it by name with what
+    the statements prove — and where the number rests encrypted.
+    """
+    stored = await sanctuary_db.get_json_state(user_id, "accounts", [])
+    for item in stored:
+        if auth.decrypt_value(item.get("number") or "") == account:
+            # Known already — but a statement that now names its bank can
+            # fill in a blank one.
+            if bank.strip() and not (item.get("bank") or "").strip():
+                item["bank"] = bank.strip()[:60]
+                await sanctuary_db.set_json_state(user_id, "accounts", stored)
+            return
+    if len(stored) >= 60:
         return
-    if len(notes) >= 200:
-        return
-    body = f"Account number: {account}"
-    if bank.strip():
-        body += f"\nBank: {bank.strip()[:80]}"
-    body += f"\nFiled from a statement upload on {_today_ist().isoformat()}."
-    notes.append(
+    stored.append(
         {
             "id": secrets.token_hex(4),
-            "title": title,
-            "body": body,
-            "updated_at": _today_ist().isoformat(),
+            "kind": "bank",
+            "bank": bank.strip()[:60],
+            "label": "",
+            "number": auth.encrypt_value(account),
+            "note": f"found in a statement, {_today_ist().isoformat()}",
         }
     )
-    await sanctuary_db.set_json_state(user_id, "notes", notes)
+    await sanctuary_db.set_json_state(user_id, "accounts", stored)
 
 
 @router.get("/api/sanctuary/statements/review")
@@ -1347,13 +1356,28 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     if moved:
         categories = await _get_categories(user_id)
         have = {c["name"] for c in categories}
+        # Money put ASIDE is a saving, so it leaves 'spent'; money that
+        # merely arrives is neither — it is filed for the record.
         savings = {"Investments"}
+        emoji = {
+            "Interest": "🪙",
+            "Refund": "↩️",
+            "Personal care": "💇",
+            "Home repairs": "🔧",
+            "Groceries": "🧺",
+            "Eating out": "🍽️",
+            "Health": "💊",
+            "Credit card bill": "💳",
+            "Self transfer": "🔁",
+            "Salary": "🌾",
+            "Investments": "📈",
+        }
         for name in sorted(moved):
             if name not in have and len(categories) < 100:
                 categories.append(
                     {
                         "name": name,
-                        "emoji": "📈" if name in savings else "🏷️",
+                        "emoji": emoji.get(name, "🏷️"),
                         "kind": "saving" if name in savings else "expense",
                         "quick": False,
                     }
