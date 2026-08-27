@@ -1783,7 +1783,9 @@ function renderFinance(){
   $("tiles").innerHTML = `
     <div class="tile card"><div class="lbl">Salary</div>
       <div class="val num">${inr(f.salary)}</div>
-      <div class="sub"><span class="edit" id="salary-edit">${f.salary_is_default ? "set for this month" : "change"}</span></div></div>
+      <div class="sub">${f.salary_source === "statement" ? "what the bank saw arrive · " :
+                        f.salary_source === "payslip" ? "read from the payslip · " : ""
+        }<span class="edit" id="salary-edit">${f.salary_is_default ? "set for this month" : "change"}</span></div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>

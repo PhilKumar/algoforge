@@ -135,6 +135,10 @@ DEFAULT_RULES = [
     {"match": "tiffin", "category": "Eating out"},
     {"match": "indian clearing corp", "category": "Investments"},
     {"match": "salary", "category": "Salary"},
+    # His pay arrives named by the employer, never by the word "salary" —
+    # "NEFT-...-KYNDRYL SOLUTIONS-..." is what a month's pay looks like.
+    {"match": "kyndryl", "category": "Salary"},
+    {"match": "ibm india", "category": "Salary"},
     {"match": "interest", "category": "Interest"},
     {"match": "dividend", "category": "Dividend"},
     {"match": "refund", "category": "Refund"},

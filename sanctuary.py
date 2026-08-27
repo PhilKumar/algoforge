@@ -48,6 +48,9 @@ _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PHOTO_PATH_RE = re.compile(r"^\d{4}/\d{2}/[A-Za-z0-9_\-]+\.(jpg|png|webp)$")
+# Who pays him. A credit naming one of these IS the month's pay, whatever
+# category an older import gave it.
+_EMPLOYER_WORDS = ("kyndryl", "ibm india")
 
 ENTRY_KINDS = ("note", "event", "blog", "emotion", "family", "friends", "achievement", "photo")
 
@@ -658,6 +661,29 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
     if content_type == "application/pdf":
         salary = await _salary_from_payslip(int(user["id"]), blob)
     return {"id": doc_id, "salary": salary}
+
+
+def _salary_from_ledger(ledger: list[dict]) -> float:
+    """What the bank saw arrive from his employer this month.
+
+    Pay can land in two credits (arrears, a shift allowance paid apart), so
+    the month's pay credits are summed rather than picking the largest. Only
+    money coming IN counts: a debit to an employer is not pay. Rows imported
+    before the employer was a known payer still read as Uncategorised, so
+    the narration is consulted too and nothing needs re-importing.
+    """
+    return round(
+        sum(
+            row["amount"]
+            for row in ledger
+            if row.get("source") == "statement-in"
+            and (
+                row.get("category") == "Salary"
+                or any(word in (row.get("note") or "").lower() for word in _EMPLOYER_WORDS)
+            )
+        ),
+        2,
+    )
 
 
 async def _salary_from_payslip(user_id: int, blob: bytes) -> dict | None:
@@ -1755,7 +1781,17 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
 
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
-    salary = float((months_state.get(month) or {}).get("salary", default_salary))
+    entry = months_state.get(month) or {}
+    salary = float(entry.get("salary", default_salary))
+    salary_source = str(entry.get("salary_source") or "")
+    # No payslip for this month, but the bank saw the pay arrive: the
+    # employer's credit is the salary. His own figure and a payslip both
+    # outrank it, and it is never written down — the statement stays the
+    # source, so a corrected import corrects the tile.
+    if "salary" not in entry:
+        from_bank = _salary_from_ledger(ledger)
+        if from_bank:
+            salary, salary_source = from_bank, "statement"
 
     excluded = saving_names | {"Self transfer"}
     outgo = [r for r in ledger if r["source"] != "statement-in"]
@@ -1823,7 +1859,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "month": month,
         "today": today.isoformat(),
         "salary": salary,
-        "salary_is_default": month not in months_state or "salary" not in (months_state.get(month) or {}),
+        "salary_source": salary_source,
+        "salary_is_default": salary_source != "statement"
+        and (month not in months_state or "salary" not in (months_state.get(month) or {})),
         "note": (months_state.get(month) or {}).get("note", ""),
         "totals": {
             "inflow": round(inflow, 2),

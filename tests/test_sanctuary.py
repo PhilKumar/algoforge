@@ -551,6 +551,54 @@ class DocumentNamingTests(unittest.TestCase):
         self.assertEqual((r["category"], r["series"]), ("Other", ""))
 
 
+class SalaryFromBankTests(unittest.TestCase):
+    """A month with no payslip still knows its pay: the employer's credit
+    in the bank statement is the salary."""
+
+    def salary(self, rows):
+        import sanctuary
+
+        return sanctuary._salary_from_ledger(rows)
+
+    def test_employer_credit_is_the_salary(self):
+        """His March pay arrives named by the employer, not by "salary"."""
+        rows = [
+            {
+                "amount": 118505.19,
+                "source": "statement-in",
+                "category": "Uncategorised",
+                "note": "NEFT-DEUTH0260-KYNDRYL SOLUTIONS-0504790",
+            },
+        ]
+        self.assertEqual(self.salary(rows), 118505.19)
+
+    def test_pay_split_across_two_credits_is_summed(self):
+        rows = [
+            {"amount": 100000.0, "source": "statement-in", "category": "Salary", "note": "NEFT-KYNDRYL"},
+            {"amount": 18505.19, "source": "statement-in", "category": "Salary", "note": "NEFT-KYNDRYL ARREARS"},
+        ]
+        self.assertEqual(self.salary(rows), 118505.19)
+
+    def test_sweeps_and_outgoings_are_not_pay(self):
+        """The month's big movements are his own money and his own bills —
+        only an employer credit counts, and only when it comes IN."""
+        rows = [
+            {"amount": 103540.94, "source": "statement-in", "category": "Self transfer", "note": "Rev Sweep From"},
+            {"amount": 100000.0, "source": "statement-in", "category": "Uncategorised", "note": "BRK/Raise Securities"},
+            {"amount": 51698.0, "source": "statement", "category": "HDFC loan", "note": "ACH/HDFC BANK"},
+            {"amount": 5000.0, "source": "statement", "category": "Uncategorised", "note": "PAID TO KYNDRYL CANTEEN"},
+        ]
+        self.assertEqual(self.salary(rows), 0, "a sweep, a broker and a debit are not pay")
+
+    def test_employer_narration_is_categorised_as_salary(self):
+        import sanctuary_statements
+
+        self.assertEqual(
+            sanctuary_statements.categorise("NEFT-DEUTH0260-KYNDRYL SOLUTIONS-0504790"),
+            "Salary",
+        )
+
+
 class PayslipReadingTests(unittest.TestCase):
     """A payslip's own text, read for the month it belongs to and what
     actually reached the bank."""
