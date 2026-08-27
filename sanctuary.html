@@ -329,11 +329,11 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .tile .sub{font-size:.8rem;color:var(--muted);margin-top:2px}
 .tile .edit{font-size:.8rem;color:var(--moss);font-weight:700;cursor:pointer}
 .quick{margin-bottom:24px}
-.quick-cats{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-.qc{display:flex;flex-direction:column;align-items:center;gap:4px;width:86px;padding:12px 4px;border-radius:16px;
-  border:1px solid var(--line-soft);background:var(--card-2);font-size:.76rem;font-weight:700;color:var(--muted);
-  transition:all .15s ease}
-.qc em{font-style:normal;font-size:22px}
+.quick-cats{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}
+.qc{display:flex;flex-direction:column;align-items:center;gap:3px;width:68px;padding:8px 3px;border-radius:13px;
+  border:1px solid var(--line-soft);background:var(--card-2);font-size:.67rem;font-weight:700;color:var(--muted);
+  line-height:1.25;transition:all .15s ease}
+.qc em{font-style:normal;font-size:17px}
 .qc:hover{transform:translateY(-2px);border-color:var(--moss)}
 .qc.on{background:var(--moss-wash);border-color:var(--moss);color:var(--moss)}
 .quick .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -385,6 +385,24 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .loan-closed{opacity:.62}
 .loan-closed .loan-grid b{color:var(--muted)!important}
 .badge.closed{background:transparent;border:1px solid var(--line);color:var(--muted)}
+/* A settled loan is history, not a task: it rests as one line and opens
+   into the full card only when asked. */
+.loans-closed{margin-top:18px}
+.loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
+.loans-closed > summary::-webkit-details-marker{display:none}
+.loans-closed > summary::before{content:"›";font-weight:900;transition:transform .15s ease}
+.loans-closed[open] > summary::before{transform:rotate(90deg)}
+.closed-row{border-bottom:1px solid var(--line-soft)}
+.closed-row:last-child{border-bottom:0}
+.closed-row > summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:10px;
+  padding:9px 2px;font-size:.9rem}
+.closed-row > summary::-webkit-details-marker{display:none}
+.closed-row > summary:hover{color:var(--moss)}
+.closed-row .cn{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.closed-row .cm{color:var(--soft);font-size:.82rem;white-space:nowrap}
+.closed-row .ca{margin-left:auto;font-weight:700;white-space:nowrap}
+.closed-row .loan{border:1px solid var(--line-soft);border-radius:14px;margin:2px 0 12px}
 .src-chip{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--card-2);color:var(--soft)}
 .src-chip.recurring{background:var(--moss-wash);color:var(--moss)}
 .src-chip.emi{background:var(--gold-wash);color:var(--gold)}
@@ -535,7 +553,7 @@ html[data-theme="dark"]{color-scheme:dark}
   .tiles{gap:10px}
   .tile .val{font-size:1.3rem}
   .bar-row{grid-template-columns:96px 1fr 78px;font-size:.82rem}
-  .qc{width:74px}
+  .qc{width:60px}
   .monthnav h3{font-size:1.2rem;min-width:150px}
   .entry .stem{display:none}
 }
@@ -997,6 +1015,7 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="section-title">Loans &amp; EMIs</div>
       <div class="section-sub">Upload a bank's EMI schedule and every installment finds its month by itself. Alerts appear above when a due date comes near.</div>
       <div class="loans" id="loans"></div>
+      <div id="loans-closed"></div>
       <div id="loan-found"></div>
       <div style="margin-top:14px"><button class="btn ghost" id="loan-add">＋ Add a loan</button></div>
     </div>
@@ -1763,7 +1782,7 @@ function renderFinance(){
     ...f.ledger.map((r) => ({...r,
       dir: r.source === "statement-in" ? "in" : "out",
       acct: r.ref_id && r.ref_id.startsWith("stmt:") ? "··" + r.ref_id.split(":")[1].slice(-4) : ""})),
-    ...f.emis.filter((e) => !e.in_ledger).map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
+    ...f.emis.filter((e) => !e.in_ledger && e.due_yet).map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
       note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", dir: "out", acct: ""})),
   ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   S.led = S.led || {q: "", cat: "", acct: "", flow: "", page: 1};
@@ -1954,23 +1973,61 @@ async function loadStanding(){
 function renderStandingChart(flows){
   const svg = $("standing-chart");
   if (!flows.length) { svg.innerHTML = ""; return; }
-  const w = 560, h = 220, padL = 8, padR = 8, padT = 16, padB = 30;
+  const w = 560, h = 220, padL = 46, padR = 10, padT = 18, padB = 32;
   const innerW = w - padL - padR, innerH = h - padT - padB;
-  const max = Math.max(1, ...flows.map((f) => Math.max(f.inflow, f.outflow)));
+  /* One outlier month (a loan disbursal, a bulk repayment) flattens a linear
+     scale into a row of stubs. The axis stops at the 85th percentile of what
+     is drawn, and anything above it is clipped to the ceiling and marked —
+     the shape of ordinary months stays readable, and the outlier still says
+     it is off the scale. */
+  const values = flows.flatMap((f) => [f.inflow, f.outflow]).filter((v) => v > 0).sort((a, b) => a - b);
+  const pick = values.length ? values[Math.min(values.length - 1, Math.floor(values.length * 0.85))] : 1;
+  const top = Math.max(1, pick * 1.15);
   const bw = innerW / flows.length;
-  const y = (v) => padT + (1 - v / max) * innerH;
+  const y = (v) => padT + (1 - Math.min(v, top) / top) * innerH;
+  const inr0 = (n) => n >= 1e5 ? "₹" + (n / 1e5).toFixed(1).replace(/\.0$/, "") + "L"
+    : n >= 1000 ? "₹" + Math.round(n / 1000) + "k" : "₹" + Math.round(n);
+
+  /* four quiet gridlines, and the money they stand for */
+  let grid = "";
+  for (let i = 0; i <= 3; i++) {
+    const v = top * i / 3, gy = y(v);
+    grid += `<line x1="${padL}" x2="${w - padR}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"
+      stroke="var(--line-soft)" stroke-width="1"${i ? ' stroke-dasharray="3 5"' : ""}/>
+      <text x="${padL - 8}" y="${(gy + 3.5).toFixed(1)}" text-anchor="end" font-size="9.5"
+        fill="var(--muted)" font-weight="600">${i ? inr0(v) : "0"}</text>`;
+  }
+
   const bars = flows.map((f, i) => {
-    const x = padL + i * bw;
-    const bh = Math.max(2, (f.outflow / max) * innerH);
-    return `<rect x="${(x + bw * 0.18).toFixed(1)}" y="${(h - padB - bh).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${bh.toFixed(1)}" rx="3"
-      fill="var(--danger-wash)" stroke="var(--danger)" stroke-width="1"><title>${f.month} · out ${inr2(f.outflow)}</title></rect>`;
+    const x = padL + i * bw, over = f.outflow > top;
+    const bh = Math.max(2, (h - padB) - y(f.outflow));
+    return `<rect x="${(x + bw * 0.22).toFixed(1)}" y="${y(f.outflow).toFixed(1)}"
+      width="${(bw * 0.56).toFixed(1)}" height="${bh.toFixed(1)}" rx="4"
+      fill="var(--danger)" opacity="${over ? 0.5 : 0.28}"><title>${f.month} · out ${inr2(f.outflow)}</title></rect>` +
+      (over ? `<text x="${(x + bw / 2).toFixed(1)}" y="${(padT - 6).toFixed(1)}" text-anchor="middle"
+        font-size="9" fill="var(--danger)" font-weight="700">${inr0(f.outflow)} ↑</text>` : "");
   }).join("");
+
+  /* the inflow line, smoothed, over its own soft wash */
   const pts = flows.map((f, i) => [padL + (i + 0.5) * bw, y(f.inflow)]);
-  const line = pts.map((p2, i) => (i ? "L" : "M") + p2[0].toFixed(1) + " " + p2[1].toFixed(1)).join(" ");
-  const dots = pts.map((p2, i) => `<circle cx="${p2[0].toFixed(1)}" cy="${p2[1].toFixed(1)}" r="3.5" fill="var(--moss)" stroke="var(--card)" stroke-width="1.5"><title>${flows[i].month} · in ${inr2(flows[i].inflow)}</title></circle>`).join("");
-  const labels = flows.map((f, i) => i % 2 === 0 ? `<text x="${(padL + (i + 0.5) * bw).toFixed(1)}" y="${h - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${f.month.slice(2).replace("-", "/")}</text>` : "").join("");
-  svg.innerHTML = bars + `<path d="${line}" fill="none" stroke="var(--moss)" stroke-width="2.5" stroke-linejoin="round"/>` + dots + labels;
+  const curve = pts.map((p2, i) => {
+    if (!i) return `M${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+    const a = pts[i - 1], mx = (a[0] + p2[0]) / 2;
+    return `C${mx.toFixed(1)} ${a[1].toFixed(1)} ${mx.toFixed(1)} ${p2[1].toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }).join(" ");
+  const wash = `<path d="${curve} L${pts[pts.length - 1][0].toFixed(1)} ${h - padB} L${pts[0][0].toFixed(1)} ${h - padB} Z"
+    fill="var(--moss-wash)"/>`;
+  const dots = pts.map((p2, i) => `<circle cx="${p2[0].toFixed(1)}" cy="${p2[1].toFixed(1)}" r="3.2"
+    fill="var(--card)" stroke="var(--moss)" stroke-width="2"><title>${flows[i].month} · in ${inr2(flows[i].inflow)}</title></circle>`).join("");
+  const labels = flows.map((f, i) => (i % 2 === 0 || i === flows.length - 1)
+    ? `<text x="${(padL + (i + 0.5) * bw).toFixed(1)}" y="${h - 10}" text-anchor="middle" font-size="9.5"
+        fill="var(--muted)" font-weight="600">${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(f.month.slice(5, 7)) - 1]}</text>` : "").join("");
+
+  svg.innerHTML = grid + bars + wash +
+    `<path d="${curve}" fill="none" stroke="var(--moss)" stroke-width="2.5"
+      stroke-linecap="round" stroke-linejoin="round"/>` + dots + labels;
 }
+
 async function loadLoanFinds(){
   const host = $("loan-found");
   try {
@@ -2012,7 +2069,26 @@ document.addEventListener("click", async (e) => {
   }
 });
 function renderLoans(){
-  $("loans").innerHTML = S.loans.length ? S.loans.map((l) => `
+  const live = S.loans.filter((l) => l.active);
+  const closed = S.loans.filter((l) => !l.active);
+  $("loans").innerHTML = live.length ? live.map((l) => loanCard(l)).join("")
+    : `<div style="color:var(--muted);padding:6px 2px">Add the HDFC loan, home loan, personal loans — then upload each one's EMI sheet.</div>`;
+  const host = $("loans-closed");
+  host.innerHTML = closed.length ? `<details class="loans-closed"${S.closedOpen ? " open" : ""}>
+      <summary>${closed.length} settled ${closed.length === 1 ? "loan" : "loans"} — repaid in full</summary>
+      <div style="margin-top:6px">${closed.map((l) => `
+        <details class="closed-row">
+          <summary><span class="cn">${esc(l.name)}</span>
+            <span class="cm">${l.schedule_count ? l.schedule_count + " EMIs" : "no schedule"}${l.lender ? " · " + esc(l.lender) : ""}</span>
+            <span class="ca num">${inr(l.emi_amount)}</span></summary>
+          ${loanCard(l)}
+        </details>`).join("")}</div>
+    </details>` : "";
+  const wrap = host.querySelector(".loans-closed");
+  if (wrap) wrap.addEventListener("toggle", () => { S.closedOpen = wrap.open; });
+}
+function loanCard(l){
+  return `
     <div class="loan card${l.active ? "" : " loan-closed"}">
       <div class="loan-head">
         <div class="loan-name">
@@ -2059,8 +2135,7 @@ function renderLoans(){
           : `<button class="btn subtle small" data-lreopen="${l.id}">Reopen</button>`}
         <button class="btn subtle small loan-remove" data-ldel="${l.id}" title="Remove this loan">✕</button>
       </div>
-    </div>`).join("")
-    : `<div style="color:var(--muted);padding:6px 2px">Add the HDFC loan, home loan, personal loans — then upload each one's EMI sheet.</div>`;
+    </div>`;
 }
 
 function loanForm(loan){

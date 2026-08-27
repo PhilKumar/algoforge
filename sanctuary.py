@@ -1572,7 +1572,10 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         emi["in_ledger"] = any(
             abs((date.fromisoformat(d) - due).days) <= 5 for d in stmt_days.get(round(emi["amount"], 2), [])
         )
-    emi_total = sum(e["amount"] for e in emis if not e["in_ledger"])
+        # An instalment that has not come due is not money spent. A future
+        # month must read empty, not pre-charged with what it will owe.
+        emi["due_yet"] = bool(emi["paid_on"]) or due <= today
+    emi_total = sum(e["amount"] for e in emis if not e["in_ledger"] and e["due_yet"])
 
     by_category: dict[str, float] = {}
     for row in outgo:
@@ -1580,7 +1583,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             continue  # his own money moving is not a spending bar
         by_category[row["category"]] = by_category.get(row["category"], 0) + row["amount"]
     for emi in emis:
-        if emi["in_ledger"]:
+        if emi["in_ledger"] or not emi["due_yet"]:
             continue
         label = f"EMI · {emi['loan_name']}"
         by_category[label] = by_category.get(label, 0) + emi["amount"]
