@@ -1528,8 +1528,12 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   expect(dashes.tp).toBeNull();
   expect(dashes.avg).toBeNull();
 
-  // Close moved into the site strip (top-right ✕), like every other chart.
-  await page.click('#oc-fib-chart-strip [data-strip-close]');
+  // ONE close, and only one (Phil, 2026-08-27: "Why two X buttons?"). The
+  // toolbar carries the ✕ in its own markup so it is there even when the chart
+  // fails and the strip never renders; the strip is given no onClose, so it
+  // draws none of its own. Count it, or the pair comes back unnoticed.
+  await expect(page.locator('#oc-fib-chart-overlay button[aria-label="Close chart"]:visible')).toHaveCount(1);
+  await page.click('#oc-fib-chart-overlay button[aria-label="Close chart"]:visible');
   await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
 
   expect(jsErrors).toEqual([]);
@@ -1615,7 +1619,7 @@ test('A banked round stays on the screen after the mother parks', async ({ page 
   // What the round made is on its own sell mark, and the low that wakes the
   // mother is drawn.
   expect(labels.some((t) => t.includes('RE-ARM LOW'))).toBe(true);
-  await page.click('#oc-fib-chart-strip [data-strip-close]');
+  await page.click('#oc-fib-chart-overlay button[aria-label="Close chart"]:visible');
 
   expect(jsErrors).toEqual([]);
 });
@@ -1719,7 +1723,7 @@ test('The merge switch reaches the engine, and convergence draws its spaces', as
   // and no "L4" spelling survives -- levels are numbers here
   expect(labels.some((t) => /\bL\d/.test(t))).toBe(false);
 
-  await page.click('#oc-fib-chart-strip [data-strip-close]');
+  await page.click('#oc-fib-chart-overlay button[aria-label="Close chart"]:visible');
   expect(jsErrors).toEqual([]);
 });
 
