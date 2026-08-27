@@ -346,6 +346,21 @@ async def statement_account_summary(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def transfer_narrations(user_id: int) -> list[dict]:
+    """Statement rows whose narration carries an IFSC — the transfers that
+    name the account on the other side."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT note, entry_date, amount, source FROM sanctuary_ledger
+               WHERE user_id = ? AND ref_id LIKE 'stmt:%'
+                 AND (note LIKE '%RTGS%' OR note LIKE '%NEFT%')
+               ORDER BY entry_date""",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
 async def ledger_rows_by_sources(user_id: int, sources: tuple) -> list[dict]:
     placeholders = ",".join("?" for _ in sources)
     async with aiosqlite.connect(config.DB_PATH) as db:

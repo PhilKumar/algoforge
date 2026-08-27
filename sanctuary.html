@@ -2389,7 +2389,8 @@ async function loadKnown(){
     const accounts = (k.accounts || []).map((a) =>
       `<div class="known-row"><b>${esc(nameOf(a))}</b> <span class="num">${a.tail ? "••" + esc(a.tail) : ""}</span>
         <small>${a.entries ? `${a.entries} entries · ${esc(a.first)} to ${esc(a.last)}`
-                            : "no statement imported yet"}${a.id ? ` · <span class="edit" data-acct-edit="${esc(a.id)}">edit</span>` : ""}</small></div>`).join("");
+                : a.transfers ? `no statement imported · but seen in ${a.transfers} transfer${a.transfers === 1 ? "" : "s"}, last ${esc(a.transfer_last)}`
+                : "no statement imported yet"}${a.id ? ` · <span class="edit" data-acct-edit="${esc(a.id)}">edit</span>` : ""}</small></div>`).join("");
     const cards = (k.cards || []).map((c) =>
       `<div class="known-row"><b>${esc(c.bank || c.label || "Card")}</b> <span class="num">${c.tail ? "••" + esc(c.tail) : ""}</span>
         <small>${esc(c.note || "credit card")} · <span class="edit" data-acct-edit="${esc(c.id)}">edit</span></small></div>`).join("");

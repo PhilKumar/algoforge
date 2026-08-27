@@ -644,3 +644,49 @@ def parse_card_loan_schedule(text: str, filename: str = "") -> dict | None:
         "last": emis[-1]["due_date"],
         "emis": emis,
     }
+
+
+# ── Accounts named inside a narration ────────────────────────────
+#
+# An RTGS or NEFT narration names the other side in full: the reference, the
+# holder, then the account and the IFSC that closes it. The IFSC says which
+# bank, and the digits before it are the account — so an account can be
+# corroborated before a single statement from it has been imported.
+
+_BANK_BY_IFSC = {
+    "HDFC": "HDFC",
+    "ICIC": "ICICI",
+    "KKBK": "Kotak",
+    "UTIB": "Axis",
+    "SBIN": "SBI",
+    "PUNB": "PNB",
+    "IDIB": "Indian Bank",
+    "IOBA": "Indian Overseas Bank",
+    "CNRB": "Canara",
+    "YESB": "Yes Bank",
+    "INDB": "IndusInd",
+    "FDRL": "Federal",
+    "RATN": "RBL",
+    "DEUT": "Deutsche",
+}
+_ACCT_WITH_IFSC_RE = re.compile(r"(\d{9,18})\s*-\s*([A-Z]{4}0[A-Z0-9]{6})\b", re.IGNORECASE)
+
+
+def counterparty_accounts(note: str) -> list[dict]:
+    """Every account a narration names in full, with the bank its IFSC says.
+
+    Only a number sitting immediately before an IFSC counts — a transfer
+    reference is a long digit run too, and mistaking one for an account
+    would invent accounts he does not hold.
+    """
+    found = []
+    for match in _ACCT_WITH_IFSC_RE.finditer(note or ""):
+        ifsc = match.group(2).upper()
+        found.append(
+            {
+                "number": match.group(1),
+                "ifsc": ifsc,
+                "bank": _BANK_BY_IFSC.get(ifsc[:4], ifsc[:4].title()),
+            }
+        )
+    return found

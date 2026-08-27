@@ -1923,19 +1923,45 @@ async def known_get(user: dict = Depends(_unlocked_user)):
             "label": "",
             "id": "",
         }
+    # An account he has stated but never imported a statement from can still
+    # be corroborated: his own RTGS and NEFT narrations name the other side
+    # in full. The transfers only CONFIRM what he says — they never invent an
+    # account, because most counterparties in a narration are employers and
+    # payees, not his.
+    stated_accounts = [_account_view(a) for a in await sanctuary_db.get_json_state(user_id, "accounts", [])]
+    wanted = {a["number"] for a in stated_accounts if a["number"] and a["kind"] == "bank"}
+    corroboration: dict[str, dict] = {}
+    if wanted:
+        for row in await sanctuary_db.transfer_narrations(user_id):
+            for seen in sanctuary_statements.counterparty_accounts(row["note"]):
+                match = next((w for w in wanted if w in seen["number"] or seen["number"] in w), None)
+                if not match:
+                    continue
+                entry = corroboration.setdefault(match, {"transfers": 0, "last": "", "bank": seen["bank"]})
+                entry["transfers"] += 1
+                entry["last"] = max(entry["last"], row["entry_date"])
+
     # What he has told us marries into what the statements prove: an account
     # he has named gains its bank, and one he holds but has never imported
     # appears anyway. A card is his word alone — it leaves no statement here.
     cards = []
-    for stated in [_account_view(a) for a in await sanctuary_db.get_json_state(user_id, "accounts", [])]:
+    for stated in stated_accounts:
         if stated["kind"] == "card":
             cards.append(stated)
             continue
+        proof = corroboration.get(stated["number"]) or {}
+        extra = {
+            "bank": stated["bank"] or proof.get("bank", ""),
+            "label": stated["label"],
+            "id": stated["id"],
+            "transfers": proof.get("transfers", 0),
+            "transfer_last": proof.get("last", ""),
+        }
         seen = accounts.get(stated["tail"])
         if seen:
-            seen.update({"bank": stated["bank"], "label": stated["label"], "id": stated["id"]})
+            seen.update(extra)
         else:
-            accounts[stated["tail"] or stated["id"]] = {**stated, "entries": 0, "first": "", "last": ""}
+            accounts[stated["tail"] or stated["id"]] = {**stated, **extra, "entries": 0, "first": "", "last": ""}
     lenders: list[dict] = []
     for loan in await sanctuary_db.list_loans(user_id):
         lenders.append(

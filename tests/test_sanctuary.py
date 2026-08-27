@@ -600,6 +600,34 @@ This is a system generated document and does not require signature."""
         self.assertIsNone(self.read(""))
 
 
+class CounterpartyAccountTests(unittest.TestCase):
+    """An RTGS narration names the other side in full; the IFSC that closes
+    it says which bank. Account numbers here are invented."""
+
+    def read(self, note):
+        import sanctuary_statements
+
+        return sanctuary_statements.counterparty_accounts(note)
+
+    def test_the_account_before_an_ifsc_is_read_with_its_bank(self):
+        found = self.read("RTGS-HDFCR52025110881191896-A NAME-12345678901234  -HDFC0000240")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["number"], "12345678901234")
+        self.assertEqual(found[0]["bank"], "HDFC")
+
+    def test_each_bank_is_named_by_its_ifsc(self):
+        for ifsc, bank in (("KKBK0001234", "Kotak"), ("ICIC0000123", "ICICI"), ("UTIB0000456", "Axis")):
+            found = self.read(f"NEFT-REF999-A NAME-987654321098-{ifsc}")
+            self.assertEqual(found[0]["bank"], bank, ifsc)
+
+    def test_a_reference_number_is_never_mistaken_for_an_account(self):
+        """A transfer reference is a long digit run too — inventing an
+        account he does not hold would be worse than missing one."""
+        self.assertEqual(self.read("MMT/IMPS/609257357027/Withdrawal/RAISESECUR/Axis Bank"), [])
+        self.assertEqual(self.read("BRK/Raise Securities/20260323024820"), [])
+        self.assertEqual(self.read(""), [])
+
+
 class KnownAccountsTests(unittest.TestCase):
     """The accounts the sanctuary can prove he banks through, read back
     from the reference each imported row carries."""
