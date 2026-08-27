@@ -668,28 +668,20 @@ def _previous_month(month: str) -> str:
     return f"{year - 1:04d}-12" if mon == 1 else f"{year:04d}-{mon - 1:02d}"
 
 
-async def _month_leftover(
-    user_id: int, month: str, saving_names: set, months_state: dict, default_salary: float
-) -> float:
-    """What a month had left when it ended — the money that carries forward.
+async def _pay_that_arrived(user_id: int, month: str, months_state: dict, default_salary: float) -> float:
+    """The pay that LANDED in this month — his envelope for the next one.
 
-    His pay lands on the last days of a month, so what funds August is
-    whatever July still held on the 31st. This reckons one month only, never
-    a chain back to 2015: a running balance would compound every mis-filed
-    row into a figure nobody could check.
+    Not last month's leftover: a month's spending was funded by the month
+    before it, so subtracting it here would take the same rupees out twice.
+    What travels into August is what arrived at the end of July, whole. One
+    month back and no further — a running balance would compound every
+    mis-filed row into a figure nobody could check.
     """
-    ledger = await sanctuary_db.list_ledger(user_id, month)
     entry = months_state.get(month) or {}
-    salary = float(entry.get("salary", default_salary))
-    if "salary" not in entry:
-        salary = _salary_from_ledger(ledger) or salary
-    excluded = saving_names | {"Self transfer"}
-    outgo = [r for r in ledger if r["source"] != "statement-in"]
-    spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
-    saved = sum(r["amount"] for r in outgo if r["category"] in saving_names)
-    start, end = _month_bounds(month)
-    emi_total = sum(e["amount"] for e in await sanctuary_db.list_emis(user_id, start, end) if not e.get("paid_on"))
-    return round(salary - spent - emi_total - saved, 2)
+    if "salary" in entry:  # his own figure, or a payslip's, outranks the bank
+        return round(float(entry["salary"]), 2)
+    ledger = await sanctuary_db.list_ledger(user_id, month)
+    return round(_salary_from_ledger(ledger) or default_salary, 2)
 
 
 def _salary_from_ledger(ledger: list[dict]) -> float:
@@ -2099,7 +2091,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     # The pay that arrives on the 30th is not spent that day — it is what
     # the NEXT month lives on. So each month opens with whatever the last
     # one still held, carried in as funds rather than as a second salary.
-    carried_in = await _month_leftover(user_id, _previous_month(month), saving_names, months_state, default_salary)
+    carried_in = await _pay_that_arrived(user_id, _previous_month(month), months_state, default_salary)
 
     # An EMI the bank statement already told is not spent AGAIN by the
     # schedule that planned it. A schedule row whose amount appears as a
@@ -2172,7 +2164,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             "emis": round(emi_total, 2),
             "saved": round(saved, 2),
             "carried_in": carried_in,
-            "left": round(carried_in + salary - spent - emi_total - saved, 2),
+            # NOT + salary: what lands on the 31st funds NEXT month, and
+            # adding it here counted the same rupees twice.
+            "left": round(carried_in - spent - emi_total - saved, 2),
         },
         "carried_from": _previous_month(month),
         "months_known": known,

@@ -676,7 +676,9 @@ class CarryForwardTests(unittest.TestCase):
         self.assertEqual(sanctuary._previous_month("2026-01"), "2025-12")
         self.assertEqual(sanctuary._previous_month("2026-08"), "2026-07")
 
-    def test_a_month_carries_what_the_last_one_still_held(self):
+    def test_what_arrives_at_month_end_is_the_next_months_envelope(self):
+        """His pay lands on the 31st, so it is the NEXT month that spends it.
+        The month it landed in must not count it as money to spend."""
         import sanctuary
 
         async def run():
@@ -692,14 +694,6 @@ class CarryForwardTests(unittest.TestCase):
                         "ref_id": "stmt:111111:a",
                     },
                     {
-                        "entry_date": "2026-07-10",
-                        "category": "Groceries",
-                        "amount": 20000.0,
-                        "note": "g",
-                        "source": "statement",
-                        "ref_id": "stmt:111111:b",
-                    },
-                    {
                         "entry_date": "2026-08-05",
                         "category": "Groceries",
                         "amount": 30000.0,
@@ -709,22 +703,54 @@ class CarryForwardTests(unittest.TestCase):
                     },
                 ],
             )
-            july = await sanctuary._month_leftover(1, "2026-07", set(), {}, 0.0)
-            august = await sanctuary._month_leftover(1, "2026-08", set(), {}, 0.0)
+            july = await sanctuary._pay_that_arrived(1, "2026-07", {}, 0.0)
+            august = await sanctuary._pay_that_arrived(1, "2026-08", {}, 0.0)
             return july, august
 
         july, august = asyncio.run(run())
-        self.assertEqual(july, 100000.0, "the pay that arrived on the 31st is what July still held")
-        self.assertEqual(august, -30000.0, "August's own reckoning knows no pay has arrived in it yet")
+        self.assertEqual(july, 120000.0, "July's pay is what August will live on")
+        self.assertEqual(august, 0.0, "August's own pay has not landed yet")
 
     def test_a_month_he_has_priced_himself_is_believed(self):
         """A salary he set by hand outranks the statement, in the carry too."""
         import sanctuary
 
         async def run():
-            return await sanctuary._month_leftover(1, "2026-07", set(), {"2026-07": {"salary": 90000.0}}, 0.0)
+            return await sanctuary._pay_that_arrived(1, "2026-07", {"2026-07": {"salary": 90000.0}}, 0.0)
 
         self.assertEqual(asyncio.run(run()), 90000.0)
+
+    def test_the_envelope_travels_whole_not_net_of_spending(self):
+        """What August lives on is July's pay ENTIRE. Subtracting July's own
+        spending would take the same rupees out twice — July was funded by
+        June, not by the pay that arrived on the 31st."""
+        import sanctuary
+
+        async def run():
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-07-31",
+                        "category": "Salary",
+                        "amount": 120000.0,
+                        "note": "NEFT-KYNDRYL",
+                        "source": "statement-in",
+                        "ref_id": "stmt:111111:s",
+                    },
+                    {
+                        "entry_date": "2026-07-09",
+                        "category": "Groceries",
+                        "amount": 45000.0,
+                        "note": "g",
+                        "source": "statement",
+                        "ref_id": "stmt:111111:g",
+                    },
+                ],
+            )
+            return await sanctuary._pay_that_arrived(1, "2026-07", {}, 0.0)
+
+        self.assertEqual(asyncio.run(run()), 120000.0, "the whole pay travels, not 120000-45000")
 
 
 class CounterpartyAccountTests(unittest.TestCase):
