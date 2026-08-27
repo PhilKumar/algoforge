@@ -14,8 +14,8 @@
 :root{
   /* content palette (day) */
   --ground:#f1efe3; --ground-2:#e7ece9;
-  --card:rgba(255,253,246,.88); --card-2:rgba(241,246,243,.8);
-  --ink:#2b3350; --muted:#59677e; --soft:#8292a8;
+  --card:rgba(255,253,246,.7); --card-2:rgba(241,246,243,.6);
+  --ink:#2b3350; --muted:#455166; --soft:#5f6d85;
   --moss:#177e8c; --moss-deep:#0e5f6b; --moss-wash:rgba(23,126,140,.13);
   --terracotta:#cd6647; --terra-wash:rgba(205,102,71,.13);
   --gold:#bb8d38; --gold-wash:rgba(187,141,56,.16);
@@ -23,7 +23,25 @@
   --line:rgba(43,51,80,.18); --line-soft:rgba(43,51,80,.1);
   --shadow:0 1px 2px rgba(30,44,66,.06),0 10px 30px rgba(30,44,66,.1);
   --shadow-lift:0 2px 8px rgba(30,44,66,.1),0 18px 48px rgba(30,44,66,.16);
-  --glass-blur:blur(14px) saturate(1.25);
+  /* ── glass ──
+     Real glass is three things at once: what shows THROUGH it (a heavy
+     blur, so the room behind stays legible as colour and light but never
+     as detail that fights the words), a faint tint OF it, and the light
+     that catches its EDGES. The tint is deliberately thin — he asked to
+     see as much of the backdrop as possible — so the blur and the edge
+     do the work of holding text up, not opacity. */
+  /* The luminance of what shows through is BOUNDED by the filter, not
+     hidden by the tint. contrast() pulls the scene toward mid-grey and
+     brightness() lifts it, so even a night-dark frame under the pane
+     leaves dark text at 5.4:1 — while colour, shape and movement all
+     still read. Raising the tint instead would have cost him the view. */
+  --glass-blur:blur(26px) saturate(1.45) contrast(.42) brightness(1.58);
+  --glass-tint:rgba(255,253,246,.58);
+  --glass-tint-2:rgba(241,246,243,.4);
+  --glass-edge:rgba(255,255,255,.6);
+  --glass-rim:rgba(43,51,80,.12);
+  --glass-sheen:linear-gradient(150deg,rgba(255,255,255,.42) 0%,rgba(255,255,255,.06) 34%,rgba(255,255,255,0) 62%);
+  --glass-cast:0 1px 1px rgba(30,44,66,.05),0 14px 40px rgba(30,44,66,.14),0 2px 10px rgba(30,44,66,.06);
   --leaf-a:#f7b9c4; --leaf-b:#fde3ba; --leaf-c:#ffffff;
   /* the scene (day) */
   --sky-top:#6cbde8; --sky-mid:#a8dcf2; --sky-low:#fdeecd;
@@ -43,8 +61,8 @@
 }
 html[data-theme="dark"]{
   --ground:#0e1526; --ground-2:#0a101e;
-  --card:rgba(19,27,46,.84); --card-2:rgba(27,37,60,.74);
-  --ink:#e9edf6; --muted:#a2b0c6; --soft:#7183a0;
+  --card:rgba(19,27,46,.66); --card-2:rgba(27,37,60,.56);
+  --ink:#e9edf6; --muted:#c3d2e8; --soft:#9aabc6;
   --moss:#63c3d3; --moss-deep:#8fd7e3; --moss-wash:rgba(99,195,211,.14);
   --terracotta:#ef9d82; --terra-wash:rgba(239,157,130,.14);
   --gold:#e6c877; --gold-wash:rgba(230,200,119,.15);
@@ -52,6 +70,17 @@ html[data-theme="dark"]{
   --line:rgba(162,176,198,.22); --line-soft:rgba(162,176,198,.11);
   --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px rgba(0,0,0,.4);
   --shadow-lift:0 2px 8px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55);
+  /* Night glass is darker but no more opaque: the tint deepens so pale
+     text keeps its footing, while the blur still lets the scene glow. */
+  /* Night wants the opposite hand: darken what shows through so pale
+     text keeps its footing against a lamp or a bright window. */
+  --glass-blur:blur(26px) saturate(1.35) brightness(.5);
+  --glass-tint:rgba(16,24,42,.46);
+  --glass-tint-2:rgba(24,34,56,.34);
+  --glass-edge:rgba(190,210,240,.24);
+  --glass-rim:rgba(0,0,0,.34);
+  --glass-sheen:linear-gradient(150deg,rgba(190,215,255,.16) 0%,rgba(190,215,255,.03) 34%,rgba(255,255,255,0) 62%);
+  --glass-cast:0 1px 1px rgba(0,0,0,.3),0 16px 44px rgba(0,0,0,.46),0 2px 10px rgba(0,0,0,.3);
   --leaf-a:#8ea8d8; --leaf-b:#c9b97e; --leaf-c:#e8ecf6;
   --sky-top:#0a1430; --sky-mid:#17294e; --sky-low:#31426b;
   --sun:#f3e8c8; --sun-glow:rgba(243,232,200,.4);
@@ -89,6 +118,19 @@ html[data-theme="dark"] #scene .day-only{display:none}
 .scene-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
   opacity:0;transition:opacity 1.6s ease}
 .scene-video.live{opacity:1}
+/* One clip, many framings. Each visit, and each move between rooms, takes
+   a different crop of the same footage — nearer and to the left one time,
+   wider and low the next — so the backdrop is never quite the shot he saw
+   last time.
+   These are STATIC transforms, deliberately. Drifting the video meant
+   every frame forced all eighteen glass panes above it to recompute their
+   backdrop-filter, which is more than a phone should be asked to do for
+   scenery. A fresh angle per visit costs nothing at all. */
+.scene-video[data-angle="0"]{transform:scale(1.06) translate3d(-1.4%, .6%, 0)}
+.scene-video[data-angle="1"]{transform:scale(1.12) translate3d(1.6%, -1%, 0)}
+.scene-video[data-angle="2"]{transform:scale(1.04) translate3d(.8%, 1.4%, 0)}
+.scene-video[data-angle="3"]{transform:scale(1.15) translate3d(-.6%, -1.6%, 0)}
+.scene-video[data-angle="4"]{transform:scale(1.09) translate3d(2%, .9%, 0)}
 @media (prefers-reduced-motion: reduce){.scene-video{display:none}}
 #veil{position:fixed;inset:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg, rgba(0,0,0,0) 0 58%, rgba(20,30,40,.05) 74%, rgba(20,30,40,.12) 100%)}
@@ -158,9 +200,47 @@ html[data-theme="dark"] #veil{background:linear-gradient(180deg, rgba(0,0,0,0) 0
   html{scroll-behavior:auto}
 }
 
-/* ── shared atoms (glass over the scene) ──────────────────── */
-.card{background:var(--card);border:1px solid var(--line-soft);border-radius:22px;box-shadow:var(--shadow);padding:22px;
-  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+/* ── shared atoms (glass over the scene) ──────────────────────
+   A pane is built in layers so it reads as glass and not as paint: the
+   hairline that catches light along its top rim, the sheen sliding off
+   the top-left corner, and the tint beneath both. The BLUR is what keeps
+   text legible over a moving video — not opacity — so the scene stays
+   visible right through the page.
+   background-color and background-image are written separately and the
+   `background` shorthand is never used after them: the shorthand resets
+   the image to none, and this pane would render as flat paint.          */
+.card{position:relative;
+  background-color:var(--glass-tint);
+  background-image:
+    linear-gradient(90deg,transparent 14%,var(--glass-edge) 30%,var(--glass-edge) 70%,transparent 86%),
+    var(--glass-sheen);
+  background-repeat:no-repeat;
+  background-size:100% 1px, 100% 100%;
+  border:1px solid var(--glass-rim);
+  border-radius:26px;box-shadow:var(--glass-cast);padding:22px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  transition:box-shadow .35s ease, transform .35s ease, background-color .35s ease}
+/* .verse-card and .quote-card spend their own ::before on the gold bar
+   down their left edge, so the glass must never claim that pseudo-element
+   — it rides on the card's background layers instead. */
+/* A pane lifts a little when he works in it, the way glass catches light
+   as it turns. Never on touch, where there is no hover to leave. */
+@media (hover:hover){
+  .card:hover{box-shadow:var(--shadow-lift),inset 0 1px 0 var(--glass-edge);transform:translateY(-1px)}
+}
+/* Thin glass sits over a moving picture, so the type has to hold its own.
+   A whisper of light behind the strokes — far too little to read as a
+   drop-shadow — stops them dissolving when a bright frame drifts under.
+   Figures get a touch more: a misread digit costs more than a misread
+   word, and figures are what he scans for. */
+.card,.greet{text-shadow:0 1px 2px var(--type-lift)}
+.card .num,.tile .val,.card h1,.card h2,.card h3,.card h4{text-shadow:0 1px 3px var(--type-lift)}
+/* Someone who has asked their system for less transparency gets a solid
+   pane. The scene is decoration; the numbers are not. */
+@media (prefers-reduced-transparency: reduce){
+  .card,.greet{background:var(--card);backdrop-filter:none;-webkit-backdrop-filter:none;text-shadow:none}
+  .card::before{display:none}
+}
 .btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:10px 20px;font-weight:700;
   background:var(--moss);color:#f8fbf7;transition:transform .15s ease, box-shadow .15s ease;border:1px solid transparent}
 html[data-theme="dark"] .btn{color:#0c1524}
@@ -218,7 +298,7 @@ h1.gate-title{font-family:var(--serif);font-weight:650;font-size:2.5rem;letter-s
 /* ── home shell: sky first, then the world ────────────────── */
 #home{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:26px 20px 80px}
 .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:22px;flex-wrap:wrap}
-.greet{background:var(--card);border:1px solid var(--line-soft);border-radius:22px;box-shadow:var(--shadow);
+.greet{background:var(--glass-tint);border:1px solid var(--glass-rim);border-radius:24px;box-shadow:var(--glass-cast),inset 0 1px 0 var(--glass-edge);
   padding:14px 22px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
 .greet .eyebrow{margin-bottom:2px}
 .greet h2{font-family:var(--serif);font-weight:650;font-size:clamp(1.5rem,4vw,2.2rem);line-height:1.15}
@@ -1443,6 +1523,10 @@ function _filmSpawn(key){
   const el = document.createElement("video");
   el.muted = true; el.playsInline = true; el.preload = "auto";
   el.className = "scene-video";
+  /* A different crop each time this room is spawned, so the same footage
+     never opens on the same composition twice running. */
+  _film.angle = ((_film.angle == null ? Math.floor(Math.random() * 5) : _film.angle) + 1) % 5;
+  el.dataset.angle = String(_film.angle);
   el.addEventListener("error", () => {
     _film.dead[key] = true;
     el.remove();
