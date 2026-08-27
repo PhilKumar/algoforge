@@ -1623,7 +1623,7 @@ const SCENE_FILM = {
     dark: "/static/sanctuary/room-night.mp4?v=" + SCENE_FILM_V,
   },
 };
-const _film = {key: null, view: "gate", el: null, dead: {}, pre: {}};
+const _film = {key: null, view: "gate", el: null, dead: {}, pre: {}, angle: 0, roam: false};
 const _filmIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1200));
 
 function _filmUrl(key){
@@ -1643,12 +1643,12 @@ function _filmSpawn(key){
   const el = document.createElement("video");
   el.muted = true; el.playsInline = true; el.preload = "auto";
   el.className = "scene-video";
-  /* The page always OPENS on the establishing shot — he asked to land on
-     the whole scene, not a crop of it. Only moving between rooms after
-     that reaches the closer framings, and it cycles rather than randomises
-     so a refresh is never a surprise. */
-  _film.angle = _film.angle == null ? 0 : (_film.angle + 1) % 5;
-  el.dataset.angle = String(_film.angle);
+  /* The page always OPENS on the establishing shot. Not "the first spawn":
+     arriving already unlocked spawns the gate's film and then the journal's,
+     which was quietly advancing the crop before he had touched anything.
+     The angle moves only when HE moves between rooms. */
+  if (_film.roam) _film.angle = ((_film.angle || 0) + 1) % 5;
+  el.dataset.angle = String(_film.angle || 0);
   el.addEventListener("error", () => {
     _film.dead[key] = true;
     el.remove();
@@ -1720,6 +1720,17 @@ function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage
 (function(){ const saved = localStorage.getItem("sanctuary_theme");
   const t = saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   document.documentElement.dataset.theme = t; })();
+/* A refresh must open the sanctuary, not resume it. The browser restores
+   the last scroll offset by default, which dropped him halfway down the
+   page at the composer with the whole scene above and behind him — the
+   establishing frame was rendering correctly all along, just off-screen. */
+(function(){
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  const toTop = () => window.scrollTo(0, 0);
+  toTop();
+  addEventListener("load", toTop);           /* after the scene's video settles */
+  addEventListener("pageshow", (e) => { if (e.persisted) toTop(); });  /* and on a back-forward restore */
+})();
 
 /* ═══════════ gate ═══════════ */
 const LEAF_SVGS = ["M2 14C6 4 14 2 20 2C20 10 14 18 6 18C4.5 18 3 17 2 14Z"];
@@ -2930,6 +2941,7 @@ function switchTab(which){
   $("tab-finance").classList.toggle("on", which === "finance");
   $("view-journal").classList.toggle("hidden", which !== "journal");
   $("view-finance").classList.toggle("hidden", which !== "finance");
+  _film.roam = true;   /* he has moved rooms himself: new framings unlock */
   sceneVideoView(which === "finance" ? "finance" : "journal");
 }
 $("c-save").onclick = saveEntry;
