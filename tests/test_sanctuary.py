@@ -600,6 +600,88 @@ This is a system generated document and does not require signature."""
         self.assertIsNone(self.read(""))
 
 
+class CarryForwardTests(unittest.TestCase):
+    """His pay lands on the last days of a month, so what funds August is
+    whatever July still held on the 31st."""
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def test_the_month_before_january_is_last_december(self):
+        import sanctuary
+
+        self.assertEqual(sanctuary._previous_month("2026-01"), "2025-12")
+        self.assertEqual(sanctuary._previous_month("2026-08"), "2026-07")
+
+    def test_a_month_carries_what_the_last_one_still_held(self):
+        import sanctuary
+
+        async def run():
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-07-31",
+                        "category": "Salary",
+                        "amount": 120000.0,
+                        "note": "NEFT-KYNDRYL",
+                        "source": "statement-in",
+                        "ref_id": "stmt:111111:a",
+                    },
+                    {
+                        "entry_date": "2026-07-10",
+                        "category": "Groceries",
+                        "amount": 20000.0,
+                        "note": "g",
+                        "source": "statement",
+                        "ref_id": "stmt:111111:b",
+                    },
+                    {
+                        "entry_date": "2026-08-05",
+                        "category": "Groceries",
+                        "amount": 30000.0,
+                        "note": "g",
+                        "source": "statement",
+                        "ref_id": "stmt:111111:c",
+                    },
+                ],
+            )
+            july = await sanctuary._month_leftover(1, "2026-07", set(), {}, 0.0)
+            august = await sanctuary._month_leftover(1, "2026-08", set(), {}, 0.0)
+            return july, august
+
+        july, august = asyncio.run(run())
+        self.assertEqual(july, 100000.0, "the pay that arrived on the 31st is what July still held")
+        self.assertEqual(august, -30000.0, "August's own reckoning knows no pay has arrived in it yet")
+
+    def test_a_month_he_has_priced_himself_is_believed(self):
+        """A salary he set by hand outranks the statement, in the carry too."""
+        import sanctuary
+
+        async def run():
+            return await sanctuary._month_leftover(1, "2026-07", set(), {"2026-07": {"salary": 90000.0}}, 0.0)
+
+        self.assertEqual(asyncio.run(run()), 90000.0)
+
+
 class CounterpartyAccountTests(unittest.TestCase):
     """An RTGS narration names the other side in full; the IFSC that closes
     it says which bank. Account numbers here are invented."""
