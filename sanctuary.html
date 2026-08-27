@@ -1752,7 +1752,7 @@ function renderFinance(){
     ...f.ledger.map((r) => ({...r,
       dir: r.source === "statement-in" ? "in" : "out",
       acct: r.ref_id && r.ref_id.startsWith("stmt:") ? "··" + r.ref_id.split(":")[1].slice(-4) : ""})),
-    ...f.emis.map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
+    ...f.emis.filter((e) => !e.in_ledger).map((e) => ({id: "emi" + e.id, entry_date: e.due_date, category: "EMI · " + e.loan_name,
       note: e.paid_on ? "paid " + niceDate(e.paid_on) : "", amount: e.amount, source: "emi", dir: "out", acct: ""})),
   ].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   S.led = S.led || {q: "", cat: "", acct: "", flow: "", page: 1};

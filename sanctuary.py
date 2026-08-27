@@ -1535,12 +1535,31 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
     saved = sum(r["amount"] for r in outgo if r["category"] in saving_names)
     inflow = sum(r["amount"] for r in ledger if r["source"] == "statement-in")
-    emi_total = sum(e["amount"] for e in emis)
+
+    # An EMI the bank statement already told is not spent AGAIN by the
+    # schedule that planned it. A schedule row whose amount appears as a
+    # statement debit within five days of its due date is marked in_ledger:
+    # it stays visible on its loan, but the money counts once — in the
+    # ledger row, where it actually moved.
+    stmt_days = {}
+    for row in outgo:
+        if str(row.get("ref_id") or "").startswith("stmt:"):
+            stmt_days.setdefault(round(row["amount"], 2), []).append(row["entry_date"])
+    for emi in emis:
+        due = date.fromisoformat(emi["due_date"])
+        emi["in_ledger"] = any(
+            abs((date.fromisoformat(d) - due).days) <= 5 for d in stmt_days.get(round(emi["amount"], 2), [])
+        )
+    emi_total = sum(e["amount"] for e in emis if not e["in_ledger"])
 
     by_category: dict[str, float] = {}
     for row in outgo:
+        if row["category"] == "Self transfer":
+            continue  # his own money moving is not a spending bar
         by_category[row["category"]] = by_category.get(row["category"], 0) + row["amount"]
     for emi in emis:
+        if emi["in_ledger"]:
+            continue
         label = f"EMI · {emi['loan_name']}"
         by_category[label] = by_category.get(label, 0) + emi["amount"]
 
