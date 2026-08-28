@@ -435,6 +435,7 @@ VIEWER_SHARED_READ_PREFIXES = (
     "/api/fib-boundary/",
     "/api/fib-space/",
     "/api/gap-carry/",
+    "/api/supertrend/",
     "/api/financial-plan",
     "/api/journal/",
     "/api/live/",

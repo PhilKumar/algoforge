@@ -1563,10 +1563,10 @@ function _assetsEffectiveTheme() {
 // Boundary sheet. One frame, one route (?doc=), one theme contract.
 let _assetsTearsheetDoc = _storedView(
   PF_VIEW_STATE.assetsTearsheet,
-  ['options', 'fib', 'candle', 'gapcarry'],
+  ['options', 'fib', 'candle', 'gapcarry', 'supertrend'],
   'options'
 );
-const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet' };
+const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet', supertrend: 'Supertrend Tearsheet' };
 function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'Five-Year Tearsheet'; }
 function _assetsTearsheetUrl() {
   return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;
@@ -1628,6 +1628,10 @@ function openCandleTearsheet(event) {
 
 function openGapCarryTearsheet(event) {
   _openStrategyTearsheet(event, 'gapcarry', '#curve-gapcarry');
+}
+
+function openSupertrendTearsheet(event) {
+  _openStrategyTearsheet(event, 'supertrend', '#curve-supertrend');
 }
 
 function _syncAssetsTearsheetTheme() {
@@ -2022,6 +2026,19 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setCandleEntryExpiry',
   'setCandleEntryTarget',
   'setCandleEntryExit',
+  'setSupertrendMode',
+  'setSupertrendMultiplier',
+  'setSupertrendRoll',
+  'setSupertrendLots',
+  'setSupertrendAuto',
+  'startSupertrendPaper',
+  'killSupertrendPaper',
+  'runSupertrendBacktest',
+  'deleteSupertrendBacktest',
+  'toggleSupertrendBacktestChart',
+  'loadSupertrendChart',
+  'hideSupertrendChart',
+  'openSupertrendTearsheet',
   'startGapCarryPaper',
   'killGapCarryPaper',
   'runGapCarryBacktest',
@@ -2936,6 +2953,7 @@ async function setCandleEntryAuto(_event, button) {
 const _PAPER_LEDGER_UI = {
   candle_entry: { wrap: 'oc-candle-closed', body: 'oc-candle-closed-rows', count: 'oc-candle-closed-count' },
   fib_boundary: { wrap: 'oc-fib-closed', body: 'oc-fib-closed-rows', count: 'oc-fib-closed-count' },
+  supertrend: { wrap: 'oc-st-closed', body: 'oc-st-closed-rows', count: 'oc-st-closed-count' },
   gap_carry: { wrap: 'oc-gap-closed', body: 'oc-gap-closed-rows', count: 'oc-gap-closed-count' },
 };
 
@@ -4411,7 +4429,480 @@ async function refreshGapCarryStatus() {
   }
 }
 
-const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'bench'];
+
+// ─── Supertrend ───────────────────────────────────────────────────────────
+// The fifth strategy's console. Its book is the published Supertrend
+// tearsheet: 1h supertrend(10, 1.5), one ATM call on the NEXT weekly, rolled
+// at six strikes, out on an 80-point give-back after a 100-point run.
+let _lastSupertrendTimeframes = ['1h', '30m'];
+const _ST_MONEY = (v) => (v == null ? '—' : `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
+
+function _setSupertrendFormStatus(message, tone) {
+  const box = _cascadeOptionsEl('oc-st-status');
+  if (!box) return;
+  box.textContent = message || '';
+  _cascadeSetTone(box, tone || null);
+  box.style.color = tone === 'error' ? 'var(--danger)'
+    : tone === 'success' ? '#6ee7b7'
+    : tone === 'busy' ? '#fde68a' : 'var(--muted)';
+}
+
+function _supertrendPayload() {
+  const num = (id, fallback) => {
+    const raw = document.getElementById(id)?.value;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  return {
+    timeframe: document.getElementById('oc-st-timeframe')?.value || '1h',
+    atr_period: 10,
+    multiplier: num('oc-st-multiplier', 1.5),
+    lots: num('oc-st-lots', 1),
+    expiry_rank: 2,
+    roll_strikes: num('oc-st-roll', 6),
+    trail_arm_points: num('oc-st-trail-arm', 100),
+    trail_give_points: num('oc-st-trail-give', 80),
+  };
+}
+
+function _syncSupertrendRecipe() {
+  const box = _cascadeOptionsEl('oc-st-recipe');
+  const payload = _supertrendPayload();
+  const mode = document.getElementById('oc-st-mode')?.value || 'paper';
+  const roll = payload.roll_strikes ? `rolled at ${payload.roll_strikes} strikes` : 'never rolled';
+  const trail = payload.trail_give_points
+    ? `trail arms after ${payload.trail_arm_points} pts, exits on ${payload.trail_give_points} back`
+    : 'no trail';
+  if (box) {
+    box.textContent = `${payload.timeframe} supertrend(10, ${payload.multiplier}) · `
+      + `${payload.lots} lot${payload.lots === 1 ? '' : 's'} ATM CE on next week's expiry · ${roll} · ${trail} · out on the flip or expiry 15:20`;
+  }
+  const start = _cascadeOptionsEl('oc-st-start');
+  if (start && !start.dataset.running) {
+    start.textContent = mode === 'live' ? '▶ Start LIVE run' : '▶ Start paper run';
+  }
+  const state = _cascadeOptionsEl('oc-st-advanced-state');
+  if (state) {
+    const stock = payload.multiplier === 1.5 && payload.roll_strikes === 6
+      && payload.trail_arm_points === 100 && payload.trail_give_points === 80 && payload.lots === 1;
+    state.textContent = stock ? 'rule as measured' : 'changed from the measured rule';
+  }
+}
+
+function setSupertrendMode(_event, button) {
+  _ocpSetSwitch('oc-st-mode', 'oc-st-mode-toggle', button?.dataset?.value || 'paper');
+  _syncSupertrendRecipe();
+}
+function setSupertrendMultiplier(_event, button) {
+  _ocpSetSwitch('oc-st-multiplier', 'oc-st-multiplier-toggle', button?.dataset?.value || '1.5');
+  _syncSupertrendRecipe();
+}
+function setSupertrendRoll(_event, button) {
+  _ocpSetSwitch('oc-st-roll', 'oc-st-roll-toggle', button?.dataset?.value || '6');
+  _syncSupertrendRecipe();
+}
+function setSupertrendLots(_event, button) {
+  _ocpSetSwitch('oc-st-lots', 'oc-st-lots-toggle', button?.dataset?.value || '1');
+  _syncSupertrendRecipe();
+}
+
+let _supertrendAutoInFlight = false;
+async function setSupertrendAuto(_event, button) {
+  if (_supertrendAutoInFlight) return;
+  const wanted = button?.dataset?.value === 'on';
+  const previous = document.getElementById('oc-st-auto')?.value || 'off';
+  _ocpSetSwitch('oc-st-auto', 'oc-st-auto-toggle', wanted ? 'on' : 'off');
+  _supertrendAutoInFlight = true;
+  try {
+    const response = await fetch('/api/supertrend/auto', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: wanted, mode: document.getElementById('oc-st-mode')?.value || 'paper' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The runner could not be changed.'));
+    _renderSupertrendAuto(data.auto || {});
+    _setSupertrendFormStatus(wanted ? 'Auto runner on — it watches the hourly close.' : 'Auto runner off.', 'success');
+  } catch (error) {
+    // Roll the switch back: a toggle that lies about the server is worse than one that refuses.
+    _ocpSetSwitch('oc-st-auto', 'oc-st-auto-toggle', previous);
+    _setSupertrendFormStatus(error.message || 'The runner could not be changed.', 'error');
+  } finally {
+    _supertrendAutoInFlight = false;
+  }
+}
+
+async function startSupertrendPaper() {
+  const button = _cascadeOptionsEl('oc-st-start');
+  if (button) button.disabled = true;
+  _setSupertrendFormStatus('Reading the hourly close and pricing the contract…', 'busy');
+  try {
+    const response = await fetch('/api/supertrend/paper/start', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ..._supertrendPayload(), mode: document.getElementById('oc-st-mode')?.value || 'paper' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'The campaign could not be started.'));
+    _renderSupertrendStatus(data.campaign || null, true);
+    _setSupertrendFormStatus('Paper run started.', 'success');
+  } catch (error) {
+    _setSupertrendFormStatus(error.message || 'The campaign could not be started.', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function killSupertrendPaper() {
+  const ok = await customConfirm(
+    'Close the open contract at its live quote and end the campaign?',
+    { title: 'Kill the Supertrend run', icon: ICO.warn(28), okText: 'Kill & close', danger: true },
+  );
+  if (!ok) return;
+  _setSupertrendFormStatus('Closing at the live quote…', 'busy');
+  try {
+    const response = await fetch('/api/supertrend/paper/kill', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, 'The campaign could not be closed.'));
+    _renderSupertrendStatus(data.campaign || null, false);
+    _setSupertrendFormStatus('Campaign closed.', 'success');
+  } catch (error) {
+    _setSupertrendFormStatus(error.message || 'The campaign could not be closed.', 'error');
+  }
+}
+
+async function runSupertrendBacktest() {
+  const button = _cascadeOptionsEl('oc-st-backtest-btn');
+  if (button) button.disabled = true;
+  _setSupertrendFormStatus('Replaying the rule on recorded prices…', 'busy');
+  try {
+    const response = await fetch('/api/supertrend/backtest', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ..._supertrendPayload(), lookback_days: 120 }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The replay could not be run.'));
+    _renderSupertrendBacktest(data);
+    _setSupertrendFormStatus(`Replayed ${data.summary?.trades ?? 0} trades.`, 'success');
+  } catch (error) {
+    _setSupertrendFormStatus(error.message || 'The replay could not be run.', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function deleteSupertrendBacktest() {
+  const ok = await customConfirm('Clear the saved Supertrend replay?', {
+    title: 'Clear replay', icon: ICO.warn(28), okText: 'Clear', danger: true,
+  });
+  if (!ok) return;
+  try {
+    await fetch('/api/supertrend/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
+    const box = _cascadeOptionsEl('oc-st-backtest');
+    if (box) box.hidden = true;
+    _supertrendCollapseBacktestChart();
+    _setSupertrendFormStatus('Saved replay cleared.', 'success');
+  } catch (error) {
+    _setSupertrendFormStatus(error.message || 'The replay could not be cleared.', 'error');
+  }
+}
+
+let _lastSupertrendAuto = null;
+function _renderSupertrendAuto(auto) {
+  _lastSupertrendAuto = auto && typeof auto === 'object' ? auto : null;
+  const card = _cascadeOptionsEl('oc-st-auto-card');
+  const enabled = !!(_lastSupertrendAuto && _lastSupertrendAuto.enabled);
+  _ocpSetSwitch('oc-st-auto', 'oc-st-auto-toggle', enabled ? 'on' : 'off');
+  if (!card) return;
+  if (!enabled) { card.hidden = true; card.innerHTML = ''; return; }
+  const state = escapeHtml(String(_lastSupertrendAuto.state || 'watching'));
+  const checked = _lastSupertrendAuto.checked_at ? escapeHtml(String(_lastSupertrendAuto.checked_at).slice(11, 16)) : '—';
+  const error = _lastSupertrendAuto.last_error
+    ? `<div style="color:var(--danger);margin-top:4px;">${escapeHtml(String(_lastSupertrendAuto.last_error))}</div>` : '';
+  card.hidden = false;
+  card.innerHTML = `<div class="ocp-auto-head"><strong>Auto runner on</strong><span>${state} · checked ${checked}</span></div>`
+    + `<div class="ocp-muted">Pinned to the measured rule: 1h ×1.5, ATM CE on next week's expiry, roll 6, trail 100/80.</div>${error}`;
+}
+
+const _supertrendTile = (label, value, tone) => _ocpTile(label, value, tone);
+
+function _renderSupertrendStatus(campaign, running) {
+  const badge = _cascadeOptionsEl('oc-st-badge');
+  const summary = _cascadeOptionsEl('oc-st-summary');
+  const monitor = _cascadeOptionsEl('oc-st-monitor');
+  const startBtn = _cascadeOptionsEl('oc-st-start');
+  const stopBtn = _cascadeOptionsEl('oc-st-stop');
+  const chartBtn = _cascadeOptionsEl('oc-st-chart-btn');
+
+  const setStart = (busy) => {
+    if (!startBtn) return;
+    const mode = document.getElementById('oc-st-mode')?.value || 'paper';
+    if (busy) {
+      startBtn.dataset.running = '1';
+      startBtn.textContent = mode === 'live' ? '● Running · LIVE' : '● Running · paper';
+    } else {
+      delete startBtn.dataset.running;
+      startBtn.textContent = mode === 'live' ? '▶ Start LIVE run' : '▶ Start paper run';
+    }
+  };
+
+  if (!campaign) {
+    const watching = !!(_lastSupertrendAuto && _lastSupertrendAuto.enabled);
+    if (badge) {
+      badge.textContent = watching ? 'AUTO · WATCHING' : 'IDLE';
+      _cascadeSetTone(badge, watching ? 'info' : null);
+      badge.style.color = watching ? '#fde68a' : 'var(--muted)';
+    }
+    if (summary) summary.textContent = 'No active Supertrend campaign.';
+    setStart(false);
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (chartBtn) chartBtn.style.display = 'none';
+    _ocpIdleMonitor(
+      { monitor: 'oc-st-monitor', title: 'oc-st-monitor-title', tiles: 'oc-st-tiles', rows: 'oc-st-rows' },
+      'Waiting for an hourly close above the line', 8);
+    return;
+  }
+
+  const status = String(campaign.status || 'WATCHING');
+  const isRunning = !!running;
+  if (badge) {
+    badge.textContent = isRunning ? status : `ENDED · ${status}`;
+    _cascadeSetTone(badge, isRunning ? 'info' : 'warning');
+    badge.style.color = isRunning ? '#fde68a' : 'var(--warn)';
+  }
+  setStart(isRunning);
+  if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
+  if (chartBtn) chartBtn.style.display = '';
+  if (monitor) monitor.hidden = false;
+
+  const kicker = _cascadeOptionsEl('oc-st-monitor-kicker');
+  const title = _cascadeOptionsEl('oc-st-monitor-title');
+  if (kicker) kicker.textContent = campaign.open ? 'Holding a call' : 'Watching the line';
+  if (title) title.textContent = campaign.open ? `${campaign.position?.strike ?? ''} ${campaign.position?.side ?? ''}` : status;
+
+  const mark = campaign.mark || null;
+  const tiles = _cascadeOptionsEl('oc-st-tiles');
+  if (tiles) {
+    const realised = Number(campaign.realised || 0);
+    const priced = Number(campaign.priced_net || 0);
+    tiles.innerHTML = [
+      _supertrendTile('Realised', _ST_MONEY(realised), realised >= 0 ? 'up' : 'down'),
+      _supertrendTile('Priced-only', _ST_MONEY(priced), priced >= 0 ? 'up' : 'down'),
+      _supertrendTile('Open P&L', mark ? _ST_MONEY(mark.unrealised) : '—', mark && mark.unrealised >= 0 ? 'up' : 'down'),
+      _supertrendTile('Trades', String(campaign.closed_trades ?? 0)),
+      _supertrendTile('Rolls', String(campaign.rolls ?? 0)),
+      _supertrendTile('Trail at', mark && mark.trail_level ? String(mark.trail_level) : 'disarmed'),
+    ].join('');
+  }
+
+  const ruleBox = _cascadeOptionsEl('oc-st-monitor-rule');
+  if (ruleBox && campaign.rule) {
+    const r = campaign.rule;
+    const signal = campaign.signal;
+    ruleBox.innerHTML = escapeHtml(
+      `${r.timeframe} supertrend(${r.atr_period}, ${r.multiplier}) · roll ${r.roll_strikes} · trail ${r.trail_arm_points}/${r.trail_give_points}`
+      + (signal ? ` · last close ${signal.close} vs line ${signal.supertrend} — ${signal.reason}` : ''));
+  }
+
+  const body = _cascadeOptionsEl('oc-st-rows');
+  if (body) {
+    const rows = [...(campaign.history || [])];
+    if (campaign.position) rows.push(campaign.position);
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="8" class="ocp-empty">Nothing bought yet — waiting for an hourly close above the line.</td></tr>';
+    } else {
+      body.innerHTML = rows.slice(-12).reverse().map((row) => {
+        const open = !!row.open;
+        const net = row.net == null ? null : Number(row.net);
+        const shown = open ? (mark ? Number(mark.unrealised) : null) : net;
+        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? '#6ee7b7' : 'var(--danger)');
+        const exit = row.exit
+          ? `${_ST_MONEY(row.exit.premium)}${row.exit.priced ? '' : ' <span style="color:var(--warn);">at intrinsic</span>'}`
+          : (mark ? _ST_MONEY(mark.premium) : '—');
+        const ended = row.exit ? escapeHtml(String(row.exit.reason || '')) : '<span style="color:#fde68a;">open</span>';
+        return '<tr>'
+          + `<td>${escapeHtml(String(row.entry?.timestamp || '').slice(0, 16).replace('T', ' '))}</td>`
+          + `<td>${escapeHtml(String(row.strike ?? ''))}${row.rolled_from ? ` <span class="ocp-muted">← ${escapeHtml(String(row.rolled_from))}</span>` : ''}</td>`
+          + `<td>${escapeHtml(String(row.expiry || ''))}</td>`
+          + `<td>${escapeHtml(String(row.lots ?? ''))}</td>`
+          + `<td>${_ST_MONEY(row.entry?.premium)}</td>`
+          + `<td>${exit}</td>`
+          + `<td>${ended}</td>`
+          + `<td style="color:${tone};">${shown == null ? '—' : _ST_MONEY(shown)}</td>`
+          + '</tr>';
+      }).join('');
+    }
+  }
+
+  const events = _cascadeOptionsEl('oc-st-events');
+  const count = _cascadeOptionsEl('oc-st-event-count');
+  const notes = [...(campaign.notes || [])].reverse();
+  if (events) {
+    events.innerHTML = notes.length
+      ? notes.map((note) => {
+        const text = String(note);
+        const split = text.indexOf(': ');
+        const when = split > 0 ? text.slice(0, split) : '';
+        const what = split > 0 ? text.slice(split + 2) : text;
+        return `<tr><td class="ocp-muted" style="white-space:nowrap;">${escapeHtml(when)}</td><td>${escapeHtml(what)}</td></tr>`;
+      }).join('')
+      : '<tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr>';
+  }
+  if (count) count.textContent = `${notes.length} update${notes.length === 1 ? '' : 's'}`;
+
+  if (summary) {
+    summary.textContent = campaign.open
+      ? `Holding ${campaign.position?.strike} ${campaign.position?.side} ${campaign.position?.expiry} · bought at ₹${campaign.position?.entry?.premium}`
+      : `Watching · ${campaign.closed_trades ?? 0} closed, realised ${_ST_MONEY(campaign.realised)}`;
+  }
+  const updated = _cascadeOptionsEl('oc-st-monitor-updated');
+  if (updated) updated.textContent = mark ? `marked ${String(mark.timestamp).slice(11, 16)}` : '';
+}
+
+function _renderSupertrendBacktest(data) {
+  const box = _cascadeOptionsEl('oc-st-backtest');
+  if (!box || !data || data.status !== 'ok') return;
+  box.hidden = false;
+  const s = data.summary || {};
+  const tiles = _cascadeOptionsEl('oc-st-backtest-tiles');
+  if (tiles) {
+    tiles.innerHTML = [
+      _supertrendTile('Net', _ST_MONEY(s.net), Number(s.net || 0) >= 0 ? 'up' : 'down'),
+      _supertrendTile('Priced-only', _ST_MONEY(s.priced_net), Number(s.priced_net || 0) >= 0 ? 'up' : 'down'),
+      _supertrendTile('Trades', String(s.trades ?? 0)),
+      _supertrendTile('Win rate', `${s.win_rate ?? 0}%`),
+      _supertrendTile('Max drawdown', _ST_MONEY(s.max_drawdown), 'down'),
+      _supertrendTile('Rolls', String(s.rolls ?? 0)),
+    ].join('');
+  }
+  const table = _cascadeOptionsEl('oc-st-backtest-table');
+  if (table) {
+    const trades = (data.trades || []).filter((t) => !t.open).slice(-25).reverse();
+    table.innerHTML = '<thead><tr><th>Entry</th><th>Strike</th><th>Ended by</th><th>Net</th></tr></thead><tbody>'
+      + (trades.length
+        ? trades.map((t) => `<tr><td>${escapeHtml(String(t.entry?.timestamp || '').slice(0, 16).replace('T', ' '))}</td>`
+          + `<td>${escapeHtml(String(t.strike ?? ''))}</td>`
+          + `<td>${escapeHtml(String(t.exit?.reason || ''))}${t.exit && t.exit.priced === false ? ' <span style="color:var(--warn);">intrinsic</span>' : ''}</td>`
+          + `<td style="color:${Number(t.net) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${_ST_MONEY(t.net)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="ocp-empty">No trades in that window.</td></tr>')
+      + '</tbody>';
+  }
+  const updated = _cascadeOptionsEl('oc-st-backtest-updated');
+  if (updated && data.window) updated.textContent = `${String(data.window.from).slice(0, 10)} → ${String(data.window.to).slice(0, 10)}`;
+}
+
+let _supertrendChartTf = '1h';
+function _supertrendCollapseBacktestChart() {
+  const wrap = _cascadeOptionsEl('oc-st-backtest-chart-wrap');
+  if (wrap) wrap.hidden = true;
+  _pfChartCanvasTeardown();
+}
+
+async function toggleSupertrendBacktestChart() {
+  const wrap = _cascadeOptionsEl('oc-st-backtest-chart-wrap');
+  const box = _cascadeOptionsEl('oc-st-backtest-chart');
+  if (!wrap || !box) return;
+  if (!wrap.hidden) { _supertrendCollapseBacktestChart(); return; }
+  hideSupertrendChart();
+  wrap.hidden = false;
+  box.innerHTML = '<div class="pf-cascade-chart-empty">Loading…</div>';
+  try {
+    const response = await fetch('/api/supertrend/backtests/latest/chart', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(_apiErrorMessage(data, 'The chart could not be drawn.'));
+    await pfWaitForCascadeChartLayout();
+    pfBenchDrawChart(box, data.chart || {});
+  } catch (error) {
+    _pfChartCanvasTeardown();
+    box.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(pfErrorText(error))}</div>`;
+  }
+}
+
+async function loadSupertrendChart() {
+  const overlay = _cascadeOptionsEl('oc-st-chart-overlay');
+  const box = _cascadeOptionsEl('oc-st-chart');
+  if (!overlay || !box) return;
+  _supertrendCollapseBacktestChart();
+  pfSetCascadeChartOverlayOpen(overlay, true);
+  const stripHost = _cascadeOptionsEl('oc-st-chart-strip');
+  if (stripHost && !stripHost.childElementCount) {
+    // No onClose: the ✕ is authored in the toolbar markup, and two would be one too many.
+    pfChartStrip(stripHost, {
+      timeframes: _lastSupertrendTimeframes,
+      active: _supertrendChartTf,
+      onTimeframe: (tf) => { _supertrendChartTf = tf; loadSupertrendChart(); },
+      onRefresh: () => loadSupertrendChart(),
+    });
+  }
+  box.innerHTML = '<div class="pf-cascade-chart-empty">Loading…</div>';
+  const meta = _cascadeOptionsEl('oc-st-chart-meta');
+  try {
+    const response = await fetch(`/api/supertrend/paper/chart?timeframe=${encodeURIComponent(_supertrendChartTf)}`, { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(_apiErrorMessage(data, 'The chart could not be drawn.'));
+    await pfWaitForCascadeChartLayout();
+    pfBenchDrawChart(box, data);
+    if (meta) {
+      const ind = data.indicators || {};
+      meta.textContent = `NIFTY ${data.timeframe} · supertrend(${ind.atr_period ?? 10}, ${ind.multiplier ?? 1.5}) · ${(ind.flips || []).length} flips drawn`;
+    }
+  } catch (error) {
+    _pfChartCanvasTeardown();
+    box.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(pfErrorText(error))}</div>`;
+    if (meta) meta.textContent = '';
+  }
+}
+
+function hideSupertrendChart() {
+  const overlay = _cascadeOptionsEl('oc-st-chart-overlay');
+  if (overlay) pfSetCascadeChartOverlayOpen(overlay, false);
+}
+
+async function _restoreLastSupertrendBacktest() {
+  try {
+    const response = await fetch('/api/supertrend/backtests/latest', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.status === 'ok') _renderSupertrendBacktest(data);
+  } catch (_error) { /* a missing replay is not an error worth shouting about */ }
+}
+
+async function refreshSupertrendStatus() {
+  _refreshPaperLedger('supertrend');
+  try {
+    const response = await fetch('/api/supertrend/paper/status', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(_apiErrorMessage(data, 'Status unavailable.'));
+    _renderSupertrendAuto(data.auto || {});
+    if (Array.isArray(data.timeframes) && data.timeframes.length) _lastSupertrendTimeframes = data.timeframes;
+    _renderSupertrendStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
+    _syncSupertrendRecipe();
+  } catch (error) {
+    // Never the form status: a 3-second poll would wipe whatever the last
+    // action said before Phil had a chance to read it.
+    const summary = _cascadeOptionsEl('oc-st-summary');
+    if (summary) summary.textContent = pfErrorText(error);
+  }
+}
+
+window.setSupertrendMode = setSupertrendMode;
+window.setSupertrendMultiplier = setSupertrendMultiplier;
+window.setSupertrendRoll = setSupertrendRoll;
+window.setSupertrendLots = setSupertrendLots;
+window.setSupertrendAuto = setSupertrendAuto;
+window.startSupertrendPaper = startSupertrendPaper;
+window.killSupertrendPaper = killSupertrendPaper;
+window.runSupertrendBacktest = runSupertrendBacktest;
+window.deleteSupertrendBacktest = deleteSupertrendBacktest;
+window.toggleSupertrendBacktestChart = toggleSupertrendBacktestChart;
+window.loadSupertrendChart = loadSupertrendChart;
+window.hideSupertrendChart = hideSupertrendChart;
+window.refreshSupertrendStatus = refreshSupertrendStatus;
+
+const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'supertrend', 'bench'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -4478,6 +4969,7 @@ function showOptionsCascadeTab(event, el) {
   });
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'gapcarry') refreshGapCarryStatus();
+  else if (tab === 'supertrend') refreshSupertrendStatus();
   else if (tab === 'bench') initTestBenchPage();
   else if (tab === 'recovery') refreshRecoveryStatus();
   else refreshFibBoundaryStatus();
@@ -4751,13 +5243,15 @@ async function initOptionsCascadePage() {
   _restoreLastFibBoundaryBacktest();
   _restoreLastCandleEntryBacktest();
   _restoreLastGapCarryBacktest();
+  _restoreLastSupertrendBacktest();
   await refreshFibBoundaryStatus();
   await refreshCandleEntryStatus();
   await refreshGapCarryStatus();
+  await refreshSupertrendStatus();
   if (!_fibBoundaryPollTimer) {
     _fibBoundaryPollTimer = setInterval(() => {
       if (document.querySelector('.pf-cascade-chart-overlay.is-open')) return;
-      if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); refreshGapCarryStatus(); }
+      if (_isPageVisible() && _isPageActive('options-cascade-page')) { refreshFibBoundaryStatus(); refreshCandleEntryStatus(); refreshGapCarryStatus(); refreshSupertrendStatus(); }
     }, _ws && _ws.readyState === 1 ? 10000 : 3000);
   }
 }
@@ -6543,6 +7037,7 @@ window.pickAssetsTearsheet = pickAssetsTearsheet;
 window.openFibTearsheet = openFibTearsheet;
 window.openCandleTearsheet = openCandleTearsheet;
 window.openGapCarryTearsheet = openGapCarryTearsheet;
+window.openSupertrendTearsheet = openSupertrendTearsheet;
 window.openFibAutoChart = openFibAutoChart;
 window.startFibBoundaryPaper = startFibBoundaryPaper;
 window.killFibBoundaryPaper = killFibBoundaryPaper;

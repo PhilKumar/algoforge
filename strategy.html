@@ -2455,7 +2455,222 @@
      tab used to be. Two tabs for one strategy is how they drift apart. -->
     <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">The 278-bar high · bottom quarter</span></button>
+    <button id="oc-tabbtn-supertrend" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-supertrend" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="supertrend" title="Hourly supertrend, one ATM call on next week's expiry, rolled and trailed — paper"><span class="oc-tab-name">◈ Supertrend</span><span class="oc-tab-sub">1H &times;1.5 &middot; roll 6 &middot; trail 100/80</span></button>
     <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-bench" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother</span></button>
+  </div>
+
+
+  <!-- ── TAB · Supertrend ── -->
+  <div id="oc-tab-supertrend" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-supertrend" aria-hidden="true" style="display:none;">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(167,139,250,.30);">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;justify-content:space-between;">
+        <div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+          <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Supertrend
+            <button type="button" class="pf-info-btn" data-pf-info="oc-st-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+          <span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#a78bfa;">1H SUPERTREND &middot; CALLS ONLY &middot; ROLLED &middot; TRAILED</span>
+          <div id="oc-st-info" class="pf-info-pop pf-info-doc">
+            <div class="pf-doc-langs" role="tablist" aria-label="Language">
+              <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+              <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+            </div>
+            <div class="pf-doc-lang is-active" data-pf-lang="en">
+            <p class="pf-info-lede">One line under the hourly chart decides everything. While it sits below price the trend is up and a call is held; when price closes back under it, the trade is over. <strong>Paper only</strong> &mdash; nothing from this tab reaches a broker.</p>
+            <section>
+              <h5>1 &middot; The line</h5>
+              <p>A <strong>supertrend</strong> on the <strong>1-hour</strong> chart, ATR period <strong>10</strong>, multiplier <strong>1.5</strong>. It is the same function the Builder and the live engine already use, and it was checked bar-for-bar against the sweep the tearsheet was measured on: 9,778 hourly bars, 732 flips, <strong>zero disagreements</strong>.</p>
+            </section>
+            <section>
+              <h5>2 &middot; The contract</h5>
+              <p>One NIFTY call, <strong>at the money</strong>, on the <strong>next week&rsquo;s</strong> expiry &mdash; never this week&rsquo;s. On the nearest weekly a third of all entries land within a day of expiry, and <em>every one</em> of those buckets lost money. In-the-money strikes were measured too and cut the net almost in half: the roll already does theta&rsquo;s job.</p>
+            </section>
+            <section>
+              <h5>3 &middot; The roll</h5>
+              <p>When price sits <strong>six strikes</strong> from the strike, the contract is sold and a fresh at-the-money one bought the same minute. That banks the gain at a real quoted price instead of letting the strike drift somewhere nothing will quote &mdash; and it is what a desk does for liquidity anyway. Each roll pays a full round trip, and the panel counts them.</p>
+            </section>
+            <section>
+              <h5>4 &middot; The exit is a give-back, not a stop</h5>
+              <p>Once the index has run <strong>100 points</strong> in the trade&rsquo;s favour a trail arms; give back <strong>80 points</strong> from the best level since entry and the trade ends. Otherwise it ends when the line flips bearish, or at expiry, 15:20. <strong>There is no stop loss below</strong>, and that is measured, not an oversight: every stop tested lost money <em>and raised</em> drawdown, because a stopped trade re-enters the same still-bullish trend and pays another round trip.</p>
+            </section>
+            <section>
+              <h5>5 &middot; Held overnight, on purpose</h5>
+              <p>Squaring off daily loses at <strong>all 70 settings</strong> measured. The overnight gaps are where a trend actually pays, and a daily exit forfeits every one of them while paying a fresh round trip.</p>
+            </section>
+            <section>
+              <h5>6 &middot; Measured</h5>
+              <p>NIFTY, Jan 2021 &rarr; Aug 2026, one lot, on recorded premiums: <strong>685 trades, +&#8377;2,60,967, 43.9% won</strong>, worst drawdown &#8377;74,437, and <strong>+&#8377;1,64,249 counting only the 673 trades with a real market quote at both ends</strong>. Validated eight ways, including an independently written replayer that reproduced every trade to the rupee.</p>
+            </section>
+            <p class="pf-info-warn"><strong>The edge has faded, and the sheet says so.</strong> &#8377;1,97,000 of that came in 2021&ndash;2023. The last two and a half years made about <strong>&#8377;24,000 a year</strong> against a historical worst drawdown of &#8377;74,437, and <strong>2024 on its own lost money</strong>. Trend-following in calls pays when the index trends; it did in 2021, 2023 and 2025 and did not in 2022, 2024 and 2026-so-far. Size against the recent rate, not the five-year headline. <strong>Puts are not traded</strong> &mdash; on trades with a real quote at both ends the put book loses, in all sixty-plus variants measured.</p>
+            </div>
+            <div class="pf-doc-lang" data-pf-lang="ta">
+            <p class="pf-info-lede">Hourly chart-இன் கீழே ஒரு கோடு எல்லாவற்றையும் முடிவு செய்கிறது. அது விலைக்குக் கீழே இருக்கும் வரை trend மேல்நோக்கி, ஒரு கால் வைத்திருக்கப்படும்; விலை அதற்குக் கீழே முடிந்தால் trade முடிந்தது. <strong>Paper மட்டும்</strong> — இந்த tab-இலிருந்து எதுவும் broker-ஐ அடையாது.</p>
+            <section>
+              <h5>1 · கோடு</h5>
+              <p><strong>1-மணி chart</strong>-இல் ஒரு supertrend, ATR <strong>10</strong>, multiplier <strong>1.5</strong>. Builder-உம் live engine-உம் ஏற்கனவே பயன்படுத்தும் அதே function; tearsheet அளக்கப்பட்ட தரவுடன் bar-க்கு bar சரிபார்க்கப்பட்டது: 9,778 bars, 732 flips, <strong>பூஜ்ஜிய வேறுபாடு</strong>.</p>
+            </section>
+            <section>
+              <h5>2 · ஒப்பந்தம்</h5>
+              <p>ஒரு NIFTY கால், <strong>at the money</strong>, <strong>அடுத்த வார</strong> expiry-இல் — இந்த வாரம் அல்ல. அருகிலுள்ள weekly-இல் நுழைவுகளில் மூன்றில் ஒன்று expiry-க்கு ஒரு நாளுக்குள் விழுகிறது, அந்தப் பிரிவுகள் அனைத்தும் நஷ்டம். ITM strikes நிகரை கிட்டத்தட்ட பாதியாக்கின — theta-வின் வேலையை roll ஏற்கனவே செய்கிறது.</p>
+            </section>
+            <section>
+              <h5>3 · Roll</h5>
+              <p>விலை strike-இலிருந்து <strong>ஆறு strikes</strong> தூரம் சென்றால், ஒப்பந்தம் விற்கப்பட்டு அதே நிமிடம் புதிய ATM கால் வாங்கப்படும். இது லாபத்தை உண்மையான விலையில் பதிவு செய்கிறது; liquidity-க்காக ஒரு desk செய்வதும் இதுவே. ஒவ்வொரு roll-உம் ஒரு முழு round trip கட்டணம்; panel அவற்றை எண்ணுகிறது.</p>
+            </section>
+            <section>
+              <h5>4 · Stop அல்ல, give-back</h5>
+              <p>Index <strong>100 புள்ளி</strong> சாதகமாக ஓடியதும் trail தயார்; நுழைவுக்குப் பின் சிறந்த நிலையிலிருந்து <strong>80 புள்ளி</strong> திரும்பக் கொடுத்தால் trade முடிந்தது. இல்லையெனில் கோடு கீழ்நோக்கி மாறும்போது, அல்லது expiry 15:20-இல். <strong>கீழே stop loss இல்லை</strong> — சோதித்த ஒவ்வொரு stop-உம் நஷ்டம், இறக்கத்தையும் உயர்த்தியது, ஏனெனில் stop ஆன trade அதே உயிருள்ள trend-இல் மறுநுழைந்து மீண்டும் கட்டணம் கட்டுகிறது.</p>
+            </section>
+            <section>
+              <h5>5 · இரவு முழுவதும், வேண்டுமென்றே</h5>
+              <p>நாள்தோறும் square off செய்வது <strong>அளந்த 70 அமைப்புகளிலும்</strong> நஷ்டம். Trend சம்பாதிப்பது இரவு gap-களில்தான்; தினசரி வெளியேற்றம் அவற்றை இழந்து புதிய கட்டணமும் கட்டுகிறது.</p>
+            </section>
+            <section>
+              <h5>6 · அளவீடு</h5>
+              <p>NIFTY, ஜன 2021 → ஆக 2026, ஒரு lot, பதிவு செய்யப்பட்ட premium-களில்: <strong>685 trades, +&#8377;2,60,967, 43.9% வெற்றி</strong>, அதிகபட்ச இறக்கம் &#8377;74,437; இரு முனையிலும் உண்மையான விலையுள்ள 673 trades-இல் <strong>+&#8377;1,64,249</strong>. எட்டு வழிகளில் சரிபார்க்கப்பட்டது.</p>
+            </section>
+            <p class="pf-info-warn"><strong>விளிம்பு மங்கியுள்ளது; அறிக்கை அதைச் சொல்கிறது.</strong> அதில் &#8377;1,97,000 2021–2023-இல். கடைசி இரண்டரை ஆண்டுகள் ஆண்டுக்கு ஏறத்தாழ <strong>&#8377;24,000</strong>, வரலாற்று இறக்கம் &#8377;74,437-க்கு எதிராக; <strong>2024 தனியே நஷ்டம்</strong>. சமீபத்திய விகிதத்தின்படி அளவிடுங்கள். <strong>புட் வர்த்தகம் இல்லை</strong> — உண்மையான விலையுள்ள trades-இல் புட் புத்தகம் நஷ்டம், அறுபதுக்கும் மேற்பட்ட மாற்றங்களில்.</p>
+            </div>
+          </div></div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+          <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=supertrend#curve-supertrend" data-pf-action="openSupertrendTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a>
+          <span id="oc-st-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+        </div>
+      </div>
+      <div id="oc-st-recipe" class="ocp-recipe" aria-live="polite"></div>
+
+      <div class="ocp-panes">
+        <div class="ocp-pane ocp-pane-form">
+          <div class="ocp-essentials">
+            <div class="ocp-field ocp-field-mode">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+              <input type="hidden" id="oc-st-mode" value="paper">
+              <div id="oc-st-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
+                <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setSupertrendMode" role="radio" aria-checked="true"><span>&#9678; Paper</span></button>
+                <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setSupertrendMode" role="radio" aria-checked="false"><span>&#9673; Live</span></button>
+              </div>
+            </div>
+            <div class="ocp-field ocp-field-auto">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Runner</label>
+              <input type="hidden" id="oc-st-auto" value="off">
+              <div id="oc-st-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Unattended runner">
+                <button type="button" class="scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setSupertrendAuto" role="radio" aria-checked="true"><span>Manual</span></button>
+                <button type="button" class="scalp-toggle-btn" data-value="on" data-tone="ember" data-pf-action="setSupertrendAuto" role="radio" aria-checked="false"><span>Auto</span></button>
+              </div>
+            </div>
+            <div class="ocp-field ocp-field-chart">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label>
+              <select id="oc-st-timeframe" class="cascade-options-control" style="width:100%;">
+                <option value="1h" selected>1 hour &mdash; as measured</option>
+                <option value="30m">30 minutes</option>
+              </select>
+            </div>
+            <div class="ocp-field ocp-field-actions ocp-actions">
+              <button id="oc-st-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startSupertrendPaper">&#9654; Start paper run</button>
+              <button id="oc-st-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runSupertrendBacktest">&#9649; Backtest</button>
+              <button id="oc-st-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killSupertrendPaper" style="display:none;">&#9632; Kill &amp; close</button>
+            </div>
+          </div>
+          <details id="oc-st-advanced" class="ocp-advanced">
+            <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-st-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
+            <div class="ocp-advanced-body">
+              <div class="ocp-switch-grid">
+                <div class="ocp-field">
+                  <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Multiplier</label>
+                  <input type="hidden" id="oc-st-multiplier" value="1.5">
+                  <div id="oc-st-multiplier-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="ATR multiplier">
+                    <button type="button" class="scalp-toggle-btn" data-value="1" data-tone="ember" data-pf-action="setSupertrendMultiplier" role="radio" aria-checked="false"><span>1.0</span></button>
+                    <button type="button" class="scalp-toggle-btn active" data-value="1.5" data-tone="ember" data-pf-action="setSupertrendMultiplier" role="radio" aria-checked="true"><span>1.5</span></button>
+                    <button type="button" class="scalp-toggle-btn" data-value="2" data-tone="ember" data-pf-action="setSupertrendMultiplier" role="radio" aria-checked="false"><span>2.0</span></button>
+                  </div>
+                </div>
+                <div class="ocp-field">
+                  <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Roll at</label>
+                  <input type="hidden" id="oc-st-roll" value="6">
+                  <div id="oc-st-roll-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Roll distance in strikes">
+                    <button type="button" class="scalp-toggle-btn" data-value="0" data-tone="ember" data-pf-action="setSupertrendRoll" role="radio" aria-checked="false"><span>Off</span></button>
+                    <button type="button" class="scalp-toggle-btn" data-value="4" data-tone="ember" data-pf-action="setSupertrendRoll" role="radio" aria-checked="false"><span>4</span></button>
+                    <button type="button" class="scalp-toggle-btn active" data-value="6" data-tone="ember" data-pf-action="setSupertrendRoll" role="radio" aria-checked="true"><span>6</span></button>
+                  </div>
+                </div>
+                <div class="ocp-field">
+                  <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Lots</label>
+                  <input type="hidden" id="oc-st-lots" value="1">
+                  <div id="oc-st-lots-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Lots">
+                    <button type="button" class="scalp-toggle-btn active" data-value="1" data-tone="ember" data-pf-action="setSupertrendLots" role="radio" aria-checked="true"><span>1</span></button>
+                    <button type="button" class="scalp-toggle-btn" data-value="2" data-tone="ember" data-pf-action="setSupertrendLots" role="radio" aria-checked="false"><span>2</span></button>
+                    <button type="button" class="scalp-toggle-btn" data-value="3" data-tone="ember" data-pf-action="setSupertrendLots" role="radio" aria-checked="false"><span>3</span></button>
+                  </div>
+                </div>
+                <div class="ocp-field">
+                  <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Trail &middot; arm / give back</label>
+                  <div class="ocp-box-fields">
+                    <input id="oc-st-trail-arm" type="number" min="0" max="1000" step="10" value="100" inputmode="numeric" aria-label="Trail arms after this many index points" title="The trail stays disarmed until the index has run this far in favour (100 is the measured setting)">
+                    <input id="oc-st-trail-give" type="number" min="0" max="1000" step="10" value="80" inputmode="numeric" aria-label="Trail gives back this many index points" title="Give back this much from the best level since entry and the trade ends (80 is the measured setting)">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+          <div id="oc-st-status" style="min-height:18px;padding-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);"></div>
+        </div>
+
+        <div class="ocp-pane ocp-pane-live">
+          <div id="oc-st-auto-card" class="ocp-auto-card" hidden></div>
+          <div id="oc-st-summary" class="ocp-summary">No active Supertrend campaign.</div>
+          <section id="oc-st-monitor" class="ocp-monitor" aria-live="polite" aria-label="Supertrend paper campaign monitor" hidden>
+            <div class="ocp-monitor-head">
+              <div><div class="ocp-monitor-kicker" id="oc-st-monitor-kicker">Paper run</div><h4 id="oc-st-monitor-title">Running</h4></div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+                <button id="oc-st-chart-btn" class="cascade-options-control" type="button" data-pf-action="loadSupertrendChart" aria-label="Open the supertrend chart">&#8599; Chart</button>
+                <div id="oc-st-monitor-updated" class="ocp-monitor-updated"></div></div>
+            </div>
+            <div id="oc-st-tiles" class="ocp-tiles"></div>
+            <div id="oc-st-monitor-rule" class="ocp-monitor-section" style="padding-top:0;font:10.5px/1.6 'JetBrains Mono',monospace;color:var(--muted);"></div>
+            <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table">
+              <thead><tr><th>Entry</th><th>Strike</th><th>Expiry</th><th>Lots</th><th>Bought</th><th>Now / sold</th><th>Ended by</th><th>P&amp;L</th></tr></thead>
+              <tbody id="oc-st-rows"></tbody></table></div></div>
+          </section>
+          <section id="oc-st-backtest" class="ocp-monitor" hidden>
+            <div class="ocp-monitor-head">
+              <div><div class="ocp-monitor-kicker">Replay</div><h4>Backtest</h4></div>
+              <div id="oc-st-backtest-updated" class="ocp-monitor-updated"></div>
+            </div>
+            <div id="oc-st-backtest-tiles" class="ocp-tiles"></div>
+            <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table" id="oc-st-backtest-table"><tbody></tbody></table></div></div>
+            <div class="cascade-options-strip-actions">
+              <a id="oc-st-backtest-csv" class="cascade-options-control" href="/api/supertrend/backtests/latest/export.csv" download>&#8681; CSV</a>
+              <button id="oc-st-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleSupertrendBacktestChart">&#8599; Chart</button>
+              <button id="oc-st-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteSupertrendBacktest">&#10005; Clear</button>
+            </div>
+            <div id="oc-st-backtest-chart-wrap" hidden><div id="oc-st-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
+          </section>
+        </div>
+      </div>
+
+      <details class="ocp-monitor ocp-monitor-fold" style="margin-top:12px;">
+        <summary class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">This campaign</div><h4>Campaign events</h4></div><span id="oc-st-event-count" class="ocp-monitor-updated">0 updates</span></summary>
+        <div class="ocp-events"><table class="ocp-table ocp-events-table"><tbody id="oc-st-events"><tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr></tbody></table></div>
+      </details>
+
+      <div class="ocp-monitor" id="oc-st-closed" style="margin-top:12px;">
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All time</div><h4>Closed trades</h4></div><span id="oc-st-closed-count" class="ocp-monitor-updated">0</span></div>
+        <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table">
+          <thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead>
+          <tbody id="oc-st-closed-rows"><tr><td colspan="8" class="ocp-empty">No closed Supertrend trades yet.</td></tr></tbody></table></div></div>
+      </div>
+    </div>
+
+    <div id="oc-st-chart-overlay" class="pf-cascade-chart-overlay terminal-cascade-chart-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Supertrend chart">
+      <div class="pf-cascade-chart-dialog terminal-cascade-chart-dialog">
+        <div class="terminal-cascade-chart-toolbar">
+          <div class="terminal-cascade-chart-title"><h3 id="oc-st-chart-title">Supertrend chart</h3><div id="oc-st-chart-meta">Loading chart&hellip;</div></div>
+          <div class="terminal-cascade-chart-actions">
+            <div id="oc-st-chart-strip"></div>
+            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideSupertrendChart" aria-label="Close the chart">&#10005;</button></div>
+        </div>
+        <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body">
+          <div id="oc-st-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Open a campaign to draw its chart.</div></div></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->

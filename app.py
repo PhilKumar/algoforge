@@ -84,6 +84,8 @@ import config
 import db as _db_mod
 import engine.gap_carry as _gap_carry_mod
 import engine.gap_carry_paper as _gap_carry_paper
+import engine.supertrend_entry as _supertrend_mod
+import engine.supertrend_paper as _supertrend_paper
 import webauthn_auth as _webauthn_mod
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from cascade_costs import calculate_nifty_option_round_costs
@@ -3064,6 +3066,7 @@ def _ensure_auto_loops_running() -> list[str]:
         "fib-boundary": _run_fib_boundary_auto_loop,
         "candle-entry": _run_candle_entry_auto_loop,
         "gap-carry": _run_gap_carry_auto_loop,
+        "supertrend": _run_supertrend_auto_loop,
         # Not a mother, but it belongs here for the same reason: started from
         # the startup block alone, a deployed worker would never bring the
         # sanctuary's morning reminder back.
@@ -3125,6 +3128,7 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
         "terminal_cascade": 0,
         "fib_space": 0,
         "gap_carry": 0,
+        "supertrend": 0,
     }
     if not _engine_restore_owner_is_active_instance():
         return restored
@@ -3145,6 +3149,8 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
                 restored["candle_entry"] += 1
             if await _restore_gap_carry_open_state(user_id, broker_client, activate=True) is not None:
                 restored["gap_carry"] += 1
+            if await _restore_supertrend_open_state(user_id, broker_client, activate=True) is not None:
+                restored["supertrend"] += 1
             fib_ladders = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
             restored["fib_boundary"] += len(fib_ladders)
             terminal = await _restore_terminal_cascade_open_state(user_id, broker_client)
@@ -7161,6 +7167,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
     cascade_running = bool(_cascade_engines.get(owner_id) and _cascade_engines[owner_id].running)
     candle_running = bool(_candle_entry_engines.get(owner_id) and _candle_entry_engines[owner_id].running)
     gap_carry_running = bool(_gap_carry_engines.get(owner_id) and _gap_carry_engines[owner_id].running)
+    supertrend_running = bool(_supertrend_engines.get(owner_id) and _supertrend_engines[owner_id].running)
     fib_running = sum(1 for runtime in _fib_boundary_engines.get(owner_id, {}).values() if runtime.running)
     terminal_running = sum(1 for runtime in _terminal_cascade_engines.get(owner_id, {}).values() if runtime.running)
     any_running = bool(
@@ -7171,6 +7178,7 @@ def _runtime_control_summary(owner_id: int) -> dict:
         or cascade_running
         or candle_running
         or gap_carry_running
+        or supertrend_running
         or fib_running
         or terminal_running
     )
@@ -8453,6 +8461,9 @@ async def save_state(request: Request):
     for owner_id in list(_gap_carry_engines):
         await _save_gap_carry_open_state(owner_id, force=True)
         saved.append(f"gap-carry:{owner_id}")
+    for owner_id in list(_supertrend_engines):
+        await _save_supertrend_open_state(owner_id, force=True)
+        saved.append(f"supertrend:{owner_id}")
     for owner_id in list(_fib_boundary_engines):
         await _save_fib_boundary_open_state(owner_id, force=True)
         saved.append(f"fib-boundary:{owner_id}")
@@ -11285,7 +11296,7 @@ async def _candle_entry_load_ladder(
     return mother, batches
 
 
-_PAPER_LEDGER_STRATEGIES = {"candle_entry", "fib_boundary", "gap_carry"}
+_PAPER_LEDGER_STRATEGIES = {"candle_entry", "fib_boundary", "gap_carry", "supertrend"}
 
 
 @app.get("/api/paper-campaigns/{strategy}")
@@ -11352,7 +11363,7 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
         # snapshot and goes through the SAME payload builder the live chart
         # uses (Phil, 2026-08-26: the frozen chart on the other three).
         try:
-            engine = _gap_carry_mod.GapCarryPaper.from_dict(snapshot)
+            engine = _gap_carry_paper.GapCarryPaper.from_dict(snapshot)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Stored night could not be read back: {exc}") from exc
         night_key = _gap_carry_timeframe(timeframe or engine.config.timeframe)
@@ -13536,6 +13547,799 @@ async def gap_carry_auto(payload: GapCarryAutoPayload, request: Request):
         setting.pop("skipped_day", None)
     await _save_gap_carry_auto(user_id)
     return {"status": "ok", "auto": _gap_carry_auto_public(setting)}
+
+
+# ── Supertrend · hourly trend line, calls only ────────────────────────────
+# The fifth strategy. Its book is the published Supertrend tearsheet
+# (docs/assets/supertrend-tearsheet.html): 1h supertrend(10, 1.5), one ATM
+# NIFTY call on the NEXT week's expiry, held overnight, rolled at six strikes
+# in the money, out on an 80-point give-back once the index has run 100 in
+# favour -- otherwise on the flip, or at expiry 15:20.
+#
+# It reuses engine.indicators.supertrend, the same function the Builder and the
+# live engine already call, and that identity was checked bar-for-bar against
+# the sweep the tearsheet was measured on: 9,778 hourly bars, 732 flips, zero
+# disagreements. A second implementation is how a paper run stops matching the
+# book it advertises.
+_SUPERTREND_TIMEFRAMES = ("1h", "30m")
+_SUPERTREND_CHART_DAYS = 45
+_SUPERTREND_TERMINAL = _supertrend_paper.TERMINAL
+_SUPERTREND_POLL_SEC = 20
+_SUPERTREND_AUTO_POLL_SEC = 20
+_SUPERTREND_LIVE_QUOTE_SECONDS = 7 * 60
+# The configuration the tearsheet publishes. The auto mother is pinned to it so
+# an unattended run can never drift from the book that justified it.
+_SUPERTREND_AUTO_RULE = {
+    "timeframe": "1h",
+    "atr_period": 10,
+    "multiplier": 1.5,
+    "lots": 1,
+    "expiry_rank": 2,
+    "roll_strikes": 6,
+    "trail_arm_points": 100.0,
+    "trail_give_points": 80.0,
+}
+_SUPERTREND_AUTO_HEALTHY_STATES = {"watching", "holding", "armed", "already-running", "off-session"}
+
+_supertrend_engines: Dict[int, _CascadeRuntime] = {}
+_supertrend_open_state_last_save: Dict[int, float] = defaultdict(float)
+_supertrend_auto: Dict[int, dict] = {}
+_supertrend_auto_loaded: set = set()
+
+
+def _supertrend_ist(value: datetime) -> datetime:
+    """Every stamp compared or stored here is IST-aware. A naive datetime
+    written on a UTC box and read back a day out has cost this site before."""
+    return value.replace(tzinfo=IST) if value.tzinfo is None else value.astimezone(IST)
+
+
+def _supertrend_contract(strike: int, side: str, expiry: date, lot_size: int = 75) -> FixedCampaignOption:
+    """The shape the recorded-history lookup asks for; the archives key on
+    underlying/strike/expiry/type, so `security_id` goes unused."""
+    return FixedCampaignOption("NIFTY", int(strike), expiry, str(side), int(lot_size), "")
+
+
+def _supertrend_open_state_key(user_id: int) -> str:
+    return f"supertrend_open:{int(user_id)}"
+
+
+def _supertrend_auto_key(user_id: int) -> str:
+    return f"supertrend_auto:{int(user_id)}"
+
+
+def _supertrend_backtest_key(user_id: int) -> str:
+    return f"supertrend_backtest_latest:{int(user_id)}"
+
+
+def _supertrend_trade_mode(value: str) -> str:
+    """Live stays shut behind the same door as every other strategy here."""
+    mode = str(value or "paper").strip().lower()
+    if mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Supertrend live execution is disabled until Dhan fill verification, "
+                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+            ),
+        )
+    return mode
+
+
+def _supertrend_timeframe(value: str) -> str:
+    timeframe = str(value or "1h").strip().lower()
+    if timeframe not in _SUPERTREND_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"timeframe must be one of {', '.join(_SUPERTREND_TIMEFRAMES)}.",
+        )
+    return timeframe
+
+
+def _supertrend_config(payload) -> "_supertrend_mod.SupertrendConfig":
+    """Build the engine's own config and let ITS refusals reach the user."""
+    timeframe = _supertrend_timeframe(getattr(payload, "timeframe", "1h"))
+    try:
+        config = _supertrend_mod.SupertrendConfig(
+            timeframe=timeframe,
+            atr_period=int(getattr(payload, "atr_period", 10)),
+            multiplier=float(getattr(payload, "multiplier", 1.5)),
+            lots=int(getattr(payload, "lots", 1)),
+            expiry_rank=int(getattr(payload, "expiry_rank", 2)),
+            roll_strikes=int(getattr(payload, "roll_strikes", 6)),
+            trail_arm_points=float(getattr(payload, "trail_arm_points", 100.0)),
+            trail_give_points=float(getattr(payload, "trail_give_points", 80.0)),
+        )
+        config.validate()
+    except _supertrend_mod.SupertrendError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return config
+
+
+def _supertrend_premium_lookup(broker: DhanClient, history=None):
+    """Price by the AGE of the minute -- live quote if it is now, archive if not.
+
+    Pinning a live quote on a past minute is a fabrication; an old minute with
+    no archive simply has no price and the campaign records the gap.
+    """
+
+    def lookup(when: datetime, strike: int, side: str, expiry: date):
+        now = datetime.now(IST)
+        stamp = when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
+        if abs((now - stamp).total_seconds()) <= _SUPERTREND_LIVE_QUOTE_SECONDS:
+            try:
+                value = broker.get_option_ltp("NIFTY", int(strike), expiry.isoformat(), str(side))
+                if float(value or 0) > 0:
+                    return float(value)
+            except Exception:
+                return None
+            return None
+        if history is None:
+            return None
+        try:
+            return history(stamp, int(strike), str(side), expiry)
+        except Exception:
+            return None
+
+    return lookup
+
+
+def _supertrend_expiry_lookup(broker: DhanClient, rank: int = 2):
+    """The rank-th listed weekly at or after the session.
+
+    rank 2 is the measured rule. The nearest weekly is refused on purpose: it
+    put a third of all entries within a day of expiry, and every one of those
+    buckets lost money.
+    """
+    source = _fib_touch_expiry_source(broker, "NIFTY")
+
+    def lookup(session: date):
+        try:
+            rows = sorted({d for d in source(session) if d >= session + timedelta(days=1)})
+        except Exception:
+            return None
+        index = max(1, int(rank)) - 1
+        return rows[index] if index < len(rows) else (rows[-1] if rows else None)
+
+    return lookup
+
+
+def _supertrend_lot_size_lookup(broker: DhanClient):
+    def lookup(expiry: date) -> int:
+        try:
+            value = ScripMaster.get_lot_size("NIFTY", expiry.isoformat())
+            if int(value or 0) > 0:
+                return int(value)
+        except Exception:
+            pass
+        return 75
+
+    return lookup
+
+
+async def _save_supertrend_open_state(user_id: int, *, force: bool = False) -> None:
+    """Persist the campaign, and persist an EMPTY registry as a fact."""
+    uid = int(user_id)
+    if uid not in _supertrend_engines:
+        await _db_mod.set_app_state(
+            _supertrend_open_state_key(uid),
+            json.dumps({"engine": None, "running": False, "saved_at": datetime.now(IST).isoformat()}, default=str),
+        )
+        _supertrend_open_state_last_save[uid] = time.time()
+        return
+    await _save_specialized_cascade_state(
+        uid,
+        _supertrend_engines,
+        _supertrend_open_state_key(uid),
+        _supertrend_open_state_last_save,
+        force=force,
+    )
+    runtime = _supertrend_engines.get(int(user_id))
+    if runtime is not None:
+        await _archive_supertrend_trades(int(user_id), runtime.engine.get_status())
+
+
+async def _archive_supertrend_trades(user_id: int, status: Mapping[str, Any]) -> None:
+    """Write settled trades into the shared paper ledger, once each.
+
+    Keyed by the entry stamp, so the 20-second save loop cannot rewrite a
+    finished trade on every tick.
+    """
+    history = list(status.get("history") or [])
+    if not history:
+        return
+    for row in history:
+        entry = (row.get("entry") or {}).get("timestamp")
+        exit_block = row.get("exit") or {}
+        if not entry or not exit_block:
+            continue
+        campaign_key = str(entry)
+        fingerprint = _paper_ledger_fingerprint(row)
+        token = (int(user_id), "supertrend", campaign_key, fingerprint)
+        if token in _paper_ledger_written:
+            continue
+        try:
+            await _db_mod.save_paper_campaign(
+                int(user_id),
+                "supertrend",
+                {
+                    "campaign_key": campaign_key,
+                    "symbol": "NIFTY",
+                    "contract": f"{row.get('strike')} {row.get('side')} {row.get('expiry')}",
+                    "opened_at": entry,
+                    "closed_at": exit_block.get("timestamp"),
+                    "status": "closed",
+                    "exit_reason": exit_block.get("reason") or "",
+                    "buys": 1,
+                    "deployed_inr": float(row.get("capital") or 0.0),
+                    "gross_pnl": float(row.get("gross") or 0.0),
+                    "costs_total": float(row.get("charges") or 0.0),
+                    "net_pnl": float(row.get("net") or 0.0),
+                    "source": "paper",
+                    "payload": json.dumps({"engine": row}, default=str),
+                },
+            )
+            _paper_ledger_written.add(token)
+        except Exception as exc:
+            _logger.warning("[SUPERTREND] ledger write failed for user %s: %s", user_id, exc)
+
+
+async def _restore_supertrend_open_state(
+    user_id: int, broker: DhanClient | None, *, activate: bool = True
+) -> _CascadeRuntime | None:
+    """Bring a saved campaign back. Never raises -- it runs over every user."""
+    existing = _supertrend_engines.get(int(user_id))
+    if existing is not None:
+        return existing
+    if broker is None:
+        return None
+    try:
+        raw = await _db_mod.get_app_state(_supertrend_open_state_key(user_id))
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        saved = payload.get("engine")
+        if not saved:
+            return None
+        adapter = CascadeOptionsAdapter(broker, paper_only=True)
+        engine = _supertrend_paper.SupertrendPaper.from_dict(
+            saved,
+            option_premium_lookup=_supertrend_premium_lookup(broker),
+            expiry_lookup=_supertrend_expiry_lookup(broker, int(saved.get("config", {}).get("expiry_rank", 2) or 2)),
+            lot_size_lookup=_supertrend_lot_size_lookup(broker),
+        )
+        # Trust the ENGINE's own status over the persisted flag: a campaign that
+        # settled while the process was down must not be restarted as running.
+        unfinished = engine.status not in _SUPERTREND_TERMINAL
+        running = unfinished and (bool(payload.get("running")) or engine.has_open_position)
+        runtime = _CascadeRuntime(
+            engine=engine,
+            adapter=adapter,
+            broker=broker,
+            last_candle_timestamp=payload.get("last_candle_timestamp"),
+            running=running,
+        )
+        _supertrend_engines[int(user_id)] = runtime
+        if running and activate and _engine_restore_owner_is_active_instance():
+            runtime.task = asyncio.create_task(_run_supertrend_paper_loop(int(user_id), runtime))
+        return runtime
+    except Exception as exc:
+        _logger.warning("[SUPERTREND] restore failed for user %s: %s", user_id, exc)
+        return None
+
+
+async def _supertrend_auto_settings(user_id: int) -> dict:
+    uid = int(user_id)
+    if uid not in _supertrend_auto_loaded:
+        try:
+            raw = await _db_mod.get_app_state(_supertrend_auto_key(uid))
+            _supertrend_auto[uid] = json.loads(raw) if raw else {}
+        except Exception:
+            _supertrend_auto[uid] = {}
+        _supertrend_auto_loaded.add(uid)
+    return _supertrend_auto.setdefault(uid, {})
+
+
+async def _save_supertrend_auto(user_id: int) -> None:
+    setting = _supertrend_auto.get(int(user_id), {})
+    await _db_mod.set_app_state(_supertrend_auto_key(user_id), json.dumps(setting, default=str))
+
+
+def _supertrend_auto_public(setting: Mapping[str, Any]) -> dict:
+    return {k: v for k, v in dict(setting).items() if not str(k).startswith("_")}
+
+
+async def _supertrend_load_candles(adapter: CascadeOptionsAdapter, timeframe: str, days: int = 45) -> list:
+    """One loader, shared by Start, the poll loop, the charts and the backtest."""
+    to_day = datetime.now(IST).date()
+    from_day = to_day - timedelta(days=int(days))
+    try:
+        return list(await adapter.async_get_candles("NIFTY", timeframe, from_date=from_day, to_date=to_day))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {timeframe} candles: {exc}") from exc
+
+
+async def _start_supertrend_campaign(user_id: int, payload, *, broker_client: DhanClient) -> _CascadeRuntime:
+    """Request-free on purpose, so the auto mother can call it too."""
+    existing = await _restore_supertrend_open_state(int(user_id), broker_client, activate=False)
+    if existing is not None and existing.engine.status not in _SUPERTREND_TERMINAL and existing.running:
+        raise HTTPException(status_code=409, detail="A Supertrend campaign is already running.")
+    config = _supertrend_config(payload)
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    engine = _supertrend_paper.SupertrendPaper(
+        config=config,
+        option_premium_lookup=_supertrend_premium_lookup(broker_client),
+        expiry_lookup=_supertrend_expiry_lookup(broker_client, config.expiry_rank),
+        lot_size_lookup=_supertrend_lot_size_lookup(broker_client),
+    )
+    rows = await _supertrend_load_candles(adapter, config.timeframe, days=_SUPERTREND_CHART_DAYS)
+    if rows:
+        await asyncio.to_thread(engine.ingest, {config.timeframe: rows})
+    previous = _supertrend_engines.get(int(user_id))
+    if previous is not None and previous.task is not None:
+        previous.running = False
+        previous.task.cancel()
+    runtime = _CascadeRuntime(engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=None)
+    _supertrend_engines[int(user_id)] = runtime
+    runtime.task = asyncio.create_task(_run_supertrend_paper_loop(int(user_id), runtime))
+    await _save_supertrend_open_state(int(user_id), force=True)
+    return runtime
+
+
+async def _run_supertrend_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
+    """Mark the open contract, feed closed bars, persist. 20s in session."""
+    while runtime.running and _supertrend_engines.get(int(user_id)) is runtime:
+        try:
+            now = datetime.now(IST)
+            engine = runtime.engine
+            rows = await _supertrend_load_candles(runtime.adapter, engine.config.timeframe, days=12)
+            if rows:
+                await asyncio.to_thread(engine.ingest, {engine.config.timeframe: rows})
+                runtime.last_candle_timestamp = str(rows[-1].timestamp)
+            if engine.has_open_position:
+                position = engine.position
+                premium = None
+                if position is not None and is_nse_cash_session(now):
+                    try:
+                        premium = await asyncio.to_thread(
+                            runtime.broker.get_option_ltp,
+                            "NIFTY",
+                            int(position.strike),
+                            position.expiry.isoformat(),
+                            str(position.side),
+                        )
+                    except Exception:
+                        premium = None
+                engine.mark(now, premium=float(premium) if premium else None)
+                engine.settle_past_expiry(now)
+            if engine.status in _SUPERTREND_TERMINAL:
+                runtime.running = False
+            await _save_supertrend_open_state(int(user_id), force=not runtime.running)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[SUPERTREND] poll failed for user %s: %s", user_id, exc)
+        await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or _SUPERTREND_POLL_SEC)
+
+
+class SupertrendStartPayload(BaseModel):
+    timeframe: str = "1h"
+    atr_period: int = Field(10, ge=2, le=50)
+    multiplier: float = Field(1.5, gt=0, le=10)
+    lots: int = Field(1, ge=1, le=20)
+    expiry_rank: int = Field(2, ge=1, le=3)
+    roll_strikes: int = Field(6, ge=0, le=20)
+    trail_arm_points: float = Field(100.0, ge=0, le=1000)
+    trail_give_points: float = Field(80.0, ge=0, le=1000)
+    mode: str = "paper"
+
+
+class SupertrendBacktestPayload(BaseModel):
+    timeframe: str = "1h"
+    atr_period: int = Field(10, ge=2, le=50)
+    multiplier: float = Field(1.5, gt=0, le=10)
+    lots: int = Field(1, ge=1, le=20)
+    expiry_rank: int = Field(2, ge=1, le=3)
+    roll_strikes: int = Field(6, ge=0, le=20)
+    trail_arm_points: float = Field(100.0, ge=0, le=1000)
+    trail_give_points: float = Field(80.0, ge=0, le=1000)
+    lookback_days: int = Field(120, ge=14, le=400)
+
+
+class SupertrendAutoPayload(BaseModel):
+    enabled: bool = False
+    mode: str = "paper"
+
+
+@app.get("/api/supertrend/paper/status")
+async def supertrend_paper_status(request: Request):
+    """What the panel polls. Restores lazily when the registry is cold."""
+    user_id = _request_user_id(request)
+    runtime = _supertrend_engines.get(int(user_id))
+    if runtime is None:
+        _user, broker_client, _source = await _request_broker_context(request)
+        runtime = await _restore_supertrend_open_state(int(user_id), broker_client)
+    auto = _supertrend_auto_public(await _supertrend_auto_settings(user_id))
+    body = {
+        "status": "ok" if runtime is not None else "not_started",
+        "mode": "paper",
+        "live_available": bool(_FIB_TOUCH_LIVE_EXECUTION_ENABLED),
+        "auto": auto,
+        "timeframes": list(_SUPERTREND_TIMEFRAMES),
+    }
+    if runtime is not None:
+        body["campaign"] = {**runtime.engine.get_status(), "running": bool(runtime.running)}
+    return body
+
+
+@app.post("/api/supertrend/paper/start")
+async def supertrend_paper_start(payload: SupertrendStartPayload, request: Request):
+    check_rate_limit("supertrend_start", _request_rate_subject(request), max_calls=3, window_sec=5)
+    _supertrend_trade_mode(payload.mode)
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before starting a Supertrend campaign.")
+    runtime = await _start_supertrend_campaign(user_id, payload, broker_client=broker_client)
+    return {
+        "status": "started",
+        "mode": "paper",
+        "campaign": {**runtime.engine.get_status(), "running": runtime.running},
+    }
+
+
+@app.post("/api/supertrend/paper/kill")
+async def supertrend_paper_kill(request: Request):
+    """Stop the campaign. An open contract is sold at its OWN quote, never at
+    intrinsic -- refusing is safer than inventing the price of a real exit."""
+    user_id = _request_user_id(request)
+    runtime = _supertrend_engines.get(int(user_id))
+    if runtime is None:
+        _user, broker_client, _source = await _request_broker_context(request)
+        runtime = await _restore_supertrend_open_state(int(user_id), broker_client)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Supertrend campaign is running.")
+    engine = runtime.engine
+    if engine.has_open_position:
+        position = engine.position
+        premium = None
+        try:
+            premium = await asyncio.to_thread(
+                runtime.broker.get_option_ltp,
+                "NIFTY",
+                int(position.strike),
+                position.expiry.isoformat(),
+                str(position.side),
+            )
+        except Exception:
+            premium = None
+        if not premium or float(premium) <= 0:
+            raise HTTPException(
+                status_code=409,
+                detail="No live quote for the open contract, so it cannot be closed honestly. Try again in a moment.",
+            )
+        engine.kill_and_close(float(premium))
+    else:
+        engine.stop()
+    runtime.running = False
+    if runtime.task is not None:
+        runtime.task.cancel()
+    await _save_supertrend_open_state(int(user_id), force=True)
+    _supertrend_engines.pop(int(user_id), None)
+    await _save_supertrend_open_state(int(user_id), force=True)
+    return {"status": "killed", "campaign": engine.get_status()}
+
+
+@app.post("/api/supertrend/backtest")
+async def supertrend_backtest(payload: SupertrendBacktestPayload, request: Request):
+    """Replay the rule over recorded candles and recorded premiums."""
+    check_rate_limit("supertrend_backtest", _request_rate_subject(request), max_calls=3, window_sec=10)
+    user_id = _request_user_id(request)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account before running a backtest.")
+    config = _supertrend_config(payload)
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    rows = await _supertrend_load_candles(adapter, config.timeframe, days=int(payload.lookback_days))
+    if not rows:
+        raise HTTPException(status_code=503, detail="No NIFTY candles came back for that window.")
+
+    to_day = datetime.now(IST).date()
+    from_day = to_day - timedelta(days=int(payload.lookback_days))
+    spot_by_stamp = {_supertrend_ist(c.timestamp): float(c.close) for c in rows}
+    # The same recorded-price source the other strategies replay on: Upstox for
+    # an expired contract, Dhan's own option candles for a listed one.
+    pricing = await asyncio.to_thread(_candle_entry_pricing, broker_client, from_day, to_day)
+    price_history = pricing[0] if isinstance(pricing, tuple) else pricing
+
+    def premium(when: datetime, strike: int, side: str, expiry: date):
+        if price_history is None:
+            return None
+        try:
+            return price_history(when, _supertrend_contract(strike, side, expiry))
+        except Exception:
+            return None
+
+    expiry_lookup = _supertrend_expiry_lookup(broker_client, config.expiry_rank)
+    lot_lookup = _supertrend_lot_size_lookup(broker_client)
+    skips: list = []
+
+    def _charges(trade_date, buy, sell, quantity):
+        try:
+            return float(
+                calculate_nifty_option_round_costs(
+                    buy_price=float(buy), sell_price=float(sell), quantity=int(quantity)
+                ).total
+            )
+        except Exception:
+            return 0.0
+
+    positions = await asyncio.to_thread(
+        _supertrend_mod.replay,
+        rows,
+        config=config,
+        spot_at=lambda when: spot_by_stamp.get(_supertrend_ist(when)),
+        price_at=premium,
+        expiry_for=expiry_lookup,
+        lot_size_for=lot_lookup,
+        charges_for=_charges,
+        on_skip=lambda when, why: skips.append({"when": str(when), "why": why}),
+    )
+    book = _supertrend_mod.summarise(positions)
+    result = {
+        "status": "ok",
+        "generated_at": datetime.now(IST).isoformat(),
+        "rule": config.as_dict(),
+        "window": {
+            "days": int(payload.lookback_days),
+            "from": str(rows[0].timestamp),
+            "to": str(rows[-1].timestamp),
+            "candles": len(rows),
+        },
+        "summary": book,
+        "trades": [p.as_dict(config) for p in positions],
+        "skipped": skips[-20:],
+    }
+    try:
+        await _db_mod.set_app_state(_supertrend_backtest_key(user_id), json.dumps(result, default=str))
+    except Exception as exc:
+        _logger.warning("[SUPERTREND] could not save backtest for user %s: %s", user_id, exc)
+    return result
+
+
+@app.get("/api/supertrend/backtests/latest")
+async def supertrend_latest_backtest(request: Request):
+    user_id = _request_user_id(request)
+    raw = await _db_mod.get_app_state(_supertrend_backtest_key(user_id))
+    if not raw:
+        return {"status": "empty"}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"status": "empty"}
+
+
+@app.delete("/api/supertrend/backtests/latest")
+async def supertrend_delete_backtest(request: Request):
+    user_id = _request_user_id(request)
+    raw = await _db_mod.get_app_state(_supertrend_backtest_key(user_id))
+    await _db_mod.delete_app_state(_supertrend_backtest_key(user_id))
+    return {"status": "ok", "removed": bool(raw)}
+
+
+def _supertrend_chart_payload(engine, rows: list, *, trades: list | None = None) -> dict:
+    """One builder for every Supertrend chart -- live, replayed or archived.
+
+    A second one would be free to drift from the first, which is exactly how a
+    picture ends up disagreeing with the table printed beside it.
+    """
+    config = engine.config if hasattr(engine, "config") else engine
+    candles = [
+        {
+            "t": int(_supertrend_ist(c.timestamp).timestamp()),
+            "o": float(c.open),
+            "h": float(c.high),
+            "l": float(c.low),
+            "c": float(c.close),
+        }
+        for c in rows
+    ]
+    marks = []
+    for trade in trades or []:
+        entry = trade.get("entry") or {}
+        exit_block = trade.get("exit") or {}
+        if entry.get("timestamp"):
+            marks.append(
+                {
+                    "t": int(_supertrend_ist(datetime.fromisoformat(entry["timestamp"])).timestamp()),
+                    "price": float(entry.get("spot") or 0.0),
+                    "kind": "buy",
+                    "label": f"{trade.get('strike')} {trade.get('side')}",
+                }
+            )
+        if exit_block.get("timestamp"):
+            marks.append(
+                {
+                    "t": int(_supertrend_ist(datetime.fromisoformat(exit_block["timestamp"])).timestamp()),
+                    "price": float(exit_block.get("spot") or 0.0),
+                    "kind": "sell",
+                    "label": str(exit_block.get("reason") or "exit"),
+                }
+            )
+    return {
+        "symbol": "NIFTY",
+        "timeframe": config.timeframe,
+        "candles": candles,
+        "marks": marks,
+        "indicators": _supertrend_mod.indicator_series(rows, config),
+    }
+
+
+@app.get("/api/supertrend/paper/chart")
+async def supertrend_paper_chart(request: Request, timeframe: str = ""):
+    user_id = _request_user_id(request)
+    runtime = _supertrend_engines.get(int(user_id))
+    if runtime is None:
+        _user, broker_client, _source = await _request_broker_context(request)
+        runtime = await _restore_supertrend_open_state(int(user_id), broker_client)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="No Supertrend campaign to chart.")
+    engine = runtime.engine
+    wanted = _supertrend_timeframe(timeframe or engine.config.timeframe)
+    rows = await _supertrend_load_candles(runtime.adapter, wanted, days=_SUPERTREND_CHART_DAYS)
+    status = engine.get_status()
+    trades = list(status.get("history") or [])
+    if status.get("position"):
+        trades.append(status["position"])
+    return _supertrend_chart_payload(engine, rows, trades=trades)
+
+
+@app.get("/api/supertrend/backtests/latest/chart")
+async def supertrend_backtest_chart(request: Request):
+    user_id = _request_user_id(request)
+    raw = await _db_mod.get_app_state(_supertrend_backtest_key(user_id))
+    if not raw:
+        raise HTTPException(status_code=404, detail="No saved Supertrend backtest.")
+    saved = json.loads(raw)
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to draw the chart.")
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    rule = saved.get("rule") or {}
+    config = _supertrend_mod.SupertrendConfig(
+        timeframe=str(rule.get("timeframe") or "1h"),
+        atr_period=int(rule.get("atr_period") or 10),
+        multiplier=float(rule.get("multiplier") or 1.5),
+    )
+    rows = await _supertrend_load_candles(
+        adapter, config.timeframe, days=int((saved.get("window") or {}).get("days", 120))
+    )
+    return {"status": "ok", "chart": _supertrend_chart_payload(config, rows, trades=saved.get("trades") or [])}
+
+
+@app.get("/api/supertrend/backtests/latest/export.csv")
+async def export_supertrend_backtest_csv(request: Request):
+    user_id = _request_user_id(request)
+    raw = await _db_mod.get_app_state(_supertrend_backtest_key(user_id))
+    if not raw:
+        raise HTTPException(status_code=404, detail="No saved Supertrend backtest.")
+    saved = json.loads(raw)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "entry",
+            "exit",
+            "side",
+            "strike",
+            "expiry",
+            "lots",
+            "entry_premium",
+            "exit_premium",
+            "reason",
+            "priced",
+            "charges",
+            "net",
+        ]
+    )
+    for trade in saved.get("trades") or []:
+        entry = trade.get("entry") or {}
+        exit_block = trade.get("exit") or {}
+        writer.writerow(
+            [
+                entry.get("timestamp", ""),
+                exit_block.get("timestamp", ""),
+                trade.get("side", ""),
+                trade.get("strike", ""),
+                trade.get("expiry", ""),
+                trade.get("lots", ""),
+                entry.get("premium", ""),
+                exit_block.get("premium", ""),
+                exit_block.get("reason", ""),
+                exit_block.get("priced", ""),
+                trade.get("charges", ""),
+                trade.get("net", ""),
+            ]
+        )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="supertrend-backtest.csv"'},
+    )
+
+
+@app.post("/api/supertrend/auto")
+async def supertrend_auto(payload: SupertrendAutoPayload, request: Request):
+    """Switch the unattended Supertrend on or off, pinned to the measured rule."""
+    if payload.enabled:
+        _supertrend_trade_mode(payload.mode)
+    user_id = _request_user_id(request)
+    setting = await _supertrend_auto_settings(user_id)
+    setting["enabled"] = bool(payload.enabled)
+    setting["mode"] = str(payload.mode or "paper").lower()
+    setting["rule"] = dict(_SUPERTREND_AUTO_RULE)
+    setting["changed_at"] = datetime.now(IST).isoformat()
+    if payload.enabled:
+        setting.pop("alert", None)
+        setting.pop("last_error", None)
+    await _save_supertrend_auto(user_id)
+    return {"status": "ok", "auto": _supertrend_auto_public(setting)}
+
+
+async def _supertrend_auto_step(user, setting: dict, *, now: datetime | None = None) -> str:
+    """One tick of the unattended runner. Returns a state string for the panel."""
+    now = now or datetime.now(IST)
+    if not is_nse_cash_session(now):
+        return "off-session"
+    user_id = int(user.get("id") if isinstance(user, Mapping) else user)
+    runtime = _supertrend_engines.get(user_id)
+    if runtime is not None and runtime.running and runtime.engine.status not in _SUPERTREND_TERMINAL:
+        return "holding" if runtime.engine.has_open_position else "watching"
+    broker = _resolve_user_broker_client(user)
+    if broker is None:
+        return "no-broker"
+    try:
+        await _start_supertrend_campaign(
+            user_id,
+            SimpleNamespace(**_SUPERTREND_AUTO_RULE, mode=str(setting.get("mode") or "paper")),
+            broker_client=broker,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            return "already-running"
+        setting["last_error"] = str(exc.detail)
+        return "error"
+    except Exception as exc:
+        setting["last_error"] = str(exc)
+        return "error"
+    return "armed"
+
+
+async def _run_supertrend_auto_loop() -> None:
+    """Drive every enabled Supertrend mother; one task for the whole process."""
+    while True:
+        try:
+            idle = _terminal_cascade_offsession_sleep_sec()
+            if idle:
+                await asyncio.sleep(idle)
+                continue
+            for user in await _db_mod.list_users():
+                user_id = int(user.get("id"))
+                setting = await _supertrend_auto_settings(user_id)
+                if not setting.get("enabled"):
+                    continue
+                state = await _supertrend_auto_step(user, setting)
+                setting["state"] = state
+                setting["checked_at"] = datetime.now(IST).isoformat()
+                if state in _SUPERTREND_AUTO_HEALTHY_STATES:
+                    setting.pop("last_error", None)
+                await _save_supertrend_auto(user_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[SUPERTREND] auto loop error: %s", exc)
+        await asyncio.sleep(_SUPERTREND_AUTO_POLL_SEC)
 
 
 async def _run_fib_boundary_auto_loop() -> None:
@@ -21814,6 +22618,15 @@ async def _shutdown_cleanup():
             print(f"🛑 [Shutdown] Saved Gap Carry campaign: {owner_id}")
         except Exception as e:
             print(f"🛑 [Shutdown] Failed to save Gap Carry campaign {owner_id}: {e}")
+    for owner_id, runtime in list(_supertrend_engines.items()):
+        try:
+            await _save_supertrend_open_state(owner_id, force=True)
+            runtime.running = False
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
+            print(f"🛑 [Shutdown] Saved Supertrend campaign: {owner_id}")
+        except Exception as e:
+            print(f"🛑 [Shutdown] Failed to save Supertrend campaign {owner_id}: {e}")
     # Nested one level deeper than Candle Entry: a user can hold one ladder per
     # instrument, and each has its own poll task to cancel.
     for owner_id, ladders in list(_fib_boundary_engines.items()):

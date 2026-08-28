@@ -32,6 +32,24 @@ class GapCarryFrozenChartTests(unittest.TestCase):
         self.assertIn('if key == "gap_carry":', APP)
         self.assertIn("GapCarryPaper.from_dict(snapshot)", APP)
 
+    def test_it_calls_the_module_that_actually_defines_the_class(self):
+        """The bare name passed for months while the route raised AttributeError.
+
+        GapCarryPaper lives in engine.gap_carry_paper; engine.gap_carry neither
+        defines nor re-exports it, so `_gap_carry_mod.GapCarryPaper` compiled
+        fine, raised at request time, and the surrounding try/except turned
+        every archived night's chart into a permanent 422. Asserting the
+        *string* was present is what let it through, so assert the owner too.
+        """
+        self.assertIn("_gap_carry_paper.GapCarryPaper.from_dict(snapshot)", APP)
+        self.assertNotIn("_gap_carry_mod.GapCarryPaper", APP)
+        import engine.gap_carry as rule_module
+
+        self.assertFalse(
+            hasattr(rule_module, "GapCarryPaper"),
+            "engine.gap_carry now exports GapCarryPaper; this guard needs rewriting",
+        )
+
     def test_it_uses_the_same_builder_as_the_live_chart(self):
         # One builder, called twice -- a second one would be free to drift.
         self.assertEqual(APP.count("def _gap_carry_chart_payload("), 1)
