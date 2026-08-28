@@ -268,6 +268,36 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
     return len(fresh)
 
 
+async def preview_matching(user_id: int, match: str, category: str, limit: int = 4) -> tuple[int, list[str]]:
+    """What a rule WOULD take, before it takes it: how many rows in the
+    category it draws from, and a few of their narrations.
+
+    A rule is a substring, so a short word is a net. "bank" sits inside
+    every UPI narration that names one, and teaching it once files a year
+    of newspapers and juice under a school. Counting first is the only
+    moment he can see that coming.
+    """
+    if not (match or "").strip():
+        return 0, []
+    word = match.strip()
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT COUNT(*) FROM sanctuary_ledger
+               WHERE user_id = ? AND category = ? AND instr(lower(note), lower(?)) > 0""",
+            (int(user_id), category, word),
+        )
+        row = await cursor.fetchone()
+        total = int(row[0]) if row else 0
+        cursor = await db.execute(
+            """SELECT note FROM sanctuary_ledger
+               WHERE user_id = ? AND category = ? AND instr(lower(note), lower(?)) > 0
+               ORDER BY entry_date DESC LIMIT ?""",
+            (int(user_id), category, word, int(limit)),
+        )
+        samples = [str(r[0] or "") for r in await cursor.fetchall()]
+    return total, samples
+
+
 async def count_rows_matching(user_id: int, match: str) -> int:
     """How many ledger rows a taught rule's match currently catches."""
     if not (match or "").strip():

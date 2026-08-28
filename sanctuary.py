@@ -1646,12 +1646,25 @@ async def statement_review(request: Request, user: dict = Depends(_unlocked_user
         side = "in_total" if row["source"] == "statement-in" else "out_total"
         group[side] = round(group[side] + row["amount"], 2)
     ordered = sorted(groups.values(), key=lambda g: -g["total"])
+    # Two thousand payees is not a list, it is a page that never ends. They
+    # come ten at a time, biggest first, and the page says which ten.
+    per = 10
+    pages = max(1, -(-len(ordered) // per))
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except ValueError:
+        page = 1
+    page = min(max(page, 1), pages)
+    start = (page - 1) * per
     return {
         "uncategorised": len(rows),
         "payees": len(ordered),
         "matched": sum(g["count"] for g in ordered),
         "query": query,
-        "groups": ordered[:120],
+        "page": page,
+        "pages": pages,
+        "per": per,
+        "groups": ordered[start : start + per],
     }
 
 
@@ -1835,16 +1848,46 @@ async def statement_rule_delete(at: int, request: Request, user: dict = Depends(
     return {"forgot": gone.get("match", ""), "freed": freed}
 
 
+def _rule_word(raw: str) -> str:
+    """The word a rule will actually watch for — handles lose their bank
+    half, so the rule catches the truncated forms a narration prints."""
+    word = str(raw or "").strip()[:80]
+    return word[:-1] if word.endswith("@") else word
+
+
+@router.get("/api/sanctuary/statements/rule/preview")
+async def statement_rule_preview(request: Request, user: dict = Depends(_unlocked_user)):
+    """What this word would claim if it became a rule.
+
+    A rule matches anywhere inside a narration, so a short word is a net,
+    not a name: "bank" is inside every UPI line that names one, and one
+    lesson filed a year of newspapers, juice and biriyani under a school.
+    The page asks this first and shows him the catch before he casts it.
+    """
+    word = _rule_word(request.query_params.get("match"))
+    source = str(request.query_params.get("from") or sanctuary_statements.UNCATEGORISED).strip()[:60]
+    if len(word) < 2:
+        return {"match": word, "claims": 0, "samples": [], "wide": False}
+    claims, samples = await sanctuary_db.preview_matching(int(user["id"]), word, source)
+    # Wide by the shape of the word, or by the size of the catch. Four
+    # characters is where words stop being names: "veg", "ban", "icic".
+    return {
+        "match": word,
+        "from": source,
+        "claims": claims,
+        "samples": samples,
+        "wide": len(word) < 5 or claims > 40,
+    }
+
+
 @router.post("/api/sanctuary/statements/rule")
 async def statement_rule(request: Request, user: dict = Depends(_unlocked_user)):
     """Teach a rule: this match means this category, now and from now on."""
     user_id = int(user["id"])
     payload = await request.json()
-    match = str(payload.get("match") or "").strip()[:80]
     # A handle-shaped match ("hepzibah08@") is stored by its name stem, so
     # the rule also catches the truncated forms a narration prints.
-    if match.endswith("@"):
-        match = match[:-1]
+    match = _rule_word(payload.get("match"))
     category = str(payload.get("category") or "").strip()[:60]
     if len(match) < 2 or not category:
         raise HTTPException(status_code=400, detail="Need a match and a category")

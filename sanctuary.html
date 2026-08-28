@@ -848,7 +848,17 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .rule-what{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rule-arrow{color:var(--soft)}
 .rule-holds{flex:none;color:var(--soft);font-size:.78rem;white-space:nowrap}
+.rule-holds.wide{color:var(--danger);font-weight:700;cursor:help}
 .rule-row .btn.small{flex:none;padding:2px 10px;font-size:.74rem}
+/* Ten payees at a time, in a frame that keeps its height whether the page
+   holds ten or one — otherwise the panel jumps every time he turns a page,
+   and the last one, with two rows on it, looks like a different panel. */
+.pile-frame{--pile-row:57px;--pile-seen:6;
+  height:calc(var(--pile-row) * var(--pile-seen));
+  overflow-y:auto;overscroll-behavior:contain;
+  border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
+.pile-frame .stmt-review-row:last-child{border-bottom:0}
+@media (max-width:640px){.pile-frame{--pile-seen:4}}
 /* finding one payee among fourteen hundred */
 .stmt-find{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 4px}
 .stmt-find .field{flex:1;min-width:200px;max-width:340px}
@@ -930,6 +940,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .modal{width:min(620px,100%);max-height:88dvh;overflow:auto;padding:26px;
   background:var(--card);backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3)}
 .modal h4{font-family:var(--serif);font-weight:650;font-size:1.3rem;margin-bottom:14px}
+/* A question that lists what it is about to do needs its lines kept —
+   three narrations run together read as one long unreadable one. */
+.modal > p{white-space:pre-line}
 .modal .m-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .modal .frow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
 .modal .frow .field{flex:1;min-width:140px}
@@ -2413,11 +2426,19 @@ function renderRules(){
     host.innerHTML = `<div style="color:var(--muted);padding:6px 2px">No taught rule mentions “${esc(q)}” — neither the word it watches for nor the category it files into.</div>`;
     return;
   }
-  host.innerHTML = shown.map((rule) => `<div class="rule-row">
+  /* A rule matches any part of a narration, so a short word is a net: a
+     three-letter lesson can hold hundreds of rows that have nothing to do
+     with it. The ones casting wide say so, and say it in the count. */
+  host.innerHTML = shown.map((rule) => {
+    const wide = rule.match.length < 5 || rule.holds > 100;
+    return `<div class="rule-row">
       <span class="rule-what"><b>${esc(rule.match)}</b> <span class="rule-arrow">→</span> ${esc(rule.category)}</span>
-      <span class="rule-holds">${rule.holds} row${rule.holds === 1 ? "" : "s"}</span>
+      <span class="rule-holds${wide ? " wide" : ""}"${wide
+        ? ` title="A rule matches any part of a narration, so this one catches every entry with “${esc(rule.match)}” anywhere in it — Forget it if these are not all the same thing."`
+        : ""}>${wide ? "⚠ " : ""}${rule.holds} row${rule.holds === 1 ? "" : "s"}</span>
       <button class="btn subtle small" data-rule-del="${rule.at}" title="Forget this rule and put its rows back">Forget</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 document.addEventListener("input", (e) => {
   if (!e.target.matches("#rules-q")) return;
@@ -4071,12 +4092,35 @@ document.addEventListener("click", async (e) => {
     const match = own ? own.value.trim() : row.dataset.match;
     if (own && match.length < 2) return toast("Type the word to match first");
     const named = row.querySelector("input.stmt-new-cat");
-    const category = named ? named.value.trim().slice(0, 60) : row.querySelector("select").value;
+    /* The teach-your-own row has TWO dropdowns — where to look, and where
+       they go — and this took the first one. So "among: Alpha school" was
+       read as the DESTINATION: trying to pull the flour back OUT of the
+       school taught a rule that files more things INTO it. */
+    const category = named ? named.value.trim().slice(0, 60)
+      : row.querySelector("select:not(#stmt-own-from)").value;
     if (!category || category === "Uncategorised" || category === "__new__") return toast("Pick a category first");
     teach.disabled = true;
     const fromSel = row.querySelector("#stmt-own-from");
+    const from = fromSel ? fromSel.value : "Uncategorised";
+    /* A rule is a substring, not a name. "bank" sits inside every UPI line
+       that names one, so one lesson can file a year of newspapers, juice
+       and biriyani under a school — and nothing on the page said it would.
+       Wide nets now show their catch first, in his own narrations. */
+    try {
+      const look = await api("/api/sanctuary/statements/rule/preview?match="
+        + encodeURIComponent(match) + "&from=" + encodeURIComponent(from));
+      if (look.wide && look.claims > 1) {
+        const shown = (look.samples || []).slice(0, 3).map((s) => "· " + s.slice(0, 70)).join("\n");
+        const ok = await confirmDialog(
+          `“${look.match}” appears in ${look.claims} entries, not just this one — a rule matches any part of a narration.\n\n${shown}\n\nFile all ${look.claims} under ${category}?`,
+          "File them all");
+        if (!ok) { teach.disabled = false; return; }
+      }
+    } catch (err) {
+      console.error("[sanctuary] the rule preview would not answer", err);
+    }
     const r = await api("/api/sanctuary/statements/rule", {method: "POST",
-      body: {match, category, from_category: fromSel ? fromSel.value : "Uncategorised"}});
+      body: {match, category, from_category: from}});
     toast(r.moved + " sorted — and it will know next time.");
     refreshFinance(); loadStmtReview(); loadRules();
   }
@@ -4148,9 +4192,11 @@ async function loadStmtReview(){
   const host = $("stmt-review");
   try {
     const q = (S.reviewQ || "").trim();
-    const r = await api("/api/sanctuary/statements/review" + (q ? "?q=" + encodeURIComponent(q) : ""));
+    const page = Math.max(1, S.reviewPage || 1);
+    const r = await api("/api/sanctuary/statements/review?page=" + page
+      + (q ? "&q=" + encodeURIComponent(q) : ""));
     if (!r.uncategorised) { host.innerHTML = ""; return; }
-    const shown = Math.min(25, r.groups.length);
+    S.reviewPage = r.page;   /* the server has the last word on how far the pile goes */
     /* The list shows the biggest payees, which is right for working down a
        pile and useless for finding ONE among fourteen hundred. The search
        runs over the whole pile — the payee's key AND the narration, because
@@ -4163,7 +4209,7 @@ async function loadStmtReview(){
         <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour, a mandate number…" value="${esc(q)}">
         <span class="stmt-found">${q
           ? `${r.payees} payee${r.payees === 1 ? "" : "s"} · ${r.matched} row${r.matched === 1 ? "" : "s"} match`
-          : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile${r.payees > shown ? ` · showing the ${shown} biggest` : ""}`}</span>
+          : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile · biggest first`}</span>
       </div>
       <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
       <div class="stmt-review-row" data-match="">
@@ -4172,20 +4218,32 @@ async function loadStmtReview(){
         <select class="field" id="stmt-own-from" style="max-width:160px"><option value="Uncategorised">among: Unsorted</option>${(S.fin ? S.fin.categories.map((c) => c.name) : []).map((n) => `<option value="${esc(n)}">among: ${esc(n)}</option>`).join("")}</select>
         <select class="field">${stmtCatOpts("Uncategorised")}</select>
         <button class="btn ghost" data-stmt-teach>This is where they go</button>
-      </div>` +
-      r.groups.slice(0, 25).map((g) => `
+      </div>`
+      /* Two thousand payees down one page is a scroll with no bottom. Ten at
+         a time inside a frame of its own height, so the panel is the same
+         size on every page and the page behind it never moves. */
+      + (r.groups.length
+        ? `<div class="pile-frame">` + r.groups.map((g) => `
         <div class="stmt-review-row" data-match="${esc(g.match)}">
           <div class="who"><b>${esc(g.match)}</b> ${stmtWayChips(g)}
             <small>${esc(g.sample)}</small></div>
           <select class="field">${stmtCatOpts("Uncategorised")}</select>
           <button class="btn ghost" data-stmt-teach>This is where they go</button>
-        </div>`).join("")
+        </div>`).join("") + `</div>`
       /* Nothing in the pile usually means a rule already claimed him — which
-         is the whole kaliraj story. Say so, and take him to the rule. */
-      + (q && !r.groups.length
+         is the whole kaliraj story. Say so, and take him to the rule. An
+         empty frame would be six rows of nothing, so the note stands alone. */
+        : q
         ? `<div class="section-sub" style="margin-top:8px">Nobody in the unsorted pile mentions “${esc(q)}”.
              If those rows keep landing somewhere wrong, a rule is already holding them —
              <button class="btn subtle small" data-rule-find="${esc(q)}">look for “${esc(q)}” in your rules</button></div>`
+        : "")
+      + (r.pages > 1
+        ? `<div class="ledger-pager pile-pager">
+             <button class="btn subtle small" data-pile-page="${r.page - 1}" ${r.page <= 1 ? "disabled" : ""}>‹ Bigger</button>
+             <span class="num">${r.page} / ${r.pages}</span>
+             <button class="btn subtle small" data-pile-page="${r.page + 1}" ${r.page >= r.pages ? "disabled" : ""}>Smaller ›</button>
+           </div>`
         : "");
   } catch (err) {
     /* A panel that hides itself when the server errs is indistinguishable
@@ -4200,10 +4258,17 @@ async function loadStmtReview(){
   const box = $("stmt-q");
   if (box && S.reviewFocused) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
 }
+document.addEventListener("click", (e) => {
+  const turn = e.target.closest("[data-pile-page]");
+  if (!turn || turn.disabled) return;
+  S.reviewPage = Number(turn.dataset.pilePage);
+  loadStmtReview();
+});
 let _reviewFindAt = null;
 document.addEventListener("input", (e) => {
   if (!e.target.matches("#stmt-q")) return;
   S.reviewQ = e.target.value;
+  S.reviewPage = 1;   /* a new search starts at its own biggest, not page nine */
   S.reviewFocused = true;
   clearTimeout(_reviewFindAt);
   _reviewFindAt = setTimeout(loadStmtReview, 260);

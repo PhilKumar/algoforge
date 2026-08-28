@@ -1159,6 +1159,91 @@ class OverdraftTests(unittest.TestCase):
         self.assertEqual(od["moves"], 0, "no card is drawn when there were no sweeps")
 
 
+class WideNetTests(unittest.TestCase):
+    """A rule is a substring, not a name. "shop" sits inside every UPI line
+    that mentions one, so a rule taught from one bag of flour can hold a
+    year of newspapers, juice and biriyani. The catch is counted and shown
+    before it is cast."""
+
+    def setUp(self):
+        self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self._db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+        notes = [
+            ("UPI/322955983957/Coolers/q72954147@ybl/Yes Bank Ltd/", "Uncategorised"),
+            ("UPI/358116614688/Newspaper/saraswathym872@/ICICI Bank/", "Uncategorised"),
+            ("UPI/321450701485/Juice/Q332971713@ybl/Yes Bank Ltd/", "Uncategorised"),
+            ("UPI/318898423083/Biriyani/jeevanselvabhar/Indian Bank/", "Uncategorised"),
+            ("NEFT/ALPHA EDUCATIONAL TRUST/term fee", "Uncategorised"),
+            ("UPI/999999999999/Coolers/q72954147@ybl/Yes Bank Ltd/", "Groceries"),
+        ]
+
+        async def seed():
+            for note, category in notes:
+                await self.sanctuary_db.add_ledger(
+                    1, {"entry_date": "2026-08-19", "category": category, "amount": 100.0, "note": note}
+                )
+
+        asyncio.run(seed())
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def preview(self, match, source="Uncategorised"):
+        import sanctuary
+
+        class _Req:
+            def __init__(self, params):
+                from starlette.datastructures import QueryParams
+
+                self.query_params = QueryParams(params)
+
+        return asyncio.run(sanctuary.statement_rule_preview(_Req({"match": match, "from": source}), {"id": 1}))
+
+    def test_a_bank_name_catches_every_bank(self):
+        """The word he would have taught, and the four unrelated rows it
+        would have taken with it."""
+        seen = self.preview("bank")
+        self.assertEqual(seen["claims"], 4)
+        self.assertTrue(seen["wide"])
+        self.assertTrue(any("Newspaper" in s for s in seen["samples"]), "he sees what it caught")
+
+    def test_the_school_itself_is_not_a_wide_net(self):
+        seen = self.preview("alpha educational")
+        self.assertEqual(seen["claims"], 1)
+        self.assertFalse(seen["wide"], "one long word, one row — no question needed")
+
+    def test_only_the_category_it_draws_from_is_counted(self):
+        """The same payee sits in Groceries too, and a rule that splits the
+        unsorted pile must not count — or claim — him."""
+        self.assertEqual(self.preview("coolers")["claims"], 1)
+        self.assertEqual(self.preview("coolers", "Groceries")["claims"], 1)
+        self.assertEqual(self.preview("coolers", "Fuel")["claims"], 0)
+
+    def test_a_handle_is_asked_about_by_its_stem(self):
+        """Teaching stores "saraswathym872@" as its name half, so the
+        preview has to ask the same question the rule will answer."""
+        seen = self.preview("saraswathym872@")
+        self.assertEqual(seen["match"], "saraswathym872")
+        self.assertEqual(seen["claims"], 1)
+
+    def test_a_single_letter_is_refused_a_count(self):
+        self.assertEqual(self.preview("a")["claims"], 0, "too short to be a rule at all")
+
+
 class ForgetTheRuleHeMeantTests(unittest.TestCase):
     """Forget one rule and every rule below it slides up a place. A list
     drawn a minute ago — or a second click — then names a position that now
