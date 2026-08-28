@@ -1750,6 +1750,59 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     return {"moved": sum(moved.values()), "by_category": moved}
 
 
+@router.get("/api/sanctuary/statements/rules")
+async def statement_rules_get(user: dict = Depends(_unlocked_user)):
+    """The rules he has taught, and how much each one is now holding.
+
+    A taught rule is invisible once it is taught: it keeps filing rows for
+    ever and the only sign of it is a category that will not stay
+    corrected. "kaliraj r means Alpha school", learned from one school
+    payment, then claimed every bag of flour from the same shop — and
+    correcting the row by hand did nothing, because the rule was still
+    there and nothing on the page said so.
+    """
+    user_id = int(user["id"])
+    rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    counted = []
+    for index, rule in enumerate(rules):
+        match = str(rule.get("match") or "")
+        counted.append(
+            {
+                "at": index,
+                "match": match,
+                "category": str(rule.get("category") or ""),
+                "holds": await sanctuary_db.count_rows_matching(user_id, match),
+            }
+        )
+    return {"rules": counted}
+
+
+@router.delete("/api/sanctuary/statements/rules/{at}")
+async def statement_rule_delete(at: int, request: Request, user: dict = Depends(_unlocked_user)):
+    """Forget a rule, and optionally hand its rows back to the rulebook.
+
+    Deleting the rule alone leaves its rows where it put them, which is
+    almost never what he wants — he is deleting it BECAUSE those rows are
+    wrong. So the rows it is holding go back to Uncategorised, where the
+    default rules and his own eye can file them again.
+    """
+    user_id = int(user["id"])
+    rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    if not 0 <= at < len(rules):
+        raise HTTPException(status_code=404, detail="No such rule")
+    gone = rules.pop(at)
+    await sanctuary_db.set_json_state(user_id, "stmt_rules", rules)
+    freed = 0
+    if str(request.query_params.get("release") or "1") != "0":
+        freed = await sanctuary_db.recategorise_matching(
+            user_id,
+            str(gone.get("match") or ""),
+            sanctuary_statements.UNCATEGORISED,
+            str(gone.get("category") or ""),
+        )
+    return {"forgot": gone.get("match", ""), "freed": freed}
+
+
 @router.post("/api/sanctuary/statements/rule")
 async def statement_rule(request: Request, user: dict = Depends(_unlocked_user)):
     """Teach a rule: this match means this category, now and from now on."""

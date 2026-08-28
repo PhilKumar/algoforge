@@ -841,6 +841,14 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .od-since{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);
   font-size:.86rem;color:var(--muted)}
 .od-since small{display:block;color:var(--soft);font-size:.76rem;margin-top:1px}
+/* one taught rule, and what it is holding */
+.rule-row{display:flex;align-items:center;gap:10px;padding:6px 2px;
+  border-bottom:1px solid var(--line-soft);font-size:.9rem}
+.rule-row:last-child{border-bottom:0}
+.rule-what{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rule-arrow{color:var(--soft)}
+.rule-holds{flex:none;color:var(--soft);font-size:.78rem;white-space:nowrap}
+.rule-row .btn.small{flex:none;padding:2px 10px;font-size:.74rem}
 .loans-closed{margin-top:18px}
 .loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
   letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
@@ -1501,6 +1509,13 @@ html[data-theme="dark"]{color-scheme:dark}
       <div id="stmt-previews"></div>
       <div id="stmt-dups" style="margin-top:14px"></div>
       <div id="stmt-review" style="margin-top:14px"></div>
+      <!-- Every rule he has taught, and what it is holding. Without this a
+           taught rule is invisible: it keeps filing rows for ever and the
+           only sign of it is a category that will not stay corrected. -->
+      <details class="loans-closed" id="rules-wrap">
+        <summary>Rules you have taught <span id="rules-count"></span></summary>
+        <div id="rules-list"></div>
+      </details>
     </div>
 
     <div class="card" style="margin-bottom:24px">
@@ -2098,7 +2113,7 @@ async function enter(){
   $("q-date").value = isoToday();
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
-  loadDaily(); refreshJournal(); loadPlans(); loadNudge();
+  loadDaily(); refreshJournal(); loadPlans(); loadNudge(); loadRules();
   refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings();
 }
 
@@ -2323,6 +2338,46 @@ function turnPage(delta){
     book.classList.remove(away);
   }, 320);
 }
+/* ═══ the rules he has taught ═══
+   A taught rule outlives the row it was taught from. "kaliraj r means
+   Alpha school", learned once, then claimed every bag of flour from the
+   same shop — and correcting the row by hand did nothing, because the rule
+   was still there and nothing on the page said so. */
+async function loadRules(){
+  const host = $("rules-list");
+  if (!host) return;
+  try {
+    const r = await api("/api/sanctuary/statements/rules");
+    S.rules = r.rules;
+    $("rules-count").textContent = r.rules.length ? `— ${r.rules.length}` : "— none yet";
+    host.innerHTML = r.rules.length
+      ? r.rules.map((rule) => `<div class="rule-row">
+          <span class="rule-what"><b>${esc(rule.match)}</b> <span class="rule-arrow">→</span> ${esc(rule.category)}</span>
+          <span class="rule-holds">${rule.holds} row${rule.holds === 1 ? "" : "s"}</span>
+          <button class="btn subtle small" data-rule-del="${rule.at}" title="Forget this rule and put its rows back">Forget</button>
+        </div>`).join("")
+      : `<div style="color:var(--muted);padding:6px 2px">Nothing taught yet. When you correct a row on an imported statement, the rule you teach appears here.</div>`;
+  } catch (err) {
+    console.error("[sanctuary] the taught rules would not load", err);
+    host.innerHTML = `<div style="color:var(--danger)">The rules did not answer.</div>`;
+  }
+}
+document.addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-rule-del]");
+  if (!del) return;
+  const rule = (S.rules || []).find((x) => x.at === Number(del.dataset.ruleDel));
+  if (!rule) return;
+  const ok = await confirmDialog(
+    `Forget “${rule.match} → ${rule.category}”? Its ${rule.holds} row${rule.holds === 1 ? "" : "s"} go back to unsorted, ready to be filed again.`,
+    "Forget it");
+  if (!ok) return;
+  try {
+    const r = await api("/api/sanctuary/statements/rules/" + rule.at, {method: "DELETE"});
+    toast(`Forgotten — ${r.freed} row${r.freed === 1 ? "" : "s"} back in the pile.`);
+    loadRules(); refreshFinance(); loadStmtReview();
+  } catch (err) { toast(err.message || "That did not take"); }
+});
+
 /* The overdraft, said as a debt rather than as a place money sits. Drawn is
    the debt growing, repaid is it shrinking, and neither is spending — which
    is why this is here among the loans and not in the month's totals. */
@@ -3945,7 +4000,7 @@ document.addEventListener("click", async (e) => {
     const r = await api("/api/sanctuary/statements/rule", {method: "POST",
       body: {match, category, from_category: fromSel ? fromSel.value : "Uncategorised"}});
     toast(r.moved + " sorted — and it will know next time.");
-    refreshFinance(); loadStmtReview();
+    refreshFinance(); loadStmtReview(); loadRules();
   }
 });
 document.addEventListener("change", (e) => {

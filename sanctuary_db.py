@@ -268,6 +268,20 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
     return len(fresh)
 
 
+async def count_rows_matching(user_id: int, match: str) -> int:
+    """How many ledger rows a taught rule's match currently catches."""
+    if not (match or "").strip():
+        return 0
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT COUNT(*) FROM sanctuary_ledger
+               WHERE user_id = ? AND instr(lower(note), lower(?)) > 0""",
+            (int(user_id), match.strip()),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+
 async def recategorise_matching(user_id: int, match: str, category: str, from_category: str = "Uncategorised") -> int:
     """Move every row in from_category whose note carries the match — the
     default splits the unsorted pile, a named source splits an existing

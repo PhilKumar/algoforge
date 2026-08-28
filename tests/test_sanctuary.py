@@ -791,6 +791,77 @@ class CounterpartyAccountTests(unittest.TestCase):
         self.assertEqual(self.read(""), [])
 
 
+class TaughtRuleTests(unittest.TestCase):
+    """A taught rule outlives the row it was taught from, so he has to be
+    able to see it and take it back."""
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def test_a_rule_taught_from_one_row_can_be_counted_and_taken_back(self):
+        """ "kaliraj r means Alpha school", learned from a term fee, then
+        claimed the flour and the rice from the same shop. Correcting a row
+        by hand did nothing — the rule was still there."""
+
+        async def run():
+            rows = [
+                ("UPI/KALIRAJ R/paytmqr2810050/oliver term fee/YES BANK", "Uncategorised"),
+                ("UPI/KALIRAJ R/paytmqr2810050/flour/YES BANK", "Uncategorised"),
+                ("UPI/KALIRAJ R/paytmqr2810050/rice/YES BANK", "Uncategorised"),
+                ("UPI/SOMEONE ELSE/vegetables/HDFC", "Uncategorised"),
+            ]
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-08-04",
+                        "category": cat,
+                        "amount": 100.0,
+                        "note": note,
+                        "source": "statement",
+                        "ref_id": f"stmt:3204:{note[:9]}",
+                    }
+                    for note, cat in rows
+                ],
+            )
+            held = await self.sanctuary_db.count_rows_matching(1, "kaliraj r")
+            claimed = await self.sanctuary_db.recategorise_matching(1, "kaliraj r", "Alpha school", "Uncategorised")
+            # taking it back hands its rows to the pile, not to nowhere
+            freed = await self.sanctuary_db.recategorise_matching(1, "kaliraj r", "Uncategorised", "Alpha school")
+            left = await self.sanctuary_db.uncategorised_ledger(1)
+            return held, claimed, freed, len(left)
+
+        held, claimed, freed, left = asyncio.run(run())
+        self.assertEqual(held, 3, "the shop's every row, not only the school one")
+        self.assertEqual(claimed, 3)
+        self.assertEqual(freed, 3, "forgetting the rule puts its rows back")
+        self.assertEqual(left, 4, "and the row it never touched was never moved")
+
+    def test_a_match_that_catches_nothing_counts_nothing(self):
+        async def run():
+            return await self.sanctuary_db.count_rows_matching(1, "  ")
+
+        self.assertEqual(asyncio.run(run()), 0)
+
+
 class KnownAccountsTests(unittest.TestCase):
     """The accounts the sanctuary can prove he banks through, read back
     from the reference each imported row carries."""
