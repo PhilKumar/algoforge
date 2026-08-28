@@ -838,6 +838,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .od-net.lighter{color:var(--moss)}
 .od-flow{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;font-size:.86rem;color:var(--muted)}
 .od-flow .od-note{margin-left:auto;color:var(--soft);font-size:.78rem}
+.od-since{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);
+  font-size:.86rem;color:var(--muted)}
+.od-since small{display:block;color:var(--soft);font-size:.76rem;margin-top:1px}
 .loans-closed{margin-top:18px}
 .loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
   letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
@@ -2338,6 +2341,13 @@ function renderOd(od, month){
       ${od.owed_said
         ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button></span>`
         : `<span class="od-owed unknown">balance not stated <button class="od-set" id="od-set">set it</button></span>`}</div>
+    ${od.owed_said && od.sweeps_since ? `<div class="od-since">
+      ${od.moved_since
+        ? `${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since ${esc(niceDate(od.stated_on))} put it at about
+           <b class="num">${inr(od.now)}</b> <button class="od-set" id="od-accept">make that the figure</button>`
+        : `${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since ${esc(niceDate(od.stated_on))}, net nothing — still ${inr(od.owed)}`}
+      <small>an estimate from the statements you have imported; the bank's figure is the one that counts</small>
+    </div>` : ""}
     ${od.moves ? `<div class="od-flow">
       <span>${esc(niceMonth(month))}: drew <b class="num">${inr(od.drawn)}</b></span>
       <span>put back <b class="num">${inr(od.repaid)}</b></span>
@@ -2347,6 +2357,14 @@ function renderOd(od, month){
   </div>`;
   const set = $("od-set");
   if (set) set.onclick = () => odOwedForm(od);
+  const accept = $("od-accept");
+  if (accept) accept.onclick = async () => {
+    try {
+      await api("/api/sanctuary/od/owed", {method: "PUT", body: {owed: od.now, account: od.account || ""}});
+      refreshFinance(); loadLoans();
+      toast(`Carried forward to ${inr(od.now)}. 🏛️`);
+    } catch (err) { toast(err.message || "That did not take"); }
+  };
 }
 /* The bank's figure, which only he can supply. It is kept as a loan card so
    it counts toward the total debt rather than living where one panel can

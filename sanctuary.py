@@ -1179,19 +1179,47 @@ def _od_movement(ledger: list[dict]) -> dict:
     }
 
 
-def _od_view(ledger: list[dict], loans: list[dict]) -> dict:
+def _od_anchor(today: str, od_rows: list[dict]) -> str:
+    """The day a newly stated balance should be pinned to.
+
+    The later of today and the newest sweep already on the ledger. Pinning
+    at today alone let a sweep dated ahead of today be applied again on the
+    next read — accepting the carried-forward figure deducted the same
+    eighteen thousand a second time, and again every time the card opened.
+    """
+    return max([today, *(str(row.get("entry_date") or "") for row in od_rows)])
+
+
+def _od_view(ledger: list[dict], loans: list[dict], since_rows: list[dict] | None = None) -> dict:
     """The overdraft as the page shows it: what he owes, then what moved.
 
     The two are different kinds of fact and the card must not blur them.
     What he owes is the bank's figure, which only he can supply; what moved
-    is this month's sweeps, which is all a partial ledger can honestly
-    claim. Reporting only the second invited it to be read as the first.
+    is the sweeps, which is all a partial ledger can honestly claim.
+    Reporting only the second invited it to be read as the first.
+
+    Between the two sits `now`: the stated balance carried forward by every
+    sweep the ledger has seen since the day he stated it. It is an estimate
+    and is named as one — it is only as complete as the statements he has
+    imported — so it is OFFERED rather than written over his figure.
     """
     view = _od_movement(ledger)
     loan = _od_loan(loans, view["account"])
+    # Only the reverse sweep spells the account out, so a month holding
+    # nothing but repayments would lose the number the card is named by.
+    if not view["account"] and loan:
+        view["account"] = str(loan.get("account_no") or "")
     view["loan_id"] = loan["id"] if loan else 0
     view["owed"] = round(float(loan.get("drawn_amount") or 0), 2) if loan else 0.0
     view["owed_said"] = bool(loan and float(loan.get("drawn_amount") or 0) > 0)
+    view["stated_on"] = str(loan.get("stated_on") or "") if loan else ""
+    rows = since_rows or []
+    moved = sum(r["amount"] for r in rows if r["source"] == "statement-in") - sum(
+        r["amount"] for r in rows if r["source"] != "statement-in"
+    )
+    view["moved_since"] = round(moved, 2)
+    view["sweeps_since"] = len(rows)
+    view["now"] = round(view["owed"] + moved, 2) if view["owed_said"] else 0.0
     return view
 
 
@@ -1880,9 +1908,25 @@ async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
     loans = await sanctuary_db.list_loans(user_id)
     loan = _od_loan(loans, account)
     name = f"{OD_LOAN_NAME}{f' ··{account[-4:]}' if account else ''}"
+    # The day it was true is what lets every sweep after it carry the figure
+    # forward. Without it the balance is a number with no anchor.
+    #
+    # It anchors at the LATER of today and the newest sweep already on the
+    # ledger. Anchoring at today alone let a sweep dated ahead of today be
+    # applied again on the very next read, so accepting the carried-forward
+    # figure deducted the same eighteen thousand a second time, and a third,
+    # every time the card was opened.
+    stated_on = _od_anchor(
+        _today_ist().isoformat(),
+        await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]),
+    )
     if loan:
-        await sanctuary_db.update_loan(user_id, loan["id"], {"drawn_amount": owed, "active": 1 if owed else 0})
-        return {"id": loan["id"], "owed": owed}
+        await sanctuary_db.update_loan(
+            user_id,
+            loan["id"],
+            {"drawn_amount": owed, "stated_on": stated_on, "active": 1 if owed else 0},
+        )
+        return {"id": loan["id"], "owed": owed, "stated_on": stated_on}
     loan_id = await sanctuary_db.create_loan(
         user_id,
         _clean_loan_fields(
@@ -1893,9 +1937,10 @@ async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
                 "drawn_amount": owed,
                 "note": "A revolving debt: no schedule, only a balance the bank states.",
             }
-        ),
+        )
+        | {"stated_on": stated_on},
     )
-    return {"id": loan_id, "owed": owed}
+    return {"id": loan_id, "owed": owed, "stated_on": stated_on}
 
 
 async def _loan_candidates(user_id: int) -> list[dict]:
@@ -2799,8 +2844,13 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     start, end = _month_bounds(month)
     emis = await sanctuary_db.list_emis(user_id, start, end)
     # For the overdraft card: the balance it stands at is held on a loan
-    # card, because only he can know it and it has to count as debt.
+    # card, because only he can know it and it has to count as debt. Every
+    # sweep since the day he stated it carries that figure forward.
     all_loans = await sanctuary_db.list_loans(user_id)
+    od_anchor = str((_od_loan(all_loans, "") or {}).get("stated_on") or "")
+    od_since = (
+        await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=od_anchor) if od_anchor else []
+    )
 
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
@@ -2916,7 +2966,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         # the size of a borrowing, not a month's spending. `owed` is HIS
         # figure off the bank, because a ledger that holds a few months
         # cannot know what the overdraft stood at before them.
-        "od": _od_view(ledger, all_loans),
+        "od": _od_view(ledger, all_loans, od_since),
         "carried_from": _previous_month(month),
         "months_known": known,
         "salary_months": {m: 1 for m, v in months_state.items() if (v or {}).get("salary")},

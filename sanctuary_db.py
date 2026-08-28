@@ -441,7 +441,7 @@ async def uncategorised_ledger(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
-async def ledger_rows_in_categories(user_id: int, categories: list[str]) -> list[dict]:
+async def ledger_rows_in_categories(user_id: int, categories: list[str], since: str = "") -> list[dict]:
     """Every row currently filed under one of these categories.
 
     The resort pass reads only the unsorted pile, on purpose. This is for
@@ -451,13 +451,19 @@ async def ledger_rows_in_categories(user_id: int, categories: list[str]) -> list
     if not categories:
         return []
     holes = ", ".join("?" for _ in categories)
+    where = f"user_id = ? AND category IN ({holes})"
+    params: list = [int(user_id), *categories]
+    if since:
+        # Strictly after: the day he read the balance off the bank already
+        # has that day's sweeps inside the figure he wrote down.
+        where += " AND entry_date > ?"
+        params.append(since)
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             f"""SELECT id, entry_date, amount, note, source, category FROM sanctuary_ledger
-                WHERE user_id = ? AND category IN ({holes})
-                ORDER BY entry_date DESC""",  # nosec B608 - every hole is a placeholder
-            (int(user_id), *categories),
+                WHERE {where} ORDER BY entry_date DESC""",  # nosec B608 - every hole is a placeholder
+            params,
         )
         return [dict(row) for row in await cursor.fetchall()]
 
@@ -540,8 +546,8 @@ async def create_loan(user_id: int, fields: dict) -> int:
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
             """INSERT INTO sanctuary_loans
-               (user_id, name, lender, emi_amount, due_day, start_date, note, account_no, details, drawn_amount, active, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, name, lender, emi_amount, due_day, start_date, note, account_no, details, drawn_amount, stated_on, active, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 int(user_id),
                 fields["name"],
@@ -553,6 +559,7 @@ async def create_loan(user_id: int, fields: dict) -> int:
                 fields.get("account_no", ""),
                 fields.get("details", ""),
                 float(fields.get("drawn_amount", 0)),
+                fields.get("stated_on", ""),
                 1 if fields.get("active", True) else 0,
                 _now_iso(),
             ),
@@ -572,6 +579,7 @@ async def update_loan(user_id: int, loan_id: int, fields: dict) -> bool:
         "account_no",
         "details",
         "drawn_amount",
+        "stated_on",
         "active",
     }
     sets, params = [], []

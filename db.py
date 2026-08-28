@@ -292,6 +292,7 @@ _SCHEMA_STATEMENTS = [
         account_no  TEXT    NOT NULL DEFAULT '',
         details     TEXT    NOT NULL DEFAULT '',
         drawn_amount REAL   NOT NULL DEFAULT 0,
+        stated_on   TEXT    NOT NULL DEFAULT '',
         active      INTEGER NOT NULL DEFAULT 1,
         created_at  TEXT    NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
@@ -395,6 +396,10 @@ def _init_db_sync():
         # A revolving debt (the sweep-linked OD, a card) has no schedule;
         # what it owes is a single stated figure.
         ("drawn_amount", "REAL NOT NULL DEFAULT 0"),
+        # The day that figure was true. Without it a stated balance cannot be
+        # carried forward, because there is no telling which of the ledger's
+        # movements happened after he read it off the bank.
+        ("stated_on", "TEXT NOT NULL DEFAULT ''"),
     ):
         if column not in existing_loan_columns:
             conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608

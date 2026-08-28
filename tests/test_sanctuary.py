@@ -992,6 +992,53 @@ class OverdraftTests(unittest.TestCase):
         self.assertEqual(view["loan_id"], 4)
         self.assertEqual(view["drawn"], 4572.39, "the movement is still reported, as movement")
 
+    def test_the_stated_balance_is_carried_forward_by_later_sweeps(self):
+        """He asked whether the figure updates itself. On its own it never
+        would; every sweep since the day he stated it now carries it."""
+        import sanctuary
+
+        loans = [
+            {
+                "id": 4,
+                "name": "Sweep overdraft",
+                "account_no": "035005008452",
+                "drawn_amount": 327000.0,
+                "stated_on": "2026-08-28",
+            }
+        ]
+        since = [
+            {"amount": 18000.0, "source": "statement", "note": "Sweep to OD Ac"},  # paid down
+            {"amount": 5000.0, "source": "statement-in", "note": "Rev Sweep From"},  # drawn again
+        ]
+        view = sanctuary._od_view(self.rows(), loans, since)
+        self.assertEqual(view["moved_since"], -13000.0, "5,000 drawn less 18,000 repaid")
+        self.assertEqual(view["now"], 314000.0)
+        self.assertEqual(view["sweeps_since"], 2)
+        self.assertEqual(view["owed"], 327000.0, "his own figure is never written over")
+
+    def test_accepting_the_carried_figure_does_not_apply_the_same_sweep_twice(self):
+        """Pinned at today alone, a sweep dated ahead of today stayed
+        "since" for ever: accepting ₹3,09,000 immediately offered
+        ₹2,91,000, then ₹2,73,000 — the same eighteen thousand every
+        time the card was opened."""
+        import sanctuary
+
+        rows = [{"entry_date": "2026-09-03"}, {"entry_date": "2026-08-30"}]
+        self.assertEqual(sanctuary._od_anchor("2026-08-28", rows), "2026-09-03")
+
+    def test_the_anchor_is_today_when_every_sweep_is_behind_it(self):
+        import sanctuary
+
+        rows = [{"entry_date": "2026-08-02"}, {"entry_date": "2026-08-19"}]
+        self.assertEqual(sanctuary._od_anchor("2026-08-28", rows), "2026-08-28")
+        self.assertEqual(sanctuary._od_anchor("2026-08-28", []), "2026-08-28")
+
+    def test_without_a_stated_balance_there_is_nothing_to_carry(self):
+        import sanctuary
+
+        view = sanctuary._od_view(self.rows(), [], [{"amount": 9.0, "source": "statement", "note": "x"}])
+        self.assertEqual(view["now"], 0.0, "an estimate off no anchor would be a guess")
+
     def test_an_unstated_balance_says_so_rather_than_guessing(self):
         """A partial ledger cannot know what the overdraft stood at before
         the months it holds, so it must not imply that it does."""
