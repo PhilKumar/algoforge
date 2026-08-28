@@ -277,19 +277,20 @@ class StatementParserTests(unittest.TestCase):
         second = {r["ref_id"] for r in self.parse()["rows"]}
         self.assertEqual(first, second)
 
-    def test_the_two_halves_of_a_sweep_are_not_the_same_event(self):
-        """A draw on the overdraft is borrowing; paying it down is not.
+    def test_both_halves_of_a_sweep_belong_to_the_overdraft(self):
+        """The OD is a loan account, not a place money is parked.
 
-        Both used to file as "Self transfer", which said the account had
-        never gone into the overdraft at all. The repayment MUST stay a
-        self transfer, though: that category is what keeps a ninety-six
-        thousand rupee sweep out of the month's spending.
+        Both directions move that debt's balance, so both carry its name.
+        Filing them as "Self transfer" said one of the two accounts was his
+        savings, when what it really is, is what he owes.
         """
-        from sanctuary_statements import categorise, parse_statement
+        from sanctuary_statements import categorise, od_account, parse_statement
 
         self.assertEqual(categorise("000012345678: Rev Sweep From"), "OD loan")
         self.assertEqual(categorise("Sweep from OD Ac"), "OD loan")
-        self.assertEqual(categorise("Sweep to OD Ac"), "Self transfer")
+        self.assertEqual(categorise("Sweep to OD Ac"), "OD loan")
+        self.assertEqual(od_account("035005008452: Rev Sweep From"), "035005008452")
+        self.assertEqual(od_account("Sweep to OD Ac"), "", "only the reverse sweep names the account")
         blob = (
             "Account Number,000099887766 ( INR )\n"
             "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
@@ -359,7 +360,7 @@ class StatementParserTests(unittest.TestCase):
         from sanctuary_statements import categorise
 
         self.assertEqual(categorise("MPS/APOLLO PHAR/2021"), "Health")
-        self.assertEqual(categorise("UPI/1002/Sweep to OD ac"), "Self transfer")
+        self.assertEqual(categorise("UPI/1002/Sweep to OD ac"), "OD loan")
         self.assertEqual(categorise("UPI/419/payment on CRED/cred.club@axisb"), "Credit card bill")
         self.assertEqual(categorise("UPI/9/completely new shop"), "Uncategorised")
 
@@ -943,6 +944,46 @@ class PlannerReadingTests(unittest.TestCase):
         self.assertEqual(plan.horizon("2026-09-02", self.TODAY), "next week")
         self.assertEqual(plan.horizon("2026-12-01", self.TODAY), "later")
         self.assertEqual(plan.horizon("", self.TODAY), "someday")
+
+
+class OverdraftTests(unittest.TestCase):
+    """The sweep-linked overdraft read as a debt: what it drew, what went
+    back, and — the load-bearing part — that neither is spending."""
+
+    def rows(self):
+        return [
+            {"category": "OD loan", "source": "statement-in", "amount": 959.39, "note": "035005008452: Rev Sweep From"},
+            {"category": "OD loan", "source": "statement-in", "amount": 3613.0, "note": "035005008452: Rev Sweep From"},
+            {"category": "OD loan", "source": "statement", "amount": 96169.0, "note": "Sweep to OD Ac"},
+            {"category": "Groceries", "source": "statement", "amount": 576.0, "note": "UPI/shop"},
+        ]
+
+    def test_the_overdraft_reports_both_directions_and_its_account(self):
+        import sanctuary
+
+        od = sanctuary._od_movement(self.rows())
+        self.assertEqual(od["drawn"], 4572.39, "money out of the OD is the debt growing")
+        self.assertEqual(od["repaid"], 96169.0)
+        self.assertEqual(od["deeper"], -91596.61, "he ended the month owing it less")
+        self.assertEqual(od["moves"], 3)
+        self.assertEqual(od["account"], "035005008452", "the reverse sweep names it")
+
+    def test_neither_half_of_a_sweep_is_spending(self):
+        """This is the whole point. What the overdraft funded is already in
+        the ledger line by line; counting a ninety-six thousand rupee sweep
+        on top would bury a month's groceries in bank housekeeping."""
+        import sanctuary
+
+        excluded = {"Self transfer", sanctuary.OD_CATEGORY}
+        outgo = [r for r in self.rows() if r["source"] != "statement-in"]
+        spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
+        self.assertEqual(spent, 576.0)
+
+    def test_a_month_that_never_touched_the_overdraft_says_nothing(self):
+        import sanctuary
+
+        od = sanctuary._od_movement([{"category": "Groceries", "source": "statement", "amount": 10.0, "note": ""}])
+        self.assertEqual(od["moves"], 0, "no card is drawn when there were no sweeps")
 
 
 class CategoryRestoreTests(unittest.TestCase):

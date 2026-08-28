@@ -824,6 +824,16 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .badge.closed{background:transparent;border:1px solid var(--line);color:var(--muted)}
 /* A settled loan is history, not a task: it rests as one line and opens
    into the full card only when asked. */
+/* the overdraft's own card, above the scheduled loans */
+.od-card{border:1px solid var(--line-soft);border-radius:16px;padding:13px 16px;margin-bottom:12px;
+  background:linear-gradient(120deg,var(--terra-wash),transparent 70%)}
+.od-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.od-what{font-family:var(--serif);font-weight:650;font-size:1.04rem}
+.od-net{margin-left:auto;font-size:.86rem;font-weight:700;white-space:nowrap}
+.od-net.deeper{color:var(--danger)}
+.od-net.lighter{color:var(--moss)}
+.od-flow{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;font-size:.86rem;color:var(--muted)}
+.od-flow .od-note{margin-left:auto;color:var(--soft);font-size:.78rem}
 .loans-closed{margin-top:18px}
 .loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
   letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
@@ -1489,6 +1499,10 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card" style="margin-bottom:24px">
       <div class="section-title">Loans &amp; EMIs</div>
       <div class="section-sub">Upload a bank's EMI schedule and every installment finds its month by itself. Alerts appear above when a due date comes near.</div>
+      <!-- The sweep-linked overdraft is a debt, so it sits with the debts.
+           It has no schedule to upload; what it has is a balance that moves
+           every time the bank sweeps. -->
+      <div id="od-card"></div>
       <div class="loans" id="loans"></div>
       <div id="loans-closed"></div>
       <div id="loan-found"></div>
@@ -2302,6 +2316,26 @@ function turnPage(delta){
     book.classList.remove(away);
   }, 320);
 }
+/* The overdraft, said as a debt rather than as a place money sits. Drawn is
+   the debt growing, repaid is it shrinking, and neither is spending — which
+   is why this is here among the loans and not in the month's totals. */
+function renderOd(od, month){
+  const host = $("od-card");
+  if (!host) return;
+  if (!od || !od.moves) { host.innerHTML = ""; return; }
+  const deeper = od.deeper > 0;
+  host.innerHTML = `<div class="od-card">
+    <div class="od-head"><span class="od-what">Sweep overdraft${
+      od.account ? ` <span class="num">··${esc(od.account.slice(-4))}</span>` : ""}</span>
+      <span class="od-net ${deeper ? "deeper" : "lighter"}">${deeper ? "deeper by " : "down by "}<b class="num">${inr(Math.abs(od.deeper))}</b></span></div>
+    <div class="od-flow">
+      <span>Drawn <b class="num">${inr(od.drawn)}</b></span>
+      <span>Repaid <b class="num">${inr(od.repaid)}</b></span>
+      <span class="od-note">${od.moves} sweep${od.moves === 1 ? "" : "s"} in ${esc(niceMonth(month))} · a debt moving, never spending</span>
+    </div>
+  </div>`;
+}
+
 /* ═══════════ the planner ═══════════
    One line in. The server reads the task and the date out of it, and says
    what it understood while he is still typing — so a misread is caught
@@ -2569,6 +2603,7 @@ function renderFinance(){
     <div class="tile card"><div class="lbl">Left to breathe</div>
       <div class="val num ${t.left < 0 ? "neg" : "pos"}">${inr(t.left)}</div>
       <div class="sub">to spend − spent − saved</div></div>`;
+  renderOd(f.od, f.month);
   /* quick cats */
   const quick = f.categories.filter((c) => c.quick && c.kind === "expense");
   $("quick-cats").innerHTML = quick.map((c) =>

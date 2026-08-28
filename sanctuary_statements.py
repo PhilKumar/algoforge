@@ -200,22 +200,33 @@ DEFAULT_RULES = [
     {"match": "dividend", "category": "Dividend"},
     {"match": "refund", "category": "Refund"},
     {"match": "cashback", "category": "Refund"},
-    # The two halves of the sweep-linked overdraft are NOT the same event,
-    # and filing both as a self transfer said they were.
+    # The sweep-linked overdraft is a LOAN ACCOUNT, not somewhere money is
+    # parked. Both halves of a sweep move the balance of that debt:
+    # "Sweep to OD Ac" pays it down, "Rev Sweep From <account>" draws on it
+    # again. Neither is a self transfer between two accounts he owns,
+    # because one of the two is not his money — it is his debt.
     #
-    # "Sweep to OD Ac" is money going the other way: the account paying the
-    # overdraft down. It stays a self transfer, and that category is
-    # load-bearing — the month's spending leaves it out, and a repayment of
-    # ninety-six thousand counted as spending would wreck the total.
-    #
-    # "Rev Sweep From <account>" is the reverse: money coming BACK out of
-    # the overdraft, which is a draw on it. That is borrowing, and it now
-    # says so. It arrives as a credit, so it is never counted as spending
-    # either way — but the ledger now shows the month it happened in.
-    {"match": "sweep to od", "category": "Self transfer"},
+    # Neither is spending either. The bank sweeps both ways dozens of times
+    # a month, in hundreds of rupees at a time, and what he actually spent
+    # is already in the ledger under groceries and fuel and the rest. Count
+    # the sweeps as spending on top and the housekeeping dwarfs the life.
+    # So the category is excluded from the month's spending — see the
+    # finance view — and what it buys is a true picture of the debt.
+    {"match": "sweep to od", "category": "OD loan"},
     {"match": "sweep from od", "category": "OD loan"},
     {"match": "rev sweep", "category": "OD loan"},
 ]
+
+
+def od_account(note: str) -> str:
+    """The overdraft account a sweep names, if it names one.
+
+    ICICI writes the linked account into the reverse sweep's narration —
+    "035005008452: Rev Sweep From" — so the debt can say which account it
+    belongs to without him having to tell it.
+    """
+    found = _LINKED_ACCT_RE.search(note or "")
+    return found.group(1) if found else ""
 
 
 UNCATEGORISED = "Uncategorised"

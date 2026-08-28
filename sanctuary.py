@@ -64,6 +64,11 @@ _unlock_failures: dict[int, list[float]] = {}
 _FAILURE_LIMIT = 8
 _FAILURE_WINDOW = 15 * 60
 
+# The sweep-linked overdraft's category, named once because three places
+# have to agree on it: the rules that file into it, the categories list
+# that offers it, and the spending sum that leaves it out.
+OD_CATEGORY = "OD loan"
+
 DEFAULT_CATEGORIES = [
     {"name": "Milk", "emoji": "🥛", "kind": "expense", "quick": True},
     {"name": "Autorickshaw", "emoji": "🛺", "kind": "expense", "quick": True},
@@ -82,11 +87,10 @@ DEFAULT_CATEGORIES = [
     {"name": "Giving", "emoji": "🕊️", "kind": "expense", "quick": False},
     {"name": "Travel", "emoji": "🚌", "kind": "expense", "quick": False},
     {"name": "Other", "emoji": "🌱", "kind": "expense", "quick": False},
-    # Money drawn from the sweep-linked overdraft. It arrives as a credit,
-    # so it can never be counted as spending; what it IS is borrowing, and
-    # filing it as a self transfer hid that the account had gone into the
-    # overdraft at all.
-    {"name": "OD loan", "emoji": "🏛️", "kind": "expense", "quick": False},
+    # The sweep-linked overdraft: a loan account, not a place to park money.
+    # Both directions of a sweep move this debt's balance and neither is
+    # spending — see the finance view, where the category is excluded.
+    {"name": OD_CATEGORY, "emoji": "🏛️", "kind": "debt", "quick": False},
     {"name": "NPS", "emoji": "🌳", "kind": "saving", "quick": False},
     {"name": "PF", "emoji": "🌳", "kind": "saving", "quick": False},
     {"name": "MF SIP", "emoji": "🌿", "kind": "saving", "quick": False},
@@ -1142,6 +1146,34 @@ async def vault_page(request: Request):
 
 
 # ── Finance: categories, months, ledger ──────────────────────────
+
+
+def _od_movement(ledger: list[dict]) -> dict:
+    """What the overdraft did this month, in the language of a debt.
+
+    Drawn is money that came OUT of the overdraft into his account — the
+    debt growing. Repaid is money swept back the other way. `deeper` is the
+    net: positive means he ended the month owing the overdraft more than he
+    started it. None of it is spending, and none of it is saving; it is the
+    shape of a borrowing, which is why it is reported on its own.
+    """
+    drawn = sum(r["amount"] for r in ledger if r["category"] == OD_CATEGORY and r["source"] == "statement-in")
+    repaid = sum(r["amount"] for r in ledger if r["category"] == OD_CATEGORY and r["source"] != "statement-in")
+    account = ""
+    for row in ledger:
+        if row["category"] != OD_CATEGORY:
+            continue
+        found = sanctuary_statements.od_account(row.get("note") or "")
+        if found:
+            account = found
+            break
+    return {
+        "drawn": round(drawn, 2),
+        "repaid": round(repaid, 2),
+        "deeper": round(drawn - repaid, 2),
+        "moves": sum(1 for r in ledger if r["category"] == OD_CATEGORY),
+        "account": account,
+    }
 
 
 def _missing_rule_categories(categories: list[dict]) -> list[dict]:
@@ -2673,7 +2705,12 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         if from_bank:
             salary, salary_source = from_bank, "statement"
 
-    excluded = saving_names | {"Self transfer"}
+    # Neither half of an overdraft sweep is spending. Paying the OD down is
+    # moving a debt, not consuming anything, and what the OD funded is
+    # already in the ledger line by line — counting the sweeps on top would
+    # add a hundred thousand rupees of bank housekeeping to a month's
+    # groceries. The debt itself is reported separately, below.
+    excluded = saving_names | {"Self transfer", OD_CATEGORY}
     outgo = [r for r in ledger if r["source"] != "statement-in"]
     spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
     saved = sum(r["amount"] for r in outgo if r["category"] in saving_names)
@@ -2704,8 +2741,11 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
 
     by_category: dict[str, float] = {}
     for row in outgo:
-        if row["category"] == "Self transfer":
-            continue  # his own money moving is not a spending bar
+        # Neither his own money moving nor a debt's balance moving is a
+        # spending bar. The overdraft would otherwise stand at the top of
+        # "where it went" as the largest thing he never spent.
+        if row["category"] in ("Self transfer", OD_CATEGORY):
+            continue
         by_category[row["category"]] = by_category.get(row["category"], 0) + row["amount"]
     for emi in emis:
         if emi["in_ledger"] or not emi["due_yet"]:
@@ -2760,6 +2800,10 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             # adding it here counted the same rupees twice.
             "left": round(carried_in - spent - emi_total - saved, 2),
         },
+        # The overdraft, read as a debt: what he drew on it this month and
+        # what went back. Kept out of every total above on purpose — this is
+        # the size of a borrowing, not a month's spending.
+        "od": _od_movement(ledger),
         "carried_from": _previous_month(month),
         "months_known": known,
         "salary_months": {m: 1 for m, v in months_state.items() if (v or {}).get("salary")},
