@@ -118,6 +118,25 @@ class PanelTests(unittest.TestCase):
         self.assertIn("2024", block)
         self.assertIn("24,000", block, "the recent run-rate belongs on the panel, not only in the tearsheet")
 
+    def test_the_assets_pill_has_its_own_outline_colour(self):
+        """Every tearsheet pill carries `--tearsheet-pill` in BOTH themes. A doc
+        without one falls back to grey, and the strip stops saying which sheet
+        is open at a glance -- the exact complaint that made the outline a
+        border rather than a fill in the first place."""
+        css = (_REPO / "static" / "philforge-app.css").read_text()
+        docs = set(re.findall(r'data-doc="(\w+)"', HTML))
+        for doc in docs:
+            self.assertIn(
+                f'.pf-tearsheet-doc[data-doc="{doc}"] {{ --tearsheet-pill:',
+                css,
+                f"the {doc} pill has no dark-theme outline colour",
+            )
+            self.assertIn(
+                f'html[data-theme="light"] .pf-tearsheet-doc[data-doc="{doc}"] {{ --tearsheet-pill:',
+                css,
+                f"the {doc} pill has no light-theme outline colour",
+            )
+
     def test_the_ledger_table_is_registered_for_the_archive(self):
         self.assertIn("supertrend: { wrap: 'oc-st-closed'", JS)
 

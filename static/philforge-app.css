@@ -3683,10 +3683,12 @@
   .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #38bdf8; }
   .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #93c5fd; }
   .pf-tearsheet-doc[data-doc="gapcarry"] { --tearsheet-pill: #fbbf24; }
+  .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #a78bfa; }
   html[data-theme="light"] .pf-tearsheet-doc[data-doc="options"] { --tearsheet-pill: #6d28d9; }
   html[data-theme="light"] .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #0369a1; }
   html[data-theme="light"] .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #1d4ed8; }
   html[data-theme="light"] .pf-tearsheet-doc[data-doc="gapcarry"] { --tearsheet-pill: #b45309; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #6d28d9; }
   #assets-tearsheet-frame {
     display: block;
     width: 100%;
