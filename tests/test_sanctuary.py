@@ -979,6 +979,28 @@ class OverdraftTests(unittest.TestCase):
         spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
         self.assertEqual(spent, 576.0)
 
+    def test_sweeps_already_filed_the_old_way_are_moved(self):
+        """The resort button reads only the UNSORTED pile, so rows already
+        filed as "Self transfer" were invisible to it and nothing moved."""
+        import sanctuary
+
+        self.assertEqual(sanctuary._recategorised("035005008452: Rev Sweep From", "Self transfer"), "OD loan")
+        self.assertEqual(sanctuary._recategorised("Sweep to OD Ac", "Self transfer"), "OD loan")
+        self.assertEqual(sanctuary._recategorised("Sweep to OD Ac", "Uncategorised"), "OD loan")
+
+    def test_a_row_he_filed_himself_is_left_where_he_put_it(self):
+        """A correction may only take from the categories it names. If he
+        decided a sweep was Giving, that is his answer and it stands."""
+        import sanctuary
+
+        self.assertEqual(sanctuary._recategorised("Sweep to OD Ac", "Giving"), "")
+        self.assertEqual(sanctuary._recategorised("UPI/veg shop", "Self transfer"), "", "not a sweep at all")
+
+    def test_a_row_already_right_is_not_moved_again(self):
+        import sanctuary
+
+        self.assertEqual(sanctuary._recategorised("Sweep to OD Ac", "OD loan"), "")
+
     def test_a_month_that_never_touched_the_overdraft_says_nothing(self):
         import sanctuary
 

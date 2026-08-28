@@ -441,6 +441,27 @@ async def uncategorised_ledger(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def ledger_rows_in_categories(user_id: int, categories: list[str]) -> list[dict]:
+    """Every row currently filed under one of these categories.
+
+    The resort pass reads only the unsorted pile, on purpose. This is for
+    the rarer case where a row IS sorted but the rulebook's answer for it
+    has since changed.
+    """
+    if not categories:
+        return []
+    holes = ", ".join("?" for _ in categories)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            f"""SELECT id, entry_date, amount, note, source, category FROM sanctuary_ledger
+                WHERE user_id = ? AND category IN ({holes})
+                ORDER BY entry_date DESC""",  # nosec B608 - every hole is a placeholder
+            (int(user_id), *categories),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
 async def delete_ledger_row(user_id: int, row_id: int) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(

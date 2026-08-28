@@ -1582,6 +1582,39 @@ async def statement_review(user: dict = Depends(_unlocked_user)):
     return {"uncategorised": len(rows), "groups": ordered[:120]}
 
 
+# Rows the rulebook now files DIFFERENTLY from the day they were imported.
+#
+# The resort pass reads only the unsorted pile, and that is the right
+# default: a row he filed by hand must never be overwritten by a rule.
+# But when the MEANING of a rule changes, the rows already sitting under
+# the old answer are exactly the ones that have to move — and they are
+# invisible to a pass that only looks at what was never sorted.
+#
+# So each correction names the categories it may take FROM, narrowly. The
+# overdraft sweeps were filed as self transfers when the sanctuary thought
+# the OD was somewhere he kept money; it is a debt, and both directions of
+# a sweep belong to it. Nothing outside those two categories is touched,
+# so a row he moved somewhere himself stays where he put it.
+_RECATEGORISE = (
+    {
+        "match": ("rev sweep", "sweep to od", "sweep from od"),
+        "from": ("Self transfer", sanctuary_statements.UNCATEGORISED),
+        "to": OD_CATEGORY,
+    },
+)
+
+
+def _recategorised(note: str, category: str) -> str:
+    """Where an already-filed row belongs now, or "" to leave it alone."""
+    lowered = (note or "").lower()
+    for correction in _RECATEGORISE:
+        if category not in correction["from"] or category == correction["to"]:
+            continue
+        if any(word in lowered for word in correction["match"]):
+            return str(correction["to"])
+    return ""
+
+
 @router.post("/api/sanctuary/statements/resort")
 async def statement_resort(user: dict = Depends(_unlocked_user)):
     """Run every rule over the unsorted pile again.
@@ -1603,6 +1636,13 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
             continue
         await sanctuary_db.set_ledger_category(user_id, row["id"], category)
         moved[category] = moved.get(category, 0) + 1
+    for correction in _RECATEGORISE:
+        for row in await sanctuary_db.ledger_rows_in_categories(user_id, list(correction["from"])):
+            moving = _recategorised(row["note"], row["category"])
+            if not moving:
+                continue
+            await sanctuary_db.set_ledger_category(user_id, row["id"], moving)
+            moved[moving] = moved.get(moving, 0) + 1
     if moved:
         categories = await _get_categories(user_id)
         have = {c["name"] for c in categories}
