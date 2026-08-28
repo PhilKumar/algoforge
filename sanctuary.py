@@ -1618,12 +1618,22 @@ async def _remember_account_number(user_id: int, account: str, bank: str) -> Non
 
 
 @router.get("/api/sanctuary/statements/review")
-async def statement_review(user: dict = Depends(_unlocked_user)):
-    """The unsorted rows, grouped by who was paid — the review row's feed."""
+async def statement_review(request: Request, user: dict = Depends(_unlocked_user)):
+    """The unsorted rows, grouped by who was paid — the review row's feed.
+
+    Only the biggest are shown, which is right for working down a pile but
+    useless for finding ONE payee among fourteen hundred: everyone below the
+    fold might as well not exist. So a search runs over the whole pile —
+    both the payee's key and a sample of the narration, because he
+    remembers "flour" more often than he remembers whose QR it was.
+    """
+    query = str(request.query_params.get("q") or "").strip().lower()[:60]
     rows = await sanctuary_db.uncategorised_ledger(int(user["id"]))
     groups: dict[str, dict] = {}
     for row in rows:
         key = sanctuary_statements.payee_key(row["note"])
+        if query and query not in key.lower() and query not in (row["note"] or "").lower():
+            continue
         group = groups.setdefault(
             key,
             {"match": key, "count": 0, "total": 0.0, "sample": row["note"], "in_total": 0.0, "out_total": 0.0},
@@ -1636,7 +1646,13 @@ async def statement_review(user: dict = Depends(_unlocked_user)):
         side = "in_total" if row["source"] == "statement-in" else "out_total"
         group[side] = round(group[side] + row["amount"], 2)
     ordered = sorted(groups.values(), key=lambda g: -g["total"])
-    return {"uncategorised": len(rows), "groups": ordered[:120]}
+    return {
+        "uncategorised": len(rows),
+        "payees": len(ordered),
+        "matched": sum(g["count"] for g in ordered),
+        "query": query,
+        "groups": ordered[:120],
+    }
 
 
 # Rows the rulebook now files DIFFERENTLY from the day they were imported.
@@ -1774,7 +1790,13 @@ async def statement_rules_get(user: dict = Depends(_unlocked_user)):
                 "holds": await sanctuary_db.count_rows_matching(user_id, match),
             }
         )
-    return {"rules": counted}
+    # The defaults travel too, so the ledger can say WHY any row carries the
+    # category it does — and, just as usefully, when no rule claims it at
+    # all and the answer is simply one he chose himself.
+    return {
+        "rules": counted,
+        "defaults": [{"match": r["match"], "category": r["category"]} for r in sanctuary_statements.DEFAULT_RULES],
+    }
 
 
 @router.delete("/api/sanctuary/statements/rules/{at}")

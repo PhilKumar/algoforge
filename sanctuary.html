@@ -849,6 +849,10 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .rule-arrow{color:var(--soft)}
 .rule-holds{flex:none;color:var(--soft);font-size:.78rem;white-space:nowrap}
 .rule-row .btn.small{flex:none;padding:2px 10px;font-size:.74rem}
+/* finding one payee among fourteen hundred */
+.stmt-find{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 4px}
+.stmt-find .field{flex:1;min-width:200px;max-width:340px}
+.stmt-found{color:var(--soft);font-size:.82rem;white-space:nowrap}
 .loans-closed{margin-top:18px}
 .loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
   letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
@@ -2338,6 +2342,24 @@ function turnPage(delta){
     book.classList.remove(away);
   }, 320);
 }
+/* Why a row carries the category it does. The first rule whose word appears
+   in the narration wins — his own before the built-in ones — and if that
+   answer is not the row's category, then nobody's rule put it there and he
+   chose it himself. Without this a wrong category has no author, and a rule
+   he cannot see keeps undoing his corrections. */
+function whyFiled(note, category){
+  const text = (note || "").toLowerCase();
+  const taught = (S.rules || []).find((r) => r.match && text.includes(r.match.toLowerCase()));
+  const fallback = (S.defaultRules || []).find((r) => r.match && text.includes(r.match.toLowerCase()));
+  const winner = taught || fallback;
+  if (!winner) return category ? "you filed this one yourself — no rule matches it" : "";
+  const where = taught ? "a rule you taught" : "a built-in rule";
+  if (winner.category !== category) {
+    return `you filed this one yourself · ${where} (“${winner.match}”) would have said ${winner.category}`;
+  }
+  return `filed by ${where}: “${winner.match}” → ${winner.category}`;
+}
+
 /* ═══ the rules he has taught ═══
    A taught rule outlives the row it was taught from. "kaliraj r means
    Alpha school", learned once, then claimed every bag of flour from the
@@ -2349,6 +2371,8 @@ async function loadRules(){
   try {
     const r = await api("/api/sanctuary/statements/rules");
     S.rules = r.rules;
+    S.defaultRules = r.defaults || [];
+    if (S.fin) renderFinance();   /* the ledger can say why, now that it knows */
     $("rules-count").textContent = r.rules.length ? `— ${r.rules.length}` : "— none yet";
     host.innerHTML = r.rules.length
       ? r.rules.map((rule) => `<div class="rule-row">
@@ -2787,7 +2811,7 @@ function renderLedgerTable(){
       <td class="num" title="${esc(niceDate(r.entry_date))}">${niceDate(r.entry_date)}</td>
       <td class="led-cat"><span class="led-cat-wrap">${r.source === "emi"
         ? `<span class="led-cat-edit">${esc(r.category)}</span>`
-        : `<span class="led-cat-edit" data-led-cat="${r.id}" title="Change this entry's category">${esc(r.category)} ✎</span>`}<span class="src-chip ${r.source}">${
+        : `<span class="led-cat-edit" data-led-cat="${r.id}" title="${esc(whyFiled(r.note, r.category) || "Change this entry's category")}">${esc(r.category)} ✎</span>`}<span class="src-chip ${r.source}">${
         r.source === "recurring" ? "auto" : r.source === "emi" ? "EMI" : r.source.startsWith("statement") ? "bank" : "you"}</span></span></td>
       <td class="led-note" title="${esc(r.note)}">${esc(r.note)}</td>
       <td class="led-acct-chip num">${esc(r.acct)}</td>
@@ -4069,11 +4093,23 @@ function stmtWayChips(g){
 async function loadStmtReview(){
   const host = $("stmt-review");
   try {
-    const r = await api("/api/sanctuary/statements/review");
+    const q = (S.reviewQ || "").trim();
+    const r = await api("/api/sanctuary/statements/review" + (q ? "?q=" + encodeURIComponent(q) : ""));
     if (!r.uncategorised) { host.innerHTML = ""; return; }
+    const shown = Math.min(25, r.groups.length);
+    /* The list shows the biggest payees, which is right for working down a
+       pile and useless for finding ONE among fourteen hundred. The search
+       runs over the whole pile — the payee's key AND the narration, because
+       he remembers "flour" sooner than he remembers whose QR code it was. */
     host.innerHTML = `<div class="section-title" style="font-size:.95rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         Sort the unsorted — ${r.uncategorised} left
         <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort with the rules again</button>
+      </div>
+      <div class="stmt-find">
+        <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour, a mandate number…" value="${esc(q)}">
+        <span class="stmt-found">${q
+          ? `${r.payees} payee${r.payees === 1 ? "" : "s"} · ${r.matched} row${r.matched === 1 ? "" : "s"} match`
+          : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile${r.payees > shown ? ` · showing the ${shown} biggest` : ""}`}</span>
       </div>
       <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
       <div class="stmt-review-row" data-match="">
@@ -4098,7 +4134,22 @@ async function loadStmtReview(){
       <div class="section-sub">This list would not load — ${esc(err.message || "the server did not answer")}.
       Nothing is lost; try again in a moment.</div>`;
   }
+  /* The panel is rebuilt on every load, so the box is rebound each time and
+     the caret is put back where he left it. */
+  const box = $("stmt-q");
+  if (box && S.reviewFocused) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
 }
+let _reviewFindAt = null;
+document.addEventListener("input", (e) => {
+  if (!e.target.matches("#stmt-q")) return;
+  S.reviewQ = e.target.value;
+  S.reviewFocused = true;
+  clearTimeout(_reviewFindAt);
+  _reviewFindAt = setTimeout(loadStmtReview, 260);
+});
+document.addEventListener("focusout", (e) => {
+  if (e.target.matches("#stmt-q")) S.reviewFocused = false;
+});
 
 $("cat-manage").onclick = categoriesModal;
 $("loan-add").onclick = () => loanForm(null);
