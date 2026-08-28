@@ -5107,6 +5107,10 @@ _CANDLE_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "candle-entry-tea
 # tools/tearsheet/build_gapcarry_report.py from a replay that reproduces through
 # engine/gap_carry.py to the rupee.
 _GAPCARRY_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "gap-carry-tearsheet.html")
+# The fifth: the hourly Supertrend call book, five years on the Dhan archive.
+# Built by tools/tearsheet/build_supertrend_report.py from CryptoForge's
+# validated sweep output (tools/supertrend_offline/, provenance file there).
+_SUPERTREND_TEARSHEET_PATH = os.path.join(_HERE, "docs", "assets", "supertrend-tearsheet.html")
 # An unregistered key falls back to the five-year options sheet SILENTLY, so a
 # doc is registered here before anything links to it.
 _TEARSHEET_DOCS = {
@@ -5114,6 +5118,7 @@ _TEARSHEET_DOCS = {
     "fib": _FIB_TEARSHEET_PATH,
     "candle": _CANDLE_TEARSHEET_PATH,
     "gapcarry": _GAPCARRY_TEARSHEET_PATH,
+    "supertrend": _SUPERTREND_TEARSHEET_PATH,
 }
 
 
