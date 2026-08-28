@@ -979,6 +979,39 @@ class OverdraftTests(unittest.TestCase):
         spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
         self.assertEqual(spent, 576.0)
 
+    def test_what_is_owed_and_what_moved_are_kept_apart(self):
+        """He read ₹1.55L off the card and said the data was wrong — it was
+        the month's movement, and the card let it be read as a balance. The
+        balance is HIS figure, off the bank, and it now leads."""
+        import sanctuary
+
+        loans = [{"id": 4, "name": "Sweep overdraft ··8452", "account_no": "035005008452", "drawn_amount": 327000.0}]
+        view = sanctuary._od_view(self.rows(), loans)
+        self.assertEqual(view["owed"], 327000.0)
+        self.assertTrue(view["owed_said"])
+        self.assertEqual(view["loan_id"], 4)
+        self.assertEqual(view["drawn"], 4572.39, "the movement is still reported, as movement")
+
+    def test_an_unstated_balance_says_so_rather_than_guessing(self):
+        """A partial ledger cannot know what the overdraft stood at before
+        the months it holds, so it must not imply that it does."""
+        import sanctuary
+
+        view = sanctuary._od_view(self.rows(), [])
+        self.assertFalse(view["owed_said"])
+        self.assertEqual(view["owed"], 0.0)
+        self.assertEqual(view["loan_id"], 0)
+
+    def test_the_overdrafts_loan_card_is_found_by_its_account(self):
+        import sanctuary
+
+        loans = [
+            {"id": 1, "name": "Home loan", "account_no": "137201002859", "drawn_amount": 0},
+            {"id": 2, "name": "Sweep overdraft ··8452", "account_no": "035005008452", "drawn_amount": 5.0},
+        ]
+        self.assertEqual(sanctuary._od_loan(loans, "035005008452")["id"], 2)
+        self.assertIsNone(sanctuary._od_loan([loans[0]], "035005008452"))
+
     def test_sweeps_already_filed_the_old_way_are_moved(self):
         """The resort button reads only the UNSORTED pile, so rows already
         filed as "Self transfer" were invisible to it and nothing moved."""

@@ -829,7 +829,11 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   background:linear-gradient(120deg,var(--terra-wash),transparent 70%)}
 .od-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .od-what{font-family:var(--serif);font-weight:650;font-size:1.04rem}
-.od-net{margin-left:auto;font-size:.86rem;font-weight:700;white-space:nowrap}
+.od-owed{margin-left:auto;font-size:.9rem;font-weight:700;white-space:nowrap;color:var(--danger)}
+.od-owed.unknown{color:var(--soft);font-weight:600}
+.od-set{background:none;border:0;padding:0 0 0 6px;cursor:pointer;color:var(--moss);
+  font-size:.78rem;font-weight:700;text-decoration:underline;text-underline-offset:2px}
+.od-net{font-weight:700;white-space:nowrap}
 .od-net.deeper{color:var(--danger)}
 .od-net.lighter{color:var(--moss)}
 .od-flow{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;font-size:.86rem;color:var(--muted)}
@@ -2322,18 +2326,48 @@ function turnPage(delta){
 function renderOd(od, month){
   const host = $("od-card");
   if (!host) return;
-  if (!od || !od.moves) { host.innerHTML = ""; return; }
+  if (!od || (!od.moves && !od.owed_said)) { host.innerHTML = ""; return; }
+  S.od = od;
   const deeper = od.deeper > 0;
+  /* What he OWES comes first and is his figure off the bank. What MOVED is
+     this month's sweeps. They are different kinds of fact, and showing only
+     the second invited it to be read as the first. */
   host.innerHTML = `<div class="od-card">
     <div class="od-head"><span class="od-what">Sweep overdraft${
       od.account ? ` <span class="num">··${esc(od.account.slice(-4))}</span>` : ""}</span>
-      <span class="od-net ${deeper ? "deeper" : "lighter"}">${deeper ? "deeper by " : "down by "}<b class="num">${inr(Math.abs(od.deeper))}</b></span></div>
-    <div class="od-flow">
-      <span>Drawn <b class="num">${inr(od.drawn)}</b></span>
-      <span>Repaid <b class="num">${inr(od.repaid)}</b></span>
-      <span class="od-note">${od.moves} sweep${od.moves === 1 ? "" : "s"} in ${esc(niceMonth(month))} · a debt moving, never spending</span>
-    </div>
+      ${od.owed_said
+        ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button></span>`
+        : `<span class="od-owed unknown">balance not stated <button class="od-set" id="od-set">set it</button></span>`}</div>
+    ${od.moves ? `<div class="od-flow">
+      <span>${esc(niceMonth(month))}: drew <b class="num">${inr(od.drawn)}</b></span>
+      <span>put back <b class="num">${inr(od.repaid)}</b></span>
+      <span class="od-net ${deeper ? "deeper" : "lighter"}">${deeper ? "deeper by " : "lighter by "}<b class="num">${inr(Math.abs(od.deeper))}</b></span>
+      <span class="od-note">${od.moves} sweep${od.moves === 1 ? "" : "s"} — what moved, not what is owed</span>
+    </div>` : ""}
   </div>`;
+  const set = $("od-set");
+  if (set) set.onclick = () => odOwedForm(od);
+}
+/* The bank's figure, which only he can supply. It is kept as a loan card so
+   it counts toward the total debt rather than living where one panel can
+   see it and nothing else can. */
+function odOwedForm(od){
+  const wrap = modal(`<h4>What the overdraft stands at</h4>
+    <div class="section-sub" style="margin-bottom:10px">The ledger can only see what swept in and out of the months you have imported. What you actually owe is the bank's figure — take it off the statement or the app.</div>
+    <label>Owed today${od.account ? ` <span style="font-weight:400">— account ··${esc(od.account.slice(-4))}</span>` : ""}</label>
+    <input class="field num" id="odf-owed" type="number" min="0" step="0.01" value="${od.owed || ""}" placeholder="327000">
+    <div class="m-foot">
+      <button class="btn subtle" id="odf-cancel">Leave it</button>
+      <button class="btn" id="odf-save">Keep it</button></div>`);
+  wrap.querySelector("#odf-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#odf-save").onclick = async () => {
+    const owed = Number(wrap.querySelector("#odf-owed").value || 0);
+    try {
+      await api("/api/sanctuary/od/owed", {method: "PUT", body: {owed, account: od.account || ""}});
+      wrap.remove(); refreshFinance(); loadLoans();
+      toast(owed ? "Kept — it counts with the other debts now. 🏛️" : "Cleared.");
+    } catch (err) { toast(err.message || "That did not take"); }
+  };
 }
 
 /* ═══════════ the planner ═══════════

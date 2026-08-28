@@ -68,6 +68,9 @@ _FAILURE_WINDOW = 15 * 60
 # have to agree on it: the rules that file into it, the categories list
 # that offers it, and the spending sum that leaves it out.
 OD_CATEGORY = "OD loan"
+# The name the overdraft's loan card carries, so the card and the sweeps
+# can find each other even before an account number is known.
+OD_LOAN_NAME = "Sweep overdraft"
 
 DEFAULT_CATEGORIES = [
     {"name": "Milk", "emoji": "🥛", "kind": "expense", "quick": True},
@@ -1176,6 +1179,32 @@ def _od_movement(ledger: list[dict]) -> dict:
     }
 
 
+def _od_view(ledger: list[dict], loans: list[dict]) -> dict:
+    """The overdraft as the page shows it: what he owes, then what moved.
+
+    The two are different kinds of fact and the card must not blur them.
+    What he owes is the bank's figure, which only he can supply; what moved
+    is this month's sweeps, which is all a partial ledger can honestly
+    claim. Reporting only the second invited it to be read as the first.
+    """
+    view = _od_movement(ledger)
+    loan = _od_loan(loans, view["account"])
+    view["loan_id"] = loan["id"] if loan else 0
+    view["owed"] = round(float(loan.get("drawn_amount") or 0), 2) if loan else 0.0
+    view["owed_said"] = bool(loan and float(loan.get("drawn_amount") or 0) > 0)
+    return view
+
+
+def _od_loan(loans: list[dict], account: str) -> dict | None:
+    """The loan card standing for this overdraft, if he has made one."""
+    for loan in loans:
+        if account and str(loan.get("account_no") or "") == account:
+            return loan
+        if str(loan.get("name") or "").lower().startswith(OD_LOAN_NAME.lower()):
+            return loan
+    return None
+
+
 def _missing_rule_categories(categories: list[dict]) -> list[dict]:
     """Default categories a rule files into that his own list has lost.
 
@@ -1828,6 +1857,45 @@ async def loan_create(request: Request, user: dict = Depends(_unlocked_user)):
     fields = _clean_loan_fields(payload)
     loan_id = await sanctuary_db.create_loan(int(user["id"]), fields)
     return {"id": loan_id}
+
+
+@router.put("/api/sanctuary/od/owed")
+async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
+    """Record what the overdraft actually stands at, off the bank.
+
+    It becomes a loan card like any other, so the figure counts toward the
+    total debt instead of living somewhere only this one panel can see. The
+    sweeps in the ledger say how it MOVED; this says where it IS, and only
+    the bank knows that.
+    """
+    payload = await request.json()
+    try:
+        owed = round(float(payload.get("owed") or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Bad amount") from None
+    if not 0 <= owed <= 100_000_000:
+        raise HTTPException(status_code=400, detail="Bad amount")
+    user_id = int(user["id"])
+    account = str(payload.get("account") or "")[:40]
+    loans = await sanctuary_db.list_loans(user_id)
+    loan = _od_loan(loans, account)
+    name = f"{OD_LOAN_NAME}{f' ··{account[-4:]}' if account else ''}"
+    if loan:
+        await sanctuary_db.update_loan(user_id, loan["id"], {"drawn_amount": owed, "active": 1 if owed else 0})
+        return {"id": loan["id"], "owed": owed}
+    loan_id = await sanctuary_db.create_loan(
+        user_id,
+        _clean_loan_fields(
+            {
+                "name": name,
+                "lender": "Sweep-linked overdraft",
+                "account_no": account,
+                "drawn_amount": owed,
+                "note": "A revolving debt: no schedule, only a balance the bank states.",
+            }
+        ),
+    )
+    return {"id": loan_id, "owed": owed}
 
 
 async def _loan_candidates(user_id: int) -> list[dict]:
@@ -2730,6 +2798,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     ledger = await sanctuary_db.list_ledger(user_id, month)
     start, end = _month_bounds(month)
     emis = await sanctuary_db.list_emis(user_id, start, end)
+    # For the overdraft card: the balance it stands at is held on a loan
+    # card, because only he can know it and it has to count as debt.
+    all_loans = await sanctuary_db.list_loans(user_id)
 
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
@@ -2842,8 +2913,10 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         },
         # The overdraft, read as a debt: what he drew on it this month and
         # what went back. Kept out of every total above on purpose — this is
-        # the size of a borrowing, not a month's spending.
-        "od": _od_movement(ledger),
+        # the size of a borrowing, not a month's spending. `owed` is HIS
+        # figure off the bank, because a ledger that holds a few months
+        # cannot know what the overdraft stood at before them.
+        "od": _od_view(ledger, all_loans),
         "carried_from": _previous_month(month),
         "months_known": known,
         "salary_months": {m: 1 for m, v in months_state.items() if (v or {}).get("salary")},
