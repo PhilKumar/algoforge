@@ -211,6 +211,17 @@ html[data-theme="dark"] #veil{background:linear-gradient(180deg, rgba(0,0,0,0) 0
   *{transition:none!important}
   html{scroll-behavior:auto}
 }
+/* ── the cost of a moving backdrop ──
+   Every glass surface blurs what is behind it, and what is behind it is a
+   scene of drifting clouds, flying birds, a wagging tail and a film. So on
+   every animation frame the browser must blur all of it again, through
+   nearly two hundred panes — and the page he is scrolling stutters for a
+   dog's ear he cannot even see through the tint.
+
+   While he is scrolling, the backdrop holds still. It starts again a
+   quarter-second after he stops, so a page at rest is alive and a page in
+   motion is smooth. */
+html.stilled #scene *,html.stilled .leaf-float{animation-play-state:paused}
 
 /* ── shared atoms (glass over the scene) ──────────────────────
    A pane is built in layers so it reads as glass and not as paint: the
@@ -281,6 +292,11 @@ html[data-theme="dark"] .btn{color:#0c1524;border-color:rgba(255,255,255,.25);
 html[data-theme="dark"] .btn.ghost{color:var(--moss)}
 html[data-theme="dark"] .btn.subtle{color:var(--ink)}
 .btn:disabled{opacity:.5;cursor:default;transform:none}
+/* A pane inside a pane blurs what is already blurred, and pays again for
+   it. The card beneath a button has done the work; the button keeps its
+   tint and rim and lets the plate underneath be the glass. There are a
+   hundred and forty of these on the Finances page alone. */
+.card .btn,.modal .btn,.book-leaf .btn{backdrop-filter:none;-webkit-backdrop-filter:none}
 .field{width:100%;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;outline:none;
   transition:border-color .15s ease, box-shadow .15s ease}
 .field:focus{border-color:var(--moss);box-shadow:0 0 0 3px var(--moss-wash)}
@@ -2041,6 +2057,24 @@ if (!window._sceneVideoKick){
     if (!document.hidden) sceneVideoSync();  /* resume when the tab returns */
   });
 }
+/* ── hold the backdrop still while he scrolls ──
+   Nearly two hundred panes blur whatever is behind them, and behind them
+   is a scene that never stops moving. Every drifting cloud makes every
+   pane blur itself again, and the scroll he is actually doing waits its
+   turn. So the scene — and the film with it — holds still from the first
+   scroll until a quarter-second after the last one. */
+let _stillTimer = null;
+addEventListener("scroll", () => {
+  if (!document.documentElement.classList.contains("stilled")){
+    document.documentElement.classList.add("stilled");
+    if (_film.el && !_film.el.paused) { _film.el.pause(); _film.stilled = true; }
+  }
+  clearTimeout(_stillTimer);
+  _stillTimer = setTimeout(() => {
+    document.documentElement.classList.remove("stilled");
+    if (_film.stilled){ _film.stilled = false; sceneVideoSync(); }
+  }, 260);
+}, {passive: true});
 
 /* ═══════════ theme ═══════════ */
 function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage.setItem("sanctuary_theme", t); sceneVideoSync();
