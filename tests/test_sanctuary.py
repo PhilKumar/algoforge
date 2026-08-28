@@ -1159,6 +1159,41 @@ class OverdraftTests(unittest.TestCase):
         self.assertEqual(od["moves"], 0, "no card is drawn when there were no sweeps")
 
 
+class PageStampTests(unittest.TestCase):
+    """A sanctuary tab stays open for days, running the copy of the page it
+    was born with. A fix lands at seven and is still missing at eight, and
+    the only evidence is him saying it is not fixed."""
+
+    def test_the_page_carries_the_stamp_the_status_reports(self):
+        import sanctuary
+
+        page, version = sanctuary._page_and_version()
+        self.assertRegex(version, r"^[0-9a-f]{10}$")
+        self.assertIn("__SANCT_VERSION__", page, "the served copy has somewhere to put it")
+        self.assertEqual(sanctuary._page_and_version()[1], version, "same file, same stamp")
+
+    def test_a_changed_page_is_a_changed_stamp(self):
+        import hashlib
+
+        import sanctuary
+
+        page, version = sanctuary._page_and_version()
+        moved = hashlib.sha1((page + "<!-- a fix -->").encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+        self.assertNotEqual(moved, version)
+
+    def test_the_page_asks_again_when_he_comes_back(self):
+        """The check is wired to the tab returning, not to a timer — a
+        sanctuary that polls all day is a sanctuary that never rests."""
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        self.assertIn('const PAGE_VERSION = "__SANCT_VERSION__"', page)
+        self.assertIn("visibilitychange", page)
+        self.assertIn("checkPageVersion", page)
+
+
 class WideNetTests(unittest.TestCase):
     """A rule is a substring, not a name. "shop" sits inside every UPI line
     that mentions one, so a rule taught from one bag of flour can hold a

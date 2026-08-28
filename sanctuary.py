@@ -174,6 +174,21 @@ def _too_many_failures(user_id: int) -> bool:
 # ── Page ─────────────────────────────────────────────────────────
 
 
+def _page_and_version() -> tuple[str, str]:
+    """The page, and a short stamp of exactly this copy of it.
+
+    A sanctuary tab stays open for days. A deploy changes the file on the
+    server and nothing at all in the tab he is looking at, so a fix that
+    landed at seven o'clock is still missing at eight — and the only
+    evidence is him saying it is not fixed. The page carries its own stamp
+    and asks for it again whenever he comes back to the tab.
+    """
+    page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sanctuary.html")
+    with open(page_path, encoding="utf-8") as handle:
+        page = handle.read()
+    return page, hashlib.sha1(page.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+
+
 @router.get("/sanctuary", response_class=HTMLResponse)
 async def sanctuary_page(request: Request):
     token = auth.get_session_token(request)
@@ -183,9 +198,14 @@ async def sanctuary_page(request: Request):
         return RedirectResponse("/app", status_code=307)
     if str(user.get("role") or "").lower() != "admin":
         return HTMLResponse("<h1>Not found</h1>", status_code=404)
-    page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sanctuary.html")
-    with open(page_path, encoding="utf-8") as handle:
-        return HTMLResponse(handle.read())
+    page, version = _page_and_version()
+    # The whole page — markup, style and script — is this one file, so a
+    # browser holding yesterday's copy is holding yesterday's fixes, and a
+    # deploy looks like nothing happened. Never keep it.
+    return HTMLResponse(
+        page.replace("__SANCT_VERSION__", version),
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )
 
 
 # ── Lock, unlock, setup ──────────────────────────────────────────
@@ -199,6 +219,9 @@ async def sanctuary_status(request: Request, user: dict = Depends(_admin_user)):
         "setup": bool(await _password_hash(int(user["id"]))),
         "unlocked": bool(unlocked),
         "today": _today_ist().isoformat(),
+        # What the server would serve him right now. The open tab compares
+        # it with the stamp it was born with.
+        "version": _page_and_version()[1],
     }
 
 

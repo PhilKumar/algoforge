@@ -574,6 +574,16 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
   box-shadow:var(--glass-cast);transition:transform .15s ease}
 .plan-alert:hover{transform:translateY(-1px)}
+/* Said quietly, at the foot of the page: the tab is old, the server has
+   a newer one. It floats so it is seen wherever he happens to be. */
+#page-stale{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:60;
+  display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));
+  padding:11px 16px;border-radius:16px;font-size:.9rem;color:var(--ink);
+  border:1px solid var(--glass-rim);background:var(--glass-tint);
+  background-image:linear-gradient(120deg,var(--gold-wash,var(--moss-wash)),transparent 70%);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  box-shadow:var(--glass-cast)}
+#page-stale .btn{flex:none}
 .plan-alert.late{background-image:linear-gradient(120deg,var(--danger-wash),transparent 70%);
   border-color:var(--danger)}
 .plan-alert .plan-alert-what{flex:1;min-width:0}
@@ -4561,6 +4571,29 @@ document.addEventListener("click", (e) => {
 /* ═══════════ boot ═══════════ */
 applyTheme(document.documentElement.dataset.theme);
 scatterLeaves();
+/* This page is one file, and a tab left open keeps running the copy it
+   was born with. A fix could land at seven and still be missing at eight,
+   with nothing to show for it but him saying it is not fixed. The tab
+   carries its own stamp, asks the server for the current one whenever he
+   comes back to it, and says plainly when they differ. */
+const PAGE_VERSION = "__SANCT_VERSION__";
+function sayNewerPageWaits(){
+  if ($("page-stale")) return;
+  const bar = document.createElement("div");
+  bar.id = "page-stale";
+  bar.innerHTML = `<span>This page has been open a while — a newer Sanctuary is waiting on the server.</span>
+    <button class="btn warm small" id="page-stale-go">Load it</button>`;
+  document.body.appendChild(bar);
+  $("page-stale-go").onclick = () => location.reload();
+}
+async function checkPageVersion(){
+  if (PAGE_VERSION.startsWith("__")) return;   /* served straight off disk in tests */
+  try {
+    const st = await api("/api/sanctuary/status");
+    if (st.version && st.version !== PAGE_VERSION) sayNewerPageWaits();
+  } catch (e) { /* offline, or signed out — neither is news worth showing */ }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkPageVersion(); });
 (async function boot(){
   try {
     const st = await api("/api/sanctuary/status");
