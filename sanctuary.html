@@ -4188,6 +4188,53 @@ function stmtWayChips(g){
   if (inT) return `<span class="stmt-chip came-in">${g.count} × came in ${inr2(inT)}</span>`;
   return `<span class="stmt-chip went-out">${g.count} × went out ${inr2(outT || g.total)}</span>`;
 }
+/* The shell is built once and then left alone. It used to be redrawn on
+   every keystroke, which destroyed the very box he was typing in: the
+   caret went to the page, the next letter went nowhere, and he had to
+   click back in for each one. Only the counts, the list and the pager
+   are replaced now — the search field is never touched. */
+function stmtReviewShell(host){
+  if (host.dataset.shell === "1") return;
+  host.dataset.shell = "1";
+  host.innerHTML = `<div class="section-title" style="font-size:.95rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span id="stmt-left">Sort the unsorted</span>
+      <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort with the rules again</button>
+    </div>
+    <div class="stmt-find">
+      <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour, a mandate number…">
+      <span class="stmt-found" id="stmt-found"></span>
+    </div>
+    <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
+    <div class="stmt-review-row" data-match="">
+      <div class="who"><b>Teach your own</b><small>Any word from the narration — a name in all its spellings, a mandate number, a loan code. "Among" picks where to look: the unsorted pile, or inside a category that needs splitting.</small></div>
+      <input class="field" id="stmt-own-match" placeholder="e.g. 0000055944" style="max-width:170px">
+      <select class="field" id="stmt-own-from" style="max-width:160px"></select>
+      <select class="field" id="stmt-own-cat"></select>
+      <button class="btn ghost" data-stmt-teach>This is where they go</button>
+    </div>
+    <div id="stmt-list"></div>
+    <div id="stmt-pager"></div>`;
+  /* A shell built afresh — after an error, or after the pile emptied and
+     filled again — still shows the search he is in the middle of. */
+  $("stmt-q").value = S.reviewQ || "";
+}
+/* The two dropdowns in the teach row are refilled only when the category
+   list itself changes — refilling them on every load would drop a choice
+   he had already made and not yet acted on. */
+function stmtOwnOptions(){
+  const names = (S.fin ? S.fin.categories.map((c) => c.name) : []);
+  const signature = names.join("|");
+  if (stmtOwnOptions.was === signature) return;
+  stmtOwnOptions.was = signature;
+  const from = $("stmt-own-from"), cat = $("stmt-own-cat");
+  if (!from || !cat) return;
+  const heldFrom = from.value, heldCat = cat.value;
+  from.innerHTML = `<option value="Uncategorised">among: Unsorted</option>`
+    + names.map((n) => `<option value="${esc(n)}">among: ${esc(n)}</option>`).join("");
+  cat.innerHTML = stmtCatOpts("Uncategorised");
+  if (heldFrom) from.value = heldFrom;
+  if (heldCat) cat.value = heldCat;
+}
 async function loadStmtReview(){
   const host = $("stmt-review");
   try {
@@ -4195,34 +4242,23 @@ async function loadStmtReview(){
     const page = Math.max(1, S.reviewPage || 1);
     const r = await api("/api/sanctuary/statements/review?page=" + page
       + (q ? "&q=" + encodeURIComponent(q) : ""));
-    if (!r.uncategorised) { host.innerHTML = ""; return; }
+    if (!r.uncategorised) { host.innerHTML = ""; delete host.dataset.shell; return; }
     S.reviewPage = r.page;   /* the server has the last word on how far the pile goes */
+    stmtReviewShell(host);
+    stmtOwnOptions();
+    $("stmt-left").textContent = `Sort the unsorted — ${r.uncategorised} left`;
+    $("stmt-found").textContent = q
+      ? `${r.payees} payee${r.payees === 1 ? "" : "s"} · ${r.matched} row${r.matched === 1 ? "" : "s"} match`
+      : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile · biggest first`;
     /* The list shows the biggest payees, which is right for working down a
        pile and useless for finding ONE among fourteen hundred. The search
        runs over the whole pile — the payee's key AND the narration, because
        he remembers "flour" sooner than he remembers whose QR code it was. */
-    host.innerHTML = `<div class="section-title" style="font-size:.95rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        Sort the unsorted — ${r.uncategorised} left
-        <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort with the rules again</button>
-      </div>
-      <div class="stmt-find">
-        <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour, a mandate number…" value="${esc(q)}">
-        <span class="stmt-found">${q
-          ? `${r.payees} payee${r.payees === 1 ? "" : "s"} · ${r.matched} row${r.matched === 1 ? "" : "s"} match`
-          : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile · biggest first`}</span>
-      </div>
-      <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
-      <div class="stmt-review-row" data-match="">
-        <div class="who"><b>Teach your own</b><small>Any word from the narration — a name in all its spellings, a mandate number, a loan code. "Among" picks where to look: the unsorted pile, or inside a category that needs splitting.</small></div>
-        <input class="field" id="stmt-own-match" placeholder="e.g. 0000055944" style="max-width:170px">
-        <select class="field" id="stmt-own-from" style="max-width:160px"><option value="Uncategorised">among: Unsorted</option>${(S.fin ? S.fin.categories.map((c) => c.name) : []).map((n) => `<option value="${esc(n)}">among: ${esc(n)}</option>`).join("")}</select>
-        <select class="field">${stmtCatOpts("Uncategorised")}</select>
-        <button class="btn ghost" data-stmt-teach>This is where they go</button>
-      </div>`
+    $("stmt-list").innerHTML =
       /* Two thousand payees down one page is a scroll with no bottom. Ten at
          a time inside a frame of its own height, so the panel is the same
          size on every page and the page behind it never moves. */
-      + (r.groups.length
+      (r.groups.length
         ? `<div class="pile-frame">` + r.groups.map((g) => `
         <div class="stmt-review-row" data-match="${esc(g.match)}">
           <div class="who"><b>${esc(g.match)}</b> ${stmtWayChips(g)}
@@ -4237,26 +4273,23 @@ async function loadStmtReview(){
         ? `<div class="section-sub" style="margin-top:8px">Nobody in the unsorted pile mentions “${esc(q)}”.
              If those rows keep landing somewhere wrong, a rule is already holding them —
              <button class="btn subtle small" data-rule-find="${esc(q)}">look for “${esc(q)}” in your rules</button></div>`
-        : "")
-      + (r.pages > 1
-        ? `<div class="ledger-pager pile-pager">
-             <button class="btn subtle small" data-pile-page="${r.page - 1}" ${r.page <= 1 ? "disabled" : ""}>‹ Bigger</button>
-             <span class="num">${r.page} / ${r.pages}</span>
-             <button class="btn subtle small" data-pile-page="${r.page + 1}" ${r.page >= r.pages ? "disabled" : ""}>Smaller ›</button>
-           </div>`
         : "");
+    $("stmt-pager").innerHTML = r.pages > 1
+      ? `<div class="ledger-pager pile-pager">
+           <button class="btn subtle small" data-pile-page="${r.page - 1}" ${r.page <= 1 ? "disabled" : ""}>‹ Bigger</button>
+           <span class="num">${r.page} / ${r.pages}</span>
+           <button class="btn subtle small" data-pile-page="${r.page + 1}" ${r.page >= r.pages ? "disabled" : ""}>Smaller ›</button>
+         </div>`
+      : "";
   } catch (err) {
     /* A panel that hides itself when the server errs is indistinguishable
        from a panel with nothing to show — 3,833 rows went quiet that way. */
     console.error("[sanctuary] the unsorted list would not load", err);
+    delete host.dataset.shell;
     host.innerHTML = `<div class="section-title" style="font-size:.95rem">Sort the unsorted</div>
       <div class="section-sub">This list would not load — ${esc(err.message || "the server did not answer")}.
       Nothing is lost; try again in a moment.</div>`;
   }
-  /* The panel is rebuilt on every load, so the box is rebound each time and
-     the caret is put back where he left it. */
-  const box = $("stmt-q");
-  if (box && S.reviewFocused) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
 }
 document.addEventListener("click", (e) => {
   const turn = e.target.closest("[data-pile-page]");
@@ -4269,12 +4302,8 @@ document.addEventListener("input", (e) => {
   if (!e.target.matches("#stmt-q")) return;
   S.reviewQ = e.target.value;
   S.reviewPage = 1;   /* a new search starts at its own biggest, not page nine */
-  S.reviewFocused = true;
   clearTimeout(_reviewFindAt);
   _reviewFindAt = setTimeout(loadStmtReview, 260);
-});
-document.addEventListener("focusout", (e) => {
-  if (e.target.matches("#stmt-q")) S.reviewFocused = false;
 });
 
 $("cat-manage").onclick = categoriesModal;
