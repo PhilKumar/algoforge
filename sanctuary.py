@@ -1660,6 +1660,18 @@ _RECATEGORISE = (
     },
 )
 
+# Two names for one category, differing only in case. The rules filed the
+# school's fees under "School fees" while the category list — and the quick
+# button, and the dropdown — said "School Fees", so Alpha School's money
+# landed somewhere he could see but not choose, and "where it went" drew it
+# as a second bar beside the one he knew. Same for the electricity board.
+# The rules now use the list's spelling and these move the rows already
+# filed under the other one. A test keeps a third from appearing.
+_RENAMED_CATEGORIES = {
+    "School fees": "School Fees",
+    "EB bill": "EB Bill",
+}
+
 
 def _recategorised(note: str, category: str) -> str:
     """Where an already-filed row belongs now, or "" to leave it alone."""
@@ -1700,6 +1712,11 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
                 continue
             await sanctuary_db.set_ledger_category(user_id, row["id"], moving)
             moved[moving] = moved.get(moving, 0) + 1
+    # One category that had been going by two names gathers itself up.
+    for old, new in _RENAMED_CATEGORIES.items():
+        for row in await sanctuary_db.ledger_rows_in_categories(user_id, [old]):
+            await sanctuary_db.set_ledger_category(user_id, row["id"], new)
+            moved[new] = moved.get(new, 0) + 1
     if moved:
         categories = await _get_categories(user_id)
         have = {c["name"] for c in categories}

@@ -1088,6 +1088,43 @@ class OverdraftTests(unittest.TestCase):
         self.assertEqual(od["moves"], 0, "no card is drawn when there were no sweeps")
 
 
+class CategoryNamingTests(unittest.TestCase):
+    """One category, one name. Two spellings of it is two bars on the chart
+    and a row he can see but cannot choose."""
+
+    def test_no_category_goes_by_two_names(self):
+        """The rules filed the school's fees under "School fees" while the
+        category list said "School Fees", so Alpha School's money landed in
+        a category the dropdown never offered."""
+        import sanctuary
+        import sanctuary_statements
+
+        names = {c["name"] for c in sanctuary.DEFAULT_CATEGORIES}
+        names |= {r["category"] for r in sanctuary_statements.DEFAULT_RULES}
+        by_case: dict = {}
+        for name in names:
+            by_case.setdefault(name.lower(), set()).add(name)
+        clashes = {k: sorted(v) for k, v in by_case.items() if len(v) > 1}
+        self.assertEqual(clashes, {}, "two spellings of one category")
+
+    def test_the_school_files_where_the_dropdown_offers(self):
+        import sanctuary
+        import sanctuary_statements
+
+        offered = {c["name"] for c in sanctuary.DEFAULT_CATEGORIES}
+        for note in ("UPI/ALPHA SCHOOL/oliver fees", "NEFT/ALPHA EDUCATIONAL TRUST/2026"):
+            with self.subTest(note=note):
+                filed = sanctuary_statements.categorise(note)
+                self.assertEqual(filed, "School Fees")
+                self.assertIn(filed, offered, "a rule must file where he can also file by hand")
+
+    def test_the_old_spellings_are_gathered_up(self):
+        import sanctuary
+
+        self.assertEqual(sanctuary._RENAMED_CATEGORIES["School fees"], "School Fees")
+        self.assertEqual(sanctuary._RENAMED_CATEGORIES["EB bill"], "EB Bill")
+
+
 class CategoryRestoreTests(unittest.TestCase):
     """A rule that files into a category the dropdown does not offer leaves
     him a row he cannot correct."""
@@ -1347,7 +1384,7 @@ class SalaryFromBankTests(unittest.TestCase):
             ("Int.Pd:3712258400:01-01-2021 to 31-03-2021", "Interest"),
             ("ACH/KISETSUSAISONFINANCE/ICIC70221062430/KISETSUSAI", "Kisetsu loan"),
             ("DECS DR/2630439134/TP CAN FIN", "Home loan"),
-            ("BIL/ONL/001675706445/Alpha Educ/760315248/Oliver 1st term", "School fees"),
+            ("BIL/ONL/001675706445/Alpha Educ/760315248/Oliver 1st term", "School Fees"),
             ("UPI/phil.shiny@/912713537635/To self", "Self transfer"),
         ):
             self.assertEqual(st.categorise(note), want, note)

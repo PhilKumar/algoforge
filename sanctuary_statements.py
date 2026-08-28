@@ -86,9 +86,9 @@ DEFAULT_RULES = [
     {"match": "ola", "category": "Auto & Cab"},
     {"match": "uber", "category": "Auto & Cab"},
     {"match": "rapido", "category": "Auto & Cab"},
-    {"match": "tneb", "category": "EB bill"},
-    {"match": "electricity", "category": "EB bill"},
-    {"match": "school", "category": "School fees"},
+    {"match": "tneb", "category": "EB Bill"},
+    {"match": "electricity", "category": "EB Bill"},
+    {"match": "school", "category": "School Fees"},
     {"match": "netflix", "category": "Subscriptions"},
     {"match": "spotify", "category": "Subscriptions"},
     {"match": "hotstar", "category": "Subscriptions"},
@@ -112,12 +112,12 @@ DEFAULT_RULES = [
     {"match": "paidviacred", "category": "Kisetsu loan"},
     {"match": "citi bank card loan", "category": "Citi loan"},
     # His sons' school bills its fees under the trust's name, never "school".
-    {"match": "alpha educ", "category": "School fees"},
+    {"match": "alpha educ", "category": "School Fees"},
     # His own UPI handle. The "-1@" handle is a different one and is left
     # alone: its remarks say Coin, which is money going INTO an investment.
     {"match": "phil.shiny@", "category": "Self transfer"},
     {"match": "phillipshin", "category": "Self transfer"},
-    {"match": "tangedco", "category": "EB bill"},
+    {"match": "tangedco", "category": "EB Bill"},
     {"match": "indane", "category": "Gas cylinder"},
     {"match": "bharatgas", "category": "Gas cylinder"},
     {"match": "hp gas", "category": "Gas cylinder"},
