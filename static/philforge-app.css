@@ -6104,6 +6104,17 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .terminal-cascade-chart-legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; color: var(--muted); font: 12px var(--font-mono); }
 .terminal-cascade-chart-legend em { color: var(--muted); font-style: normal; margin-left: auto; }
 .terminal-cascade-chart-actions > .terminal-cascade-chart-legend { margin-bottom: 0; font-size: 10px; }
+/* And the strip, for exactly the same reason as the legend above it.
+   .pf-chart-strip was built as a row of its own ABOVE a chart, so it carries
+   margin-bottom:10px. Nested in this flex row instead, align-items:center
+   centres its MARGIN box -- which sits the refresh button 5px above the close
+   beside it, on all four charts (Phil, 2026-08-28: "The alignment is missing
+   in all the charts"). Measured -5px before, 0 after.
+
+   NOT a direct-child selector: pfChartStrip builds its own div and appends it
+   INTO the #...-chart-strip host, so the strip is a grandchild of this row. A
+   `>` here matched nothing and left all four charts exactly as they were. */
+.terminal-cascade-chart-actions .pf-chart-strip { margin-bottom: 0; }
 
 /* CHART LEGENDS IN LIGHT MODE. The page-scoped inline-accent overrides higher
    up this file are keyed to `#cascade-options-page` and friends -- but a chart

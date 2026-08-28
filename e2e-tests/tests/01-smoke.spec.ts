@@ -1528,6 +1528,23 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   expect(dashes.tp).toBeNull();
   expect(dashes.avg).toBeNull();
 
+  // THE TOOLBAR SITS ON ONE LINE. .pf-chart-strip was built as a row of its
+  // own above a chart, so it carries margin-bottom:10px; nested in the
+  // actions row, align-items:center centres its MARGIN box and every control
+  // it holds rides 5px above the close beside it (Phil, 2026-08-28: "The
+  // alignment is missing in all the charts"). Measured, because -5px is
+  // invisible to a selector and obvious on a screen.
+  const rowOffset = await page.evaluate(() => {
+    const overlay = document.getElementById('oc-fib-chart-overlay');
+    const inStrip = overlay?.querySelector('#oc-fib-chart-strip button');
+    const close = overlay?.querySelector('button[aria-label="Close chart"]');
+    if (!inStrip || !close) return null;
+    const a = inStrip.getBoundingClientRect(), b = close.getBoundingClientRect();
+    return (a.top + a.height / 2) - (b.top + b.height / 2);
+  });
+  expect(rowOffset, 'the chart strip rendered no controls to measure').not.toBeNull();
+  expect(Math.abs(rowOffset as number)).toBeLessThanOrEqual(1);
+
   // ONE close, and only one (Phil, 2026-08-27: "Why two X buttons?"). The
   // toolbar carries the ✕ in its own markup so it is there even when the chart
   // fails and the strip never renders; the strip is given no onClose, so it
