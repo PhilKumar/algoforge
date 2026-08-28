@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "strategy.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
 
-ORDER = ["gapcarry", "fib", "recovery", "candle", "bench"]
+ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend", "bench"]
 
 
 class TabOrderTests(unittest.TestCase):
@@ -32,10 +32,13 @@ class TabOrderTests(unittest.TestCase):
         self.assertEqual(found, ORDER)
 
     def test_the_js_tab_list_matches_the_markup(self):
-        self.assertIn(
-            "const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'bench'];",
-            APP_JS,
-        )
+        """Spelled out of ORDER, so a sixth strategy is one edit here, not two.
+
+        The list the JS iterates and the buttons in the markup are separate
+        sources of truth; a tab present in one and absent from the other shows
+        up as a button that selects nothing."""
+        expected = ", ".join(f"'{name}'" for name in ORDER)
+        self.assertIn(f"const _OC_TABS = [{expected}];", APP_JS)
 
     def test_gap_carry_is_the_one_tab_selected_on_arrival(self):
         active = re.findall(r'<button id="oc-tabbtn-([a-z]+)" class="oc-tab is-active"', HTML)

@@ -131,6 +131,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/gap-carry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'] } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
+    else if (path === '/api/supertrend/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['1h', '30m'] } });
     else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
@@ -153,6 +154,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/gap-carry/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
+    else if (path === '/api/supertrend/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     // THE PAPER LEDGER. Every strategy tab asks for its finished campaigns on
     // each refresh; an empty archive is the normal answer offline.
     else if (path.startsWith('/api/paper-campaigns/')) await route.fulfill({ json: { status: 'ok', campaigns: [], count: 0, net_total: null } });
