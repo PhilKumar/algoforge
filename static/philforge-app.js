@@ -683,7 +683,7 @@ async function loadExecutionIpStatus(silent = true) {
     const res = await fetch('/api/user/execution-ip-status');
     if (await handleUnauthorizedResponse(res)) return false;
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'IP check failed');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'IP check failed'));
 
     sourceEl.textContent = data.source_label || '—';
     clientEl.textContent = data.client_id_masked || '—';
@@ -742,7 +742,7 @@ async function loadUserProfile(silent = true) {
   try {
     const res = await fetch('/api/user/profile');
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to load profile');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to load profile'));
     _userProfile = data;
     const user = data.user || {};
     const broker = data.broker || {};
@@ -1099,7 +1099,7 @@ async function saveBrokerSettings() {
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to save broker credentials');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to save broker credentials'));
     toast(data.message || 'Broker credentials saved', 'success');
     await loadUserProfile(true);
     await checkBrokerStatus(true);
@@ -1117,7 +1117,7 @@ async function clearBrokerSettings() {
   try {
     const res = await fetch('/api/user/broker', { method: 'DELETE' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to clear broker credentials');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to clear broker credentials'));
     toast(data.message || 'Stored broker credentials cleared', 'warn');
     await loadUserProfile(true);
     await checkBrokerStatus(true);
@@ -1158,7 +1158,7 @@ async function changeOwnPasswordFromSettings() {
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Password change failed');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Password change failed'));
     toast(data.message || 'Password changed', 'success');
     setTimeout(() => location.reload(), 900);
   } catch (e) {
@@ -1187,8 +1187,8 @@ async function loadAdminConsole(silent = true) {
     ]);
     const usersData = await usersRes.json();
     const enginesData = await enginesRes.json();
-    if (!usersRes.ok) throw new Error(usersData.detail || usersData.message || 'Failed to load users');
-    if (!enginesRes.ok) throw new Error(enginesData.detail || enginesData.message || 'Failed to load engine status');
+    if (!usersRes.ok) throw new Error(_apiErrorMessage(usersData, 'Failed to load users'));
+    if (!enginesRes.ok) throw new Error(_apiErrorMessage(enginesData, 'Failed to load engine status'));
     _adminUsers = usersData.users || [];
     _adminEngineRows = enginesData.users || [];
     renderAdminSummary(_adminUsers, _adminEngineRows);
@@ -1365,7 +1365,7 @@ async function createAdminUser() {
       body: JSON.stringify({ username, password, role }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to create user');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to create user'));
     const copied = data.copied || {};
     const bits = [];
     if (Number(copied.strategies || 0) > 0) bits.push(`${copied.strategies} strategies`);
@@ -1386,7 +1386,7 @@ async function toggleAdminUser(userId) {
   try {
     const res = await fetch(`/api/admin/users/${userId}/toggle`, { method: 'PUT' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to update user state');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to update user state'));
     toast(data.is_active ? 'User enabled' : 'User disabled', data.is_active ? 'success' : 'warn');
     await loadAdminConsole(true);
   } catch (e) {
@@ -1424,7 +1424,7 @@ async function resetAdminUserPassword(userId, username) {
       body: JSON.stringify({ password }),
     });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to reset password');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to reset password'));
     toast(data.message || `Password reset for ${username}`, 'success');
   } catch (e) {
     toast(e.message || 'Failed to reset password', 'danger');
@@ -1458,7 +1458,7 @@ async function deleteAdminUser(userId, username) {
   try {
     const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to delete user');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to delete user'));
     const rows = Object.values(data.removed || {}).reduce((sum, n) => sum + Number(n || 0), 0);
     toast(`Deleted "${username}" — ${rows} row${rows === 1 ? '' : 's'} removed`, 'success', 3600);
     await loadAdminConsole(true);
@@ -1482,7 +1482,7 @@ async function copyAdminExamplesToUser(userId, username) {
   try {
     const res = await fetch(`/api/admin/users/${userId}/copy-examples`, { method: 'POST' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'ok') throw new Error(data.detail || data.message || 'Failed to copy admin examples');
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Failed to copy admin examples'));
 
     const copied = data.copied || {};
     const bits = [];
@@ -3768,9 +3768,7 @@ async function startCascadeOptionsPaper() {
   try {
     const response = await fetch('/api/cascade/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
-    const apiError = data?.error || {};
-    const errorMessage = apiError.detail || apiError.message || data?.detail || data?.message;
-    if (!response.ok || data.status !== 'started') throw new Error(errorMessage || `Campaign did not start (${response.status})`);
+    if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Campaign did not start (${response.status})`));
     _cascadeOptionsSetFormStatus('Paper campaign started. Only closed NIFTY 5m candles are processed.', 'success');
     _renderCascadeOptionsStatus({ status: 'ok', mode: 'paper', live_gate: _lastCascadeOptionsStatus?.live_gate, campaign: data.campaign });
   } catch (error) {
@@ -11638,7 +11636,7 @@ async function startScalpEngine() {
   try {
     const res = await fetch('/api/scalp/start', { method: 'POST' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'started') throw new Error(data.detail || data.message || 'Failed to start engine');
+    if (!res.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'Failed to start engine'));
     toast('Scalp engine started', 'success');
     _applyScalpEngineState(true);
     refreshScalpStatus();
@@ -11654,7 +11652,7 @@ async function stopScalpEngine() {
   try {
     const res = await fetch('/api/scalp/stop', { method: 'POST' });
     const data = await res.json();
-    if (!res.ok || data.status !== 'stopped') throw new Error(data.detail || data.message || 'Failed to stop engine');
+    if (!res.ok || data.status !== 'stopped') throw new Error(_apiErrorMessage(data, 'Failed to stop engine'));
     toast('Scalp engine stopped', 'success');
     _applyScalpEngineState(false);
     refreshScalpStatus();
@@ -11757,7 +11755,7 @@ async function submitScalpEntry(direction) {
       // Also trigger a full refresh to get authoritative server state
       refreshScalpStatus();
     } else {
-      statusEl.textContent = '❌ ' + (data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Entry failed'));
+      statusEl.textContent = '❌ ' + _apiErrorMessage(data, 'Entry failed');
       statusEl.style.color = 'var(--danger)';
     }
   } catch(e) {
@@ -15970,7 +15968,7 @@ async function deployStrategy() {
         _activeRunMode = 'paper';
       } else {
         console.error('[Deploy] Paper start error:', data);
-        toast(data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Paper deploy failed'), 'danger');
+        toast(_apiErrorMessage(data, 'Paper deploy failed'), 'danger');
         closeDeployModal();
         return;
       }
@@ -16006,7 +16004,7 @@ async function deployStrategy() {
         _activeRunMode = 'auto';
       } else {
         console.error('[Deploy] Auto start error:', data);
-        toast(data.error?.detail || data.error?.message || data.message || pfErrorText(data, 'Auto deploy failed'), 'danger');
+        toast(_apiErrorMessage(data, 'Auto deploy failed'), 'danger');
         closeDeployModal();
         return;
       }
@@ -16132,10 +16130,10 @@ async function stopEngine(runId, mode) {
     const res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ run_id: runId }) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status === 'error' || data.status === 'pending') {
-      throw new Error(data.detail || data.message || 'Broker square-off is still pending');
+      throw new Error(_apiErrorMessage(data, 'Broker square-off is still pending'));
     }
     if (data.status !== 'stopped') {
-      throw new Error(data.detail || data.message || 'Failed to stop engine');
+      throw new Error(_apiErrorMessage(data, 'Failed to stop engine'));
     }
     toast(data.message || `${label} "${runId}" stopped`, 'warn');
     // Sync strategy builder buttons
@@ -19882,7 +19880,7 @@ fetchRuns = async function() {
           throw new Error('Server error ' + r.status + (r.status === 413 ? ' — file too large' : ''));
         }
         const d = await r.json();
-        if (d.status !== 'ok') throw new Error(d.detail || d.message || 'Upload failed');
+        if (d.status !== 'ok') throw new Error(_apiErrorMessage(d, 'Upload failed'));
 
         await _chLoadTree();
         const uploadedDay = _chFindDayByFolders(d.year, d.month_folder, d.day_folder);
