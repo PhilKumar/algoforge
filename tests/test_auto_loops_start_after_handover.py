@@ -12,6 +12,11 @@ ENGINES and started none of the loops. So after every deploy the Fib Boundary
 mother, the Candle Entry mother and Gap Carry were dead until some later
 restart happened to begin active.
 
+The set has grown since: `sanctuary-plans` joined on 2026-08-28 and is not a
+mother at all, but it is started from the same place for the same reason. The
+names live in EXPECTED_LOOPS below so that adding the next one fails on a
+readable name, not on a bare count.
+
 Evidence it was really dead on 24 Aug: zero [FIB AUTO] lines in the day's
 log, `fib_boundary_auto:1` still holding only the settings written on 20 Aug
 (no `last_day`, no `state`), and `fib_boundary_open:1` an empty campaign list
@@ -35,17 +40,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as app_module  # noqa: E402
 
+# Every loop _ensure_auto_loops_running is responsible for, by the name it
+# reports. Add a loop, add it here -- and to STUBBED below, or this test will
+# run the real one.
+EXPECTED_LOOPS = ["candle-entry", "fib-boundary", "gap-carry", "sanctuary-plans"]
+
+# (owner, attribute) for each loop factory, so a module-level one can be
+# stubbed too. sanctuary-plans hangs off the sanctuary module, not off app.
+STUBBED = [
+    (None, "_run_fib_boundary_auto_loop"),
+    (None, "_run_candle_entry_auto_loop"),
+    (None, "_run_gap_carry_auto_loop"),
+    (app_module._sanctuary, "plan_nudge_loop"),
+]
+
 
 class AutoLoopsStartTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self._real = {}
-        for name in ("_run_fib_boundary_auto_loop", "_run_candle_entry_auto_loop", "_run_gap_carry_auto_loop"):
-            self._real[name] = getattr(app_module, name)
+        self._real = []
+        for owner, name in STUBBED:
+            owner = owner or app_module
+            self._real.append((owner, name, getattr(owner, name)))
 
-            async def never_ending(_n=name):
+            async def never_ending():
                 await asyncio.Event().wait()
 
-            setattr(app_module, name, never_ending)
+            setattr(owner, name, never_ending)
         for task in app_module._auto_loop_tasks.values():
             task.cancel()
         app_module._auto_loop_tasks.clear()
@@ -54,12 +74,12 @@ class AutoLoopsStartTests(unittest.IsolatedAsyncioTestCase):
         for task in app_module._auto_loop_tasks.values():
             task.cancel()
         app_module._auto_loop_tasks.clear()
-        for name, fn in self._real.items():
-            setattr(app_module, name, fn)
+        for owner, name, fn in self._real:
+            setattr(owner, name, fn)
 
-    async def test_all_three_mothers_are_started(self):
+    async def test_every_loop_is_started(self):
         started = app_module._ensure_auto_loops_running()
-        self.assertEqual(sorted(started), ["candle-entry", "fib-boundary", "gap-carry"])
+        self.assertEqual(sorted(started), EXPECTED_LOOPS)
         await asyncio.sleep(0)
         self.assertTrue(all(not t.done() for t in app_module._auto_loop_tasks.values()))
 
@@ -68,7 +88,7 @@ class AutoLoopsStartTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         again = app_module._ensure_auto_loops_running()
         self.assertEqual(again, [], "a second call must not start a second ladder on the same symbol")
-        self.assertEqual(len(app_module._auto_loop_tasks), 3)
+        self.assertEqual(sorted(app_module._auto_loop_tasks), EXPECTED_LOOPS)
 
     async def test_a_dead_loop_is_restarted(self):
         app_module._ensure_auto_loops_running()

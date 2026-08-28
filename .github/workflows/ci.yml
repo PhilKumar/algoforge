@@ -128,3 +128,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_paper.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_routes.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_sanctuary.py'
+          # The auto mothers surviving a deploy is the one thing whose failure
+          # is silent and costs a trading day. It went stale unnoticed on
+          # 2026-08-28 because nothing here ran it.
+          python -m unittest discover -s "$PWD/tests" -p 'test_auto_loops_start_after_handover.py'
