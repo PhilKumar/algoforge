@@ -527,7 +527,7 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
    drifting a pixel further off the ruling with every row. */
 .plan-head{display:flex;align-items:center;gap:12px;height:var(--plan-pitch);line-height:var(--plan-pitch)}
 .plan-head .section-title{margin:0;font-size:1.25rem;line-height:var(--plan-pitch)}
-.plan-count{font-size:.8rem;color:var(--soft);margin-left:auto}
+.plan-count{font-size:.8rem;color:var(--soft);margin-left:auto;white-space:nowrap}
 .plan-write{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;
   height:calc(var(--plan-pitch) * 2)}
 .plan-write .btn{flex:none;line-height:20px;padding:6px 16px}
@@ -563,16 +563,42 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   background:none;border:0;color:var(--soft);font-size:.9rem;padding:0 4px;line-height:20px}
 .plan-row:hover .plan-x,.plan-row:focus-within .plan-x{opacity:.7}
 .plan-empty{color:var(--muted);font-family:var(--hand);font-size:1.4rem;line-height:var(--plan-pitch)}
+/* The band above both tabs. Terracotta when something is late, moss when
+   the day merely has work in it — a red band every morning stops being a
+   warning within a week. */
+.plan-alert{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 18px;
+  padding:11px 18px;border-radius:16px;cursor:pointer;text-align:left;
+  font-size:.94rem;font-weight:600;color:var(--ink);
+  border:1px solid var(--glass-rim);background:var(--glass-tint);
+  background-image:linear-gradient(120deg,var(--moss-wash),transparent 70%);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  box-shadow:var(--glass-cast);transition:transform .15s ease}
+.plan-alert:hover{transform:translateY(-1px)}
+.plan-alert.late{background-image:linear-gradient(120deg,var(--danger-wash),transparent 70%);
+  border-color:var(--danger)}
+.plan-alert .plan-alert-what{flex:1;min-width:0}
+.plan-alert small{display:block;font-weight:400;color:var(--muted);font-size:.82rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-alert .go{flex:none;color:var(--moss);font-weight:800;font-size:.85rem}
+/* the morning nudge switch, on the planner's own head line */
+.plan-nudge{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--soft);
+  cursor:pointer;white-space:nowrap;font-weight:600}
+.plan-nudge input{accent-color:var(--moss);cursor:pointer}
 /* `details.` because .loans-closed sets its own margin later in the file
    and would otherwise win, pushing the fold 18px off the ruling. */
 details.plan-done-wrap{margin-top:0}
 .plan-done-wrap > summary{line-height:var(--plan-pitch);margin:0;padding:0;height:var(--plan-pitch)}
 .plan-done-wrap .plan-what{font-size:1.25rem}
 @media (max-width:780px){
-  .plan-sheet{padding:22px 16px 22px 54px}
+  .plan-sheet{padding:var(--plan-pitch) 16px var(--plan-pitch) 54px}
   .plan-sheet::before{left:38px}
   .plan-input{font-size:1.35rem}
   .plan-what{font-size:1.3rem}
+  /* Three things will not share one line at this width; the head takes two
+     ruled lines rather than clipping the count. */
+  .plan-head{flex-wrap:wrap;height:calc(var(--plan-pitch) * 2)}
+  .plan-head .section-title{width:100%}
+  .plan-count{margin-left:auto}
 }
 .kind-chip{font-size:.75rem;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--moss-wash);color:var(--moss)}
 .kind-chip.achievement{background:var(--gold-wash);color:var(--gold)}
@@ -1280,6 +1306,10 @@ html[data-theme="dark"]{color-scheme:dark}
     <button class="tab" id="tab-finance" role="tab">🌾 Finances</button>
   </div>
 
+  <!-- What is due, said above both tabs. A planner he has to go looking at
+       only ever reminds him of what he already remembered. -->
+  <button class="plan-alert hidden" id="plan-alert"></button>
+
   <!-- ═════════ JOURNAL ═════════ -->
   <div id="view-journal">
     <div class="card composer">
@@ -1327,6 +1357,9 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card plan-sheet" id="planner">
       <div class="plan-head">
         <div class="section-title">What's coming</div>
+        <label class="plan-nudge" title="A message each morning listing what is due. It goes out over Telegram, so the words of a task leave this page — leave it off if that is not what you want.">
+          <input type="checkbox" id="plan-nudge"> morning reminder
+        </label>
         <span class="plan-count" id="plan-count"></span>
       </div>
       <div class="plan-write">
@@ -2033,7 +2066,7 @@ async function enter(){
   $("q-date").value = isoToday();
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
-  loadDaily(); refreshJournal(); loadPlans();
+  loadDaily(); refreshJournal(); loadPlans(); loadNudge();
   refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings();
 }
 
@@ -2307,7 +2340,50 @@ function renderPlans(){
   const late = open.filter((p) => p.horizon === "overdue").length;
   $("plan-count").textContent = open.length
     ? `${open.length} waiting${late ? ` · ${late} overdue` : ""}` : "";
+  paintPlanAlert(open);
 }
+/* The band above the tabs. It says what is late or due today and nothing
+   else — a band that appears every single morning is wallpaper by Friday. */
+function paintPlanAlert(open){
+  const band = $("plan-alert");
+  const late = open.filter((p) => p.horizon === "overdue");
+  const now = open.filter((p) => p.horizon === "today");
+  if (!late.length && !now.length) { band.classList.add("hidden"); return; }
+  const lead = late.length ? late[0] : now[0];
+  const said = [
+    late.length ? `${late.length} overdue` : "",
+    now.length ? `${now.length} due today` : "",
+  ].filter(Boolean).join(" · ");
+  band.className = "plan-alert" + (late.length ? " late" : "");
+  band.innerHTML = `<span>${late.length ? "🔔" : "🌿"}</span>
+    <span class="plan-alert-what">${esc(said)}<small>${esc(lead.title)}${
+      (late.length + now.length) > 1 ? " — and the rest below" : ""}</small></span>
+    <span class="go">see them ›</span>`;
+}
+$("plan-alert").onclick = () => {
+  switchTab("journal");
+  const sheet = $("planner");
+  sheet.scrollIntoView({behavior: "smooth", block: "center"});
+  $("plan-text").focus({preventScroll: true});
+};
+/* The morning nudge. It is OFF until he turns it on, because it carries the
+   words of a task out of a page he put a second password on. */
+async function loadNudge(){
+  try {
+    const r = await api("/api/sanctuary/plans/nudge");
+    $("plan-nudge").checked = !!r.on;
+    $("plan-nudge").disabled = !r.reachable;
+    if (!r.reachable) $("plan-nudge").closest(".plan-nudge").title =
+      "No Telegram or Discord is configured on the server, so there is nowhere to send it.";
+  } catch { /* the switch stays as it is */ }
+}
+$("plan-nudge").onchange = async (e) => {
+  const on = e.target.checked;
+  try {
+    await api("/api/sanctuary/plans/nudge", {method: "PUT", body: {on}});
+    toast(on ? "A reminder each morning at 7:30. 🔔" : "No more morning reminders.");
+  } catch (err) { e.target.checked = !on; toast(err.message || "That did not take"); }
+};
 /* The reading, shown as he types. Debounced, because it is a round trip. */
 let _planReadAt = null;
 function planPreview(){

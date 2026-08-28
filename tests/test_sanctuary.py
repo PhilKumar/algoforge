@@ -936,6 +936,62 @@ class PlannerReadingTests(unittest.TestCase):
         self.assertEqual(plan.horizon("", self.TODAY), "someday")
 
 
+class PlanNudgeTests(unittest.TestCase):
+    """The morning reminder. What it says, and — more importantly — the
+    mornings on which it says nothing at all."""
+
+    TODAY = date(2026, 8, 27)
+
+    def text(self, rows):
+        import sanctuary
+
+        return sanctuary.plan_nudge_text(rows, self.TODAY)
+
+    def row(self, title, due, done=0, kind="on"):
+        return {"title": title, "due_date": due, "due_kind": kind, "done": done}
+
+    def test_a_clear_morning_sends_nothing(self):
+        """Only tomorrow's work, and nothing owed today: silence. A reminder
+        that arrives when nothing is due teaches him to ignore the rest."""
+        self.assertEqual(self.text([self.row("dentist", "2026-08-28")]), "")
+        self.assertEqual(self.text([]), "")
+
+    def test_nothing_dated_is_never_a_reminder(self):
+        self.assertEqual(self.text([self.row("sort the garage", "")]), "")
+
+    def test_a_finished_task_is_not_owed(self):
+        self.assertEqual(self.text([self.row("call the bank", "2026-08-20", done=1)]), "")
+
+    def test_overdue_leads_and_tomorrow_follows(self):
+        said = self.text(
+            [
+                self.row("school fees", "2026-08-20", kind="by"),
+                self.row("call the bank", "2026-08-27"),
+                self.row("dentist", "2026-08-28"),
+            ]
+        )
+        self.assertIn("<b>Overdue</b>", said)
+        self.assertIn("school fees (by 2026-08-20)", said)
+        self.assertIn("<b>Today</b>", said)
+        self.assertIn("<b>Tomorrow</b>", said)
+        self.assertLess(said.index("Overdue"), said.index("Today"), "the late ones come first")
+        self.assertLess(said.index("Today"), said.index("Tomorrow"))
+
+    def test_tomorrow_alone_does_not_summon_a_message(self):
+        """Tomorrow rides along with a message that was already going out —
+        it never causes one on its own."""
+        self.assertEqual(self.text([self.row("dentist", "2026-08-28")]), "")
+
+    def test_a_long_list_is_trimmed_rather_than_dumped(self):
+        rows = [self.row(f"thing {n}", "2026-08-27") for n in range(9)]
+        said = self.text(rows)
+        self.assertIn("…and 3 more", said)
+
+    def test_a_title_cannot_smuggle_markup_into_the_message(self):
+        said = self.text([self.row("<b>pay</b> & run", "2026-08-27")])
+        self.assertIn("&lt;b&gt;pay&lt;/b&gt; &amp; run", said)
+
+
 class IdentityReadingTests(unittest.TestCase):
     """Reading the registrations off a payslip. Every number below is made
     up — his own never appear in this repository."""

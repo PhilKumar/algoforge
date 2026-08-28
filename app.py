@@ -283,6 +283,7 @@ register_error_handlers(app)
 # a standalone page outside the terminal, admin-only, double-locked by its
 # own password. Its /api/sanctuary prefix is deliberately NOT on the viewer
 # shared-read list.
+import sanctuary as _sanctuary
 from sanctuary import router as _sanctuary_router
 
 app.include_router(_sanctuary_router)
@@ -3063,6 +3064,10 @@ def _ensure_auto_loops_running() -> list[str]:
         "fib-boundary": _run_fib_boundary_auto_loop,
         "candle-entry": _run_candle_entry_auto_loop,
         "gap-carry": _run_gap_carry_auto_loop,
+        # Not a mother, but it belongs here for the same reason: started from
+        # the startup block alone, a deployed worker would never bring the
+        # sanctuary's morning reminder back.
+        "sanctuary-plans": _sanctuary.plan_nudge_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():

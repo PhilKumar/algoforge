@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import html
+import logging
 import os
 import re
 import secrets
@@ -87,6 +88,9 @@ DEFAULT_CATEGORIES = [
     {"name": "RD / FD", "emoji": "🏦", "kind": "saving", "quick": False},
     {"name": "Gold", "emoji": "🪙", "kind": "saving", "quick": False},
 ]
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _today_ist() -> date:
@@ -2221,6 +2225,113 @@ async def plans_get(user: dict = Depends(_unlocked_user)):
         "horizons": list(sanctuary_plan.HORIZONS),
         "plans": [_plan_view(row, today) for row in rows],
     }
+
+
+def _nudge_reachable() -> bool:
+    """Whether there is anywhere to send a reminder to at all."""
+    try:
+        import alerter
+
+        return bool(getattr(alerter, "_TELEGRAM_OK", False) or getattr(alerter, "_DISCORD_OK", False))
+    except Exception:  # noqa: BLE001 - no alerter is simply nowhere to send
+        return False
+
+
+def plan_nudge_text(plans: list[dict], today: date) -> str:
+    """The morning message, or "" when nothing is owed today.
+
+    Overdue first, then today, then tomorrow as a warning shot. Nothing is
+    sent on a clear morning: a reminder that arrives when there is nothing
+    to remind him of teaches him to ignore the ones that matter.
+    """
+    late, now, next_up = [], [], []
+    stamp = today.isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    for row in plans:
+        due = row.get("due_date") or ""
+        if row.get("done") or not due:
+            continue
+        if due < stamp:
+            late.append(row)
+        elif due == stamp:
+            now.append(row)
+        elif due == tomorrow:
+            next_up.append(row)
+    if not (late or now):
+        return ""
+    lines = []
+    for label, rows in (("Overdue", late), ("Today", now), ("Tomorrow", next_up)):
+        if not rows:
+            continue
+        lines.append(f"<b>{label}</b>")
+        for row in rows[:6]:
+            when = f" ({row.get('due_kind') or 'on'} {row['due_date']})" if label == "Overdue" else ""
+            lines.append(f"· {html.escape(str(row.get('title') or ''))}{when}")
+        if len(rows) > 6:
+            lines.append(f"· …and {len(rows) - 6} more")
+    return "\n".join(lines)
+
+
+@router.get("/api/sanctuary/plans/nudge")
+async def plans_nudge_get(user: dict = Depends(_unlocked_user)):
+    state = await sanctuary_db.get_state(int(user["id"]), "plan_nudge", "off")
+    return {"on": state == "on", "reachable": _nudge_reachable(), "at": "07:30 IST"}
+
+
+@router.put("/api/sanctuary/plans/nudge")
+async def plans_nudge_put(request: Request, user: dict = Depends(_unlocked_user)):
+    """Turn the morning reminder on or off.
+
+    OFF is the state it ships in. The message carries the words of a task
+    out over Telegram, off a page he put a second password on — that is his
+    decision to make, not a default to inherit.
+    """
+    payload = await request.json()
+    on = bool(payload.get("on"))
+    await sanctuary_db.set_state(int(user["id"]), "plan_nudge", "on" if on else "off")
+    return {"on": on, "reachable": _nudge_reachable()}
+
+
+async def send_plan_nudge(user_id: int, today: date) -> bool:
+    """Send today's reminder if it is wanted, owed, and not already sent."""
+    if await sanctuary_db.get_state(user_id, "plan_nudge", "off") != "on":
+        return False
+    if await sanctuary_db.get_state(user_id, "plan_nudge_sent", "") == today.isoformat():
+        return False
+    body = plan_nudge_text(await sanctuary_db.list_plans(user_id, include_done=False), today)
+    # The day is stamped even when nothing is owed, so a quiet morning is
+    # not re-examined every quarter of an hour until midnight.
+    await sanctuary_db.set_state(user_id, "plan_nudge_sent", today.isoformat())
+    if not body:
+        return False
+    try:
+        import alerter
+
+        alerter.alert("What's coming", body, level="info")
+    except Exception:  # noqa: BLE001 - a reminder that fails is not an outage
+        _logger.warning("[SANCTUARY] the morning reminder could not be sent", exc_info=True)
+        return False
+    return True
+
+
+# 07:30 IST, looked at every quarter of an hour. This belongs to the app's
+# auto-loop registry rather than its startup block: a deploying worker skips
+# startup, and a loop started only there never comes back after a deploy.
+NUDGE_HOUR, NUDGE_MINUTE, NUDGE_EVERY = 7, 30, 900
+
+
+async def plan_nudge_loop() -> None:
+    while True:
+        try:
+            now = _now_ist()
+            if (now.hour, now.minute) >= (NUDGE_HOUR, NUDGE_MINUTE):
+                for user in await core_db.list_users():
+                    await send_plan_nudge(int(user["id"]), now.date())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad morning must not end the loop
+            _logger.warning("[SANCTUARY] the reminder loop stumbled", exc_info=True)
+        await asyncio.sleep(NUDGE_EVERY)
 
 
 @router.post("/api/sanctuary/plans/read")
