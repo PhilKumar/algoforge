@@ -1518,6 +1518,13 @@ html[data-theme="dark"]{color-scheme:dark}
            only sign of it is a category that will not stay corrected. -->
       <details class="loans-closed" id="rules-wrap">
         <summary>Rules you have taught <span id="rules-count"></span></summary>
+        <!-- Eighty-four rules is a scroll, not a list. The box searches the
+             word taught AND the category it files into, so "alpha" finds the
+             rule even when the word he remembers is the destination. -->
+        <div class="stmt-find" id="rules-find" hidden>
+          <input class="field" id="rules-q" type="search" placeholder="Find a rule — kaliraj, alpha, a mandate number…">
+          <span class="stmt-found" id="rules-found"></span>
+        </div>
         <div id="rules-list"></div>
       </details>
     </div>
@@ -2373,19 +2380,63 @@ async function loadRules(){
     S.rules = r.rules;
     S.defaultRules = r.defaults || [];
     if (S.fin) renderFinance();   /* the ledger can say why, now that it knows */
-    $("rules-count").textContent = r.rules.length ? `— ${r.rules.length}` : "— none yet";
-    host.innerHTML = r.rules.length
-      ? r.rules.map((rule) => `<div class="rule-row">
-          <span class="rule-what"><b>${esc(rule.match)}</b> <span class="rule-arrow">→</span> ${esc(rule.category)}</span>
-          <span class="rule-holds">${rule.holds} row${rule.holds === 1 ? "" : "s"}</span>
-          <button class="btn subtle small" data-rule-del="${rule.at}" title="Forget this rule and put its rows back">Forget</button>
-        </div>`).join("")
-      : `<div style="color:var(--muted);padding:6px 2px">Nothing taught yet. When you correct a row on an imported statement, the rule you teach appears here.</div>`;
+    renderRules();
   } catch (err) {
     console.error("[sanctuary] the taught rules would not load", err);
     host.innerHTML = `<div style="color:var(--danger)">The rules did not answer.</div>`;
   }
 }
+/* The list is drawn on its own so the search can redraw it without going
+   back to the server — and so the box keeps the caret, because the box is
+   not inside what gets redrawn. */
+function renderRules(){
+  const host = $("rules-list");
+  if (!host) return;
+  const all = S.rules || [];
+  const q = (S.ruleQ || "").trim().toLowerCase();
+  const shown = q
+    ? all.filter((rule) => (rule.match || "").toLowerCase().includes(q)
+        || (rule.category || "").toLowerCase().includes(q))
+    : all;
+  $("rules-count").textContent = all.length ? `— ${all.length}` : "— none yet";
+  const find = $("rules-find");
+  if (find) find.hidden = all.length < 6 && !q;
+  const found = $("rules-found");
+  if (found) found.textContent = !all.length ? ""
+    : q ? `${shown.length} of ${all.length} match`
+    : `${all.length} rule${all.length === 1 ? "" : "s"}`;
+  if (!all.length) {
+    host.innerHTML = `<div style="color:var(--muted);padding:6px 2px">Nothing taught yet. When you correct a row on an imported statement, the rule you teach appears here.</div>`;
+    return;
+  }
+  if (!shown.length) {
+    host.innerHTML = `<div style="color:var(--muted);padding:6px 2px">No taught rule mentions “${esc(q)}” — neither the word it watches for nor the category it files into.</div>`;
+    return;
+  }
+  host.innerHTML = shown.map((rule) => `<div class="rule-row">
+      <span class="rule-what"><b>${esc(rule.match)}</b> <span class="rule-arrow">→</span> ${esc(rule.category)}</span>
+      <span class="rule-holds">${rule.holds} row${rule.holds === 1 ? "" : "s"}</span>
+      <button class="btn subtle small" data-rule-del="${rule.at}" title="Forget this rule and put its rows back">Forget</button>
+    </div>`).join("");
+}
+document.addEventListener("input", (e) => {
+  if (!e.target.matches("#rules-q")) return;
+  S.ruleQ = e.target.value;
+  renderRules();
+});
+/* Carry a word from the unsorted pile straight into the rules panel: open
+   it, put the word in the box, and scroll it under his eyes. */
+document.addEventListener("click", (e) => {
+  const jump = e.target.closest("[data-rule-find]");
+  if (!jump) return;
+  const wrap = $("rules-wrap");
+  S.ruleQ = jump.dataset.ruleFind;
+  if (wrap) wrap.open = true;
+  renderRules();
+  const box = $("rules-q");
+  if (box) { box.value = S.ruleQ; box.focus(); }
+  if (wrap) wrap.scrollIntoView({behavior: "smooth", block: "center"});
+});
 document.addEventListener("click", async (e) => {
   const del = e.target.closest("[data-rule-del]");
   if (!del) return;
@@ -2396,7 +2447,10 @@ document.addEventListener("click", async (e) => {
     "Forget it");
   if (!ok) return;
   try {
-    const r = await api("/api/sanctuary/statements/rules/" + rule.at, {method: "DELETE"});
+    /* The word travels with the number: the list may be a minute old, and a
+       position is not a name. */
+    const r = await api("/api/sanctuary/statements/rules/" + rule.at
+      + "?match=" + encodeURIComponent(rule.match), {method: "DELETE"});
     toast(`Forgotten — ${r.freed} row${r.freed === 1 ? "" : "s"} back in the pile.`);
     loadRules(); refreshFinance(); loadStmtReview();
   } catch (err) { toast(err.message || "That did not take"); }
@@ -4125,7 +4179,14 @@ async function loadStmtReview(){
             <small>${esc(g.sample)}</small></div>
           <select class="field">${stmtCatOpts("Uncategorised")}</select>
           <button class="btn ghost" data-stmt-teach>This is where they go</button>
-        </div>`).join("");
+        </div>`).join("")
+      /* Nothing in the pile usually means a rule already claimed him — which
+         is the whole kaliraj story. Say so, and take him to the rule. */
+      + (q && !r.groups.length
+        ? `<div class="section-sub" style="margin-top:8px">Nobody in the unsorted pile mentions “${esc(q)}”.
+             If those rows keep landing somewhere wrong, a rule is already holding them —
+             <button class="btn subtle small" data-rule-find="${esc(q)}">look for “${esc(q)}” in your rules</button></div>`
+        : "");
   } catch (err) {
     /* A panel that hides itself when the server errs is indistinguishable
        from a panel with nothing to show — 3,833 rows went quiet that way. */

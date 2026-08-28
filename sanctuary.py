@@ -1810,6 +1810,16 @@ async def statement_rule_delete(at: int, request: Request, user: dict = Depends(
     """
     user_id = int(user["id"])
     rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    # The position is only a handle, and positions move: forget one rule and
+    # every rule under it slides up. So the caller says which rule it MEANT,
+    # and the word wins over the number — otherwise a second click, or a list
+    # drawn a minute ago, forgets a neighbour and releases its rows.
+    wanted = str(request.query_params.get("match") or "").strip()
+    if wanted:
+        at = next(
+            (i for i, r in enumerate(rules) if str(r.get("match") or "").lower() == wanted.lower()),
+            -1,
+        )
     if not 0 <= at < len(rules):
         raise HTTPException(status_code=404, detail="No such rule")
     gone = rules.pop(at)

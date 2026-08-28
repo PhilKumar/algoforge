@@ -1159,6 +1159,84 @@ class OverdraftTests(unittest.TestCase):
         self.assertEqual(od["moves"], 0, "no card is drawn when there were no sweeps")
 
 
+class ForgetTheRuleHeMeantTests(unittest.TestCase):
+    """Forget one rule and every rule below it slides up a place. A list
+    drawn a minute ago — or a second click — then names a position that now
+    belongs to a neighbour, and forgetting a rule also releases its rows.
+    So the word he saw travels with the number, and the word wins."""
+
+    def setUp(self):
+        self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self._db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def forget(self, at, match=None):
+        import sanctuary
+
+        class _Req:
+            def __init__(self, params):
+                from starlette.datastructures import QueryParams
+
+                self.query_params = QueryParams(params)
+
+        params = {"release": "0"}
+        if match is not None:
+            params["match"] = match
+        return asyncio.run(sanctuary.statement_rule_delete(at, _Req(params), {"id": 1}))
+
+    def seed(self):
+        asyncio.run(
+            self.sanctuary_db.set_json_state(
+                1,
+                "stmt_rules",
+                [
+                    {"match": "kaliraj r", "category": "Alpha school"},
+                    {"match": "aavin", "category": "Milk"},
+                    {"match": "0000055944", "category": "Home loan"},
+                ],
+            )
+        )
+
+    def rules(self):
+        return [r["match"] for r in asyncio.run(self.sanctuary_db.get_json_state(1, "stmt_rules", []))]
+
+    def test_the_word_beats_a_stale_position(self):
+        self.seed()
+        gone = self.forget(0, "0000055944")  # the list said 2, the page says 0
+        self.assertEqual(gone["forgot"], "0000055944")
+        self.assertEqual(self.rules(), ["kaliraj r", "aavin"], "the neighbour was not touched")
+
+    def test_a_second_click_forgets_nothing_more(self):
+        self.seed()
+        self.forget(0, "kaliraj r")
+        with self.assertRaises(Exception) as caught:
+            self.forget(0, "kaliraj r")
+        self.assertEqual(getattr(caught.exception, "status_code", None), 404)
+        self.assertEqual(self.rules(), ["aavin", "0000055944"], "aavin did not inherit the click")
+
+    def test_a_bare_position_still_works(self):
+        """Nothing else calls it, but the number alone must keep its meaning."""
+        self.seed()
+        self.assertEqual(self.forget(1)["forgot"], "aavin")
+        self.assertEqual(self.rules(), ["kaliraj r", "0000055944"])
+
+
 class CategoryNamingTests(unittest.TestCase):
     """One category, one name. Two spellings of it is two bars on the chart
     and a row he can see but cannot choose."""
