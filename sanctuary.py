@@ -2227,14 +2227,73 @@ async def plans_get(user: dict = Depends(_unlocked_user)):
     }
 
 
-def _nudge_reachable() -> bool:
-    """Whether there is anywhere to send a reminder to at all."""
+def _reminder_channels() -> dict:
+    """Where a reminder could go, judged on the credentials alone.
+
+    NOT on PHILFORGE_TELEGRAM_ALERTS_ENABLED. That flag governs the engine's
+    automatic alerting — broker failures, order errors — and it is off on
+    purpose. A once-a-day planner note he switched on himself is a different
+    thing entirely, and gating it behind the trading alert flag would have
+    forced him to turn every order error alert on to get it. The flag is
+    left exactly as it is; nothing about trading alerting changes here.
+    """
     try:
         import alerter
 
-        return bool(getattr(alerter, "_TELEGRAM_OK", False) or getattr(alerter, "_DISCORD_OK", False))
+        return {
+            "telegram": bool(alerter.TELEGRAM_BOT_TOKEN and alerter.TELEGRAM_CHAT_ID),
+            "discord": bool(alerter.DISCORD_WEBHOOK_URL),
+        }
     except Exception:  # noqa: BLE001 - no alerter is simply nowhere to send
-        return False
+        return {"telegram": False, "discord": False}
+
+
+def _nudge_reachable() -> bool:
+    """Whether there is anywhere to send a reminder to at all."""
+    return any(_reminder_channels().values())
+
+
+async def _send_reminder(html_text: str, plain_text: str) -> tuple[bool, str]:
+    """Post the reminder, and say plainly whether it arrived.
+
+    Awaited rather than fired and forgotten, because the page offers a
+    "send one now" and a button that cannot report failure is a button that
+    lies.
+    """
+    import alerter
+
+    channels = _reminder_channels()
+    sent, trouble = [], []
+    async with httpx.AsyncClient(timeout=12) as client:
+        if channels["telegram"]:
+            try:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{alerter.TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={
+                        "chat_id": alerter.TELEGRAM_CHAT_ID,
+                        "text": html_text,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                    },
+                )
+                if resp.status_code == 200:
+                    sent.append("Telegram")
+                else:
+                    trouble.append(f"Telegram said {resp.status_code}")
+            except Exception as err:  # noqa: BLE001 - the reason belongs on the page
+                trouble.append(f"Telegram: {type(err).__name__}")
+        if channels["discord"]:
+            try:
+                resp = await client.post(alerter.DISCORD_WEBHOOK_URL, json={"content": plain_text})
+                if resp.status_code in (200, 204):
+                    sent.append("Discord")
+                else:
+                    trouble.append(f"Discord said {resp.status_code}")
+            except Exception as err:  # noqa: BLE001
+                trouble.append(f"Discord: {type(err).__name__}")
+    if sent:
+        return True, "Sent to " + " and ".join(sent)
+    return False, "; ".join(trouble) or "Nowhere configured to send it"
 
 
 def plan_nudge_text(plans: list[dict], today: date) -> str:
@@ -2275,7 +2334,13 @@ def plan_nudge_text(plans: list[dict], today: date) -> str:
 @router.get("/api/sanctuary/plans/nudge")
 async def plans_nudge_get(user: dict = Depends(_unlocked_user)):
     state = await sanctuary_db.get_state(int(user["id"]), "plan_nudge", "off")
-    return {"on": state == "on", "reachable": _nudge_reachable(), "at": "07:30 IST"}
+    channels = _reminder_channels()
+    return {
+        "on": state == "on",
+        "reachable": any(channels.values()),
+        "channels": [name.title() for name, ready in channels.items() if ready],
+        "at": f"{NUDGE_HOUR:02d}:{NUDGE_MINUTE:02d} IST",
+    }
 
 
 @router.put("/api/sanctuary/plans/nudge")
@@ -2292,6 +2357,11 @@ async def plans_nudge_put(request: Request, user: dict = Depends(_unlocked_user)
     return {"on": on, "reachable": _nudge_reachable()}
 
 
+def _reminder_message(body: str, today: date) -> tuple[str, str]:
+    head = f"🌿 <b>What's coming</b> · {today.strftime('%a %d %b')}"
+    return f"{head}\n\n{body}", f"🌿 **What's coming** · {today.strftime('%a %d %b')}\n\n{body}"
+
+
 async def send_plan_nudge(user_id: int, today: date) -> bool:
     """Send today's reminder if it is wanted, owed, and not already sent."""
     if await sanctuary_db.get_state(user_id, "plan_nudge", "off") != "on":
@@ -2299,19 +2369,33 @@ async def send_plan_nudge(user_id: int, today: date) -> bool:
     if await sanctuary_db.get_state(user_id, "plan_nudge_sent", "") == today.isoformat():
         return False
     body = plan_nudge_text(await sanctuary_db.list_plans(user_id, include_done=False), today)
-    # The day is stamped even when nothing is owed, so a quiet morning is
-    # not re-examined every quarter of an hour until midnight.
-    await sanctuary_db.set_state(user_id, "plan_nudge_sent", today.isoformat())
     if not body:
+        # A quiet morning is stamped so it is not re-examined every quarter
+        # of an hour until midnight.
+        await sanctuary_db.set_state(user_id, "plan_nudge_sent", today.isoformat())
         return False
-    try:
-        import alerter
-
-        alerter.alert("What's coming", body, level="info")
-    except Exception:  # noqa: BLE001 - a reminder that fails is not an outage
-        _logger.warning("[SANCTUARY] the morning reminder could not be sent", exc_info=True)
+    html_text, plain_text = _reminder_message(body, today)
+    ok, why = await _send_reminder(html_text, plain_text)
+    if not ok:
+        # NOT stamped: a network that was down at 07:30 gets another go at
+        # 07:45. Stamping on failure would lose the day silently.
+        _logger.warning("[SANCTUARY] the morning reminder did not go out: %s", why)
         return False
+    await sanctuary_db.set_state(user_id, "plan_nudge_sent", today.isoformat())
     return True
+
+
+@router.post("/api/sanctuary/plans/nudge/test")
+async def plans_nudge_test(user: dict = Depends(_unlocked_user)):
+    """Send one now, so he can see it land instead of waiting for 07:30."""
+    today = _today_ist()
+    body = plan_nudge_text(await sanctuary_db.list_plans(int(user["id"]), include_done=False), today)
+    if not body:
+        body = "<b>Nothing owed today</b>\n· this is only a test of where the reminder lands"
+    ok, why = await _send_reminder(*_reminder_message(body, today))
+    if not ok:
+        raise HTTPException(status_code=502, detail=why)
+    return {"ok": True, "said": why}
 
 
 # 07:30 IST, looked at every quarter of an hour. This belongs to the app's

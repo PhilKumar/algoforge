@@ -584,6 +584,7 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
 .plan-nudge{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--soft);
   cursor:pointer;white-space:nowrap;font-weight:600}
 .plan-nudge input{accent-color:var(--moss);cursor:pointer}
+.plan-test{flex:none;line-height:18px;padding:2px 10px;font-size:.72rem}
 /* `details.` because .loans-closed sets its own margin later in the file
    and would otherwise win, pushing the fold 18px off the ruling. */
 details.plan-done-wrap{margin-top:0}
@@ -1360,6 +1361,7 @@ html[data-theme="dark"]{color-scheme:dark}
         <label class="plan-nudge" title="A message each morning listing what is due. It goes out over Telegram, so the words of a task leave this page — leave it off if that is not what you want.">
           <input type="checkbox" id="plan-nudge"> morning reminder
         </label>
+        <button class="btn subtle small plan-test hidden" id="plan-nudge-test">send one now</button>
         <span class="plan-count" id="plan-count"></span>
       </div>
       <div class="plan-write">
@@ -2373,16 +2375,31 @@ async function loadNudge(){
     const r = await api("/api/sanctuary/plans/nudge");
     $("plan-nudge").checked = !!r.on;
     $("plan-nudge").disabled = !r.reachable;
-    if (!r.reachable) $("plan-nudge").closest(".plan-nudge").title =
-      "No Telegram or Discord is configured on the server, so there is nowhere to send it.";
+    const where = (r.channels || []).join(" and ");
+    $("plan-nudge").closest(".plan-nudge").title = r.reachable
+      ? `Each morning at ${r.at}, over ${where}. The words of a task leave this page to get there — leave it off if that is not what you want.`
+      : "There is no Telegram bot or Discord webhook set on the server, so there is nowhere to send it.";
+    $("plan-nudge-test").classList.toggle("hidden", !r.reachable || !r.on);
   } catch { /* the switch stays as it is */ }
 }
 $("plan-nudge").onchange = async (e) => {
   const on = e.target.checked;
   try {
     await api("/api/sanctuary/plans/nudge", {method: "PUT", body: {on}});
+    $("plan-nudge-test").classList.toggle("hidden", !on);
     toast(on ? "A reminder each morning at 7:30. 🔔" : "No more morning reminders.");
   } catch (err) { e.target.checked = !on; toast(err.message || "That did not take"); }
+};
+/* A button that cannot report failure is a button that lies, so this one
+   waits for the send and says what came back. */
+$("plan-nudge-test").onclick = async () => {
+  const btn = $("plan-nudge-test");
+  btn.disabled = true; btn.textContent = "sending…";
+  try {
+    const r = await api("/api/sanctuary/plans/nudge/test", {method: "POST", body: {}});
+    toast(r.said + ". 🔔");
+  } catch (err) { toast(err.message || "It would not go"); }
+  btn.disabled = false; btn.textContent = "send one now";
 };
 /* The reading, shown as he types. Debounced, because it is a round trip. */
 let _planReadAt = null;
