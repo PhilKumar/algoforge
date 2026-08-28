@@ -200,11 +200,21 @@ DEFAULT_RULES = [
     {"match": "dividend", "category": "Dividend"},
     {"match": "refund", "category": "Refund"},
     {"match": "cashback", "category": "Refund"},
-    # Money that only moved between the user's own accounts. The category is
-    # load-bearing: the ledger view leaves it out of the month's spending.
+    # The two halves of the sweep-linked overdraft are NOT the same event,
+    # and filing both as a self transfer said they were.
+    #
+    # "Sweep to OD Ac" is money going the other way: the account paying the
+    # overdraft down. It stays a self transfer, and that category is
+    # load-bearing — the month's spending leaves it out, and a repayment of
+    # ninety-six thousand counted as spending would wreck the total.
+    #
+    # "Rev Sweep From <account>" is the reverse: money coming BACK out of
+    # the overdraft, which is a draw on it. That is borrowing, and it now
+    # says so. It arrives as a credit, so it is never counted as spending
+    # either way — but the ledger now shows the month it happened in.
     {"match": "sweep to od", "category": "Self transfer"},
-    {"match": "sweep from od", "category": "Self transfer"},
-    {"match": "rev sweep", "category": "Self transfer"},
+    {"match": "sweep from od", "category": "OD loan"},
+    {"match": "rev sweep", "category": "OD loan"},
 ]
 
 

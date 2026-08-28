@@ -82,6 +82,11 @@ DEFAULT_CATEGORIES = [
     {"name": "Giving", "emoji": "🕊️", "kind": "expense", "quick": False},
     {"name": "Travel", "emoji": "🚌", "kind": "expense", "quick": False},
     {"name": "Other", "emoji": "🌱", "kind": "expense", "quick": False},
+    # Money drawn from the sweep-linked overdraft. It arrives as a credit,
+    # so it can never be counted as spending; what it IS is borrowing, and
+    # filing it as a self transfer hid that the account had gone into the
+    # overdraft at all.
+    {"name": "OD loan", "emoji": "🏛️", "kind": "expense", "quick": False},
     {"name": "NPS", "emoji": "🌳", "kind": "saving", "quick": False},
     {"name": "PF", "emoji": "🌳", "kind": "saving", "quick": False},
     {"name": "MF SIP", "emoji": "🌿", "kind": "saving", "quick": False},
@@ -1139,10 +1144,29 @@ async def vault_page(request: Request):
 # ── Finance: categories, months, ledger ──────────────────────────
 
 
+def _missing_rule_categories(categories: list[dict]) -> list[dict]:
+    """Default categories a rule files into that his own list has lost.
+
+    His list was saved the first time he opened the page, so a category
+    added to the defaults afterwards never reaches him — and a rule that
+    files into a category the dropdown does not offer is a row he cannot
+    correct. Only categories a RULE names are restored; one he deleted on
+    purpose and no rule points at stays deleted.
+    """
+    held = {str(c.get("name") or "") for c in categories}
+    wanted = {r["category"] for r in sanctuary_statements.DEFAULT_RULES}
+    return [c for c in DEFAULT_CATEGORIES if c["name"] in wanted and c["name"] not in held]
+
+
 async def _get_categories(user_id: int) -> list[dict]:
     categories = await sanctuary_db.get_json_state(user_id, "categories", None)
     if categories is None:
         categories = DEFAULT_CATEGORIES
+        await sanctuary_db.set_json_state(user_id, "categories", categories)
+        return categories
+    missing = _missing_rule_categories(categories)
+    if missing:
+        categories = [*categories, *missing]
         await sanctuary_db.set_json_state(user_id, "categories", categories)
     return categories
 

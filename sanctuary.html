@@ -696,6 +696,13 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
    table twice as tall as the reading in it. The columns are declared, the
    cells never wrap, and the one that has more to say than fits — the note
    — trails off and carries the whole of it in its tooltip. */
+/* A page of the ledger is always the same height. Every row is --led-row
+   tall and a page holds --led-rows of them, so the frame is that plus the
+   header — the last page, with five rows on it, leaves the rest as empty
+   paper instead of shrinking the panel under his cursor. */
+.ledger{--led-row:54px;--led-rows:10;--led-head:37px}
+.ledger-frame{overflow-x:auto;overflow-y:hidden;
+  min-height:calc(var(--led-head) + var(--led-row) * var(--led-rows))}
 .ledger table{table-layout:fixed}
 .ledger col.c-date{width:114px}
 .ledger col.c-cat{width:190px}
@@ -1459,7 +1466,9 @@ html[data-theme="dark"]{color-scheme:dark}
         </select>
         <button class="btn ghost" id="led-csv" title="Download what the filters show">⬇ CSV</button>
       </div>
-      <div style="overflow-x:auto"><table id="ledger-table"></table></div>
+      <!-- Ten rows' worth of height whether this page holds ten or five, so
+           the panel stops jumping every time he turns to an older page. -->
+      <div class="ledger-frame"><table id="ledger-table"></table></div>
       <div class="ledger-pager">
         <button class="btn subtle small" id="led-prev">‹ Newer</button>
         <span id="led-page" class="num"></span>

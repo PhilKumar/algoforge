@@ -277,10 +277,19 @@ class StatementParserTests(unittest.TestCase):
         second = {r["ref_id"] for r in self.parse()["rows"]}
         self.assertEqual(first, second)
 
-    def test_a_reverse_sweep_is_a_self_transfer_and_names_its_od_account(self):
+    def test_the_two_halves_of_a_sweep_are_not_the_same_event(self):
+        """A draw on the overdraft is borrowing; paying it down is not.
+
+        Both used to file as "Self transfer", which said the account had
+        never gone into the overdraft at all. The repayment MUST stay a
+        self transfer, though: that category is what keeps a ninety-six
+        thousand rupee sweep out of the month's spending.
+        """
         from sanctuary_statements import categorise, parse_statement
 
-        self.assertEqual(categorise("000012345678: Rev Sweep From"), "Self transfer")
+        self.assertEqual(categorise("000012345678: Rev Sweep From"), "OD loan")
+        self.assertEqual(categorise("Sweep from OD Ac"), "OD loan")
+        self.assertEqual(categorise("Sweep to OD Ac"), "Self transfer")
         blob = (
             "Account Number,000099887766 ( INR )\n"
             "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
@@ -936,6 +945,34 @@ class PlannerReadingTests(unittest.TestCase):
         self.assertEqual(plan.horizon("", self.TODAY), "someday")
 
 
+class CategoryRestoreTests(unittest.TestCase):
+    """A rule that files into a category the dropdown does not offer leaves
+    him a row he cannot correct."""
+
+    def test_a_category_a_rule_needs_is_restored_to_an_old_list(self):
+        import sanctuary
+
+        older = [c for c in sanctuary.DEFAULT_CATEGORIES if c["name"] != "OD loan"]
+        self.assertEqual(
+            [c["name"] for c in sanctuary._missing_rule_categories(older)],
+            ["OD loan"],
+            "his list was saved before OD loan existed, and a rule now files into it",
+        )
+
+    def test_a_category_he_deleted_stays_deleted(self):
+        """Only categories a RULE names come back. No rule files into
+        "Music Class", so removing it is his decision and it stands."""
+        import sanctuary
+
+        older = [c for c in sanctuary.DEFAULT_CATEGORIES if c["name"] != "Music Class"]
+        self.assertEqual(sanctuary._missing_rule_categories(older), [])
+
+    def test_a_complete_list_gains_nothing(self):
+        import sanctuary
+
+        self.assertEqual(sanctuary._missing_rule_categories(sanctuary.DEFAULT_CATEGORIES), [])
+
+
 class PlanNudgeTests(unittest.TestCase):
     """The morning reminder. What it says, and — more importantly — the
     mornings on which it says nothing at all."""
@@ -1130,7 +1167,7 @@ class SalaryFromBankTests(unittest.TestCase):
         """The month's big movements are his own money and his own bills —
         only an employer credit counts, and only when it comes IN."""
         rows = [
-            {"amount": 103540.94, "source": "statement-in", "category": "Self transfer", "note": "Rev Sweep From"},
+            {"amount": 103540.94, "source": "statement-in", "category": "OD loan", "note": "Rev Sweep From"},
             {"amount": 100000.0, "source": "statement-in", "category": "Uncategorised", "note": "BRK/Raise Securities"},
             {"amount": 51698.0, "source": "statement", "category": "HDFC loan", "note": "ACH/HDFC BANK"},
             {"amount": 5000.0, "source": "statement", "category": "Uncategorised", "note": "PAID TO KYNDRYL CANTEEN"},
