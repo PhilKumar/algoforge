@@ -637,6 +637,8 @@ details.plan-done-wrap{margin-top:0}
 .entry-photos{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 .entry-photos img{width:110px;height:110px;object-fit:cover;border-radius:14px;cursor:zoom-in;border:1px solid var(--line-soft)}
 .side-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}
+.own-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;align-items:start}
+.own-grid > .card{margin:0;height:100%}
 .garden{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}
 .garden .gd{aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;
   font-size:.7rem;font-weight:700;color:var(--soft);background:var(--card-2);border:1px solid var(--line-soft)}
@@ -1097,7 +1099,7 @@ html[data-theme="dark"]{color-scheme:dark}
   .daily{grid-template-columns:1fr}
   .tiles{grid-template-columns:repeat(2,1fr)}
   .fin-grid{grid-template-columns:1fr}
-  .side-grid{grid-template-columns:1fr}
+  .side-grid,.own-grid{grid-template-columns:1fr}
   .recur-row{grid-template-columns:1fr .7fr .5fr;grid-auto-rows:auto}
 }
 @media (max-width:480px){
@@ -1645,7 +1647,11 @@ html[data-theme="dark"]{color-scheme:dark}
 
     <!-- What he owns. The page counted only debts until now; this is the
          other side of the same question. -->
-    <div class="card" id="holdings-card" style="margin-bottom:24px">
+    <!-- What he owns and what the fund holds are the same question asked
+         twice, so they stand side by side and fold to one column when the
+         window cannot hold two. -->
+    <div class="own-grid">
+    <div class="card" id="holdings-card">
       <div class="section-title">What you own</div>
       <div id="holdings-body"></div>
       <div style="margin-top:14px">
@@ -1656,13 +1662,14 @@ html[data-theme="dark"]{color-scheme:dark}
 
     <!-- The provident fund. No statement in any bank shows it, so the only
          way the sanctuary can know is to read the passbooks in the vault. -->
-    <div class="card" id="epf-card" style="margin-bottom:24px">
+    <div class="card" id="epf-card">
       <div class="stmt-head">
         <span class="section-title" style="font-size:.95rem;margin:0">The provident fund</span>
         <span class="stmt-found" id="epf-when"></span>
         <button class="btn subtle small" id="epf-scan" title="Read every EPF passbook and claim in the vault, and add up what the fund holds">↻ Read my EPF papers</button>
       </div>
       <div id="epf-body"></div>
+    </div>
     </div>
 
     <div class="side-grid" style="margin-top:0">
