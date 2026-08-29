@@ -20835,7 +20835,7 @@ function _recoveryTrades(rows) {
       <td style="padding:4px 8px;">${_recTime(t.entry_time)}</td>
       <td style="padding:4px 8px;text-align:right;">${_recNum(t.entry_index, 2)}</td>
       <td style="padding:4px 8px;text-align:right;color:#f87171;">${_recNum(t.sl_level, 2)}</td>
-      <td style="padding:4px 8px;text-align:right;">${t.lots || '—'}×${t.strike || '—'}</td>
+      <td style="padding:4px 8px;text-align:right;">${t.lots || '—'}×${t.strike || '—'}${t.side ? ` ${escapeHtml(String(t.side))}` : ''}</td>
       <td style="padding:4px 8px;text-align:right;">${t.entry_premium === null || t.entry_premium === undefined ? '—' : _recNum(t.entry_premium, 2)}</td>
       <td style="padding:4px 8px;text-align:right;">${t.exit_premium === null || t.exit_premium === undefined ? '—' : _recNum(t.exit_premium, 2)}</td>
       <td style="padding:4px 8px;">${t.exit_reason || (t.open ? 'holding' : '—')}</td>
@@ -20881,12 +20881,11 @@ function _recoveryCampaign(c) {
     </div>
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
       ${unpriced
-        ? `ledger <b style="color:#fbbf24;">not a book</b> · <b>${unpriced}</b> closed leg${unpriced === 1 ? '' : 's'} the archive could not price`
+        ? `ledger <b style="color:#fbbf24;">${unpriced} unpriced</b> &middot; a live run prices only what fills now &mdash; use <b>Backtest</b>`
         : `ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>`}
       ${need !== null && !unpriced ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
       ${c.open_trades ? ` · ${c.open_trades} open` : ''}
       ${zones ? `<div style="margin-top:4px;">${zones}</div>` : ''}
-      ${unpriced ? `<div class="ocp-unpriced-note">A leg with no premium is unknown, not flat &mdash; counting it as &#8377;0 would read ${unpriced} exit${unpriced === 1 ? '' : 's'} as break-even. Backtest replays the same mother on recorded prices.</div>` : ''}
     </div>
     <div style="margin-top:8px;">${_recoveryTrades(c.trades)}</div>
   </div>`;

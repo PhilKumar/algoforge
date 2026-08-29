@@ -342,11 +342,15 @@ class CandleRecoveryHost:
             "entry_index": self._px(t.entry_index),
             "sl_level": self._px(t.sl_level),
             "strike": t.strike,
+            # Which contract this leg actually bought. The table read
+            # "2x24050" with no way to tell a call from a put.
+            "side": self.side,
             "expiry": t.expiry.isoformat() if t.expiry else None,
             "lots": t.lots,
             "quantity": t.quantity,
             "entry_premium": t.entry_premium,
             "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+            "exit_index": self._px(t.exit_index),
             "exit_premium": t.exit_premium,
             "exit_reason": t.exit_reason,
             "net_pnl": t.net_pnl,

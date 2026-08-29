@@ -16580,11 +16580,15 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
         if t.get("sl_level") is not None and t.get("entry_time"):
             lines.append({"price": t["sl_level"], "label": f"STOP {t['trade_no']}", "inr_notional": 0, "filled": False})
         if t.get("exit_time"):
+            # Mark the exit where it HAPPENED. Drawing it at the entry level put
+            # every SELL arrow on its own buy line. And an unpriced leg has no
+            # P&L: `or 0` turned "unknown" into a confident "+Rs 0" on the chart
+            # while the table beside it said unpriced (Phil, 2026-08-29).
             exits.append(
                 {
                     "t": int(datetime.fromisoformat(t["exit_time"]).timestamp()),
-                    "price": t.get("entry_index"),
-                    "pnl": t.get("net_pnl") or 0,
+                    "price": t.get("exit_index") if t.get("exit_index") is not None else t.get("entry_index"),
+                    "pnl": t.get("net_pnl"),
                 }
             )
     need = row.get("required_recovery")

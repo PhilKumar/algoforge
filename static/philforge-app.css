@@ -9452,13 +9452,3 @@ body :is(
   color: var(--muted);
   white-space: nowrap;
 }
-/* A replay whose legs never priced is not a book, and must not be read as one. */
-.ocp-unpriced-note {
-  margin-top: 6px;
-  padding: 6px 9px;
-  border-left: 2px solid #fbbf24;
-  background: rgba(251, 191, 36, .07);
-  border-radius: 0 5px 5px 0;
-  color: var(--text);
-  line-height: 1.55;
-}

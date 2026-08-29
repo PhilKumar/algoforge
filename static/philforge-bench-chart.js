@@ -849,9 +849,12 @@ function _pfChartCanvasMarkers(c, p, PAL, labels) {
       ctx.fillStyle = PAL.sellMark; ctx.strokeStyle = PAL.markRing; ctx.lineWidth = 0.9;
       ctx.beginPath(); ctx.moveTo(x, y + 9); ctx.lineTo(x - 5, y); ctx.lineTo(x - 2, y); ctx.lineTo(x - 2, y - 6);
       ctx.lineTo(x + 2, y - 6); ctx.lineTo(x + 2, y); ctx.lineTo(x + 5, y); ctx.closePath(); ctx.fill(); ctx.stroke();
-      var pnl = Number(exit.pnl) || 0;
+      // A null P&L is UNKNOWN, not zero. `Number(x) || 0` printed "+Rs 0" on
+      // every unpriced exit; a real 0 still shows, an absent one says nothing.
+      var known = exit.pnl !== null && exit.pnl !== undefined && isFinite(Number(exit.pnl));
+      var pnl = Number(exit.pnl);
       labels.push({ kind: 'marker', x: x, y: y - 9, text: 'SELL ' + Number(exit.price).toLocaleString('en-US', { maximumFractionDigits: 2 })
-        + '  ' + (pnl >= 0 ? '+' : '−') + _pfChartInr(Math.abs(pnl)), color: PAL.sellMark });
+        + (known ? '  ' + (pnl >= 0 ? '+' : '−') + _pfChartInr(Math.abs(pnl)) : '  unpriced'), color: PAL.sellMark });
       count++;
     });
   });
