@@ -3707,7 +3707,10 @@ function renderEpf(f){
   const accounts = f && f.accounts ? f.accounts : [];
   if (!accounts.length && !(f && f.claims && f.claims.length)) {
     when.textContent = "";
-    body.innerHTML = `<div class="section-sub">Nothing read yet. Put the EPF passbooks in the vault and tap "Read my EPF papers" — the year-wise ones from the EPFO portal.</div>`;
+    body.innerHTML = `<div class="section-sub">${f && f.scanned_on
+      ? `Read ${f.pdfs_in_vault || 0} papers in the vault and found no passbook among them.`
+      : "Nothing read yet."}
+      Download the year-wise passbooks from the EPFO portal — they arrive named for the member account, like PYKRP…_2019.pdf — put them in the vault, and tap "Read my EPF papers".</div>`;
     return;
   }
   when.textContent = f.as_of ? `as the papers stood on ${niceDate(f.as_of)}` : "";
@@ -3740,7 +3743,9 @@ $("epf-scan").onclick = async () => {
   try {
     const f = await api("/api/sanctuary/epf/scan", {method: "POST"});
     renderEpf(f);
-    toast(f.read ? `${f.read} paper${f.read === 1 ? "" : "s"} read — the fund holds ${inr(f.worth)}.` : "No EPF papers found in the vault.");
+    toast(f.read
+      ? `${f.read} paper${f.read === 1 ? "" : "s"} read — the fund holds ${inr(f.worth)}.`
+      : `Nothing found in ${f.pdfs_in_vault || 0} papers. The passbooks come off the EPFO portal as PYKRP…_2019.pdf — put those in the vault.`);
     loadStanding();
   } catch (err) { toast(err.message || "The papers would not read"); }
   btn.disabled = false; btn.textContent = "↻ Read my EPF papers";

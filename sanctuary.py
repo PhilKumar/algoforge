@@ -1015,6 +1015,13 @@ async def identity_scan(user: dict = Depends(_unlocked_user)):
 # shows it, and the EPFO portal cannot be asked on his behalf.
 
 
+# How many unnamed PDFs the fallback sweep will open before giving up, and
+# how long it may spend doing it. A vault of hundreds must never hold the
+# request open long enough for the gateway to give up on it.
+_EPF_SWEEP = 400
+_EPF_SWEEP_SECONDS = 25
+
+
 def _epf_papers(docs: list[dict]) -> list[dict]:
     """The vault documents worth opening for the fund.
 
@@ -1052,25 +1059,51 @@ async def epf_scan(user: dict = Depends(_unlocked_user)):
     own, not a guess between them, so there is nothing for him to tick.
     """
     user_id = int(user["id"])
-    docs = _epf_papers(await sanctuary_db.list_documents(user_id))
+    everything = await sanctuary_db.list_documents(user_id)
+    pdfs = [d for d in everything if (d.get("content_type") or "") == "application/pdf"]
+    docs = _epf_papers(everything)
     papers: list[dict] = []
     unreadable = 0
-    for doc in docs:
-        blob = await asyncio.to_thread(_read_document_blob, doc, user_id)
-        if blob is None:
-            continue
-        try:
-            text = await asyncio.to_thread(_identity_text, blob)
-        except Exception:
-            # A scan with no text layer says nothing, and says it quietly.
-            unreadable += 1
-            continue
-        read = sanctuary_epf.read_epf(text)
-        if read:
-            papers.append(read)
+
+    async def read_them(these: list[dict]) -> None:
+        nonlocal unreadable
+        for doc in these:
+            blob = await asyncio.to_thread(_read_document_blob, doc, user_id)
+            if blob is None:
+                continue
+            try:
+                text = await asyncio.to_thread(_identity_text, blob)
+            except Exception:
+                # A scan with no text layer says nothing, and says it quietly.
+                unreadable += 1
+                continue
+            read = sanctuary_epf.read_epf(text)
+            if read:
+                papers.append(read)
+
+    await read_them(docs)
+    # A passbook filed under a name nobody would guess is still a passbook.
+    # When the names find nothing, the papers themselves are asked — newest
+    # first, and only as far as _EPF_SWEEP, because this is a vault of
+    # hundreds and each PDF costs a read.
+    swept = 0
+    ran_out = False
+    if not papers:
+        rest = [d for d in pdfs if d not in docs][:_EPF_SWEEP]
+        started = time.monotonic()
+        for doc in rest:
+            if time.monotonic() - started > _EPF_SWEEP_SECONDS:
+                ran_out = True
+                break
+            swept += 1
+            await read_them([doc])
+
     summary = sanctuary_epf.summarise(papers, _today_ist())
     summary["read"] = len(papers)
-    summary["looked_at"] = len(docs)
+    summary["looked_at"] = len(docs) + swept
+    summary["pdfs_in_vault"] = len(pdfs)
+    summary["swept"] = swept
+    summary["gave_up_early"] = ran_out
     summary["unreadable"] = unreadable
     summary["scanned_on"] = _today_ist().isoformat()
     await sanctuary_db.set_json_state(user_id, "epf", summary)
