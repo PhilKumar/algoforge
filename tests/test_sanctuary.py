@@ -116,6 +116,51 @@ class TestEmiParser(unittest.TestCase):
         result = parse_emi_document("kfs.csv", sheet)
         self.assertEqual([row["amount"] for row in result["rows"]], [42677.0, 51698.0])
 
+    def test_a_bank_statement_is_not_read_as_a_schedule(self):
+        """Every line of an account statement is dated too, and the number
+        after the date is a value date's day or a reference — read as money
+        it becomes instalments of ten rupees, and committing that would
+        replace a real schedule and reset the EMI to ten."""
+        from sanctuary_emi import _parse_lines_fallback
+
+        statement = [
+            ["Txn Date Value Date Txn Reference Narration Component Debit Credit Running Balance"],
+            ["11 April 2025 10 Apr 2025 634936 Repayment Received via Nach Principal 0.00 9,999.00 1,270,088.00"],
+            ["30 April 2025 30 Apr 2025 Interest Debited for the month of April 2025 Interest 4,321.00 0.00"],
+            ["12 May 2025 10 May 2025 717085 Repayment Received via Nach Principal 0.00 9,999.00 1,255,076.00"],
+            ["31 May 2025 31 May 2025 Interest Debited for the month of May 2025 Interest 4,456.00 0.00"],
+        ]
+        result = _parse_lines_fallback(statement, [])
+        self.assertEqual(result["rows"], [])
+        self.assertTrue(result["warnings"])
+
+    def test_a_quarterly_summary_line_is_not_one_giant_instalment(self):
+        from sanctuary_emi import _parse_lines_fallback
+
+        result = _parse_lines_fallback([["Sanction Date 11-09-2012 Principal Repaid Rs. 1,111,111.00"]], [])
+        self.assertEqual(result["rows"], [], "one line is a summary, never a schedule")
+
+    def test_two_lines_a_month_is_a_statement_not_a_schedule(self):
+        """A year-end certificate prints the EMI and then the month's
+        interest debit. Taken as instalments, half of them are not."""
+        from sanctuary_emi import _parse_lines_fallback
+
+        paid = []
+        for month in (4, 5, 6):
+            paid.append([f"12-{month:02d}-2019 EMI Received 9,999"])
+            paid.append([f"30-{month:02d}-2019 Interest Debited 4,321"])
+        result = _parse_lines_fallback(paid, [])
+        self.assertEqual(result["rows"], [])
+        self.assertTrue(any("statement" in w for w in result["warnings"]), result["warnings"])
+
+    def test_a_plain_monthly_list_still_reads(self):
+        """The tightening must not cost an honest sheet that simply has no
+        principal and interest columns to check itself against."""
+        from sanctuary_emi import _parse_lines_fallback
+
+        result = _parse_lines_fallback([[f"05-{m:02d}-2025 9,999"] for m in (9, 10, 11)], [])
+        self.assertEqual([row["amount"] for row in result["rows"]], [9999.0, 9999.0, 9999.0])
+
     def test_a_line_whose_date_follows_a_counter_still_reads(self):
         from sanctuary_emi import _parse_lines_fallback
 
