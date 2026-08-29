@@ -382,13 +382,13 @@ test('Trading defaults to Cascade and remembers its last desk and page views', a
   await expect(page).toHaveURL(/#trading\/cascade$/);
 
   await expect(page.locator('#options-cascade-page .trading-section-tab strong')).toHaveText([
-    'Cascade',
+    'Options',
     'Scalp',
     'Equity',
   ]);
 
   const activeCascadeTab = page.locator('#options-cascade-page .trading-section-tab.is-active');
-  await expect(activeCascadeTab).toContainText('Cascade');
+  await expect(activeCascadeTab).toContainText('Options');
   await activeCascadeTab.focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
