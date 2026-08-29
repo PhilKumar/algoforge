@@ -803,6 +803,41 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-review-row .who{flex:1;min-width:180px}
 .stmt-review-row .who small{display:block;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
 .stmt-review-row select{max-width:190px}
+/* The teach row carries four controls where a payee row carries two, and
+   left to a plain wrap they drifted: the explanation died in an ellipsis
+   mid-word, "among: Unsorted" was clipped to "Unsorte", and nothing lined
+   up with anything. The controls now travel as one group that ends on the
+   same right edge as the rows below, each field is the width of what it
+   must hold, and the explanation is allowed the second line it needs. */
+.stmt-teach{display:block;padding:14px 0 16px}
+.stmt-teach .who{margin-bottom:10px}
+.stmt-teach .who b{display:inline}
+.stmt-teach .who small{display:inline;white-space:normal;overflow:visible;max-width:none;
+  color:var(--soft);margin-left:8px}
+.teach-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;
+  /* the rows below scroll, and their scrollbar takes a strip off their right
+     edge; this line sits outside that frame and borrows the same strip, so
+     the two end together. The width is measured, never assumed — it is 15px
+     on one browser and nothing at all on another. */
+  padding-right:var(--pile-gutter,0px)}
+/* An input and a select disagree by a pixel on their own; on one line,
+   side by side, that pixel is visible. They are told to agree. */
+.teach-controls .field{flex:none;height:46px;padding-top:0;padding-bottom:0}
+.teach-controls .btn{height:46px}
+#stmt-own-match{width:212px}
+#stmt-own-from{width:188px}
+#stmt-own-cat{width:190px}
+/* On a phone the four controls become four full-width lines. Half-width
+   fields left a ragged edge down the right, which is the thing he was
+   looking at when he said it was not aligned. */
+@media (max-width:900px){
+  .teach-controls{justify-content:stretch}
+  /* the payee rows cap their select at 190px; on one line per control that
+     cap is what leaves the ragged edge, so it is lifted here */
+  .teach-controls #stmt-own-match,.teach-controls #stmt-own-from,
+  .teach-controls #stmt-own-cat{width:100%;max-width:none;flex:1 1 100%}
+  .teach-controls .btn{flex:1 1 100%;justify-content:center}
+}
 .ledger-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
 .ledger-toolbar #led-search{flex:2;min-width:180px}
 .ledger-toolbar select{flex:1;min-width:130px;max-width:220px}
@@ -879,7 +914,7 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 /* Ten payees at a time, in a frame that keeps its height whether the page
    holds ten or one — otherwise the panel jumps every time he turns a page,
    and the last one, with two rows on it, looks like a different panel. */
-.pile-frame{--pile-row:57px;--pile-seen:6;
+.pile-frame{--pile-row:64px;--pile-seen:6;
   height:calc(var(--pile-row) * var(--pile-seen));
   overflow-y:auto;overscroll-behavior:contain;
   border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
@@ -3923,8 +3958,10 @@ function switchTab(which){
   _film.roam = true;   /* he has moved rooms himself: new framings unlock */
   sceneVideoView(which === "finance" ? "finance" : "journal");
   /* A hidden leaf has no width and nothing can be measured against it, so
-     the book folds its pages the moment it is on screen. */
+     the book folds its pages the moment it is on screen — and the unsorted
+     pile measures its scrollbar for the same reason. */
   if (which === "journal" && S.entries) renderBook();
+  if (which === "finance"){ requestAnimationFrame(syncPileGutter); setTimeout(syncPileGutter, 300); }
 }
 /* A narrower window wraps the writing differently, which moves where every
    page ends. Repaginate once the dragging stops. */
@@ -4249,12 +4286,14 @@ function stmtReviewShell(host){
       <span class="stmt-found" id="stmt-found"></span>
     </div>
     <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
-    <div class="stmt-review-row" data-match="">
-      <div class="who"><b>Teach your own</b><small>Any word from the narration — a name in all its spellings, a mandate number, a loan code. "Among" picks where to look: the unsorted pile, or inside a category that needs splitting.</small></div>
-      <input class="field" id="stmt-own-match" placeholder="e.g. 0000055944" style="max-width:170px">
-      <select class="field" id="stmt-own-from" style="max-width:160px"></select>
-      <select class="field" id="stmt-own-cat"></select>
-      <button class="btn ghost" data-stmt-teach>This is where they go</button>
+    <div class="stmt-review-row stmt-teach" data-match="">
+      <div class="who"><b>Teach your own</b><small>Any word from the narration — a name, a mandate number, a loan code. “Among” picks where to look: the unsorted pile, or a category that needs splitting.</small></div>
+      <div class="teach-controls">
+        <input class="field" id="stmt-own-match" placeholder="the word — e.g. 0000055944">
+        <select class="field" id="stmt-own-from"></select>
+        <select class="field" id="stmt-own-cat"></select>
+        <button class="btn ghost" data-stmt-teach>This is where they go</button>
+      </div>
     </div>
     <div id="stmt-list"></div>
     <div id="stmt-pager"></div>`;
@@ -4318,6 +4357,7 @@ async function loadStmtReview(){
              If those rows keep landing somewhere wrong, a rule is already holding them —
              <button class="btn subtle small" data-rule-find="${esc(q)}">look for “${esc(q)}” in your rules</button></div>`
         : "");
+    requestAnimationFrame(syncPileGutter);
     $("stmt-pager").innerHTML = r.pages > 1
       ? `<div class="ledger-pager pile-pager">
            <button class="btn subtle small" data-pile-page="${r.page - 1}" ${r.page <= 1 ? "disabled" : ""}>‹ Bigger</button>
@@ -4335,6 +4375,23 @@ async function loadStmtReview(){
       Nothing is lost; try again in a moment.</div>`;
   }
 }
+/* The frame's scrollbar is worth 15px on one browser and nothing on the
+   next, so the teach line is told the real number rather than guessing it.
+   A panel rendered while the Finances tab is still hidden measures zero and
+   must not be believed — it is asked again when it can actually be seen. */
+function syncPileGutter(){
+  const host = $("stmt-review");
+  const frame = host && host.querySelector(".pile-frame");
+  if (!frame || !frame.offsetWidth) return;
+  const want = (frame.offsetWidth - frame.clientWidth) + "px";
+  if (host.style.getPropertyValue("--pile-gutter") !== want) host.style.setProperty("--pile-gutter", want);
+}
+/* The panel is usually built behind the Journal tab, where it has no width
+   at all and the measurement means nothing — and a ResizeObserver is no help
+   here, because going from display:none to shown never reaches it. So it is
+   asked at each of the three moments the answer can change: when the list is
+   drawn, when the tab is opened, and when the window is dragged. */
+addEventListener("resize", () => requestAnimationFrame(syncPileGutter));
 document.addEventListener("click", (e) => {
   const turn = e.target.closest("[data-pile-page]");
   if (!turn || turn.disabled) return;
