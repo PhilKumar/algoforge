@@ -20857,12 +20857,22 @@ function _recoveryCampaign(c) {
   const zones = (c.zones || []).map(z =>
     `<span style="margin-right:12px;">zone ${z.level}-${z.level}: ${_recNum(z.lower, 1)}–${_recNum(z.upper, 1)} · ${z.lots} lot</span>`).join('');
   const need = c.required_recovery === null || c.required_recovery === undefined ? null : c.required_recovery;
+  // WHICH RULE IS THIS. The Side and depth controls above describe the run you
+  // would start, not the one on screen, so a CE book under a PE recipe read as
+  // the same mother giving different answers. Every card now says its own.
+  const rule = [
+    String(c.timeframe || '').toUpperCase(),
+    c.itm_steps === null || c.itm_steps === undefined ? null : `ATM−${c.itm_steps} ${escapeHtml(String(c.side || ''))}`,
+    c.mode === 'fib-zone' ? 'fib zones' : 'ladder',
+  ].filter(Boolean).join(' · ');
+  const unpriced = Number(c.unpriced_legs || 0);
   return `<div class="card" style="padding:14px;margin-top:12px;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <div style="font:12px 'JetBrains Mono',monospace;">
         <b>Mother ${_recTime(c.mother.timestamp)}</b> · high ${_recNum(c.mother.high, 2)}
         <span style="color:${statusColour};margin-left:10px;">${c.status}</span>
         ${c.end_reason ? `<span style="color:var(--muted);"> (${c.end_reason})</span>` : ''}
+        <span class="ocp-rule-chip">${escapeHtml(rule)}</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;" aria-label="Chart this campaign">&#8599; Chart</button>
@@ -20870,10 +20880,13 @@ function _recoveryCampaign(c) {
       </div>
     </div>
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
-      ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>
-      ${need !== null ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
+      ${unpriced
+        ? `ledger <b style="color:#fbbf24;">not a book</b> · <b>${unpriced}</b> closed leg${unpriced === 1 ? '' : 's'} the archive could not price`
+        : `ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>`}
+      ${need !== null && !unpriced ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
       ${c.open_trades ? ` · ${c.open_trades} open` : ''}
       ${zones ? `<div style="margin-top:4px;">${zones}</div>` : ''}
+      ${unpriced ? `<div class="ocp-unpriced-note">A leg with no premium is unknown, not flat &mdash; counting it as &#8377;0 would read ${unpriced} exit${unpriced === 1 ? '' : 's'} as break-even. Backtest replays the same mother on recorded prices.</div>` : ''}
     </div>
     <div style="margin-top:8px;">${_recoveryTrades(c.trades)}</div>
   </div>`;
@@ -21042,6 +21055,7 @@ function renderRecovery(data) {
   // .ocp-tile-label / -value, which the stylesheet has never defined
   // -- the same bug that once rendered every Gap Carry tile as bare text.
   const ledger = Number(book.booked_net || 0);
+  const unpricedLegs = campaigns.reduce((a, c) => a + Number(c.unpriced_legs || 0), 0);
   const need = campaigns.reduce((a, c) => a + Number(c.required_recovery || 0), 0);
   tiles.innerHTML = [
     // FOUR tiles, not five: the grid lays out four to a row, and a fifth
@@ -21050,7 +21064,11 @@ function renderRecovery(data) {
     _ocpTile('Campaigns', `${campaigns.length} · ${closed} closed`, 'var(--text)'),
     _ocpTile('Open trades', String(openTrades), openTrades ? '#38bdf8' : 'var(--text)'),
     _ocpTile('To recover', need ? `₹${Math.round(need).toLocaleString('en-IN')}` : '—', need ? '#fbbf24' : 'var(--text)'),
-    _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
+    // A book with unpriced exits has no total. Summing the legs that DID price
+    // and calling it the ledger is how five stops showed as +₹0.
+    unpricedLegs
+      ? _ocpTile('Ledger', `${unpricedLegs} unpriced`, '#fbbf24')
+      : _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
   ].join('');
 
   // CLOSED TRADES GET THEIR OWN TABLE. Settled paper money was only ever

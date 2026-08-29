@@ -9438,3 +9438,27 @@ body :is(
 /* One button carries auto: green to switch it on, amber to switch it off, so
    the colour never says "start" while the label says "stop". */
 #options-cascade-page #oc-fib-start.is-danger { --btn-bg: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.50)); --btn-color: #fde68a; border-color: rgba(245,158,11,.55); background: var(--btn-bg); color: var(--btn-color); }
+
+/* WHICH RULE A CARD IS. The Side and depth controls describe the run you would
+   start, not the one on screen; without this a CE book read under a PE recipe
+   looked like one mother giving two answers. */
+.ocp-rule-chip {
+  margin-left: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: 600 10px 'JetBrains Mono', monospace;
+  letter-spacing: .4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* A replay whose legs never priced is not a book, and must not be read as one. */
+.ocp-unpriced-note {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-left: 2px solid #fbbf24;
+  background: rgba(251, 191, 36, .07);
+  border-radius: 0 5px 5px 0;
+  color: var(--text);
+  line-height: 1.55;
+}

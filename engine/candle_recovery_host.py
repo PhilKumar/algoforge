@@ -363,6 +363,16 @@ class CandleRecoveryHost:
             "mode": campaign.mode,
             "timeframe": self.config.timeframe,
             "side": self.side,
+            # A card has to be able to say which rule it is. The panel's Side
+            # and depth controls describe the run you would START, not the one
+            # you are looking at, so a CE book read under a PE recipe looks
+            # like the same mother behaving differently (Phil, 2026-08-29).
+            "itm_steps": self.config.itm_steps,
+            "lot_size": self.lot_size,
+            # Closed legs the archive could not price. A leg with no premium is
+            # not a flat leg -- it is an unknown one, and a ledger that counts
+            # it as zero reads five stops as break-even.
+            "unpriced_legs": sum(1 for t in trades if t.entry_time is not None and not t.open and t.net_pnl is None),
             "mother": {
                 "timestamp": campaign.mother.timestamp.isoformat(),
                 # a mirrored mother's high is the real low, and vice versa
