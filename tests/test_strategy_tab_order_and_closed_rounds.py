@@ -55,6 +55,50 @@ class TabOrderTests(unittest.TestCase):
             self.assertEqual(hidden, name != "gapcarry", f"{name} visibility is wrong")
 
 
+class HeroCopyTests(unittest.TestCase):
+    """The page header describes what the tabs beneath it do, so adding a tab
+    can make it lie. Phil, 2026-08-29, on seeing Supertrend land: "So now this
+    cascade becomes false correct?" -- it did, and Gap Carry had already broken
+    the same sentence before that.
+    """
+
+    HERO = HTML[HTML.index('class="oc-hero-copy"') : HTML.index('id="options-cascade-live-gate"')]
+
+    def _tabs_wanting_a_mother(self):
+        wants, all_tabs = set(), [t for t in ORDER if t != "bench"]
+        for name in all_tabs:
+            panel = re.search(rf'<div id="oc-tab-{name}".*?(?=<div id="oc-tab-|<div id="oc-chart-overlay)', HTML, re.S)
+            if panel and 'type="datetime-local"' in panel.group(0):
+                wants.add(name)
+        return wants, set(all_tabs)
+
+    def test_it_does_not_claim_every_strategy_takes_a_mother(self):
+        wants, every = self._tabs_wanting_a_mother()
+        if wants != every:
+            missing = ", ".join(sorted(every - wants))
+            self.assertNotIn(
+                "Every strategy takes a mother candle",
+                self.HERO,
+                f"the header says every strategy takes a mother, but {missing} do not",
+            )
+
+    def test_step_three_does_not_quote_one_tab_s_button(self):
+        """Each strategy words its own Start button, so naming one of them in the
+        steps is wrong on the other four."""
+        labels = set()
+        for bid in ("oc-gap-start", "oc-fib-start", "oc-high-start", "oc-candle-start", "oc-st-start"):
+            m = re.search(rf'id="{bid}".*?>(.*?)</button>', HTML, re.S)
+            if m:
+                labels.add(re.sub(r"&#\d+;|\s+", " ", m.group(1)).strip())
+        for label in labels:
+            if len(labels) > 1:
+                self.assertNotIn(
+                    f"<strong>{label}</strong>",
+                    self.HERO,
+                    f"the steps quote {label!r}, which only one of the five buttons says",
+                )
+
+
 class ClosedPaperTradesTests(unittest.TestCase):
     def test_candle_entry_has_a_closed_campaigns_table(self):
         self.assertIn('id="oc-candle-closed-rows"', HTML)
