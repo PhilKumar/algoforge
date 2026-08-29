@@ -28,11 +28,15 @@ _FORMAT_DETAILS = {
     "WEBP": (".webp", "image/webp"),
 }
 
-# Everything else a Mac hands over when a picture leaves the Photos app.
-# Copying one puts a TIFF on the clipboard; dragging one can too; an iPhone
-# writes HEIC; a newer library may hold AVIF. None of them open in a browser,
-# so each is kept as JPEG — or PNG, where it carries transparency worth keeping.
-_CONVERTED_FORMATS = {"HEIF", "AVIF", "TIFF", "GIF", "BMP"}
+# A camera roll holds far more than three formats. Copying a photo in Photos
+# puts a TIFF on the clipboard, an iPhone writes HEIC, an HDR or dual-lens
+# shot is an MPO, a newer library holds AVIF — and naming them one at a time
+# only found the next one he happened to drag in. So anything Pillow can
+# decode is a picture, and anything it cannot is not; the three a browser can
+# already show are kept as they are, the rest become JPEG, or PNG where there
+# is transparency to keep. Nothing is stored as it arrived either way: every
+# picture is decoded and written out again, which is what strips whatever was
+# riding along in it.
 _UNSPOKEN_TYPES = {"", "application/octet-stream"}
 _HEIF_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"}
 
@@ -83,13 +87,10 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
         if declared not in _UNSPOKEN_TYPES and declared != detected_content_type:
             image.close()
             raise ImageValidationError("The image contents do not match the declared file type.")
-    elif source_format in _CONVERTED_FORMATS:
+    else:
         # What it will be kept as is decided below, once its transparency
         # is known; a photograph has none and belongs in JPEG.
         extension, detected_content_type = _FORMAT_DETAILS["JPEG"]
-    else:
-        image.close()
-        raise ImageValidationError(f"A {source_format.title()} is not a picture this can keep.")
 
     width, height = image.size
     if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
@@ -101,7 +102,7 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
         clean = ImageOps.exif_transpose(image)
         has_alpha = clean.mode in {"RGBA", "LA"} or (clean.mode == "P" and "transparency" in clean.info)
         saved_format = source_format
-        if source_format in _CONVERTED_FORMATS:
+        if source_format not in _FORMAT_DETAILS:
             saved_format = "PNG" if has_alpha else "JPEG"
             extension, detected_content_type = _FORMAT_DETAILS[saved_format]
         clean = clean.convert("RGBA" if has_alpha and saved_format != "JPEG" else "RGB")

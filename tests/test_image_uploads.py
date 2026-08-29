@@ -111,6 +111,43 @@ class WhatAMacHandsOverTests(unittest.TestCase):
                 result = sanitize_image(self._bytes(fmt), ctype)
                 self.assertEqual((result.extension, result.content_type), (ext, ctype))
 
+    def test_an_hdr_photo_off_a_phone_is_kept(self):
+        """An iPhone HDR or dual-lens shot is an MPO — a JPEG carrying more
+        than one frame. Named formats one at a time, it was the next thing
+        refused; anything Pillow can decode is a picture now."""
+        buf = BytesIO()
+        Image.new("RGB", (8, 6), (12, 34, 56)).save(
+            buf, format="MPO", append_images=[Image.new("RGB", (8, 6), (56, 34, 12))]
+        )
+        for declared in ("image/jpeg", "", "application/octet-stream"):
+            with self.subTest(declared=declared):
+                result = sanitize_image(buf.getvalue(), declared)
+                self.assertEqual(result.content_type, "image/jpeg")
+                self.assertTrue(result.data.startswith(b"\xff\xd8\xff"))
+
+    def test_what_a_browser_can_show_already_is_left_in_its_own_format(self):
+        result = sanitize_image(self._bytes("WEBP"), "image/webp")
+        self.assertEqual((result.extension, result.content_type), (".webp", "image/webp"))
+
+    def test_only_the_first_frame_of_a_multi_frame_picture_is_kept(self):
+        """A drop is one picture, not an album: the frame he is looking at."""
+        buf = BytesIO()
+        Image.new("RGB", (8, 6), (1, 2, 3)).save(
+            buf, format="GIF", save_all=True, append_images=[Image.new("RGB", (8, 6), (9, 9, 9))]
+        )
+        self.assertEqual(sanitize_image(buf.getvalue(), "").content_type, "image/jpeg")
+
+    def test_a_document_or_a_movie_is_still_not_a_picture(self):
+        """Widening what counts as a picture must not widen it to everything."""
+        for blob, what in (
+            (b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n", "a PDF"),
+            (b"<svg xmlns='http://www.w3.org/2000/svg'/>", "an SVG"),
+            (b"\x00\x00\x00\x20ftypqt  \x00\x00\x00\x00", "a Live Photo movie"),
+        ):
+            with self.subTest(what=what):
+                with self.assertRaises(ImageValidationError):
+                    sanitize_image(blob, "image/jpeg")
+
     def test_what_is_not_a_picture_is_still_refused_by_name(self):
         with self.assertRaises(ImageValidationError) as caught:
             sanitize_image(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n", "image/tiff")
