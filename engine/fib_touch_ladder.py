@@ -1178,6 +1178,21 @@ class FibTouchLadder:
                 rebuilt.append(existing)
                 continue
             rebuilt.append(row)
+        # A RUNG THAT IS NO LONGER DRAWABLE IS STILL A RECORD. The geometry is
+        # not persisted, so a restart redraws the fibs from the bars -- and
+        # while only the FIRST fib is back, every rung of the second one was
+        # missing from this list and dropped. When that fib redrew moments
+        # later its levels returned FRESH, which is how F2L2 came back PENDING
+        # after buying, and was bought again in the same round (28 Aug 2026).
+        #
+        # Anything that has been collected, filled, gapped or capped is kept:
+        # it is history, and it is inert here because the collect walk only
+        # ever looks at PENDING. A PENDING rung whose fib is gone is a
+        # candidate that no longer exists, and is dropped as before.
+        carried = {rung.key for rung in rebuilt}
+        for key, rung in known.items():
+            if key not in carried and rung.status != "PENDING":
+                rebuilt.append(rung)
         self.rungs = rebuilt
 
     def _drawable_rungs(self) -> list[TouchRung]:

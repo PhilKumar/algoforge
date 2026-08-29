@@ -86,3 +86,39 @@ def test_the_next_round_may_buy_the_same_level_again():
     assert "F2L2" in ladder._bought_keys()
     ladder.fills = []  # what banking a round does
     assert ladder._bought_keys() == set(), "a banked round must free its levels for the next one"
+
+
+def test_a_redraw_that_only_has_the_first_fib_does_not_forget_the_second():
+    """The 28 Aug loss, reproduced at its source.
+
+    The geometry is not persisted, so a restart redraws the fibs from the bars.
+    While only fib 1 is back, fib 2's rungs are absent from the drawable list.
+    They must survive that gap: dropping them meant the redraw of fib 2 handed
+    back fresh PENDING levels and the round bought F2L2 a second time.
+    """
+    ladder = _ladder()
+
+    class _R:
+        def __init__(self, fib_id, level, status, price):
+            self.fib_id, self.level, self.status, self.index_price = fib_id, level, status, price
+            self.armed, self.drawn_at, self.filled_at = True, None, None
+            self.zone_floor, self.zone_label, self.zone_bottom_fib_id = None, "", 0
+
+        @property
+        def key(self):
+            return f"F{self.fib_id}L{self.level}"
+
+    # Before the restart: fib 1 and fib 2 on the ladder, one level of each spent.
+    ladder.rungs = [
+        _R(1, 2, "FILLED", 24_132.8),
+        _R(2, 2, "FILLED", 24_119.7),
+        _R(2, 3, "PENDING", 24_097.85),
+    ]
+    # The redraw has only rebuilt fib 1 so far.
+    ladder._drawable_rungs = lambda: [_R(1, 2, "PENDING", 24_132.8)]
+    ladder._build_rungs()
+
+    kept = {r.key: r.status for r in ladder.rungs}
+    assert kept.get("F1L2") == "FILLED", "the drawable fib must keep its own history"
+    assert kept.get("F2L2") == "FILLED", "a spent level was forgotten while its fib was between draws"
+    assert "F2L3" not in kept, "an unbought level of a fib that is gone is not a record to keep"
