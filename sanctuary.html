@@ -507,8 +507,8 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
   line-height:var(--pitch);margin:0;color:var(--ink)}
 .page-body{font-family:var(--hand);font-size:1.75rem;font-weight:400;letter-spacing:.012em;
   line-height:var(--pitch);margin:0;white-space:pre-wrap;color:var(--ink)}
-.book-leaf .entry-photos{margin:var(--pitch) 0 0}
-.book-leaf .entry-photos img{width:calc(var(--pitch) * 4);height:calc(var(--pitch) * 4)}
+.book-leaf .photo-deck{margin:var(--pitch) 0 0;
+  width:calc(var(--pitch) * 4.5);height:calc(var(--pitch) * 4.5)}
 .book-leaf .entry-music{font-family:var(--hand);font-size:1.5rem;font-style:normal;
   line-height:var(--pitch);margin:0}
 /* The waiting page floats free of the ruling — it is not writing. */
@@ -637,8 +637,65 @@ details.plan-done-wrap{margin-top:0}
 .entry-body{white-space:pre-wrap;color:var(--ink);margin-top:4px}
 .entry-music{margin-top:10px;color:var(--muted);font-size:.9rem;font-style:italic}
 .entry-actions{margin-left:auto;display:flex;gap:6px;opacity:.65}
-.entry-photos{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-.entry-photos img{width:110px;height:110px;object-fit:cover;border-radius:14px;cursor:zoom-in;border:1px solid var(--line-soft)}
+/* ── the deck ──
+   Pictures kept the way prints are kept: in a pile, face up, the ones
+   underneath showing at their corners. It costs one photograph's worth of
+   room however many there are, which is what lets a page with a dozen of
+   them still be a page. */
+.photo-deck{position:relative;width:132px;height:132px;margin-top:14px;cursor:pointer;
+  -webkit-tap-highlight-color:transparent}
+.deck-print{position:absolute;inset:0;border-radius:12px;overflow:hidden;background:var(--card);
+  border:1px solid var(--line-soft);box-shadow:0 6px 18px rgba(6,10,18,.28);
+  transform:rotate(var(--tilt)) translate(var(--dx),var(--dy));
+  transition:transform .34s cubic-bezier(.2,.9,.3,1.2)}
+.deck-print:nth-child(1){--tilt:0deg;--dx:0px;--dy:0px;z-index:4}
+.deck-print:nth-child(2){--tilt:-4.5deg;--dx:-5px;--dy:3px;z-index:3}
+.deck-print:nth-child(3){--tilt:5deg;--dx:6px;--dy:5px;z-index:2}
+.deck-print:nth-child(4){--tilt:-2deg;--dx:2px;--dy:8px;z-index:1}
+.deck-print:nth-child(n+5){display:none}
+.deck-print img{width:100%;height:100%;object-fit:cover;display:block}
+/* Under the hand it opens a little, the way a thumb riffles a pile. */
+.photo-deck:hover .deck-print:nth-child(1){transform:rotate(1deg) translate(0,-4px)}
+.photo-deck:hover .deck-print:nth-child(2){transform:rotate(-9deg) translate(-13px,4px)}
+.photo-deck:hover .deck-print:nth-child(3){transform:rotate(10deg) translate(14px,6px)}
+.photo-deck:hover .deck-print:nth-child(4){transform:rotate(-4deg) translate(4px,12px)}
+.deck-count{position:absolute;right:-7px;bottom:-7px;z-index:5;min-width:24px;height:24px;
+  border-radius:12px;background:var(--moss);color:#fff;font:600 .78rem/24px var(--sans);
+  text-align:center;padding:0 7px;box-shadow:0 2px 8px rgba(6,10,18,.35)}
+
+/* ── the spread ──
+   Opening one lays the whole pile out on the table: the one he asked for in
+   front, its neighbours fanned behind, each still reachable. */
+.deck-view{position:fixed;inset:0;z-index:90;background:rgba(8,14,24,.9);
+  opacity:0;transition:opacity .28s ease;overscroll-behavior:contain}
+.deck-view.open{opacity:1}
+.deck-stage{position:absolute;inset:0;display:grid;place-items:center;perspective:1400px}
+.stage-print{position:absolute;margin:0;border-radius:14px;overflow:hidden;background:#0d1420;
+  box-shadow:0 24px 60px rgba(0,0,0,.55);will-change:transform;
+  transition:transform .42s cubic-bezier(.2,.85,.28,1.05),opacity .42s ease}
+.stage-print img{display:block;max-width:min(86vw,980px);max-height:78dvh;width:auto;height:auto}
+.stage-print figcaption{position:absolute;left:0;right:0;bottom:0;padding:14px 16px 12px;
+  font:400 .95rem/1.4 var(--sans);color:#f2f6ff;
+  background:linear-gradient(transparent,rgba(6,10,18,.82))}
+.deck-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:3;width:52px;height:52px;
+  border-radius:26px;border:1px solid rgba(255,255,255,.22);background:rgba(12,20,32,.55);
+  color:#eaf1ff;font-size:1.7rem;line-height:1;cursor:pointer;transition:background .2s ease}
+.deck-nav:hover{background:rgba(30,44,64,.8)}
+.deck-nav.prev{left:18px}
+.deck-nav.next{right:18px}
+.deck-shut{position:absolute;top:18px;right:18px;z-index:3;width:44px;height:44px;border-radius:22px;
+  border:1px solid rgba(255,255,255,.22);background:rgba(12,20,32,.55);color:#eaf1ff;
+  font-size:1.2rem;cursor:pointer}
+.deck-where{position:absolute;bottom:22px;left:0;right:0;z-index:3;text-align:center;
+  font:500 .9rem var(--sans);color:rgba(226,236,255,.72);letter-spacing:.04em}
+@media (max-width:720px){
+  .photo-deck{width:112px;height:112px}
+  .deck-nav{width:44px;height:44px;font-size:1.4rem}
+  .deck-nav.prev{left:6px} .deck-nav.next{right:6px}
+}
+@media (prefers-reduced-motion:reduce){
+  .deck-print,.stage-print,.deck-view{transition:none}
+}
 .side-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}
 .own-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;align-items:start}
 .own-grid > .card{margin:0;height:100%}
@@ -1014,7 +1071,7 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .note-card .h b{font-family:var(--serif);font-size:1.02rem;font-weight:650}
 .note-card .b{white-space:pre-wrap;margin-top:10px;color:var(--muted)}
 
-/* ── modal / toast / lightbox ─────────────────────────────── */
+/* ── modal / toast ────────────────────────────────────────── */
 .modal-wrap{position:fixed;inset:0;background:rgba(16,24,38,.5);backdrop-filter:blur(5px);z-index:80;
   display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{width:min(620px,100%);max-height:88dvh;overflow:auto;padding:26px;
@@ -1031,8 +1088,6 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   background:var(--ink);color:var(--ground);padding:12px 24px;border-radius:999px;font-weight:700;
   box-shadow:var(--shadow-lift);transition:transform .3s ease;max-width:90vw;text-align:center}
 #toast.show{transform:translateX(-50%) translateY(0)}
-#lightbox{position:fixed;inset:0;z-index:90;background:rgba(8,14,24,.88);display:flex;align-items:center;justify-content:center;padding:26px;cursor:zoom-out}
-#lightbox img{max-width:94vw;max-height:90dvh;border-radius:12px}
 .preview-table{max-height:300px;overflow:auto;border:1px solid var(--line-soft);border-radius:12px;margin-top:12px}
 .warn-line{color:var(--terracotta);font-size:.88rem;margin-top:8px}
 
@@ -2385,8 +2440,11 @@ function _dayLeaves(day, m){
         <button class="btn subtle small" data-del="${e.id}">✕</button></span></div>`, keep: true});
     if (e.title) blocks.push({html: `<div class="page-title">${esc(e.title)}</div>`, keep: true});
     if (e.body) blocks.push({text: e.body});
-    if (e.photos.length) blocks.push({html: `<div class="entry-photos">${e.photos.map((p) =>
-      `<img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}" alt="${esc(p.caption)}" data-zoom="${esc(p.file)}">`).join("")}</div>`});
+    if (e.photos.length) blocks.push({html: `<div class="photo-deck" role="button" tabindex="0"
+      aria-label="${e.photos.length} picture${e.photos.length > 1 ? "s" : ""}">${e.photos.map((p) =>
+      `<span class="deck-print"><img loading="lazy" src="/api/sanctuary/photos/${esc(p.file)}"
+        alt="${esc(p.caption)}" data-caption="${esc(p.caption)}"></span>`).join("")}${
+      e.photos.length > 1 ? `<span class="deck-count">${e.photos.length}</span>` : ""}</div>`});
     if (e.music) blocks.push({html: `<div class="entry-music">♪ ${esc(e.music)}</div>`});
   });
   /* Every block is MEASURED, never assumed. On a phone the time row wraps
@@ -3961,12 +4019,8 @@ document.addEventListener("click", async (e) => {
   if (kindChip) { S.composerKind = kindChip.dataset.k; renderKindChips(); return; }
   const px = t.closest("#c-photos .x");
   if (px) { S.composerPhotos.splice(Number(px.dataset.i), 1); renderComposerPhotos(); return; }
-  const zoom = t.closest("[data-zoom]");
-  if (zoom) {
-    const lb = document.createElement("div"); lb.id = "lightbox";
-    lb.innerHTML = `<img src="/api/sanctuary/photos/${esc(zoom.dataset.zoom)}" alt="">`;
-    lb.onclick = () => lb.remove(); document.body.appendChild(lb); return;
-  }
+  const deck = t.closest(".photo-deck");
+  if (deck) { openDeck(deck); return; }
   const del = t.closest("[data-del]");
   if (del) { if (await confirmDialog("This entry and its pictures will return to the soil.", "Let it go")) {
     await api("/api/sanctuary/journal/" + del.dataset.del, {method: "DELETE"}); toast("Released."); refreshJournal(); } return; }
@@ -4127,6 +4181,121 @@ $("c-file").addEventListener("change", async (e) => {
     e.preventDefault(); addPictures(files);
   });
 }
+/* ── opening the deck ──
+   The pile is lifted off the page: the prints begin exactly where the deck
+   was sitting and travel out from there, so it reads as the same pile being
+   spread rather than a new window arriving. Closing gathers them back to it. */
+function openDeck(deck){
+  const shots = [...deck.querySelectorAll(".deck-print img")].map((img) => ({
+    src: img.getAttribute("src"), caption: img.dataset.caption || "",
+  }));
+  if (!shots.length) return;
+  const from = deck.getBoundingClientRect();
+  const view = document.createElement("div");
+  view.className = "deck-view";
+  view.innerHTML = `<div class="deck-stage">${shots.map((shot, k) =>
+      `<figure class="stage-print" data-k="${k}"><img src="${esc(shot.src)}" alt="${esc(shot.caption)}">
+      ${shot.caption ? `<figcaption>${esc(shot.caption)}</figcaption>` : ""}</figure>`).join("")}</div>
+    ${shots.length > 1 ? `<button class="deck-nav prev" aria-label="The one before">‹</button>
+    <button class="deck-nav next" aria-label="The next one">›</button>
+    <div class="deck-where"></div>` : ""}
+    <button class="deck-shut" aria-label="Close">✕</button>`;
+  document.body.appendChild(view);
+  const prints = [...view.querySelectorAll(".stage-print")];
+  let at = 0;
+
+  /* Where each print sits: the chosen one square in the middle, its
+     neighbours fanned to either side, the far ones out of the way. */
+  const lay = (animated) => {
+    prints.forEach((print, k) => {
+      const off = k - at;
+      const away = Math.abs(off);
+      print.style.transition = animated ? "" : "none";
+      print.style.transform = `translate(${off * 74}px, ${away * 14}px)
+        rotate(${off * 4.5}deg) scale(${Math.max(0.5, 1 - away * 0.1)})`;
+      print.style.opacity = away > 3 ? 0 : 1;
+      print.style.zIndex = 50 - away;
+      print.style.pointerEvents = away > 3 ? "none" : "auto";
+    });
+    const where = view.querySelector(".deck-where");
+    if (where) where.textContent = `${at + 1} of ${shots.length}`;
+  };
+
+  /* Every print starts folded onto the deck's own square of the page, then
+     travels out from there. The fold is measured against the print's real
+     size, and a picture that has not laid out yet has no size at all — that
+     read as scale(153) once, and the whole spread arrived as a wall. */
+  const fold = () => {
+    prints.forEach((print) => {
+      const box = print.getBoundingClientRect();
+      const shrink = box.width > 8 ? from.width / box.width : 0.24;
+      const dx = from.left + from.width / 2 - (box.left + box.width / 2);
+      const dy = from.top + from.height / 2 - (box.top + box.height / 2);
+      print.style.transition = "none";
+      print.style.transform = `translate(${dx}px, ${dy}px)
+        scale(${Math.min(1, Math.max(0.05, shrink))}) rotate(-6deg)`;
+      print.style.opacity = 0;
+    });
+  };
+  let begun = false;
+  const begin = () => {
+    if (begun) return;
+    begun = true;
+    fold();
+    void view.offsetHeight;   /* the folded state has to be seen before it can be left */
+    view.classList.add("open");
+    prints.forEach((print) => { print.style.transition = ""; });
+    lay(true);
+  };
+  /* Opening waits for the first picture to know its own size — but never on
+     it: a slow one opens the spread anyway rather than leaving a dark screen.
+     (Not requestAnimationFrame, which a background tab never runs at all.) */
+  const first = view.querySelector("img");
+  if (first && !first.complete) { first.addEventListener("load", begin, {once: true}); setTimeout(begin, 260); }
+  else begin();
+
+  const go = (step) => { at = (at + step + shots.length) % shots.length; lay(true); };
+  const shut = () => {
+    view.classList.remove("open");
+    prints.forEach((print) => {
+      const box = print.getBoundingClientRect();
+      print.style.transform = `translate(${from.left + from.width / 2 - (box.left + box.width / 2)}px,
+        ${from.top + from.height / 2 - (box.top + box.height / 2)}px) scale(.2) rotate(-6deg)`;
+      print.style.opacity = 0;
+    });
+    setTimeout(() => view.remove(), 300);
+    document.removeEventListener("keydown", onKey);
+  };
+  function onKey(e){
+    if (e.key === "Escape") shut();
+    if (e.key === "ArrowRight") go(1);
+    if (e.key === "ArrowLeft") go(-1);
+  }
+  document.addEventListener("keydown", onKey);
+  view.addEventListener("click", (e) => {
+    const nav = e.target.closest(".deck-nav");
+    if (nav) return go(nav.classList.contains("next") ? 1 : -1);
+    if (e.target.closest(".deck-shut")) return shut();
+    const print = e.target.closest(".stage-print");
+    if (print) { const k = Number(print.dataset.k); if (k !== at) { at = k; lay(true); } return; }
+    shut();   /* the table around the prints */
+  });
+  /* On a phone the pile is riffled with a thumb. */
+  let swipeFrom = null;
+  view.addEventListener("touchstart", (e) => { swipeFrom = e.touches[0].clientX; }, {passive: true});
+  view.addEventListener("touchend", (e) => {
+    if (swipeFrom == null) return;
+    const dx = e.changedTouches[0].clientX - swipeFrom;
+    swipeFrom = null;
+    if (Math.abs(dx) > 44) go(dx < 0 ? 1 : -1);
+  });
+}
+document.addEventListener("keydown", (e) => {
+  /* A deck reached by tabbing opens on the key, like the button it says it is. */
+  if ((e.key === "Enter" || e.key === " ") && document.activeElement?.classList?.contains("photo-deck")) {
+    e.preventDefault(); openDeck(document.activeElement);
+  }
+});
 $("f-month").addEventListener("change", () => { S.jMonth = $("f-month").value; refreshJournal(); });
 $("f-kind").addEventListener("change", () => { S.jKind = $("f-kind").value; refreshJournal(); });
 let qTimer = null;
