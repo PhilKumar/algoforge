@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import _nifty_lot_size_on, _serialize_fib_boundary_backtest  # noqa: E402
 from engine.cascade_fib_boundary import FibBoundaryCascade, FibBoundaryConfig  # noqa: E402
 from engine.cascade_options import Candle, NiftyContractResolver, OptionCandle  # noqa: E402
-from engine.test_bench import fib_boundary_chart  # noqa: E402
+from engine.ladder_reporting import fib_boundary_chart  # noqa: E402
 
 # 08-25 is August's monthly at 27 DTE from a 07-29 mother; the two weeklies are
 # there so a resolver that ignored monthly_only would be caught picking one.

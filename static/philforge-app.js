@@ -2095,11 +2095,6 @@ const PF_DELEGATED_ACTIONS = new Set([
   'runFibBoundaryBacktest',
   'deleteFibBoundaryBacktest',
   'toggleFibBoundaryBacktestChart',
-  'runTestBench',
-  'toggleTestBenchChart',
-  'openSavedTestBenchRun',
-  'deleteSavedTestBenchRun',
-  'pageSavedTestBenchRuns',
 ]);
 
 document.addEventListener('click', (event) => {
@@ -4902,7 +4897,7 @@ window.loadSupertrendChart = loadSupertrendChart;
 window.hideSupertrendChart = hideSupertrendChart;
 window.refreshSupertrendStatus = refreshSupertrendStatus;
 
-const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'supertrend', 'bench'];
+const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'supertrend'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -4970,7 +4965,6 @@ function showOptionsCascadeTab(event, el) {
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'gapcarry') refreshGapCarryStatus();
   else if (tab === 'supertrend') refreshSupertrendStatus();
-  else if (tab === 'bench') initTestBenchPage();
   else if (tab === 'recovery') refreshRecoveryStatus();
   else refreshFibBoundaryStatus();
 }
@@ -20504,12 +20498,10 @@ fetchRuns = async function() {
   };
 })();
 
-// ══ TEST BENCH ══════════════════════════════════════════════
-// One mother candle, replayed and shown. The chart itself lives in
-// philforge-bench-chart.js (the CryptoForge Canvas renderer, ported); this is
-// only the screen around it: pick, run, read.
-
-const _TB_LEVELS_BY_TF = { '1m': 'L4 · L8', '5m': 'L4 · L8', '15m': 'L2 · L4 · L8', '1h': 'L2 · L4 · L8' };
+// ══ THE TIMEFRAME LADDER ══════════════════════════════════════════════
+// The chart list Candle Entry's picker is built from. Written for the Test
+// Bench, retired 2026-08-29; these outlived it because Candle Entry climbs
+// the same chain.
 
 // What each strategy does with the timeframe you pick. Fib reads levels off the
 // mother; Two Red starts on that chart and climbs to the next one after every
@@ -20526,38 +20518,15 @@ function _tbLadderFrom(timeframe) {
   return start < 0 ? [] : _TB_CHAIN.slice(start, start + 2);
 }
 
-const _TB_STRATEGY_COPY = {
-  fib: 'Draws the trendline and fib levels from the mother candle, then buys each deep level the market falls through. The whole basket leaves on the first target, or at expiry.',
-  two_red: 'Waits for two red candles to close — each below the previous red’s close, greens in between do not matter — then puts a buy-stop at the FIRST red’s close. Once it fills, it marks the low, climbs one chart and waits for two reds again: two rungs, 1 lot then 2. One mother, one trade.',
-};
 
-function _tbRenderTimeframes() {
-  const select = document.getElementById('tb-timeframe');
-  if (!select) return;
-  const strategy = document.getElementById('tb-strategy')?.value || 'fib';
-  const chosen = select.value || '5m';
-  select.innerHTML = _TB_LADDER.map((tf) => {
-    const detail = strategy === 'two_red'
-      ? _tbLadderFrom(tf).map((step) => _TB_TF_LABEL[step]).join(' → ')
-      : `buys ${_TB_LEVELS_BY_TF[tf]}`;
-    return `<option value="${tf}"${tf === chosen ? ' selected' : ''}>${_TB_TF_LABEL[tf]} · ${detail}</option>`;
-  }).join('');
-  select.value = chosen;
-  // The rupee-per-level budget is a fib idea. The ladder sizes itself 1/2/3/4
-  // lots, so showing a cash box there would imply a control that does nothing.
-  const rung = document.getElementById('tb-rung-field');
-  if (rung) rung.style.display = strategy === 'two_red' ? 'none' : '';
-  const explainer = document.getElementById('tb-explainer');
-  if (explainer) explainer.textContent = _TB_STRATEGY_COPY[strategy] || '';
-}
 
 // The minutes a candle of each timeframe can actually open on. NSE sessions
 // start at 09:15, so every bar is offset by 15: a 1H bar opens at :15 and
 // nothing else, a 15m bar at :00/:15/:30/:45. Offering a minute that can never
 // be a candle open only produces "Dhan has no candle at that time".
 //
-// Shared by all three mother pickers -- Test Bench, candle-entry and
-// fib-boundary. The fib tab was the one that never got wired to it, so its
+// Shared by the candle-entry and fib-boundary mother pickers. The fib tab
+// was the one that never got wired to it, so its
 // picker offered all 60 minutes on every timeframe and 14:17 looked selectable
 // on a 15m chart.
 const _MOTHER_MINUTES_BY_TF = {
@@ -20567,329 +20536,12 @@ const _MOTHER_MINUTES_BY_TF = {
   '1h': '15',
 };
 
-function _tbSyncCalendarToTimeframe() {
-  const mother = document.getElementById('tb-mother');
-  const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
-  if (mother) mother.dataset.pfCalendarMinutes = _MOTHER_MINUTES_BY_TF[timeframe] || '';
-}
 
-function initTestBenchPage() {
-  const mother = document.getElementById('tb-mother');
-  // Default to a mother that certainly has candles after it: yesterday's 10:15,
-  // which is inside a normal session and old enough to have priced history.
-  if (mother && !mother.value) {
-    const d = new Date(Date.now() - 86400000);
-    const pad = (n) => String(n).padStart(2, '0');
-    mother.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:15`;
-  }
-  _tbRenderTimeframes();
-  _tbSyncCalendarToTimeframe();
-  _tbLoadSaved(1);
-}
-
-function _tbStatus(message, kind) {
-  const el = document.getElementById('tb-status');
-  if (!el) return;
-  el.textContent = message || '';
-  el.className = 'tb-status' + (kind ? ' is-' + kind : '');
-}
-
-function _tbInr(value) {
-  const n = Number(value);
-  if (!isFinite(n)) return '—';
-  // Sign outside the symbol: "−₹605", not "₹-605".
-  const sign = n < 0 ? '−' : '';
-  return sign + '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
-}
-
-function _tbTime(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-async function runTestBench(event, el) {
-  const button = el || document.getElementById('tb-run');
-  const timeframe = document.getElementById('tb-timeframe')?.value || '5m';
-  const payload = {
-    force: _tbForceNextRun,
-    instrument: document.getElementById('tb-instrument')?.value || 'NIFTY',
-    strategy: document.getElementById('tb-strategy')?.value || 'fib',
-    timeframe,
-    mother_timestamp: document.getElementById('tb-mother')?.value || '',
-    rung_inr: Number(document.getElementById('tb-rung')?.value || 25000),
-  };
-  if (!payload.mother_timestamp) {
-    _tbStatus('Pick a mother candle date and time first.', 'error');
-    return;
-  }
-  if (button) { button.disabled = true; button.textContent = 'Running…'; }
-  _tbStatus(`Fetching the ${payload.instrument} ${timeframe} candle and replaying it…`, 'busy');
-  try {
-    const response = await fetch('/api/test-bench/run', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({}));
-    // The server wraps errors as { error: { detail, message } }, and only 4xx
-    // carry `detail` — the specific, useful sentence. Reading a top-level
-    // `data.detail` (as older code here does) finds nothing, shows
-    // "Run failed (400)" and throws away what is usually the whole answer.
-    if (!response.ok || data.status !== 'ok') {
-      throw new Error(data?.error?.detail || data?.error?.message || data?.detail || `Run failed (${response.status})`);
-    }
-    _tbRender(data);
-    if (data.duplicate) {
-      _tbStatus(`Already in your saved runs (replayed ${_tbTime(data.stored_at)}). Showing the stored result — press Run again to replay it fresh.`, 'busy');
-      _tbForceNextRun = true;
-    } else {
-      _tbStatus('', '');
-      _tbForceNextRun = false;
-    }
-    _tbLoadSaved();
-  } catch (error) {
-    document.getElementById('tb-results')?.setAttribute('hidden', '');
-    _tbStatus(error.message || 'Run failed.', 'error');
-  } finally {
-    if (button) { button.disabled = false; button.textContent = 'Run'; }
-  }
-}
-
-// The last run, kept so the chart can be drawn on demand — the strip carries a
-// chart BUTTON like every other panel, rather than always painting the canvas.
-let _lastTestBenchRun = null;
-
-function _tbRender(data) {
-  _lastTestBenchRun = data;
-  const results = document.getElementById('tb-results');
-  if (results) results.removeAttribute('hidden');
-  const strip = document.getElementById('tb-result-strip');
-  if (strip) strip.open = true;
-  // Each fresh run starts with the chart folded away, same as the fib panel.
-  const box = document.getElementById('tb-chart-box');
-  const btn = document.getElementById('tb-chart-btn');
-  if (box) box.style.display = 'none';
-  if (btn) btn.textContent = '↗ Chart';
-  if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
-  const host = document.getElementById('tb-chart');
-  if (host) host.innerHTML = '';
-  _tbRenderVerdict(data);
-  _tbRenderEntries(data);
-}
-
-function toggleTestBenchChart(event) {
-  if (event && typeof event.preventDefault === 'function') event.preventDefault();
-  const box = document.getElementById('tb-chart-box');
-  const btn = document.getElementById('tb-chart-btn');
-  const host = document.getElementById('tb-chart');
-  if (!box || !host) return;
-  if (box.style.display !== 'none') {
-    box.style.display = 'none';
-    host.innerHTML = '';
-    if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
-    if (btn) btn.textContent = '↗ Chart';
-    return;
-  }
-  const chart = _lastTestBenchRun && _lastTestBenchRun.chart;
-  if (!chart) return;
-  // Visible first, then drawn: the canvas sizes itself from its host, and a
-  // display:none host measures zero.
-  box.style.display = '';
-  if (typeof pfBenchDrawChart === 'function') pfBenchDrawChart(host, chart);
-  if (btn) btn.textContent = '× Hide chart';
-}
-
-function _tbRenderVerdict(data) {
-  const el = document.getElementById('tb-verdict');
-  if (!el) return;
-  const s = data.summary || {};
-  const traded = Number(s.entry_count) > 0;
-  const pnl = Number(s.net_pnl);
-  const open = !!s.still_open;
-  const targetHit = String(s.exit_reason || '').toLowerCase().startsWith('target');
-  const GOOD = '#6ee7b7', BAD = '#fca5a5', WAIT = 'var(--warn)';
-
-  const badge = document.getElementById('tb-outcome-badge');
-  if (badge) {
-    const text = !traded ? 'NO BUY' : open ? 'STILL OPEN' : targetHit ? 'TARGET HIT' : 'ENDED';
-    const tone = !traded ? 'var(--muted)' : open ? WAIT : targetHit ? GOOD : (isFinite(pnl) && pnl >= 0 ? GOOD : BAD);
-    badge.textContent = text;
-    badge.style.color = tone;
-    badge.style.borderColor = tone;
-  }
-  const contractEl = document.getElementById('tb-contract');
-  if (contractEl) {
-    contractEl.textContent = traded && s.strike
-      ? `${s.underlying || ''} ${s.strike} ${s.option_type || ''} · expiry ${s.expiry || '—'} · lot ${s.lot_size || '—'}`
-      : 'No contract was bought';
-  }
-  const gist = document.getElementById('tb-gist');
-  if (gist) gist.textContent = `${s.instrument || ''} · ${String(s.timeframe || '').toUpperCase()} mother ${_tbTime(s.mother_timestamp)} — ${s.outcome || ''}`;
-
-  const netColor = !traded || !isFinite(pnl) ? 'var(--muted)' : pnl > 0 ? GOOD : pnl < 0 ? BAD : 'var(--text)';
-  // Phil asked for the target numbers in colour: green once reached, amber
-  // while the trade is still watching it, muted when it never got there.
-  const targetColor = targetHit ? GOOD : open ? WAIT : 'var(--muted)';
-  el.innerHTML = [
-    _cascadeOptionsMetric('Outcome', String(s.outcome || '—'), open ? WAIT : targetHit ? GOOD : 'var(--text)'),
-    _cascadeOptionsMetric('First buy', _tbTime(s.entry_timestamp)),
-    _cascadeOptionsMetric('Closed', open ? 'OPEN — not yet' : _tbTime(s.exit_timestamp), open ? WAIT : 'var(--text)'),
-    _cascadeOptionsMetric('Target idx', s.target_index == null ? '—' : Number(s.target_index).toLocaleString('en-IN'), targetColor),
-    _cascadeOptionsMetric('Avg entry idx', s.average_spot == null ? '—' : Number(s.average_spot).toLocaleString('en-IN')),
-    _cascadeOptionsMetric('Buys', traded ? String(s.entry_count) : '0'),
-    _cascadeOptionsMetric('Spent on premium', traded ? _tbInr(s.spend_inr) : '—'),
-    _cascadeOptionsMetric('Costs', traded ? _tbInr(s.costs_total) : '—', traded ? BAD : 'var(--muted)'),
-    _cascadeOptionsMetric('Net P&L', traded && isFinite(pnl) ? _tbInr(pnl) : open ? '— still open' : '—', netColor),
-  ].join('');
-
-  // A gap is stated, never averaged away: a spend total that quietly skipped an
-  // unpriced leg is the one number here that would mislead without looking wrong.
-  const warn = document.getElementById('tb-warn');
-  if (warn) {
-    warn.innerHTML = Number(s.unpriced_entries) > 0
-      ? `<p class="tb-warn">${s.unpriced_entries} buy(s) had no price in the option history, so the money figures above cover only the priced ones.</p>`
-      : '';
-  }
-}
-
-function _tbRenderEntries(data) {
-  const table = document.getElementById('tb-entries');
-  if (!table) return;
-  const rows = data.entries || [];
-  if (!rows.length) {
-    table.innerHTML = '<tbody><tr><td class="tb-none">Nothing was bought — the index never reached a fib level for this mother.</td></tr></tbody>';
-    return;
-  }
-  const ladder = data.strategy === 'two_red';
-  const head = [ladder ? 'Buy' : 'Level', 'Time', 'Index at', 'Strike', 'Price paid', 'Lots', 'Qty', 'Spent'];
-  const body = rows.map((row) => {
-    const spend = row.spend_inr == null ? '<span class="tb-gap">no price</span>' : _tbInr(row.spend_inr);
-    // A ladder rung is named by the chart it was read on, which is the whole
-    // point of the strategy; a fib entry is named by the level it sat on.
-    const label = row.level == null ? '—'
-      : (ladder ? `#${row.level} · ${_TB_TF_LABEL[row.timeframe] || row.timeframe || ''}` : 'L' + row.level);
-    return `<tr>
-      <td>${escapeHtml(label)}</td>
-      <td>${_tbTime(row.timestamp)}</td>
-      <td>${row.spot == null ? '—' : Number(row.spot).toLocaleString('en-IN')}</td>
-      <td>${escapeHtml(String(row.strike ?? '—'))} ${escapeHtml(String(row.option_type || ''))}</td>
-      <td>${row.option_price == null ? '<span class="tb-gap">no price</span>' : _tbInr(row.option_price)}</td>
-      <td>${escapeHtml(String(row.lots ?? '—'))}</td>
-      <td>${escapeHtml(String(row.quantity ?? '—'))}</td>
-      <td>${spend}</td>
-    </tr>`;
-  }).join('');
-  table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
-}
-
-// Pressing Run on a question that already has a stored answer shows the
-// stored one; pressing Run again replays it for real.
-let _tbForceNextRun = false;
-let _tbSavedPage = 1;
-let _tbSearchTimer = null;
-
-async function _tbLoadSaved(page) {
-  const table = document.getElementById('tb-saved-table');
-  const pager = document.getElementById('tb-pager');
-  const count = document.getElementById('tb-saved-count');
-  if (!table) return;
-  if (page) _tbSavedPage = page;
-  const search = document.getElementById('tb-search')?.value || '';
-  let data;
-  try {
-    const query = new URLSearchParams({ search, page: String(_tbSavedPage), per_page: '10' });
-    const response = await fetch(`/api/test-bench/results?${query}`, { credentials: 'same-origin' });
-    data = await response.json();
-    if (!response.ok || data.status !== 'ok') throw new Error('could not load');
-  } catch (error) {
-    table.innerHTML = '<tbody><tr><td class="tb-none">Saved runs are unavailable right now.</td></tr></tbody>';
-    if (pager) pager.innerHTML = '';
-    return;
-  }
-  if (count) count.textContent = String(data.total);
-  const rows = data.rows || [];
-  if (!rows.length) {
-    table.innerHTML = `<tbody><tr><td class="tb-none">${search ? 'Nothing matches that search.' : 'Runs you make are saved here automatically.'}</td></tr></tbody>`;
-    if (pager) pager.innerHTML = '';
-    return;
-  }
-  const head = ['Mother', 'Instrument', 'Strategy', 'Chart', 'Per level', 'Outcome', 'Buys', 'Net P&L', ''];
-  const body = rows.map((row) => {
-    const pnl = Number(row.net_pnl);
-    const tone = !isFinite(pnl) ? '' : pnl > 0 ? ' style="color:#6ee7b7;"' : pnl < 0 ? ' style="color:#fca5a5;"' : '';
-    const open = String(row.outcome || '').toUpperCase().includes('OPEN');
-    return `<tr>
-      <td><a href="#" data-pf-action="openSavedTestBenchRun" data-tb-run="${row.id}" style="color:#38bdf8;">${_tbTime(row.mother_timestamp)}</a></td>
-      <td>${escapeHtml(String(row.instrument || ''))}</td>
-      <td>${escapeHtml(row.strategy === 'two_red' ? 'Two red' : 'Fib levels')}</td>
-      <td>${escapeHtml(_TB_TF_LABEL[row.timeframe] || row.timeframe || '')}</td>
-      <td>${_tbInr(row.rung_inr)}</td>
-      <td${open ? ' style="color:var(--warn);"' : ''}>${escapeHtml(String(row.outcome || '—'))}</td>
-      <td>${escapeHtml(String(row.entry_count ?? 0))}</td>
-      <td${tone}>${isFinite(pnl) ? _tbInr(pnl) : '—'}</td>
-      <td><button class="cascade-options-control is-danger" type="button" data-pf-action="deleteSavedTestBenchRun" data-tb-run="${row.id}" aria-label="Delete this saved run">Delete</button></td>
-    </tr>`;
-  }).join('');
-  table.innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody>`;
-  if (pager) {
-    pager.innerHTML = data.pages <= 1 ? '' : `
-      <button class="cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? 'disabled' : ''}>‹ Prev</button>
-      <span>Page ${data.page} of ${data.pages} · ${data.total} run${data.total === 1 ? '' : 's'}</span>
-      <button class="cascade-options-control" type="button" data-pf-action="pageSavedTestBenchRuns" data-tb-page="${Math.min(data.pages, data.page + 1)}" ${data.page >= data.pages ? 'disabled' : ''}>Next ›</button>`;
-  }
-}
-
-function pageSavedTestBenchRuns(event, el) {
-  _tbLoadSaved(Number(el?.getAttribute('data-tb-page')) || 1);
-}
-
-async function openSavedTestBenchRun(event, el) {
-  const id = el?.getAttribute('data-tb-run');
-  if (!id) return;
-  _tbStatus('Opening the saved run…', 'busy');
-  try {
-    const response = await fetch(`/api/test-bench/results/${id}`, { credentials: 'same-origin' });
-    const data = await response.json();
-    if (!response.ok || data.status !== 'ok') throw new Error(data?.pfErrorText(error, 'Could not open that run.'));
-    _tbRender(data);
-    _tbStatus(`Saved run from ${_tbTime(data.stored_at)}.`, '');
-    _tbForceNextRun = true;
-  } catch (error) {
-    _tbStatus(error.message || 'Could not open that run.', 'error');
-  }
-}
-
-async function deleteSavedTestBenchRun(event, el) {
-  const id = el?.getAttribute('data-tb-run');
-  if (!id) return;
-  const ok = await customConfirm('Delete this saved run? The mother candle can always be replayed again.', { title: 'Delete saved run', icon: ICO.warn(28), okText: 'Delete', danger: true });
-  if (!ok) return;
-  await fetch(`/api/test-bench/results/${id}`, { method: 'DELETE', credentials: 'same-origin' });
-  _tbLoadSaved();
-}
-
-document.addEventListener('input', (event) => {
-  if (event.target && event.target.id === 'tb-search') {
-    clearTimeout(_tbSearchTimer);
-    _tbSearchTimer = setTimeout(() => _tbLoadSaved(1), 250);
-  }
-});
 
 document.addEventListener('change', (event) => {
   const id = event.target && event.target.id;
-  if (id === 'tb-timeframe') {
-    _tbSyncCalendarToTimeframe();
-    _tbRenderTimeframes();
-  } else if (id === 'tb-strategy') {
-    _tbRenderTimeframes();
-  } else if (id === 'oc-candle-timeframe') {
+  if (id === 'oc-candle-timeframe') {
     _ceRenderTimeframes();
-  }
-  if (['tb-instrument', 'tb-strategy', 'tb-timeframe', 'tb-mother', 'tb-rung'].includes(id)) {
-    _tbForceNextRun = false;
   }
 });
 

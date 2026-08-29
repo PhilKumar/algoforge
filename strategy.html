@@ -2404,7 +2404,6 @@
   </div><!-- /equity-strategy-desk -->
 </div>
 
-<!-- ═══ TEST BENCH · one mother candle, replayed in full ═══ -->
 <!-- ═══ OPTIONS CASCADE · two-tab paper (Fib-boundary + Candle-entry) ═══ -->
 <div id="options-cascade-page" class="page-section">
   <section class="trading-workspace-head" data-trading-current="cascade" aria-labelledby="trading-title-cascade">
@@ -2440,7 +2439,7 @@
           <h2>Options</h2>
           <p class="oc-hero-steps"><strong>1</strong>&nbsp;Pick a strategy &nbsp;·&nbsp; <strong>2</strong>&nbsp;Set what it asks for &nbsp;·&nbsp; <strong>3</strong>&nbsp;Press its <strong>Start</strong> button&nbsp;<button type="button" class="pf-info-btn" data-pf-info="oc-hero-info" aria-expanded="false" aria-label="About this page" title="About this page">i</button></p>
         </div>
-        <div id="oc-hero-info" class="pf-info-pop">Three strategies take a mother candle from you; Gap Carry and Supertrend find their own. <strong>Test Bench</strong> replays a past Fib mother.</div>
+        <div id="oc-hero-info" class="pf-info-pop">Three strategies take a mother candle from you; Gap Carry and Supertrend find their own. Each tab replays its own rule from its Backtest button.</div>
       </div>
       <div id="options-cascade-live-gate" class="oc-live-gate"><strong>LIVE LOCKED</strong><span>Paper validation required</span></div>
     </div>
@@ -2456,7 +2455,6 @@
     <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">The 278-bar high · bottom quarter</span></button>
     <button id="oc-tabbtn-supertrend" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-supertrend" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="supertrend" title="Hourly supertrend, one ATM call on next week's expiry, rolled and trailed — paper"><span class="oc-tab-name">◈ Supertrend</span><span class="oc-tab-sub">1H &times;1.5 &middot; roll 6 &middot; trail 100/80</span></button>
-    <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-bench" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother</span></button>
   </div>
 
 
@@ -3766,125 +3764,6 @@
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-high-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>
       </div>
     </div>
-  </div>
-  <div id="oc-tab-bench" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-bench" aria-hidden="true" style="display:none;">
-  <div class="card" style="padding:14px 18px;margin-bottom:12px;">
-    <h3 style="margin:0;font-size:15px;display:inline-flex;align-items:center;gap:8px;">Test Bench <button type="button" class="pf-info-btn" data-pf-info="bench-info" aria-expanded="false" aria-label="How the replay works" title="How the replay works">i</button></h3>
-    <div id="bench-info" class="pf-info-pop pf-info-doc" style="margin-top:10px;">
-      <div class="pf-doc-langs" role="tablist" aria-label="Language">
-        <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
-        <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
-      </div>
-      <div class="pf-doc-lang is-active" data-pf-lang="en">
-      <p class="pf-info-lede">Nothing here trades. One past mother candle is replayed against recorded candles &mdash; history only, no orders, no paper ledger.</p>
-      <section>
-        <h5>1 &middot; What it does</h5>
-        <p>Pick the instrument (NIFTY or BankNifty), the strategy (<strong>Fib levels</strong> or <strong>Two red candles</strong>), a timeframe, a past mother and the &#8377; per level &mdash; Run replays how that rule would have read that history, bar by bar.</p>
-      </section>
-      <section>
-        <h5>2 &middot; The data is recorded, never invented</h5>
-        <p>Index candles are the exchange's own; option legs price from recorded contract candles. A leg that cannot be priced from the record is <strong>refused, not estimated</strong> &mdash; a bench that invents premiums proves nothing.</p>
-      </section>
-      <section>
-        <h5>3 &middot; Reading a result</h5>
-        <p>The fills, exits and P&amp;L are reconstruction: what the rule would have done, at recorded prices, with no slippage added. Treat it as evidence about the RULE, not a promise about the next trade.</p>
-      </section>
-      <section>
-        <h5>4 &middot; What it is for</h5>
-        <p>Proving a mother here first, before it risks a paper campaign &mdash; the cheap place to be wrong. Only <strong>Fib levels</strong> is also a tab on this page; <strong>Two red candles</strong> is the equity ladder.</p>
-      </section>
-      </div><!-- /en -->
-      <div class="pf-doc-lang" data-pf-lang="ta">
-      <p class="pf-info-lede">இங்கு எதுவும் trade ஆகாது. ஒரு பழைய mother candle பதிவான candles-க்கு எதிராக replay &mdash; வரலாறு மட்டும்; ஆர்டர்களும் paper கணக்கும் இல்லை.</p>
-      <section>
-        <h5>1 &middot; என்ன செய்கிறது</h5>
-        <p>Instrument (NIFTY / BankNifty), strategy (<strong>Fib levels</strong> / <strong>Two red candles</strong>), timeframe, ஒரு பழைய mother, level-க்கு &#8377; &mdash; தேர்ந்தெடுத்து Run: அந்த விதி அந்த வரலாற்றை எப்படி படித்திருக்கும் என்று bar-by-bar replay.</p>
-      </section>
-      <section>
-        <h5>2 &middot; தரவு பதிவானது, கற்பனை இல்லை</h5>
-        <p>Index candles பரிவர்த்தனையின் சொந்தவை; option legs பதிவான ஒப்பந்த candles-இலிருந்து விலை. பதிவிலிருந்து விலை கிடைக்காத leg <strong>மறுக்கப்படும், மதிப்பிடப்படாது</strong> &mdash; premium கற்பனை செய்யும் bench எதையும் நிரூபிக்காது.</p>
-      </section>
-      <section>
-        <h5>3 &middot; முடிவை படிப்பது</h5>
-        <p>Fills, வெளியேற்றங்கள், P&amp;L எல்லாம் மறுகட்டமைப்பு: பதிவான விலைகளில், slippage சேர்க்காமல், விதி என்ன செய்திருக்கும் என்பது. இது <strong>விதி பற்றிய சான்று</strong>; அடுத்த trade பற்றிய வாக்குறுதி அல்ல.</p>
-      </section>
-      <section>
-        <h5>4 &middot; எதற்காக</h5>
-        <p>paper campaign-ஆக பணயம் வைக்கும் முன், mother-ஐ இங்கு முதலில் நிரூபிக்க &mdash; தவறாக இருக்க மலிவான இடம். <strong>Fib levels</strong> மட்டுமே இந்த page-இல் ஒரு tab; <strong>Two red candles</strong> என்பது equity ladder.</p>
-      </section>
-      </div><!-- /ta -->
-    </div>
-  </div>
-  <div class="tb-controls card">
-    <div class="tb-field">
-      <label for="tb-instrument">Instrument</label>
-      <select id="tb-instrument">
-        <option value="NIFTY" selected>NIFTY</option>
-        <option value="BANKNIFTY">BankNifty</option>
-      </select>
-    </div>
-    <div class="tb-field">
-      <label for="tb-strategy">Strategy</label>
-      <select id="tb-strategy">
-        <option value="fib" selected>Fib levels</option>
-        <option value="two_red">Two red candles</option>
-      </select>
-    </div>
-    <div class="tb-field">
-      <label for="tb-timeframe">Timeframe</label>
-      <select id="tb-timeframe"></select>
-    </div>
-    <div class="tb-field">
-      <label for="tb-mother">Mother candle · IST</label>
-      <input id="tb-mother" data-pf-calendar-no-future="1" type="datetime-local" step="60">
-    </div>
-    <div class="tb-field tb-field-narrow" id="tb-rung-field">
-      <label for="tb-rung">Per level ₹</label>
-      <input id="tb-rung" type="number" min="1000" step="1000" value="25000">
-    </div>
-    <button id="tb-run" class="btn btn-primary tb-run" type="button" data-pf-action="runTestBench">Run</button>
-  </div>
-
-  <p id="tb-explainer" class="tb-explainer"></p>
-
-  <div id="tb-status" class="tb-status" role="status"></div>
-
-  <section id="tb-saved" class="cascade-options-window">
-    <div class="cascade-options-window-head">
-      <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Saved runs</h3><span id="tb-saved-count" class="cascade-options-state">0</span></div><div class="cascade-options-contract">Every mother you have replayed — newest first</div></div>
-      <div class="cascade-options-strip-actions"><input id="tb-search" type="search" placeholder="Search a date, e.g. 2026-07-15" aria-label="Search saved runs" style="min-width:230px;padding:7px 10px;font:11px 'JetBrains Mono',monospace;"></div>
-    </div>
-    <div class="cascade-options-window-body">
-      <div class="tb-table-scroll"><table class="tb-table" id="tb-saved-table"></table></div>
-      <div id="tb-pager" class="tb-pager"></div>
-    </div>
-  </section>
-
-  <div id="tb-results" class="tb-results" hidden>
-    <details id="tb-result-strip" class="cascade-options-window" open>
-      <summary class="cascade-options-window-head">
-        <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Result</h3><span id="tb-outcome-badge" class="cascade-options-state">—</span></div><div id="tb-contract" class="cascade-options-contract">—</div></div>
-        <div id="tb-gist" class="cascade-options-gist"></div>
-        <div class="cascade-options-strip-actions"><button id="tb-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleTestBenchChart" aria-label="Open chart">↗ Chart</button></div>
-      </summary>
-      <div class="cascade-options-window-body">
-        <div id="tb-verdict" class="cascade-options-summary"></div>
-        <div id="tb-warn" style="margin-top:10px;"></div>
-        <div id="tb-chart-box" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:9px;padding:10px;">
-          <div class="tb-chart-head">
-            <h3 style="margin:0;font-size:13px;">What the market did</h3>
-            <span id="pf-bench-zoom-level" class="tb-zoom">100%</span>
-          </div>
-          <div id="tb-chart" class="tb-chart"></div>
-          <p class="tb-chart-legend">Drag to pan · scroll to zoom · drag either axis to stretch it. The view opens on the trade — 25 candles either side — with sessions joined end to end; a translucent block marks an overnight gap. The outlined candle is the mother.</p>
-        </div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:16px 0 7px;">Every buy</div>
-        <div class="tb-table-scroll">
-          <table class="tb-table" id="tb-entries"></table>
-        </div>
-      </div>
-    </details>
-  </div>
   </div>
 
 </div>

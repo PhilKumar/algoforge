@@ -163,11 +163,15 @@ _SCHEMA_STATEMENTS = [
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_scalp_trades_user ON scalp_trades(user_id)",
-    # Every Test Bench replay is kept so a mother candle only has to be run
-    # once.  `query_key` is the identity of the question asked (instrument,
-    # strategy, timeframe, mother, per-level, ITM steps) and is UNIQUE per
-    # user, which is what lets a repeat run be recognised instead of quietly
-    # producing a second row saying the same thing.
+    # RETIRED 2026-08-29, when the Test Bench was removed: every strategy can
+    # now replay its own rule from its own Backtest button, so nothing reads or
+    # writes this table any more.
+    #
+    # It is kept, with its rows, because dropping it would destroy replays Phil
+    # ran and cannot get back -- there were 30 on prod the day it was retired.
+    # It also stays in _USER_OWNED_TABLES below, so deleting an account still
+    # clears it rather than leaving rows for the next account given that id.
+    # Drop it only on Phil's word.
     """CREATE TABLE IF NOT EXISTS test_bench_runs (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id         INTEGER NOT NULL,
@@ -1540,182 +1544,6 @@ def get_max_scalp_trade_id_sync(user_id: int) -> int:
             if isinstance(payload, dict):
                 max_trade_id = max(max_trade_id, _trade_id_from_scalp_payload(payload))
     return max_trade_id
-
-
-# ── Test Bench: one row per replayed mother candle ────────────────
-def test_bench_query_key(
-    *,
-    instrument: str,
-    strategy: str,
-    timeframe: str,
-    mother_timestamp: str,
-    rung_inr: float,
-    itm_steps: int,
-) -> str:
-    """The identity of a Test Bench question.
-
-    Two runs with the same key would give the same answer, so the second one
-    is a repeat rather than a new result.  Per-level rupees and ITM steps are
-    part of it because they change the money, not just the geometry.
-    """
-    return "|".join(
-        [
-            str(instrument).upper(),
-            str(strategy).lower(),
-            str(timeframe).lower(),
-            str(mother_timestamp),
-            f"{float(rung_inr):.2f}",
-            str(int(itm_steps)),
-        ]
-    )
-
-
-async def find_test_bench_run(user_id: int, query_key: str) -> dict | None:
-    """The stored run for this exact question, or None."""
-    db = await get_db()
-    try:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM test_bench_runs WHERE user_id = ? AND query_key = ?",
-            (int(user_id), query_key),
-        ) as cursor:
-            row = await cursor.fetchone()
-        return _test_bench_row(row) if row else None
-    finally:
-        await db.close()
-
-
-async def save_test_bench_run(user_id: int, query_key: str, summary: dict, payload: dict) -> int:
-    """Insert or refresh the stored run for this question, returning its id.
-
-    A repeat run overwrites rather than duplicating: the query key is what
-    makes two runs the same, and the newer replay is the better copy (it may
-    have been priced when the older one had gaps).
-    """
-    db = await get_db()
-    try:
-        await db.execute(
-            """INSERT INTO test_bench_runs
-                   (user_id, query_key, instrument, strategy, timeframe, mother_date,
-                    mother_timestamp, rung_inr, itm_steps, outcome, net_pnl,
-                    entry_count, payload, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(user_id, query_key) DO UPDATE SET
-                   outcome = excluded.outcome,
-                   net_pnl = excluded.net_pnl,
-                   entry_count = excluded.entry_count,
-                   payload = excluded.payload,
-                   created_at = excluded.created_at""",
-            (
-                int(user_id),
-                query_key,
-                str(summary.get("instrument") or ""),
-                str(summary.get("strategy") or ""),
-                str(summary.get("timeframe") or ""),
-                str(summary.get("mother_timestamp") or "")[:10],
-                str(summary.get("mother_timestamp") or ""),
-                float(summary.get("rung_inr") or 0),
-                int(summary.get("itm_steps") or 0),
-                str(summary.get("outcome") or ""),
-                summary.get("net_pnl"),
-                int(summary.get("entry_count") or 0),
-                _json_dumps(payload),
-                _now_iso(),
-            ),
-        )
-        await db.commit()
-        async with db.execute(
-            "SELECT id FROM test_bench_runs WHERE user_id = ? AND query_key = ?",
-            (int(user_id), query_key),
-        ) as cursor:
-            row = await cursor.fetchone()
-        return int(row[0]) if row else 0
-    finally:
-        await db.close()
-
-
-async def list_test_bench_runs(user_id: int, *, search: str = "", page: int = 1, per_page: int = 10) -> dict:
-    """One page of stored runs, most recently RUN first.
-
-    Ordered by created_at, not the mother's own date: replaying an old mother
-    refreshes its row (save_test_bench_run bumps created_at), so the run you
-    just made is always the top row — Phil's reading of "newest first".
-
-    ``search`` matches the mother date/time, the instrument, the strategy or
-    the timeframe, so typing a date finds that day's runs directly.
-    """
-    page = max(1, int(page))
-    per_page = max(1, min(int(per_page), 100))
-    term = f"%{str(search).strip().lower()}%"
-    where = "WHERE user_id = ?"
-    params: list = [int(user_id)]
-    if str(search).strip():
-        where += (
-            " AND (LOWER(mother_timestamp) LIKE ? OR LOWER(instrument) LIKE ?"
-            " OR LOWER(strategy) LIKE ? OR LOWER(timeframe) LIKE ? OR LOWER(outcome) LIKE ?)"
-        )
-        params.extend([term] * 5)
-    db = await get_db()
-    try:
-        db.row_factory = aiosqlite.Row
-        # `where` is assembled from literals only; the search term itself is a
-        # bound parameter, never interpolated.
-        async with db.execute(f"SELECT COUNT(*) FROM test_bench_runs {where}", params) as cursor:  # nosec B608
-            total = int((await cursor.fetchone())[0])
-        async with db.execute(
-            f"""SELECT id, instrument, strategy, timeframe, mother_timestamp, rung_inr,
-                       itm_steps, outcome, net_pnl, entry_count, created_at
-                FROM test_bench_runs {where}
-                ORDER BY created_at DESC, id DESC
-                LIMIT ? OFFSET ?""",  # nosec B608
-            [*params, per_page, (page - 1) * per_page],
-        ) as cursor:
-            rows = await cursor.fetchall()
-        return {
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "pages": max(1, (total + per_page - 1) // per_page),
-            "rows": [_test_bench_row(row, with_payload=False) for row in rows],
-        }
-    finally:
-        await db.close()
-
-
-async def get_test_bench_run(user_id: int, run_id: int) -> dict | None:
-    """One stored run in full, payload included."""
-    db = await get_db()
-    try:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM test_bench_runs WHERE user_id = ? AND id = ?",
-            (int(user_id), int(run_id)),
-        ) as cursor:
-            row = await cursor.fetchone()
-        return _test_bench_row(row) if row else None
-    finally:
-        await db.close()
-
-
-async def delete_test_bench_run(user_id: int, run_id: int) -> bool:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "DELETE FROM test_bench_runs WHERE user_id = ? AND id = ?", (int(user_id), int(run_id))
-        )
-        await db.commit()
-        return cursor.rowcount > 0
-    finally:
-        await db.close()
-
-
-def _test_bench_row(row, *, with_payload: bool = True) -> dict:
-    data = dict(row)
-    if with_payload:
-        data["payload"] = _json_loads(data.get("payload"), {})
-    else:
-        data.pop("payload", None)
-    return data
 
 
 # ── Fib Boundary backtests: durable, user-owned replay packages ──

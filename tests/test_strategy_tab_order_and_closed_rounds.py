@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "strategy.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
 
-ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend", "bench"]
+ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend"]
 
 
 class TabOrderTests(unittest.TestCase):
@@ -64,32 +64,8 @@ class HeroCopyTests(unittest.TestCase):
 
     HERO = HTML[HTML.index('class="oc-hero-copy"') : HTML.index('id="options-cascade-live-gate"')]
 
-    def _bench_strategies(self):
-        """What Test Bench can actually replay, read off its own selector."""
-        panel = re.search(r'<div id="oc-tab-bench".*', HTML, re.S).group(0)
-        selector = re.search(r'<select[^>]*id="bench-strategy"[^>]*>(.*?)</select>', panel, re.S)
-        if selector is None:  # fall back to the first strategy-shaped select on the tab
-            selector = re.search(r'<option value="fib".*?</select>', panel, re.S)
-            return set(re.findall(r'<option value="(\w+)"', selector.group(0))) if selector else set()
-        return set(re.findall(r'<option value="(\w+)"', selector.group(1)))
-
-    def test_the_hero_does_not_promise_a_replay_the_bench_cannot_run(self):
-        """Test Bench replays two rules, and only one of them is a tab on this
-        page. Phil, 2026-08-29: "This is not true... It has only 2 strategies".
-        A blanket "past mothers replay in Test Bench" is wrong for the other
-        mother-taking tabs, whose rules the bench has never been able to run."""
-        bench = self._bench_strategies()
-        wants, _ = self._tabs_wanting_a_mother()
-        if not bench >= wants:
-            for blanket in ("Past mothers replay in", "past mother instead"):
-                self.assertNotIn(
-                    blanket,
-                    self.HERO,
-                    f"the header sends every mother to Test Bench, which only replays {sorted(bench)}",
-                )
-
     def _tabs_wanting_a_mother(self):
-        wants, all_tabs = set(), [t for t in ORDER if t != "bench"]
+        wants, all_tabs = set(), list(ORDER)
         for name in all_tabs:
             panel = re.search(rf'<div id="oc-tab-{name}".*?(?=<div id="oc-tab-|<div id="oc-chart-overlay)', HTML, re.S)
             if panel and 'type="datetime-local"' in panel.group(0):

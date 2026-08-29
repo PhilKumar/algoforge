@@ -132,7 +132,6 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/gap-carry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'] } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/supertrend/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['1h', '30m'] } });
-    else if (path === '/api/test-bench/results') await route.fulfill({ json: { status: 'ok', total: 0, page: 1, per_page: 10, pages: 1, rows: [] } });
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     // Insights panels. Both used to be their own pages; inside the tab they
@@ -284,13 +283,13 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
     ['#oc-tabbtn-candle', '#oc-tab-candle'],
     ['#oc-tabbtn-recovery', '#oc-tab-recovery'],
     ['#oc-tabbtn-gapcarry', '#oc-tab-gapcarry'],
-    ['#oc-tabbtn-bench', '#oc-tab-bench'],
+    ['#oc-tabbtn-supertrend', '#oc-tab-supertrend'],
   ]) {
     await page.click(control);
     await expect(page.locator(control)).toHaveAttribute('aria-selected', 'true');
     expect(await seriousAccessibilityViolations(page, panel), panel).toEqual([]);
   }
-  await page.locator('#oc-tabbtn-bench').focus();
+  await page.locator('#oc-tabbtn-supertrend').focus();
   await page.keyboard.press('Home');
   // Home goes to the FIRST tab, and Gap Carry leads the strip now (Phil,
   // 2026-08-25: "Get the Gap carry to the first strategy before Fib boundary").
@@ -408,7 +407,7 @@ test('Trading defaults to Cascade and remembers its last desk and page views', a
   await page.reload();
   await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
   await expect(page.locator('#nav-trading')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#options-cascade-page .trading-section-tab.is-active')).toContainText('Cascade');
+  await expect(page.locator('#options-cascade-page .trading-section-tab.is-active')).toContainText('Options');
   await expect(page.locator('[data-oc-tab="gapcarry"]')).toHaveClass(/is-active/);
   await expect(page.locator('#oc-tab-gapcarry')).toBeVisible();
 });
@@ -594,162 +593,11 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
   });
 });
 
-// ── Test Bench ───────────────────────────────────────────────
 // A blank chart is the failure this catches. The renderer is hand-written
 // Canvas: a typo in a draw layer throws inside a paint loop, the surface stays
 // empty, and every Python test still passes. So this asserts the semantic paint
 // record — real candles, real geometry, real labels — not just that a canvas
 // element exists.
-const testBenchRunMock = {
-  status: 'ok',
-  strategy: 'fib',
-  summary: {
-    instrument: 'NIFTY',
-    timeframe: '15m',
-    outcome: 'Target hit',
-    exit_reason: 'target',
-    still_open: false,
-    target_index: 24625,
-    average_spot: 24425,
-    mother_timestamp: '2026-07-21T09:15:00',
-    entry_timestamp: '2026-07-21T12:15:00',
-    exit_timestamp: '2026-07-21T15:15:00',
-    entry_count: 2,
-    unpriced_entries: 0,
-    spend_inr: 31200,
-    net_pnl: 18400,
-    costs_total: 620,
-    strike: 24450,
-    option_type: 'CE',
-    expiry: '2026-08-04',
-    lot_size: 65,
-    underlying: 'NIFTY',
-  },
-  entries: [
-    { timestamp: '2026-07-21T12:15:00', spot: 24450, option_price: 180, lots: 1, quantity: 65, level: 4, leg_id: 1, spend_inr: 11700, strike: 24450, option_type: 'CE' },
-    { timestamp: '2026-07-21T13:15:00', spot: 24400, option_price: 150, lots: 2, quantity: 130, level: 8, leg_id: 1, spend_inr: 19500, strike: 24400, option_type: 'CE' },
-  ],
-  chart: {
-    timeframe: '15m',
-    candles: [
-      { t: 1784017500, o: 24600, h: 24650, l: 24560, c: 24580, is_mother: true },
-      { t: 1784018400, o: 24580, h: 24590, l: 24440, c: 24450, is_mother: false },
-      { t: 1784019300, o: 24450, h: 24460, l: 24390, c: 24400, is_mother: false },
-      { t: 1784020200, o: 24400, h: 24640, l: 24395, c: 24630, is_mother: false },
-    ],
-    mother: { high: 24650, low: 24560 },
-    trendlines: [{ id: 1, a1: { t: 1784017500, p: 24650 }, a2: { t: 1784018400, p: 24590 }, active: true }],
-    legs: [{
-      leg_id: 1,
-      touch_timestamp: 1784018400,
-      touch_high: 24590,
-      low: 24440,
-      levels: { '0': 24590, '1': 24440, '2': 24500, '4': 24450, '8': 24400 },
-      orders: [{ level: 4, inr_notional: 11700 }, { level: 8, inr_notional: 19500 }],
-    }],
-    entries: [{ t: 1784018400, price: 24450 }, { t: 1784019300, price: 24400 }],
-    exits: [{ t: 1784020200, price: 24630, pnl: 18400 }],
-    avg_entry_price: 24425,
-    tp_price: 24625,
-    tp_label: 'TARGET HIT',
-  },
-};
-
-test('Test Bench draws one mother candle and every level it bought', async ({ page }) => {
-  await login(page);
-  await page.route('**/api/test-bench/run', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(testBenchRunMock) }));
-
-  await openTradingSection(page, 'cascade');
-  await page.click('#oc-tabbtn-bench');
-  // The app upgrades every datetime-local input into its own read-only calendar
-  // widget, so the value is set the way that widget sets it.
-  await page.evaluate(() => {
-    const input = document.getElementById('tb-mother') as HTMLInputElement;
-    input.value = '2026-07-21T09:15';
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await page.click('#tb-run');
-
-  // The result arrives as ONE strip; the chart sits behind its button, the
-  // way every other panel does it.
-  await expect(page.locator('#tb-outcome-badge')).toHaveText('TARGET HIT');
-  await expect(page.locator('#tb-verdict')).toContainText('Target hit');
-  await expect(page.locator('#tb-verdict')).toContainText('₹31,200');
-  await expect(page.locator('#tb-entries tbody tr')).toHaveCount(2);
-
-  await page.click('#tb-chart-btn');
-  await page.waitForSelector('#pf-bench-canvas-main', { timeout: 10_000 });
-
-  const paint = await page.evaluate(() => {
-    const app = window as typeof window & { _pfChartCanvas?: { paint?: Record<string, unknown> } };
-    if (!app._pfChartCanvas || !app._pfChartCanvas.paint) throw new Error('The Test Bench canvas never painted');
-    return app._pfChartCanvas.paint;
-  });
-
-  expect(paint).toMatchObject({ candles: 4, trendlines: 1, markers: 3 });
-  const labels = paint.labelTexts as string[];
-  // The two lines that decide whether the trade worked, and what it cost.
-  expect(labels.some((text) => text.startsWith('TARGET HIT'))).toBe(true);
-  expect(labels.some((text) => text.includes('₹11,700'))).toBe(true);
-  expect(labels.some((text) => text.includes('₹19,500'))).toBe(true);
-
-  // The chart button folds it away again.
-  await page.click('#tb-chart-btn');
-  await expect(page.locator('#pf-bench-canvas-main')).toHaveCount(0);
-});
-
-test('Test Bench calendar offers only the minutes its timeframe can open on', async ({ page }) => {
-  await login(page);
-  await openTradingSection(page, 'cascade');
-  await page.click('#oc-tabbtn-bench');
-
-  // A 5-minute picker cannot express a 1m mother at all, and an every-minute
-  // list on 1H is 59 choices that all fail with "no candle at that time".
-  const minutesFor = async (timeframe: string) => {
-    await page.selectOption('#tb-timeframe', timeframe);
-    await page.click('#tb-mother');
-    await page.waitForSelector('.pf-cascade-calendar:not([hidden])');
-    const values = await page.$$eval('[data-pf-calendar-minute] option', (opts) =>
-      opts.map((o) => (o as HTMLOptionElement).value));
-    await page.click('[data-pf-calendar-cancel]');
-    return values;
-  };
-
-  expect(await minutesFor('1m')).toHaveLength(60);
-  expect(await minutesFor('15m')).toEqual(['0', '15', '30', '45']);
-  // NSE opens at 09:15, so every 1H bar opens at :15 and no other minute.
-  expect(await minutesFor('1h')).toEqual(['15']);
-
-  // And a 1m timestamp survives the round trip through the picker.
-  await page.selectOption('#tb-timeframe', '1m');
-  await page.click('#tb-mother');
-  await page.waitForSelector('.pf-cascade-calendar:not([hidden])');
-  await page.selectOption('[data-pf-calendar-hour]', '10');
-  await page.selectOption('[data-pf-calendar-minute]', '37');
-  await page.click('[data-pf-calendar-apply]');
-  expect(await page.inputValue('#tb-mother')).toMatch(/T10:37$/);
-});
-
-test('Test Bench switches cleanly between the two strategies', async ({ page }) => {
-  await login(page);
-  await openTradingSection(page, 'cascade');
-  await page.click('#oc-tabbtn-bench');
-
-  // Fib names the levels it buys; Two Red names the charts it climbs through.
-  await page.selectOption('#tb-strategy', 'fib');
-  await expect(page.locator('#tb-timeframe option[value="1m"]')).toHaveText(/L4/);
-  await expect(page.locator('#tb-rung-field')).toBeVisible();
-
-  await page.selectOption('#tb-strategy', 'two_red');
-  await expect(page.locator('#tb-timeframe option[value="1m"]')).toHaveText(/1m → 5m/);
-  // One chart up and no further -- two rungs (Phil, 2026-08-20).
-  await expect(page.locator('#tb-timeframe option[value="1h"]')).toHaveText(/^1H · 1H → 1D$/);
-  // The rupee-per-level box is a fib control; the ladder sizes itself in lots.
-  await expect(page.locator('#tb-rung-field')).toBeHidden();
-  await expect(page.locator('#tb-explainer')).toContainText('two red candles');
-});
-
 test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
   // The nav positions tabs with per-id CSS order rules and used to wrap to a
   // second row when they stopped fitting — which is how the Test Bench tab
@@ -1164,7 +1012,7 @@ test('Every cascade ⓘ reads as the Cash Cascade document', async ({ page }) =>
     ['#oc-tabbtn-candle', 'oc-candle-info'],
     ['#oc-tabbtn-recovery', 'oc-high-info'],
     ['#oc-tabbtn-gapcarry', 'oc-gap-info'],
-    ['#oc-tabbtn-bench', 'bench-info'],
+    ['#oc-tabbtn-supertrend', 'oc-st-info'],
   ]) {
     await page.click(tab);
     await page.click(`[data-pf-info="${id}"]`);

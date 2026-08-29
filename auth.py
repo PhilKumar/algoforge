@@ -450,7 +450,6 @@ VIEWER_SHARED_READ_PREFIXES = (
     "/api/strategies",
     "/api/study-library",
     "/api/terminal/",
-    "/api/test-bench/",
     "/api/two-red/",
 )
 

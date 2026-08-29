@@ -1,4 +1,5 @@
-/* Test Bench chart — the CryptoForge Canvas renderer, ported.
+/* THE chart — the CryptoForge Canvas renderer, ported. Written for the Test
+ * Bench (retired 2026-08-29); every strategy's chart draws through it now.
  *
  * This is the chart Phil accepted on CryptoForge on 2026-07-30, moved across
  * rather than rewritten, because a second implementation of the same drawing
@@ -18,7 +19,7 @@
  * the projection converts at the edge — and session gaps are drawn as
  * translucent synthetic candles instead of empty space.
  *
- * Payload shape (built by engine/test_bench.py):
+ * Payload shape (built by engine/ladder_reporting.py):
  *   { timeframe, candles:[{t,o,h,l,c,is_mother}], mother:{high,low},
  *     trendlines:[{id,a1:{t,p},a2:{t,p},active}],
  *     legs:[{leg_id,touch_timestamp,touch_high,low,levels:{...},

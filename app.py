@@ -108,7 +108,6 @@ from engine.cascade_equity import (
     CashCascadePaperEngine,
     cash_cascade_reference_symbol,
 )
-from engine.cascade_fib_geometry import boundaries_for_timeframe
 from engine.cascade_options import (
     CascadeConfig,
     CascadeOptionsAdapter,
@@ -4576,25 +4575,6 @@ class FibTouchAutoPayload(BaseModel):
     mode: str = Field(default="paper")
     trailing_target: bool = Field(default=True)
     buy_mode: str = Field(default="levels")
-
-
-class TestBenchPayload(BaseModel):
-    """One mother candle, named rather than described.
-
-    Deliberately has no mother_high / mother_low.  The whole point of the Test
-    Bench is that the system fetches the candle: a typed high and low is a place
-    for a typo to become a P&L figure.
-    """
-
-    instrument: str = Field(default="NIFTY")
-    strategy: str = Field(default="fib")
-    timeframe: str = Field(default="5m")
-    mother_timestamp: str
-    side: str = Field(default="CE")
-    rung_inr: float = Field(default=25000, gt=0, le=1_000_000)
-    itm_steps: int = Field(default=2, ge=-2, le=10)  # negative = OTM (ATM+1, ATM+2)
-    # Replay even when this exact question already has a stored answer.
-    force: bool = Field(default=False)
 
 
 class FibTouchBacktestPayload(BaseModel):
@@ -10864,12 +10844,12 @@ def _candle_entry_ladder_candles(timeframe: str, rows) -> list:
 def _candle_entry_charts(engine: LadderCandleEntryPaper, batches: Mapping[str, list]) -> dict:
     """One Canvas payload per chart in the ladder, drawn from the engine's own state.
 
-    `ladder_chart` (the Test Bench's) already draws a TwoRedLadder: fills as
+    `ladder_chart` already draws a TwoRedLadder: fills as
     solid rungs carrying what they cost, an armed stop dashed, the target, the
     exit. The mother bar leads each series because the replay stream itself
     starts strictly after it.
     """
-    from engine.test_bench import ladder_chart
+    from engine.ladder_reporting import ladder_chart
 
     charts: dict = {}
     mother_bar = engine.ladder.mother
@@ -11332,7 +11312,7 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
     one was destroyed before it could ever be looked at.
 
     It goes through `_candle_entry_charts`, the renderer the live chart and the
-    Test Bench already use. A campaign rebuilt from recorded prices kept no
+    the fib-boundary tab already uses. A campaign rebuilt from recorded prices kept no
     engine and is refused here rather than drawn from a guess.
     """
     key = str(strategy or "").replace("-", "_").lower()
@@ -11672,7 +11652,7 @@ async def candle_entry_backtest(payload: CandleEntryBacktestPayload, request: Re
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Backtest failed: {exc}") from exc
 
-    from engine.test_bench import ladder_result
+    from engine.ladder_reporting import ladder_result
 
     campaign = engine.get_status()
     reported = ladder_result(
@@ -11885,7 +11865,7 @@ async def candle_entry_paper_chart(request: Request, timeframe: str = ""):
 
     Built from the engine's own state -- its fills, armed stop, target and
     exit -- over the closed NIFTY bars of the chart asked for, through the
-    same `ladder_chart` the backtest and the Test Bench draw with.
+    same `ladder_chart` the backtest draws with.
     """
     runtime = _candle_entry_engines.get(_request_user_id(request))
     if runtime is None:
@@ -15022,7 +15002,7 @@ def _nifty_lot_size_on(day: date) -> int:
     The date is the mother's, not the expiry's: a lot-size revision applies to
     contracts introduced after it, so a December 2025 mother holding a January
     2026 expiry still traded 75s.  `engine.backtest.LOT_SIZES` is the one table
-    (the Test Bench already reads it) -- add new steps there, never here.
+    (the fib-boundary tab reads it) -- add new steps there, never here.
     """
 
     from engine.backtest import get_lot_size
@@ -15967,472 +15947,6 @@ def _known_option_expiries(instrument: str, upstox_expiries: list) -> list:
     return sorted(set(upstox_expiries) | set(live))
 
 
-async def _test_bench_two_red(
-    *,
-    instrument: str,
-    timeframe: str,
-    side: str,
-    mother,
-    mother_timestamp: datetime,
-    horizon_to: date,
-    adapter,
-    resolver_config,
-    underlying_key: str,
-    lot_size: int,
-    strike_step: float,
-    window,
-) -> dict:
-    """Replay the two-red ladder: buy, climb a timeframe, buy again.
-
-    Unlike the fib strategy this needs the index on SEVERAL charts at once --
-    rung 1 watches 1m while rung 2 watches 5m -- so every timeframe in the
-    ladder is fetched and the bars are merged into one stream ordered by when
-    each closed.  Deriving the slower bars from the 1m series would be cheaper
-    but would also mean this screen disagrees with Dhan's own 5m candle, which
-    is the thing the live engine will actually trade off.
-    """
-
-    from engine.candle_ladder import LadderCandle, TwoRedLadder, ladder_from
-    from engine.test_bench import ladder_chart, ladder_result
-
-    # The strategy's own depth: one chart up and no further (Phil, 2026-08-19).
-    stages = ladder_from(timeframe, LADDER_DEPTH)
-    stream: list = []
-    for stage_tf in stages:
-        try:
-            rows = await adapter.async_get_candles(
-                instrument, stage_tf, from_date=mother_timestamp.date(), to_date=horizon_to
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=503, detail=f"Unable to load {instrument} {stage_tf} candles: {exc}"
-            ) from exc
-        stream.extend(LadderCandle(stage_tf, row.timestamp, row.open, row.high, row.low, row.close) for row in rows)
-    if not stream:
-        raise HTTPException(status_code=400, detail=f"No {instrument} candles after that mother.")
-
-    mother_bar = LadderCandle(timeframe, mother.timestamp, mother.open, mother.high, mother.low, mother.close)
-
-    def _run() -> tuple:
-        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
-
-        try:
-            from upstox_token_manager import ensure_fresh_token
-
-            ensure_fresh_token()
-        except Exception as exc:
-            _logger.warning("[test-bench] Upstox token pre-check skipped: %s", exc)
-
-        # Two premium sources, split by whether the contract still exists.
-        # Upstox holds priced history for EXPIRED contracts only; a recent
-        # mother buys a contract that is still trading, and Dhan can serve
-        # that one's own minute candles.  Between them there is no date gap,
-        # so — unlike the fib path — this strategy never refuses a mother for
-        # being too recent.
-        upstox_expiries: list[date] = []
-        premium_source = None
-        try:
-            premium_source = UpstoxPremiumSource(underlying_key=underlying_key, backfill_missing=True)
-            upstox_expiries = sorted(premium_source.available_expiries())
-        except UpstoxAccessError as exc:
-            _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
-
-        expiries = _known_option_expiries(instrument, upstox_expiries)
-        if not expiries:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Neither Upstox nor Dhan could name an option expiry for {instrument}.",
-            )
-
-        resolver = NiftyContractResolver(
-            expiries=expiries, strike_step=strike_step, lot_size=lot_size, symbol=instrument
-        )
-        try:
-            # The expiry is fixed at the mother for the whole ladder; only the
-            # strike follows the index down as later rungs buy lower.
-            anchor = resolver.select(mother.timestamp, mother.close, side, resolver_config)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=400, detail=f"No {side} contract could be bought at that mother: {exc}"
-            ) from exc
-        expiry = anchor.expiry
-
-        def strike_for(_timestamp, index_price) -> tuple[int, str]:
-            contract = resolver.select(mother.timestamp, index_price, side, resolver_config)
-            return int(contract.strike), contract.option_type
-
-        hybrid = _hybrid_premium_lookup(
-            adapter.dhan,
-            instrument,
-            premium_source,
-            set(upstox_expiries),
-            mother_timestamp.date(),
-            horizon_to,
-            forward_minutes=_FIB_TIMEFRAME_MINUTES.get(timeframe, 5),
-        )
-
-        def premium_lookup(timestamp, strike, option_type):
-            return hybrid(timestamp, FixedCampaignOption(instrument, int(strike), expiry, option_type, lot_size, ""))
-
-        # Same rule as the fib path: past its own expiry the contract does not
-        # exist, so neither does the replay.
-        replay = [row for row in stream if row.timestamp.date() <= expiry and row.timestamp > mother_timestamp]
-        ladder = TwoRedLadder(
-            mother_bar,
-            stages=stages,
-            strike_for=strike_for,
-            premium_lookup=premium_lookup,
-            lot_size=lot_size,
-        ).run(replay)
-        # Only a window that actually REACHED the expiry may close the trade
-        # as "held to expiry".  A window that simply ran out of history —
-        # today, on a live contract — leaves the trade honestly OPEN.
-        if ladder.fills and ladder.status not in {"CLOSED", "EXPIRED"} and replay and horizon_to >= expiry:
-            last = max(replay, key=lambda row: row.timestamp)
-            ladder.close_at_expiry(last, last.close)
-        return ladder, replay, expiry
-
-    try:
-        ladder, replay, expiry = await asyncio.to_thread(_run)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Test Bench run failed: {exc}") from exc
-
-    reported = ladder_result(
-        ladder,
-        instrument=instrument,
-        timeframe=timeframe,
-        mother_timestamp=mother_timestamp.isoformat(),
-        lot_size=lot_size,
-    )
-    reported["summary"]["expiry"] = expiry.isoformat()
-    return {
-        "status": "ok",
-        "strategy": "two_red",
-        "summary": reported["summary"],
-        "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
-        "ladder": list(stages),
-        "lot_size": lot_size,
-        "strike_step": strike_step,
-        "candles_replayed": len(replay),
-        "expiry": expiry.isoformat(),
-        "horizon_to": horizon_to.isoformat(),
-        "entries": reported["entries"],
-        # The mother bar leads the chart candles: the replay stream itself
-        # starts strictly after the mother, so without this the one candle
-        # the whole trade is anchored to would never be drawn.
-        "chart": ladder_chart(ladder, [mother_bar, *replay], timeframe=timeframe),
-    }
-
-
-@app.post("/api/test-bench/run")
-async def test_bench_run(payload: TestBenchPayload, request: Request):
-    """Replay one mother candle, or hand back the run already stored for it.
-
-    Every distinct question -- instrument, strategy, timeframe, mother,
-    rupees per level, ITM steps -- is stored once.  Asking it again returns
-    the stored answer with ``duplicate: true`` rather than spending another
-    minute of Dhan and Upstox calls on a result that cannot have changed.
-    ``force`` replays anyway and overwrites, which is what a run that had
-    premium gaps at the time needs.
-    """
-
-    user_id = _request_user_id(request)
-    query_key = _db_mod.test_bench_query_key(
-        instrument=payload.instrument,
-        strategy=payload.strategy,
-        timeframe=payload.timeframe,
-        mother_timestamp=payload.mother_timestamp,
-        rung_inr=payload.rung_inr,
-        itm_steps=payload.itm_steps,
-    )
-    if not payload.force:
-        stored = await _db_mod.find_test_bench_run(user_id, query_key)
-        if stored and isinstance(stored.get("payload"), dict) and stored["payload"]:
-            return {
-                **stored["payload"],
-                "duplicate": True,
-                "run_id": stored["id"],
-                "stored_at": stored["created_at"],
-            }
-
-    result = await _test_bench_execute(payload, request)
-    summary = result.get("summary") or {}
-    run_id = await _db_mod.save_test_bench_run(
-        user_id,
-        query_key,
-        {
-            **summary,
-            "strategy": result.get("strategy") or payload.strategy,
-            "rung_inr": payload.rung_inr,
-            "itm_steps": payload.itm_steps,
-        },
-        result,
-    )
-    return {**result, "duplicate": False, "run_id": run_id}
-
-
-@app.get("/api/test-bench/results")
-async def test_bench_results(request: Request, search: str = "", page: int = 1, per_page: int = 10):
-    """One page of stored Test Bench runs, newest mother first."""
-    return {
-        "status": "ok",
-        **(await _db_mod.list_test_bench_runs(_request_user_id(request), search=search, page=page, per_page=per_page)),
-    }
-
-
-@app.get("/api/test-bench/results/{run_id}")
-async def test_bench_result(run_id: int, request: Request):
-    """Reopen one stored run in full, without replaying it."""
-    stored = await _db_mod.get_test_bench_run(_request_user_id(request), run_id)
-    if not stored:
-        raise HTTPException(status_code=404, detail="That saved run no longer exists.")
-    payload = stored.get("payload") or {}
-    return {**payload, "duplicate": True, "run_id": stored["id"], "stored_at": stored["created_at"]}
-
-
-@app.delete("/api/test-bench/results/{run_id}")
-async def test_bench_result_delete(run_id: int, request: Request):
-    if not await _db_mod.delete_test_bench_run(_request_user_id(request), run_id):
-        raise HTTPException(status_code=404, detail="That saved run no longer exists.")
-    return {"status": "ok", "deleted": run_id}
-
-
-async def _test_bench_execute(payload: TestBenchPayload, request: Request):
-    """Replay ONE mother candle and report everything that happened to it.
-
-    This is the Test Bench: the caller names an instrument, a strategy, a
-    timeframe and a mother candle, and gets back the trade in full -- when it
-    entered, when it left, whether the target or the expiry ended it, which
-    strike it bought, at what premium, and what each level cost -- with the
-    geometry drawn on a chart.
-
-    Three things make it different from the older fib backtest it grew out of:
-
-    * the mother's high and low are **read from the market**, never typed. A
-      mother Dhan cannot produce is an error, not something to work around;
-    * it is **one trade**.  ``max_rounds=1`` stops the new-low re-arm, so the
-      mother buys its levels, rides to target or expiry, and is finished;
-    * the lot size comes from the **effective-dated** table, so a 2025 mother is
-      sized at the lot that was real in 2025 rather than today's.
-    """
-
-    from engine.backtest import get_lot_size as dated_lot_size
-    from engine.backtest import get_strike_step as dated_strike_step
-    from engine.cascade_instruments import InstrumentError, index_spec
-    from engine.cascade_instruments import premium_key as upstox_key_for
-    from engine.test_bench import CONTRACT_WINDOWS, bench_chart, bench_summary
-
-    strategy = str(payload.strategy).strip().lower()
-    if strategy not in {"fib", "two_red"}:
-        raise HTTPException(status_code=400, detail="strategy must be 'fib' or 'two_red'.")
-    side = str(payload.side).upper()
-    if side != "CE":
-        raise HTTPException(status_code=400, detail="The Test Bench replays CE campaigns only for now.")
-    timeframe = str(payload.timeframe).lower()
-    if timeframe not in _FIB_TIMEFRAME_MINUTES:
-        raise HTTPException(status_code=400, detail="timeframe must be 1m, 5m, 15m or 1h.")
-
-    try:
-        instrument = index_spec(payload.instrument).symbol
-        underlying_key = upstox_key_for(instrument)
-    except InstrumentError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    window = CONTRACT_WINDOWS.get(instrument)
-    if window is None:
-        raise HTTPException(status_code=400, detail=f"No contract window is defined for {instrument} yet.")
-
-    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
-    now = datetime.now(IST)
-    if mother_timestamp.date() > now.date():
-        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
-    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
-        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15–15:30 session.")
-
-    _user, broker_client, _source = await _request_broker_context(request)
-    if broker_client is None:
-        raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {instrument} index candles.")
-
-    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
-    horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=window.horizon_days))
-    try:
-        index_candles = await adapter.async_get_candles(
-            instrument, timeframe, from_date=mother_timestamp.date(), to_date=horizon_to
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to load {instrument} {timeframe} candles: {exc}") from exc
-
-    # No typed fallback.  If the exact bar is not in what Dhan returned, the
-    # mother is wrong (a holiday, a misaligned minute, a date before the data
-    # starts) and saying so beats inventing a candle around a guess.
-    mother = next((row for row in index_candles if row.timestamp == mother_timestamp), None)
-    if mother is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Dhan has no {instrument} {timeframe} candle opening at "
-                f"{mother_timestamp.strftime('%d %b %Y %H:%M')} IST. Check the date, the time and the timeframe."
-            ),
-        )
-    forward = [row for row in index_candles if row.timestamp > mother_timestamp]
-    if not forward:
-        raise HTTPException(status_code=400, detail=f"No {instrument} candles after that mother.")
-
-    lot_size = int(dated_lot_size(instrument, mother_timestamp.date()))
-    strike_step = float(dated_strike_step(instrument))
-    resolver_config = CascadeConfig(
-        mother_timestamp=mother_timestamp,
-        mother_high=mother.high,
-        mother_low=mother.low,
-        option_type=side,
-        timeframe=timeframe,
-        itm_steps=int(payload.itm_steps),
-        strike_step=strike_step,
-        lot_size=lot_size,
-        min_dte=window.min_dte,
-        max_dte=window.max_dte,
-    )
-    if strategy == "two_red":
-        return await _test_bench_two_red(
-            instrument=instrument,
-            timeframe=timeframe,
-            side=side,
-            mother=mother,
-            mother_timestamp=mother_timestamp,
-            horizon_to=horizon_to,
-            adapter=adapter,
-            resolver_config=resolver_config,
-            underlying_key=underlying_key,
-            lot_size=lot_size,
-            strike_step=strike_step,
-            window=window,
-        )
-
-    # Phil's timeframe rule: a 1m or 5m mother buys only the two deepest lines,
-    # because a shallow bounce on a fast chart is noise; 15m and 1h are
-    # structural enough to start one level earlier.
-    fib_levels = boundaries_for_timeframe(timeframe)
-
-    def _run() -> dict:
-        from data.cascade_upstox import UpstoxAccessError, UpstoxPremiumSource
-
-        try:
-            from upstox_token_manager import ensure_fresh_token
-
-            ensure_fresh_token()
-        except Exception as exc:  # a dead refresher must not mask the real error
-            _logger.warning("[test-bench] Upstox token pre-check skipped: %s", exc)
-
-        # Upstox only prices EXPIRED contracts, and a recent mother buys one
-        # that is still trading — that one Dhan prices from its own candles.
-        # Union the expiry calendars, split the pricing per contract, and no
-        # mother is ever too recent to run.
-        upstox_expiries: list[date] = []
-        premium_source = None
-        try:
-            premium_source = UpstoxPremiumSource(underlying_key=underlying_key, backfill_missing=True)
-            upstox_expiries = sorted(premium_source.available_expiries())
-        except UpstoxAccessError as exc:
-            _logger.warning("[test-bench] Upstox premium history unavailable, using Dhan only: %s", exc)
-
-        expiries = _known_option_expiries(instrument, upstox_expiries)
-        if not expiries:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Neither Upstox nor Dhan could name an option expiry for {instrument}.",
-            )
-
-        resolver = NiftyContractResolver(
-            expiries=expiries, strike_step=strike_step, lot_size=lot_size, symbol=instrument
-        )
-
-        def select(_timestamp, index_price) -> FixedCampaignOption:
-            # The strike follows the index down at each fill, but the EXPIRY is
-            # fixed at the mother's -- re-resolving it per fill would drift the
-            # contract as the campaign ages and eventually land on one Upstox
-            # never priced.
-            contract = resolver.select(mother.timestamp, index_price, side, resolver_config)
-            return FixedCampaignOption(
-                instrument, int(contract.strike), contract.expiry, contract.option_type, int(contract.lot_size), ""
-            )
-
-        premium_lookup = _hybrid_premium_lookup(
-            broker_client,
-            instrument,
-            premium_source,
-            set(upstox_expiries),
-            mother_timestamp.date(),
-            horizon_to,
-            forward_minutes=_FIB_TIMEFRAME_MINUTES.get(timeframe, 5),
-        )
-
-        try:
-            initial = select(mother.timestamp, mother.close)
-        except Exception as exc:
-            # A 400, not a 503: nothing is down. This mother has no contract, and
-            # a 503 gets rewritten into "temporarily offline" before it reaches
-            # the screen, hiding the only sentence worth reading.
-            raise HTTPException(
-                status_code=400, detail=f"No {side} contract could be bought at that mother: {exc}"
-            ) from exc
-
-        # The trade ends at expiry, so the replay does too.  Past that date the
-        # contract does not exist: every further fib crossing would try to buy an
-        # option nobody can price, and the run would end up reported as "awaiting
-        # a quote" when what actually happened is that the mother expired unused.
-        replay = [row for row in forward if row.timestamp.date() <= initial.expiry]
-
-        engine = NiftyOptionsPaperCascade(
-            mother,
-            initial,
-            CascadeOptionsAdapter(broker_client, paper_only=True),
-            premium_lookup,
-            PaperCascadeConfig(
-                rung_inr=float(payload.rung_inr),
-                ce_offset_steps=-int(payload.itm_steps),
-                target_fraction=0.25,
-                lot_ladder=True,
-                per_entry_strike=True,
-                fib_levels=fib_levels,
-                # One mother, one trade.  No re-arm on a new low.
-                max_rounds=1,
-            ),
-            contract_selector=select,
-        ).run(replay)
-        result = _serialize_cascade_backtest(engine)
-        result["geometry"] = _serialize_cascade_geometry(engine, mother, replay)
-        result["expiry"] = initial.expiry.isoformat()
-        result["candles_replayed"] = len(replay)
-        return result
-
-    try:
-        outcome = await asyncio.to_thread(_run)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Test Bench run failed: {exc}") from exc
-
-    geometry = outcome.pop("geometry", {})
-    summary = bench_summary(
-        outcome, instrument=instrument, timeframe=timeframe, mother_timestamp=mother_timestamp.isoformat()
-    )
-    return {
-        "status": "ok",
-        "strategy": "fib",
-        "summary": summary,
-        "mother": {"timestamp": mother_timestamp.isoformat(), "high": mother.high, "low": mother.low},
-        "fib_levels": list(fib_levels),
-        "lot_size": lot_size,
-        "strike_step": strike_step,
-        "candles_replayed": outcome.get("candles_replayed", 0),
-        "expiry": outcome.get("expiry"),
-        "horizon_to": horizon_to.isoformat(),
-        "entries": outcome.get("entries") or [],
-        "chart": bench_chart(geometry, outcome, timeframe=timeframe),
-    }
-
-
 @app.post("/api/cascade/paper/start")
 async def cascade_paper_start(payload: CascadePaperStartPayload, request: Request):
     """Start a new current-session CE campaign.  This never calls Dhan order APIs."""
@@ -16618,7 +16132,7 @@ async def fib_space_paper_mother(request: Request):
     selects among the mothers the geometry offers.
 
     Only the timestamp is taken. High and low come from the market bar, exactly
-    as the fib-boundary tab and the Test Bench do.
+    as the fib-boundary tab does.
     """
     body = await request.json() if await request.body() else {}
     # The parser hands back a tz-aware IST datetime; everything downstream here
