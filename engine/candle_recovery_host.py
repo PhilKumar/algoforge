@@ -189,9 +189,15 @@ class CandleRecoveryHost:
             return self.min_lookback_days
         return max(self.min_lookback_days, (now.date() - oldest.date()).days + LOOKBACK_WARMUP_DAYS)
 
-    async def _fetch(self, *, now: datetime) -> list:
-        """Closed candles over the needed window, in slices the broker accepts."""
-        days = self.lookback_days(now=now)
+    async def _fetch(self, *, now: datetime, days: int | None = None) -> list:
+        """Closed candles over the needed window, in slices the broker accepts.
+
+        `days` is normally derived from the oldest live campaign. A backtest
+        names its own, because the mother it wants is older than any campaign
+        this host is carrying -- with the live figure the mother's bar falls
+        off the front of the window and reads as "no candle opens at that time".
+        """
+        days = int(self.lookback_days(now=now) if days is None else days)
         by_stamp: dict = {}
         end = now.date()
         remaining = days
@@ -206,8 +212,8 @@ class CandleRecoveryHost:
             end = start
         return [by_stamp[k] for k in sorted(by_stamp)]
 
-    async def bars(self, *, now: datetime) -> list[RecoveryBar]:
-        return bars_from_candles(await self._fetch(now=now))
+    async def bars(self, *, now: datetime, days: int | None = None) -> list[RecoveryBar]:
+        return bars_from_candles(await self._fetch(now=now, days=days))
 
     # ── replay ──────────────────────────────────────────────────────────────
 
@@ -225,20 +231,30 @@ class CandleRecoveryHost:
         engine.run(mirror_bars(window) if self.mirrored else window)
         return engine
 
-    async def start_named_mother(self, when: datetime, *, now: datetime) -> RecoveryCampaign:
+    async def start_named_mother(
+        self, when: datetime, *, now: datetime, max_age_days: int | None = None
+    ) -> RecoveryCampaign:
         """Open a campaign on the bar the trader named.
 
         The mother's high and low come from the market bar, never from anything
         typed -- a timestamp with no bar behind it is an error, not a shape to
         invent.  Replayed at once, so it can be checked against a chart the
         same evening rather than waiting for a poll.
+
+        `max_age_days` is 30 for a live run: adopting a months-old mother into
+        a running paper book is nearly always a mistake. A BACKTEST passes its
+        own, larger figure, because reaching back is the whole point of one --
+        and the candle fetch widens with it, or the mother's own bar falls off
+        the front of the window and reads as "no candle opens at that time".
         """
         step = TIMEFRAME_MINUTES[self.config.timeframe]
         if when.minute % step or when.second or when.microsecond:
             raise ValueError(f"mother must be a {self.config.timeframe} candle open in IST")
-        if (now.date() - when.date()).days > MAX_MOTHER_AGE_DAYS:
-            raise ValueError(f"choose a mother from the last {MAX_MOTHER_AGE_DAYS} days")
-        bars = await self.bars(now=now)
+        cap = int(MAX_MOTHER_AGE_DAYS if max_age_days is None else max_age_days)
+        age = (now.date() - when.date()).days
+        if age > cap:
+            raise ValueError(f"choose a mother from the last {cap} days")
+        bars = await self.bars(now=now, days=max(self.min_lookback_days, age + LOOKBACK_WARMUP_DAYS))
         bar = next((b for b in bars if b.timestamp == when), None)
         if bar is None:
             raise LookupError(

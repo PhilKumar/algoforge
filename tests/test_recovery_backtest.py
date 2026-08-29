@@ -87,6 +87,119 @@ class SameEngineTests(unittest.TestCase):
         self.assertIn("if lot_size_override", builder)
 
 
+class ReachTests(unittest.TestCase):
+    """A backtest that can only see last month is not a backtest.
+
+    `start_named_mother` caps a LIVE named mother at 30 days, which is right --
+    adopting a months-old mother into a running paper book is nearly always a
+    mistake. The replay inherited that cap when it was first built, and would
+    have refused every mother older than a month with "choose a mother from the
+    last 30 days". Found by reading the host before running the first replay.
+    """
+
+    BODY = _route_body("/api/recovery/backtest")
+    HOST = (_REPO / "engine" / "candle_recovery_host.py").read_text()
+
+    def test_the_replay_names_its_own_reach(self):
+        self.assertIn("max_age_days=_RECOVERY_BACKTEST_MAX_AGE_DAYS", self.BODY)
+        self.assertIn("_RECOVERY_BACKTEST_MAX_AGE_DAYS = ", APP)
+
+    def test_it_reaches_back_further_than_a_live_mother(self):
+        import re as _re
+
+        from engine.candle_recovery_host import MAX_MOTHER_AGE_DAYS
+
+        value = int(_re.search(r"_RECOVERY_BACKTEST_MAX_AGE_DAYS = (\d+)", APP).group(1))
+        self.assertGreater(value, MAX_MOTHER_AGE_DAYS, "the replay is capped at the live limit")
+
+    def test_the_live_run_keeps_its_own_cap(self):
+        """The override must not have loosened the live path by default."""
+        self.assertIn("cap = int(MAX_MOTHER_AGE_DAYS if max_age_days is None else max_age_days)", self.HOST)
+        live = APP[APP.index('@app.post("/api/recovery/paper/mother")') :][:1400]
+        self.assertNotIn("max_age_days", live, "the live mother route must not raise its own cap")
+
+    def test_the_candle_fetch_widens_with_the_reach(self):
+        """Otherwise the mother's own bar falls off the front of the window and
+        the replay refuses it as 'no candle opens at that time'."""
+        self.assertIn("age + LOOKBACK_WARMUP_DAYS", self.HOST)
+        self.assertIn("async def bars(self, *, now: datetime, days: int | None = None)", self.HOST)
+
+
+class ReachBehaviourTests(unittest.IsolatedAsyncioTestCase):
+    """The reach fix, driven rather than read.
+
+    The source checks above would pass on a change that reads right and does
+    nothing. This one names a mother 198 days back and asserts what actually
+    happens to it.
+    """
+
+    NOW = __import__("datetime").datetime(2026, 8, 29, 16, 0)
+    OLD = __import__("datetime").datetime(2026, 2, 12, 10, 15)
+
+    def _host(self):
+        import datetime as dt
+        from types import SimpleNamespace
+
+        from engine.candle_recovery import RecoveryConfig
+        from engine.candle_recovery_host import CandleRecoveryHost
+
+        class Adapter:
+            def __init__(self):
+                self.spans = []
+
+            async def async_get_candles(self, symbol, tf, *, from_date, to_date, now=None):
+                self.spans.append((from_date, to_date))
+                out, day = [], from_date
+                while day <= to_date:
+                    if day.weekday() < 5:
+                        for hour, minute in ((10, 15), (10, 30), (10, 45), (11, 0)):
+                            out.append(
+                                SimpleNamespace(
+                                    timestamp=dt.datetime(day.year, day.month, day.day, hour, minute),
+                                    open=24000.0,
+                                    high=24050.0,
+                                    low=23950.0,
+                                    close=24000.0,
+                                )
+                            )
+                    day += dt.timedelta(days=1)
+                return out
+
+            def get_ticker(self, symbol):
+                return {"last_price": 24000.0}
+
+        return CandleRecoveryHost(
+            "nifty",
+            Adapter(),
+            premium_lookup=lambda when, strike, expiry: 200.0,
+            select_contract=lambda when, px: SimpleNamespace(strike=24000, expiry=dt.date(2026, 3, 5), lot_size=75),
+            config=RecoveryConfig(timeframe="15m"),
+            mode="ladder",
+            side="CE",
+            lot_size=75,
+            dhan_symbol="NIFTY",
+        )
+
+    async def test_a_live_run_still_refuses_an_old_mother(self):
+        with self.assertRaises(ValueError) as caught:
+            await self._host().start_named_mother(self.OLD, now=self.NOW)
+        self.assertIn("last 30 days", str(caught.exception))
+
+    async def test_a_replay_accepts_one_and_reads_its_real_bar(self):
+        host = self._host()
+        campaign = await host.start_named_mother(self.OLD, now=self.NOW, max_age_days=730)
+        self.assertEqual(campaign.mother.timestamp, self.OLD)
+        self.assertEqual(campaign.mother.high, 24050.0, "the high must come from the bar, never be invented")
+
+    async def test_the_fetch_actually_reaches_the_mother(self):
+        """A wider cap with the old window would refuse it a layer deeper, as
+        'no candle opens at that time' -- the failure that looks like bad data."""
+        host = self._host()
+        await host.start_named_mother(self.OLD, now=self.NOW, max_age_days=730)
+        earliest = min(span[0] for span in host.adapter.spans)
+        self.assertLessEqual(earliest, self.OLD.date(), "the candle fetch never reached the mother")
+
+
 class OfflineParityTests(unittest.TestCase):
     """The rule was proven offline before it had a button.
 

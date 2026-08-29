@@ -167,11 +167,12 @@ _SCHEMA_STATEMENTS = [
     # now replay its own rule from its own Backtest button, so nothing reads or
     # writes this table any more.
     #
-    # It is kept, with its rows, because dropping it would destroy replays Phil
-    # ran and cannot get back -- there were 30 on prod the day it was retired.
-    # It also stays in _USER_OWNED_TABLES below, so deleting an account still
-    # clears it rather than leaving rows for the next account given that id.
-    # Drop it only on Phil's word.
+    # The 30 rows on prod were backed up and then deleted on Phil's word the
+    # same day (backups/test_bench_runs_backup_20260829.json here, and the same
+    # file in ~ec2-user on prod). The TABLE is left in place: empty it costs
+    # nothing, and dropping it would need a migration for a feature that is
+    # already gone. It stays in _USER_OWNED_TABLES below so deleting an account
+    # still clears anything that somehow lands here.
     """CREATE TABLE IF NOT EXISTS test_bench_runs (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id         INTEGER NOT NULL,

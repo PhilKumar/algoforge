@@ -107,3 +107,6 @@ bank_statements/
 payslips/
 LifePapers/
 WorkArchive/
+
+# Data pulled off prod for safekeeping. Real trading history: never in git.
+backups/

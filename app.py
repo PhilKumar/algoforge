@@ -2310,6 +2310,12 @@ def _recovery_backtest_key(user_id: int) -> str:
     return f"recovery_backtest_latest:{int(user_id)}"
 
 
+# How far back a High Entry REPLAY may name a mother. The live run caps this at
+# 30 days on purpose; a backtest that could only reach last month would not be
+# one. Two years is roughly what the recorded premium archive can price.
+_RECOVERY_BACKTEST_MAX_AGE_DAYS = 730
+
+
 def _build_recovery_host(
     symbol: str,
     adapter: CascadeOptionsAdapter,
@@ -16729,7 +16735,14 @@ async def recovery_backtest(payload: RecoveryBacktestPayload, request: Request):
     )
 
     try:
-        campaign = await host.start_named_mother(mother_timestamp.replace(tzinfo=None), now=now.replace(tzinfo=None))
+        # A replay reaches back; the live 30-day cap would have limited this to
+        # the last month, which is not a backtest. Two years is what the
+        # recorded premium archive can answer for.
+        campaign = await host.start_named_mother(
+            mother_timestamp.replace(tzinfo=None),
+            now=now.replace(tzinfo=None),
+            max_age_days=_RECOVERY_BACKTEST_MAX_AGE_DAYS,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
