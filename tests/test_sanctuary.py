@@ -1948,5 +1948,61 @@ class HoldingsTests(unittest.TestCase):
         self.assertIsNone(sanctuary_holdings.parse_holdings(self.book([[["nothing", "here"]]])))
 
 
+class PrincipalOwedTests(unittest.TestCase):
+    """What he owes is the principal, not the sum of the instalments left.
+
+    An EMI carries interest the lender has not charged yet. Counting it as
+    debt made the home loan card say one number and "where I stand" say a
+    larger one for the same loan, and inflated the whole total.
+    """
+
+    @staticmethod
+    def _emi(due, amount, principal, interest, outstanding, paid=""):
+        return {
+            "due_date": due,
+            "amount": amount,
+            "principal_part": principal,
+            "interest_part": interest,
+            "outstanding": outstanding,
+            "paid_on": paid,
+        }
+
+    def setUp(self):
+        import sanctuary
+
+        self.owed = sanctuary.principal_owed
+        # Three instalments of 10,000 against a balance of 27,000: 1,000 of
+        # what is still to be handed over is interest, not debt.
+        self.schedule = [
+            self._emi("2026-09-10", 10000.0, 9100.0, 900.0, 17900.0),
+            self._emi("2026-10-10", 10000.0, 9400.0, 600.0, 8500.0),
+            self._emi("2026-11-10", 8800.0, 8500.0, 300.0, 0.0),
+        ]
+
+    def test_the_balance_after_the_last_paid_instalment_is_the_debt(self):
+        schedule = list(self.schedule)
+        schedule[0] = {**schedule[0], "paid_on": "2026-09-10"}
+        self.assertEqual(self.owed(schedule), 17900.0)
+
+    def test_before_the_first_payment_the_opening_balance_is_owed(self):
+        self.assertEqual(self.owed(self.schedule), 17900.0 + 9100.0)
+
+    def test_the_interest_not_yet_charged_is_not_debt(self):
+        to_hand_over = sum(row["amount"] for row in self.schedule)
+        self.assertEqual(to_hand_over, 28800.0)
+        self.assertLess(self.owed(self.schedule), to_hand_over, "1,800 of that is unearned interest")
+
+    def test_a_schedule_with_no_balance_column_cannot_say(self):
+        bare = [self._emi("2026-09-10", 10000.0, None, None, None)]
+        self.assertIsNone(self.owed(bare), "the caller falls back to the instalments left")
+
+    def test_a_repaid_schedule_owes_nothing(self):
+        paid = [{**row, "paid_on": row["due_date"]} for row in self.schedule]
+        self.assertEqual(self.owed(paid), 0.0)
+
+    def test_no_schedule_at_all(self):
+        self.assertIsNone(self.owed([]))
+
+
 if __name__ == "__main__":
     unittest.main()

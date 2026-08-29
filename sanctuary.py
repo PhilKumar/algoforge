@@ -1536,7 +1536,11 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         if not loan.get("active"):
             continue
         emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
-        remaining = sum(e["amount"] for e in emis if not e["paid_on"])
+        # The principal, where the schedule keeps a balance column; where it
+        # does not, what is left to hand over is the closest honest answer.
+        remaining = principal_owed(emis)
+        if remaining is None:
+            remaining = sum(e["amount"] for e in emis if not e["paid_on"])
         if remaining <= 0:
             # A schedule built from statements only knows the PAST — a
             # running loan with every known EMI paid still owes its future.
@@ -2160,6 +2164,32 @@ def _clean_loan_fields(payload: dict) -> dict:
     return fields
 
 
+def principal_owed(emis: list[dict]) -> float | None:
+    """What a scheduled loan still OWES, as its own schedule says.
+
+    Not the same thing as what is left to hand over: an instalment is part
+    interest the lender has not charged yet, so summing the instalments
+    counts the bank's future earnings as today's debt. On a home loan with
+    twenty-one EMIs left that was thirty-nine thousand rupees of debt he
+    did not have — and the loan card and "where I stand" said two
+    different numbers for the same loan.
+
+    The balance after the last instalment paid is the answer. Before the
+    first payment there is no such line, so the opening balance is the
+    first instalment's closing balance plus the principal it will retire.
+    A schedule with no balance column cannot say, and returns None.
+    """
+    for emi in reversed(emis):
+        if emi["paid_on"] and emi["outstanding"] is not None:
+            return round(float(emi["outstanding"]), 2)
+    for emi in emis:
+        if emi["outstanding"] is None:
+            continue
+        opening = float(emi["outstanding"]) + float(emi["principal_part"] or 0)
+        return round(opening, 2)
+    return None
+
+
 @router.get("/api/sanctuary/loans")
 async def loans_list(user: dict = Depends(_unlocked_user)):
     loans = await sanctuary_db.list_loans(int(user["id"]))
@@ -2174,10 +2204,7 @@ async def loans_list(user: dict = Depends(_unlocked_user)):
         loan["remaining_amount"] = round(sum(e["amount"] for e in remaining + overdue), 2)
         upcoming = min((e["due_date"] for e in remaining), default="")
         loan["next_due"] = min((e["due_date"] for e in overdue), default="") or upcoming
-        loan["outstanding"] = next(
-            (e["outstanding"] for e in reversed(emis) if e["paid_on"] and e["outstanding"] is not None),
-            emis[0]["outstanding"] if emis and emis[0]["outstanding"] is not None else None,
-        )
+        loan["outstanding"] = principal_owed(emis)
     return {"loans": loans}
 
 
