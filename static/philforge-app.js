@@ -2058,6 +2058,8 @@ const PF_DELEGATED_ACTIONS = new Set([
   'recoveryStart',
   'recoveryStop',
   'recoveryAddMother',
+  'runRecoveryBacktest',
+  'deleteRecoveryBacktest',
   'recoveryDrop',
   'setRecoveryRunMode',
   'setRecoverySide',
@@ -4965,7 +4967,7 @@ function showOptionsCascadeTab(event, el) {
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'gapcarry') refreshGapCarryStatus();
   else if (tab === 'supertrend') refreshSupertrendStatus();
-  else if (tab === 'recovery') refreshRecoveryStatus();
+  else if (tab === 'recovery') { refreshRecoveryStatus(); _loadRecoveryBacktest(); }
   else refreshFibBoundaryStatus();
 }
 
@@ -20636,19 +20638,12 @@ function _recoveryFailure(err, data, res, fallback) {
 
 async function recoveryStart() {
   _recoveryError('');
-  const lots = String(document.getElementById('oc-high-lots')?.value || '1,2')
-    .split(',').map(x => Number(x.trim())).filter(x => x > 0);
-  const body = {
-    symbol: document.getElementById('oc-high-symbol')?.value || 'nifty',
-    timeframe: document.getElementById('oc-high-timeframe')?.value || '5m',
-    mode: document.getElementById('oc-high-mode')?.value || 'ladder',
-    side: document.getElementById('oc-high-side')?.value || 'CE',
-    itm_steps: Number(document.getElementById('oc-high-itm')?.value || 4),
-    sl_source: document.getElementById('oc-high-sl-source')?.value || 'entry',
-    lots_schedule: lots.length ? lots : [1, 2],
-    horizon_sessions: Number(document.getElementById('oc-high-horizon')?.value || 10),
-    min_profit_inr: Number(document.getElementById('oc-high-margin')?.value || 500),
-  };
+  // The start route takes the ladder as one list; the replay takes it as two
+  // fields. Same source either way -- see _recoveryFormPayload.
+  const form = _recoveryFormPayload();
+  const body = { ...form, lots_schedule: [form.lots_first, form.lots_second] };
+  delete body.lots_first;
+  delete body.lots_second;
   let res = null;
   let data = null;
   try {
@@ -20687,6 +20682,137 @@ async function recoveryAddMother() {
   } catch (err) {
     _recoveryError(_recoveryFailure(err, data, res, 'That mother candle was refused.'));
   }
+}
+
+// ── High Entry's replay ──────────────────────────────────────────────────────
+// The last strategy on this page that could not answer "what would this rule
+// have done". It drives the SAME host the paper run drives, on recorded
+// prices; the form below is read by both, so a replay and a live run cannot
+// describe different rules.
+
+/** The rule as the form states it. Shared with recoveryStart deliberately. */
+function _recoveryFormPayload() {
+  const lots = String(document.getElementById('oc-high-lots')?.value || '1,2')
+    .split(',').map(x => Number(x.trim())).filter(x => x > 0);
+  return {
+    symbol: document.getElementById('oc-high-symbol')?.value || 'nifty',
+    timeframe: document.getElementById('oc-high-timeframe')?.value || '5m',
+    mode: document.getElementById('oc-high-mode')?.value || 'ladder',
+    side: document.getElementById('oc-high-side')?.value || 'CE',
+    itm_steps: Number(document.getElementById('oc-high-itm')?.value || 4),
+    sl_source: document.getElementById('oc-high-sl-source')?.value || 'entry',
+    lots_first: lots[0] || 1,
+    lots_second: lots[1] || 2,
+    horizon_sessions: Number(document.getElementById('oc-high-horizon')?.value || 10),
+    min_profit_inr: Number(document.getElementById('oc-high-margin')?.value || 500),
+  };
+}
+
+async function runRecoveryBacktest() {
+  _recoveryError('');
+  const raw = document.getElementById('oc-high-mother')?.value;
+  if (!raw) { _recoveryError('Pick the mother candle to replay first.'); return; }
+  const button = _cascadeOptionsEl('oc-high-backtest-btn');
+  const label = button ? button.innerHTML : '';
+  if (button) { button.disabled = true; button.textContent = 'Replaying…'; }
+  let res = null;
+  let data = null;
+  try {
+    res = await fetch('/api/recovery/backtest', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ..._recoveryFormPayload(), mother_timestamp: raw }),
+    });
+    data = await res.json().catch(() => null);
+    if (!res.ok || data?.status !== 'ok') throw new Error(_apiErrorMessage(data, ''));
+    _renderRecoveryBacktest(data);
+    showToast(`Replayed the ${_recTime(data.mother_timestamp)} mother`, 'success');
+  } catch (err) {
+    _recoveryError(_recoveryFailure(err, data, res, 'The replay failed.'));
+  } finally {
+    if (button) { button.disabled = false; button.innerHTML = label || '&#9649; Backtest'; }
+  }
+}
+
+async function deleteRecoveryBacktest() {
+  const ok = await customConfirm(
+    'Throw this replay away? Nothing traded is touched — the same mother can always be replayed again.',
+    { title: 'Delete this replay', icon: ICO.warn(28), okText: 'Delete', danger: true },
+  );
+  if (!ok) return;
+  try {
+    await fetch('/api/recovery/backtests/latest', { method: 'DELETE', credentials: 'same-origin' });
+  } catch (err) { /* the panel hides either way; a stale one would be worse */ }
+  const panel = _cascadeOptionsEl('oc-high-backtest');
+  if (panel) panel.hidden = true;
+}
+
+async function _loadRecoveryBacktest() {
+  try {
+    const res = await fetch('/api/recovery/backtests/latest', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.status === 'ok' && data.run) _renderRecoveryBacktest(data.run);
+  } catch (err) { /* no saved replay is the normal answer */ }
+}
+
+function _renderRecoveryBacktest(run) {
+  const panel = _cascadeOptionsEl('oc-high-backtest');
+  if (!panel || !run) return;
+  panel.hidden = false;
+  const campaign = run.campaign || {};
+  const trades = Array.isArray(campaign.trades) ? campaign.trades : [];
+  const stamp = _cascadeOptionsEl('oc-high-backtest-updated');
+  if (stamp) {
+    stamp.textContent = `${run.symbol} ${run.timeframe} ${run.side} · ${_recTime(run.mother_timestamp)} · lot ${run.lot_size}`;
+  }
+
+  // PRICED OR NOT IS THE HEADLINE. A replay missing a leg's premium is not a
+  // book and must never read as one.
+  const badge = _cascadeOptionsEl('oc-high-backtest-badge');
+  if (badge) {
+    const priced = campaign.fully_priced !== false;
+    const failures = (run.premium_failures || []).length;
+    badge.textContent = priced
+      ? 'Every leg priced from the record.'
+      : `Not fully priced — this is not a book${failures ? ` (${failures} source failure(s))` : ''}.`;
+    badge.style.color = priced ? '#6ee7b7' : '#fcd34d';
+  }
+
+  const tiles = _cascadeOptionsEl('oc-high-backtest-tiles');
+  if (tiles) {
+    const net = campaign.booked_net;
+    const stops = trades.filter((t) => t.exit_reason === 'stop').length;
+    const money = net === null || net === undefined ? 'var(--text)' : (net >= 0 ? '#6ee7b7' : 'var(--danger)');
+    tiles.innerHTML = [
+      _ocpTile('Status', String(campaign.status || '—')),
+      _ocpTile('Ended on', String(campaign.end_reason || '—')),
+      _ocpTile('Trades', String(trades.length)),
+      _ocpTile('Stops', String(stops)),
+      _ocpTile('Booked net', _recInr(net), money),
+    ].join('');
+  }
+
+  const table = _cascadeOptionsEl('oc-high-backtest-table');
+  if (!table) return;
+  if (!trades.length) {
+    table.innerHTML = '<tbody><tr><td>That mother never completed the setup — no trade was taken.</td></tr></tbody>';
+    return;
+  }
+  table.innerHTML =
+    '<thead><tr><th>#</th><th>In</th><th>Strike</th><th>Lots</th><th>Premium</th><th>Out</th><th>Why</th><th>Net</th></tr></thead><tbody>'
+    + trades.map((t) => {
+      const colour = (t.net_pnl || 0) >= 0 ? '#6ee7b7' : 'var(--danger)';
+      return `<tr><td>${escapeHtml(String(t.trade_no ?? '—'))}</td>`
+        + `<td>${escapeHtml(_recTime(t.entry_time))}</td>`
+        + `<td>${escapeHtml(String(t.strike ?? '—'))}</td>`
+        + `<td>${escapeHtml(String(t.lots ?? '—'))}</td>`
+        + `<td>${escapeHtml(_recNum(t.entry_premium, 2))}</td>`
+        + `<td>${escapeHtml(_recTime(t.exit_time))}</td>`
+        + `<td>${escapeHtml(String(t.exit_reason || '—'))}</td>`
+        + `<td style="color:${t.net_pnl === null || t.net_pnl === undefined ? 'var(--text)' : colour};">${escapeHtml(_recInr(t.net_pnl))}</td></tr>`;
+    }).join('')
+    + '</tbody>';
 }
 
 async function recoveryDrop(event, el) {
@@ -21018,5 +21144,7 @@ async function refreshRecoveryStatus() {
 window.recoveryStart = recoveryStart;
 window.recoveryStop = recoveryStop;
 window.recoveryAddMother = recoveryAddMother;
+window.runRecoveryBacktest = runRecoveryBacktest;
+window.deleteRecoveryBacktest = deleteRecoveryBacktest;
 window.recoveryDrop = recoveryDrop;
 window.refreshRecoveryStatus = refreshRecoveryStatus;

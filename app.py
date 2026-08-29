@@ -2306,6 +2306,10 @@ def _recovery_state_key(user_id: int) -> str:
     return f"candle_recovery:{int(user_id)}"
 
 
+def _recovery_backtest_key(user_id: int) -> str:
+    return f"recovery_backtest_latest:{int(user_id)}"
+
+
 def _build_recovery_host(
     symbol: str,
     adapter: CascadeOptionsAdapter,
@@ -2316,8 +2320,18 @@ def _build_recovery_host(
     side: str = "CE",
     itm_steps: int | None = None,
     config_overrides: dict | None = None,
+    premium_source=None,
+    lot_size_override: int | None = None,
 ) -> CandleRecoveryHost:
     """Wire the measured rules to the broker's real chain.
+
+    A BACKTEST passes the two overrides; the live run passes neither, so both
+    drive the same host and the same rules. `premium_source` swaps the live
+    quote for recorded option history -- asking a live chain what a contract
+    cost last March returns nothing, and a replay priced at None is not a
+    replay. `lot_size_override` pins the lot to the one that was listed on the
+    mother's own date: NIFTY has been 75, then 50, then 25, and pricing an old
+    campaign at today's lot silently rewrites its money.
 
     Strike selection goes through the adapter's own `select_campaign_contract`
     at EVERY fill, so a deeper entry buys the contract Dhan actually lists for
@@ -2325,7 +2339,7 @@ def _build_recovery_host(
     the strike the campaign opened on.
     """
     terms = RECOVERY_SYMBOLS[symbol]
-    quote = _cascade_premium_lookup(broker)
+    quote = _cascade_premium_lookup(broker) if premium_source is None else premium_source
     side = str(side).upper()
     # Depth and side are per-run choices, not properties of the index. The
     # five-year audit put the only surviving book four strikes in the money,
@@ -2345,20 +2359,34 @@ def _build_recovery_host(
         )
 
     def premium_lookup(when: datetime, strike: int, expiry) -> float | None:
-        # the lookup keys on .underlying, not .symbol
+        # The live quote keys on .underlying; the recorded history also reads
+        # .symbol, so a contract handed to either carries both names.
         return quote(
-            when, SimpleNamespace(underlying=terms["dhan_symbol"], strike=int(strike), expiry=expiry, option_type=side)
+            when,
+            SimpleNamespace(
+                underlying=terms["dhan_symbol"],
+                symbol=terms["dhan_symbol"],
+                strike=int(strike),
+                expiry=expiry,
+                option_type=side,
+            ),
         )
 
-    lot_size = int(
-        adapter.select_campaign_contract(
-            mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
-            selected_at=datetime.now(IST),
-            ce_offset_steps=offset_steps,
-            strike_step=int(terms["strike_step"]),
-            option_type=side,
-            symbol=terms["dhan_symbol"],
-        ).lot_size
+    # A backtest names its own lot; asking the live chain would price a 2024
+    # campaign at today's size. Only the live run reads the ticker.
+    lot_size = (
+        int(lot_size_override)
+        if lot_size_override
+        else int(
+            adapter.select_campaign_contract(
+                mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
+                selected_at=datetime.now(IST),
+                ce_offset_steps=offset_steps,
+                strike_step=int(terms["strike_step"]),
+                option_type=side,
+                symbol=terms["dhan_symbol"],
+            ).lot_size
+        )
     )
 
     overrides = dict(config_overrides or {})
@@ -4575,6 +4603,29 @@ class FibTouchAutoPayload(BaseModel):
     mode: str = Field(default="paper")
     trailing_target: bool = Field(default=True)
     buy_mode: str = Field(default="levels")
+
+
+class RecoveryBacktestPayload(BaseModel):
+    """A past mother replayed through the SAME rules High Entry paper-trades.
+
+    High Entry does not hunt for mothers -- its poll only replays campaigns the
+    trader named -- so its backtest asks the one question the live tab can act
+    on: give it a past mother, and see what the rule would have done. The
+    fields mirror the Start form, plus a horizon, so a replay and a live run
+    differ only in where their prices come from.
+    """
+
+    symbol: str = Field(default="nifty")
+    timeframe: str = Field(default="15m")
+    mode: str = Field(default="ladder")
+    side: str = Field(default="CE")
+    mother_timestamp: str
+    itm_steps: int = Field(default=2, ge=-2, le=10)
+    lots_first: int = Field(default=1, ge=1, le=20)
+    lots_second: int = Field(default=2, ge=1, le=20)
+    min_profit_inr: float = Field(default=500.0, ge=0, le=1_000_000)
+    sl_source: str = Field(default="entry")
+    horizon_sessions: int = Field(default=10, ge=1, le=60)
 
 
 class FibTouchBacktestPayload(BaseModel):
@@ -16593,6 +16644,133 @@ async def recovery_paper_status(request: Request):
     if runtime is None:
         return {"status": "not_started", "mode": "paper"}
     return _recovery_status_payload(runtime)
+
+
+@app.post("/api/recovery/backtest")
+async def recovery_backtest(payload: RecoveryBacktestPayload, request: Request):
+    """Replay a past mother through the SAME rules the Start button paper-trades.
+
+    High Entry was the last strategy on this page with no way to ask "what
+    would this rule have done", which is why the Test Bench kept being asked to
+    grow one. It builds the same `CandleRecoveryHost` the live tab builds and
+    calls the same `_replay` its poll calls -- two overrides apart, both about
+    history rather than rules: prices come from the recorded archive because a
+    live chain cannot quote last March, and the lot is the one listed on the
+    mother's own date.
+
+    Nothing is placed. The adapter is paper_only and no order API is reachable
+    from here.
+    """
+
+    symbol = str(payload.symbol).strip().lower()
+    if symbol not in RECOVERY_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"symbol must be one of {', '.join(RECOVERY_SYMBOLS)}.")
+    timeframe = str(payload.timeframe).strip().lower()
+    if timeframe not in RECOVERY_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(RECOVERY_TIMEFRAMES)}.")
+    mode = str(payload.mode).strip().lower()
+    if mode not in RECOVERY_MODES:
+        raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(RECOVERY_MODES)}.")
+    side = str(payload.side).strip().upper()
+    if side not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="side must be CE or PE.")
+
+    mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
+    now = datetime.now(IST)
+    if mother_timestamp.date() > now.date():
+        raise HTTPException(status_code=400, detail="Mother timestamp cannot be in the future (IST).")
+    if not (dt_time(9, 15) <= mother_timestamp.time() <= dt_time(15, 30)):
+        raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15-15:30 session.")
+    # The same map the host validates against, so this check cannot drift from
+    # the one that would reject the mother a layer deeper with a worse message.
+    step = TIMEFRAME_MINUTES[timeframe]
+    if timeframe == "1h":
+        if mother_timestamp.minute != 15:
+            raise HTTPException(status_code=400, detail="A 1H mother opens at 09:15, 10:15 ... 15:15 IST.")
+    elif mother_timestamp.minute % step:
+        raise HTTPException(
+            status_code=400, detail=f"Mother timestamp must be an NSE-aligned {timeframe} candle open in IST."
+        )
+
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=400, detail="Connect a Dhan account to load the index candles.")
+
+    terms = RECOVERY_SYMBOLS[symbol]
+    horizon_to = min(now.date(), mother_timestamp.date() + timedelta(days=int(payload.horizon_sessions) * 2 + 7))
+    adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+
+    history, _expiries = await asyncio.to_thread(
+        _candle_entry_pricing, broker_client, mother_timestamp.date(), horizon_to
+    )
+    if history is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No recorded option history is reachable, so this replay would have no prices.",
+        )
+
+    lot_size = _nifty_lot_size_on(mother_timestamp.date()) if terms["dhan_symbol"] == "NIFTY" else None
+    host = _build_recovery_host(
+        symbol,
+        adapter,
+        broker_client,
+        timeframe=timeframe,
+        mode=mode,
+        side=side,
+        itm_steps=int(payload.itm_steps),
+        config_overrides={
+            "lots_schedule": (int(payload.lots_first), int(payload.lots_second)),
+            "min_profit_inr": float(payload.min_profit_inr),
+            "sl_source": str(payload.sl_source),
+            "horizon_sessions": int(payload.horizon_sessions),
+        },
+        premium_source=history,
+        lot_size_override=lot_size,
+    )
+
+    try:
+        campaign = await host.start_named_mother(mother_timestamp.replace(tzinfo=None), now=now.replace(tzinfo=None))
+    except LookupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _logger.warning("[RECOVERY BACKTEST] mother %s failed: %s", mother_timestamp, exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Could not replay that mother - {exc}") from exc
+
+    result = {
+        "status": "ok",
+        "symbol": terms["dhan_symbol"],
+        "timeframe": timeframe,
+        "mode": mode,
+        "side": side,
+        "mother_timestamp": mother_timestamp.isoformat(),
+        "itm_steps": int(payload.itm_steps),
+        "lot_size": int(host.lot_size),
+        "horizon_sessions": int(payload.horizon_sessions),
+        "campaign": host.campaign_row(campaign),
+        # A replay whose legs could not all be priced is NOT a book. The panel
+        # says which it is rather than letting a partial one read as money.
+        "premium_failures": list(getattr(history, "source_failures", []) or []),
+        "premium_stale_fills": list(getattr(history, "stale_fills", []) or []),
+        "ran_at": now.isoformat(),
+    }
+    await _db_mod.set_app_state(_recovery_backtest_key(_request_user_id(request)), json.dumps(result, default=str))
+    return result
+
+
+@app.get("/api/recovery/backtests/latest")
+async def recovery_backtest_latest(request: Request):
+    raw = await _db_mod.get_app_state(_recovery_backtest_key(_request_user_id(request)))
+    if not raw:
+        return {"status": "empty"}
+    return {"status": "ok", "run": json.loads(raw)}
+
+
+@app.delete("/api/recovery/backtests/latest")
+async def recovery_backtest_delete(request: Request):
+    await _db_mod.set_app_state(_recovery_backtest_key(_request_user_id(request)), "")
+    return {"status": "deleted"}
 
 
 @app.post("/api/cascade/paper/kill")

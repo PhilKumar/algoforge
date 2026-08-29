@@ -151,6 +151,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/candle-entry/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/gap-carry/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
     else if (path === '/api/supertrend/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
+    else if (path === '/api/recovery/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
     // THE PAPER LEDGER. Every strategy tab asks for its finished campaigns on
     // each refresh; an empty archive is the normal answer offline.
     else if (path.startsWith('/api/paper-campaigns/')) await route.fulfill({ json: { status: 'ok', campaigns: [], count: 0, net_total: null } });

@@ -82,6 +82,21 @@ class HeroCopyTests(unittest.TestCase):
                 f"the header says every strategy takes a mother, but {missing} do not",
             )
 
+    def test_if_it_promises_a_backtest_per_tab_every_tab_has_one(self):
+        """The header earned that sentence on 2026-08-29, when High Entry got
+        the replay it had never had. It only stays true while all five keep
+        one -- a sixth strategy without a Backtest button makes it a lie."""
+        if "its Backtest button" not in self.HERO:
+            self.skipTest("the header no longer makes that promise")
+        for tab, button in (
+            ("gapcarry", "oc-gap-backtest-btn"),
+            ("fib", "oc-fib-backtest-btn"),
+            ("recovery", "oc-high-backtest-btn"),
+            ("candle", "oc-candle-backtest-btn"),
+            ("supertrend", "oc-st-backtest-btn"),
+        ):
+            self.assertIn(f'id="{button}"', HTML, f"the {tab} tab has no Backtest button")
+
     def test_step_three_does_not_quote_one_tab_s_button(self):
         """Each strategy words its own Start button, so naming one of them in the
         steps is wrong on the other four."""
