@@ -172,6 +172,11 @@ def _period_number(raw) -> int | None:
 
 
 PERIOD_NAMES = ["period", "emi no", "sr no", "installment no", "instalment no"]
+
+# Floors for the guessing reader alone — a headed sheet says what its columns
+# mean and is trusted as it stands.
+_INSTALMENT_FLOOR = 100.0
+_FEWEST_INSTALMENTS = 3
 _SERIAL_RE = re.compile(r"\b(no\.?|nos|number|sr|srl|sl|s\.no|#)\b")
 
 
@@ -383,11 +388,40 @@ def _parse_lines_fallback(rows: list[list], warnings: list[str]) -> dict:
                 }
             parsed.append(entry)
             break
-    if not parsed:
+    kept, warnings = _only_a_schedule(parsed, warnings)
+    if not kept:
         warnings.append(
             "No schedule rows recognised — expected columns like Due Date and EMI Amount (or Principal + Interest)."
         )
-    return _finish(parsed, warnings)
+    return _finish(kept, warnings)
+
+
+def _only_a_schedule(parsed: list[dict], warnings: list[str]) -> tuple[list[dict], list[str]]:
+    """Refuse a statement of past movements posing as a schedule.
+
+    A lender's account statement has a date on every line too, and the first
+    number after it is a value date's day or a reference number. Read that
+    way, a home loan statement became 34 instalments of ₹10 and ₹31, and a
+    quarterly summary one instalment of ₹19 lakh — either of which, committed,
+    would have replaced a real schedule and reset the EMI to whatever the
+    nonsense averaged.
+
+    A row that checked itself — principal + interest = EMI — is trusted as it
+    stands. A bare guess has to earn it: no lender bills under a hundred
+    rupees, one lonely row is a summary line, and a schedule bills once a
+    month, while a statement prints every movement in that month.
+    """
+    checked = [row for row in parsed if row["principal_part"] is not None]
+    guessed = [row for row in parsed if row["principal_part"] is None and row["amount"] >= _INSTALMENT_FLOOR]
+    if guessed and len(guessed) < _FEWEST_INSTALMENTS:
+        guessed = []
+    if guessed and len(guessed) > len({row["due_date"][:7] for row in guessed}):
+        warnings.append(
+            "That reads like a statement of what has been paid, not a schedule of what is due — "
+            "more than one line a month. Upload the lender's own repayment schedule instead."
+        )
+        guessed = []
+    return checked + guessed, warnings
 
 
 def _parse_csv(blob: bytes, default_day, first_due):

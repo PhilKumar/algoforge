@@ -23,6 +23,8 @@ pip==26.2
 boto3>=1.34
 segno>=1.6
 Pillow==12.3.0
+# Pictures out of an Apple photo library are HEIC, which Pillow alone cannot read.
+pillow-heif==1.5.0
 # Reads the repayment schedule out of a bank's PDF for the Sanctuary ledger.
 pdfplumber==0.11.9
 # Reads the binary .xls a bank's netbanking hands out, for the statement importer.

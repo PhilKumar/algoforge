@@ -41,7 +41,7 @@ import sanctuary_holdings
 import sanctuary_identity
 import sanctuary_plan
 import sanctuary_statements
-from image_uploads import ImageValidationError, sanitize_image
+from image_uploads import ImageValidationError, looks_like_heic, sanitize_image
 
 router = APIRouter()
 
@@ -643,6 +643,17 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
     blob = await _read_upload(file)
     if not blob:
         raise HTTPException(status_code=400, detail="Empty file")
+    upload_name = file.filename or ""
+    if looks_like_heic(blob):
+        # A picture straight out of an Apple photo library. It is turned to
+        # JPEG at the door, because what the vault keeps has to open in any
+        # browser years from now, not only on his own machine.
+        try:
+            picture = await asyncio.to_thread(sanitize_image, blob, "image/heic")
+        except ImageValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        blob, declared = picture.data, picture.content_type
+        upload_name = f"{(upload_name or 'picture').rsplit('.', 1)[0]}.jpg"
     content_type = _sniff_content_type(blob, declared)
     if not content_type:
         raise HTTPException(status_code=400, detail="Papers and pictures only — that file is something else")
@@ -654,7 +665,7 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
         # Rows stored before fingerprints existed: a matching name and size
         # is worth opening to compare, and either way learns its fingerprint.
         for old in await sanctuary_db.documents_without_sha(
-            int(user["id"]), (file.filename or "document")[:160], len(blob)
+            int(user["id"]), (upload_name or "document")[:160], len(blob)
         ):
             stored = _read_document_blob(old, int(user["id"]))
             if stored is not None:
@@ -675,12 +686,12 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
     if str(form.get("auto") or "") == "1":
         # A whole folder at once: the filename and its parent already say
         # what each paper is, so nothing needs typing 150 times.
-        read = sanctuary_docs.classify_document(file.filename or "", str(form.get("folder") or ""))
+        read = sanctuary_docs.classify_document(upload_name, str(form.get("folder") or ""))
         payload = dict(read)
         payload["note"] = str(form.get("folder") or "")
     else:
         payload = {
-            "title": form.get("title") or (file.filename or "Document"),
+            "title": form.get("title") or (upload_name or "Document"),
             "category": form.get("category"),
             "doc_number": form.get("doc_number"),
             "note": form.get("note"),
@@ -696,7 +707,7 @@ async def vault_upload(file: UploadFile, request: Request, user: dict = Depends(
         handle.write(encrypted)
     fields.update(
         {
-            "filename": (file.filename or "document")[:160],
+            "filename": (upload_name or "document")[:160],
             "content_type": content_type,
             "size": len(blob),
             "file_token": token,
