@@ -20805,7 +20805,7 @@ function _renderRecoveryBacktest(run) {
       const colour = (t.net_pnl || 0) >= 0 ? '#6ee7b7' : 'var(--danger)';
       return `<tr><td>${escapeHtml(String(t.trade_no ?? '—'))}</td>`
         + `<td>${escapeHtml(_recTime(t.entry_time))}</td>`
-        + `<td>${escapeHtml(String(t.strike ?? '—'))}</td>`
+        + `<td style="white-space:nowrap;">${escapeHtml(String(t.strike ?? '—'))}${t.side ? ` ${escapeHtml(String(t.side))}` : ''}</td>`
         + `<td>${escapeHtml(String(t.lots ?? '—'))}</td>`
         + `<td>${escapeHtml(_recNum(t.entry_premium, 2))}</td>`
         + `<td>${escapeHtml(_recTime(t.exit_time))}</td>`
@@ -20832,10 +20832,10 @@ function _recoveryTrades(rows) {
       : `<span style="color:${t.net_pnl >= 0 ? '#34d399' : '#f87171'};">${_recInr(t.net_pnl)}</span>`;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:4px 8px;">T${t.trade_no}</td>
-      <td style="padding:4px 8px;">${_recTime(t.entry_time)}</td>
+      <td style="padding:4px 8px;white-space:nowrap;">${_recTime(t.entry_time)}</td>
       <td style="padding:4px 8px;text-align:right;">${_recNum(t.entry_index, 2)}</td>
       <td style="padding:4px 8px;text-align:right;color:#f87171;">${_recNum(t.sl_level, 2)}</td>
-      <td style="padding:4px 8px;text-align:right;">${t.lots || '—'}×${t.strike || '—'}${t.side ? ` ${escapeHtml(String(t.side))}` : ''}</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap;">${t.lots || '—'}×${t.strike || '—'}${t.side ? ` ${escapeHtml(String(t.side))}` : ''}</td>
       <td style="padding:4px 8px;text-align:right;">${t.entry_premium === null || t.entry_premium === undefined ? '—' : _recNum(t.entry_premium, 2)}</td>
       <td style="padding:4px 8px;text-align:right;">${t.exit_premium === null || t.exit_premium === undefined ? '—' : _recNum(t.exit_premium, 2)}</td>
       <td style="padding:4px 8px;">${t.exit_reason || (t.open ? 'holding' : '—')}</td>

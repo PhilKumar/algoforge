@@ -16549,10 +16549,20 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
     cost, an armed-but-unfilled buy-stop is faint, and each stop is drawn
     where it actually sat.
     """
+
+    # EVERY STAMP ON ONE CLOCK. The candles arrive tz-aware IST; a trade's
+    # entry_time is naive, so .timestamp() read it as the SERVER's local zone.
+    # On a UTC box that put an 11:30 fill at 17:00 IST -- past the close, so it
+    # clamped to the end of the session and every marker piled up at the day's
+    # right edge. It looked right only on a machine already running IST.
+    def _epoch(value) -> int:
+        stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        return int((stamp.replace(tzinfo=IST) if stamp.tzinfo is None else stamp).timestamp())
+
     mother_ts = row["mother"]["timestamp"][:19]
     rows = [
         {
-            "t": int(c.timestamp.timestamp()),
+            "t": _epoch(c.timestamp),
             "o": c.open,
             "h": c.high,
             "l": c.low,
@@ -16573,7 +16583,7 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
                     "filled": True,
                 }
             )
-            entries.append({"t": int(datetime.fromisoformat(t["entry_time"]).timestamp()), "price": t["entry_index"]})
+            entries.append({"t": _epoch(t["entry_time"]), "price": t["entry_index"]})
         elif t.get("trigger") is not None:
             # armed and never bought: the setup was there, the recovery was not
             lines.append({"price": t["trigger"], "label": f"ARMED {t['trade_no']}", "inr_notional": 0, "filled": False})
@@ -16586,7 +16596,7 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
             # while the table beside it said unpriced (Phil, 2026-08-29).
             exits.append(
                 {
-                    "t": int(datetime.fromisoformat(t["exit_time"]).timestamp()),
+                    "t": _epoch(t["exit_time"]),
                     "price": t.get("exit_index") if t.get("exit_index") is not None else t.get("entry_index"),
                     "pnl": t.get("net_pnl"),
                 }
