@@ -149,6 +149,17 @@ def _pretty(stem: str) -> str:
     return text[:120] or "Document"
 
 
+# No trailing boundary: the file names end "..._2019", and an
+# underscore is a word character, so \b never lands there.
+_MEMBER_ID = re.compile(r"\b[A-Z]{5}\d{10,}", re.I)
+
+
+def looks_like_member_id(text: str) -> bool:
+    """Whether a name carries an EPFO member account — five office letters
+    and the long number that follows them."""
+    return bool(_MEMBER_ID.search(text or ""))
+
+
 def classify_document(filename: str, folder: str = "") -> dict:
     """Read a document's own name for its title, kind, series and date."""
     name = (filename or "").rsplit("/", 1)[-1]
@@ -160,6 +171,11 @@ def classify_document(filename: str, folder: str = "") -> dict:
         if needle in haystack:
             category, series = cat, grp
             break
+    # A year-wise EPF passbook downloads under its member account and
+    # nothing else — "PYKRP00192140000250487_2019.pdf" — which says
+    # provident fund to the EPFO and nothing at all to a word list.
+    if category == "Other" and _MEMBER_ID.search(stem):
+        category, series = "Finance", "EPF"
 
     doc_date = ""
     month_match = _MONTH_RE.search(stem) or _MONTH_RE.search(folder)

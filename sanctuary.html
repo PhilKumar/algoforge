@@ -1654,6 +1654,17 @@ html[data-theme="dark"]{color-scheme:dark}
       </div>
     </div>
 
+    <!-- The provident fund. No statement in any bank shows it, so the only
+         way the sanctuary can know is to read the passbooks in the vault. -->
+    <div class="card" id="epf-card" style="margin-bottom:24px">
+      <div class="stmt-head">
+        <span class="section-title" style="font-size:.95rem;margin:0">The provident fund</span>
+        <span class="stmt-found" id="epf-when"></span>
+        <button class="btn subtle small" id="epf-scan" title="Read every EPF passbook and claim in the vault, and add up what the fund holds">↻ Read my EPF papers</button>
+      </div>
+      <div id="epf-body"></div>
+    </div>
+
     <div class="side-grid" style="margin-top:0">
     <div class="card">
       <div class="section-title">Important info</div>
@@ -2231,7 +2242,7 @@ async function enter(){
   $("f-month").value = S.jMonth;
   renderKindChips(); renderMoodLeaves();
   loadDaily(); refreshJournal(); loadPlans(); loadNudge(); loadRules();
-  refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings();
+  refreshFinance(); loadLoans(); loadNotes(); loadVault(); loadHoldings(); loadEpf();
 }
 
 async function loadDaily(){
@@ -3128,6 +3139,10 @@ async function loadStanding(){
       <div class="sf"><span>They take, monthly</span><b class="num">${inr(st.monthly_emi)}</b></div>
       ${st.held ? `<div class="sf"><span>What you own${st.held_as_on ? ` <small style="color:var(--muted)">as on ${esc(st.held_as_on)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.held)}${st.held_gain ? ` <small style="color:var(--moss)">${st.held_gain > 0 ? "+" : ""}${inr(st.held_gain)}</small>` : ""}</b></div>
       <div class="sf"><span>Owed, less what you own</span><b class="num" style="color:${st.net >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net))}${st.net < 0 ? " to go" : " ahead"}</b></div>` : ""}
+      ${st.fund_epf ? `<div class="sf"><span>In the provident fund${st.fund_as_of ? ` <small style="color:var(--muted)">as on ${niceDate(st.fund_as_of)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.fund_epf)}</b></div>
+      ${st.fund_pension ? `<div class="sf"><span>Pension held with it <small style="color:var(--muted)">not spendable</small></span><b class="num">${inr(st.fund_pension)}</b></div>` : ""}
+      <div class="sf"><span>Owed, less the fund as well</span><b class="num" style="color:${st.net_with_fund >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net_with_fund))}${st.net_with_fund < 0 ? " to go" : " ahead"}</b></div>` : ""}
+      ${st.fund_claim ? `<div class="sf"><span>Claimed from it, not yet paid</span><b class="num">${inr(st.fund_claim)}</b></div>` : ""}
       <div class="sf"><span>A month usually leaves you</span><b class="num" style="color:${(st.surplus_median ?? 0) > 0 ? "var(--moss)" : "var(--danger)"}">${st.surplus_median != null ? inr(st.surplus_median) : "—"}</b></div>
       ${years ? `<div class="sf"><span>Surplus needed to clear all debt</span><b class="num">${years} of it</b></div>` : ""}` +
       st.debts.sort((a, b) => b.remaining - a.remaining).slice(0, 5).map((d) => `
@@ -3681,6 +3696,56 @@ function identityReview(job){
     } catch (err) { toast(err.message || "That did not take"); }
   };
 }
+/* ═══ the provident fund ═══
+   One member account per employer, each with its own passbook. The card
+   says what the fund holds today, what has gone in this year, and any
+   claim still on its way — read from his own papers, never estimated. */
+function renderEpf(f){
+  const body = $("epf-body");
+  if (!body) return;
+  const when = $("epf-when");
+  const accounts = f && f.accounts ? f.accounts : [];
+  if (!accounts.length && !(f && f.claims && f.claims.length)) {
+    when.textContent = "";
+    body.innerHTML = `<div class="section-sub">Nothing read yet. Put the EPF passbooks in the vault and tap "Read my EPF papers" — the year-wise ones from the EPFO portal.</div>`;
+    return;
+  }
+  when.textContent = f.as_of ? `as the papers stood on ${niceDate(f.as_of)}` : "";
+  const claims = (f.claims || []);
+  const waiting = claims.filter((c) => c.awaiting);
+  body.innerHTML = `<div class="standing-figures">
+      <div class="sf"><span>In the fund${f.pension ? " — EPF" : ""}</span><b class="num" style="color:var(--moss)">${inr(f.fund)}</b></div>
+      ${f.pension ? `<div class="sf"><span>Pension held with it</span><b class="num">${inr(f.pension)}</b></div>` : ""}
+      <div class="sf"><span>Paid in this year</span><b class="num">${inr(f.paid_in_this_year)}</b></div>
+      ${waiting.length ? `<div class="sf"><span>Claimed, not yet paid</span><b class="num" style="color:var(--terracotta,var(--danger))">${inr(f.claimed_pending)}</b></div>` : ""}
+    </div>`
+    + accounts.map((a) => `<div class="sf" style="border-bottom:0;padding:6px 0">
+        <span style="padding-left:10px">· ${esc(a.employer_name || a.member)}
+          <small style="color:var(--soft)">${a.moved_on ? "moved on — pension left behind" : `${a.year_from}–${String(a.year_to).slice(2)}`}</small></span>
+        <b class="num" style="font-size:.9rem">${inr(a.fund + a.pension)}</b></div>`).join("")
+    + (claims.length ? `<div class="bar-apart" style="margin-top:12px">`
+      + claims.map((c) => `<div class="sf" style="border-bottom:0;padding:5px 0">
+          <span>${esc(c.reason || c.claim_type || "A claim")}
+            <small style="color:var(--soft)">asked ${c.asked_on ? niceDate(c.asked_on) : "—"}${c.awaiting ? "" : " · answered"}</small></span>
+          <b class="num" style="font-size:.9rem">${inr(c.requested)}</b></div>`).join("")
+      + `</div>` : "");
+}
+async function loadEpf(){
+  try { renderEpf(await api("/api/sanctuary/epf")); }
+  catch (err) { console.error("[sanctuary] the fund would not load", err); }
+}
+$("epf-scan").onclick = async () => {
+  const btn = $("epf-scan");
+  btn.disabled = true; btn.textContent = "Reading…";
+  try {
+    const f = await api("/api/sanctuary/epf/scan", {method: "POST"});
+    renderEpf(f);
+    toast(f.read ? `${f.read} paper${f.read === 1 ? "" : "s"} read — the fund holds ${inr(f.worth)}.` : "No EPF papers found in the vault.");
+    loadStanding();
+  } catch (err) { toast(err.message || "The papers would not read"); }
+  btn.disabled = false; btn.textContent = "↻ Read my EPF papers";
+};
+
 async function loadHoldings(){
   const body = $("holdings-body");
   if (!body) return;

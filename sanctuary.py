@@ -36,6 +36,7 @@ import sanctuary_content
 import sanctuary_db
 import sanctuary_docs
 import sanctuary_emi
+import sanctuary_epf
 import sanctuary_holdings
 import sanctuary_identity
 import sanctuary_plan
@@ -1006,6 +1007,82 @@ async def identity_scan(user: dict = Depends(_unlocked_user)):
     return {"started": True, **_IDENTITY_JOBS[user_id]}
 
 
+# ── The provident fund ───────────────────────────────────────────
+#
+# A working life leaves one member account per employer, and the papers
+# for them sit in the vault like everything else. Reading them is the only
+# way the sanctuary can say what the fund holds: no bank statement ever
+# shows it, and the EPFO portal cannot be asked on his behalf.
+
+
+def _epf_papers(docs: list[dict]) -> list[dict]:
+    """The vault documents worth opening for the fund.
+
+    A passbook or a claim, by where it was filed or by what it is called.
+    Everything else in the vault is left shut — this is not a search of his
+    papers, it is a read of the ones that are about the fund.
+    """
+    wanted = []
+    for doc in docs:
+        if (doc.get("content_type") or "") != "application/pdf":
+            continue
+        where = f"{doc.get('series', '')} {doc.get('category', '')}".lower()
+        called = f"{doc.get('title', '')} {doc.get('filename', '')}"
+        # A year-wise passbook is named after the member account and nothing
+        # else, so the name is matched the way the filing rules match it.
+        if (
+            "epf" in where
+            or "epf" in called.lower()
+            or "passbook" in called.lower()
+            or "provident" in called.lower()
+            # A claim form is named for the claim, not the fund. Opening one
+            # costs nothing: a paper that is not the fund's reads as None.
+            or "claim" in called.lower()
+            or sanctuary_docs.looks_like_member_id(called)
+        ):
+            wanted.append(doc)
+    return wanted
+
+
+@router.post("/api/sanctuary/epf/scan")
+async def epf_scan(user: dict = Depends(_unlocked_user)):
+    """Read every provident fund paper in the vault, and keep the total.
+
+    Unlike the identity scan, this one saves: the figures are the papers'
+    own, not a guess between them, so there is nothing for him to tick.
+    """
+    user_id = int(user["id"])
+    docs = _epf_papers(await sanctuary_db.list_documents(user_id))
+    papers: list[dict] = []
+    unreadable = 0
+    for doc in docs:
+        blob = await asyncio.to_thread(_read_document_blob, doc, user_id)
+        if blob is None:
+            continue
+        try:
+            text = await asyncio.to_thread(_identity_text, blob)
+        except Exception:
+            # A scan with no text layer says nothing, and says it quietly.
+            unreadable += 1
+            continue
+        read = sanctuary_epf.read_epf(text)
+        if read:
+            papers.append(read)
+    summary = sanctuary_epf.summarise(papers, _today_ist())
+    summary["read"] = len(papers)
+    summary["looked_at"] = len(docs)
+    summary["unreadable"] = unreadable
+    summary["scanned_on"] = _today_ist().isoformat()
+    await sanctuary_db.set_json_state(user_id, "epf", summary)
+    return summary
+
+
+@router.get("/api/sanctuary/epf")
+async def epf_get(user: dict = Depends(_unlocked_user)):
+    """What the last read of the papers found."""
+    return await sanctuary_db.get_json_state(int(user["id"]), "epf", {})
+
+
 @router.get("/api/sanctuary/identity/scan/status")
 async def identity_scan_status(user: dict = Depends(_unlocked_user)):
     return _IDENTITY_JOBS.get(int(user["id"])) or _blank_identity_job()
@@ -1407,6 +1484,7 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     import statistics
 
     user_id = int(user["id"])
+    fund = await sanctuary_db.get_json_state(user_id, "epf", {})
     loans = await sanctuary_db.list_loans(user_id)
     debts = []
     unknown = 0
@@ -1464,6 +1542,19 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         "held_as_on": owned.get("as_on") or "",
         # Debts minus what he owns: the honest distance to dry land.
         "net": round(held - total_debt, 2),
+        # The provident fund is his too, and it is the largest thing he owns
+        # — but it is not spendable at will, so it is said on its own line
+        # rather than folded into the number above.
+        "fund": round(float(fund.get("worth") or 0), 2),
+        "fund_epf": round(float(fund.get("fund") or 0), 2),
+        "fund_pension": round(float(fund.get("pension") or 0), 2),
+        "fund_as_of": fund.get("as_of") or "",
+        "fund_claim": round(float(fund.get("claimed_pending") or 0), 2),
+        # Only the fund half joins the net. The pension is his, but it is
+        # not his to decide about — it comes back as a pension, on the
+        # scheme's terms, and counting it as though it could clear a loan
+        # would flatter the number he is trying to trust.
+        "net_with_fund": round(held + float(fund.get("fund") or 0) - total_debt, 2),
     }
 
 
