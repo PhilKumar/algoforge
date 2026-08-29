@@ -803,127 +803,39 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .stmt-review-row .who{flex:1;min-width:180px}
 .stmt-review-row .who small{display:block;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
 .stmt-review-row select{max-width:190px}
-/* The teach row carries four controls where a payee row carries two, and
-   left to a plain wrap they drifted: the explanation died in an ellipsis
-   mid-word, "among: Unsorted" was clipped to "Unsorte", and nothing lined
-   up with anything. The controls now travel as one group that ends on the
-   same right edge as the rows below, each field is the width of what it
-   must hold, and the explanation is allowed the second line it needs. */
-.stmt-teach{display:block;padding:14px 0 16px}
-.stmt-teach .who{margin-bottom:10px}
-.stmt-teach .who b{display:inline}
-.stmt-teach .who small{display:inline;white-space:normal;overflow:visible;max-width:none;
-  color:var(--soft);margin-left:8px}
-.teach-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;
+/* The panel is two lines and a list: everything that says what this is
+   rides on one line, the teaching rides on the next, and the rows end
+   where the teaching ends. It had grown a paragraph between each. */
+.stmt-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:2px 0 10px}
+.stmt-head #stmt-q{flex:1 1 240px;max-width:320px}
+.stmt-found{color:var(--soft);font-size:.82rem;white-space:nowrap}
+.stmt-head #stmt-resort{margin-left:auto}
+.stmt-teach{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:2px 0 14px}
+.teach-label{flex:none;font-size:.9rem;cursor:help;border-bottom:1px dotted var(--line)}
+.teach-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-left:auto;
   /* the rows below scroll, and their scrollbar takes a strip off their right
      edge; this line sits outside that frame and borrows the same strip, so
-     the two end together. The width is measured, never assumed — it is 15px
-     on one browser and nothing at all on another. */
+     the two end together. Measured, never assumed: 15px on one browser and
+     nothing at all on another. */
   padding-right:var(--pile-gutter,0px)}
-/* An input and a select disagree by a pixel on their own; on one line,
-   side by side, that pixel is visible. They are told to agree. */
-.teach-controls .field{flex:none;height:46px;padding-top:0;padding-bottom:0}
-.teach-controls .btn{height:46px}
-#stmt-own-match{width:212px}
-#stmt-own-from{width:188px}
-#stmt-own-cat{width:190px}
-/* On a phone the four controls become four full-width lines. Half-width
-   fields left a ragged edge down the right, which is the thing he was
-   looking at when he said it was not aligned. */
+/* An input and a select disagree by a pixel on their own; side by side on
+   one line, that pixel shows. They are told to agree. */
+.teach-controls .field{flex:none;height:44px;padding-top:0;padding-bottom:0}
+.teach-controls .btn{height:44px}
+#stmt-own-match{width:180px}
+#stmt-own-from{width:180px}
+#stmt-own-cat{width:180px}
+/* On a phone each control takes its own full-width line — half-widths left
+   a ragged edge down the right, and the payee rows' 190px cap did it. */
 @media (max-width:900px){
-  .teach-controls{justify-content:stretch}
-  /* the payee rows cap their select at 190px; on one line per control that
-     cap is what leaves the ragged edge, so it is lifted here */
+  .stmt-teach{align-items:stretch}
+  .teach-controls{margin-left:0;width:100%}
   .teach-controls #stmt-own-match,.teach-controls #stmt-own-from,
   .teach-controls #stmt-own-cat{width:100%;max-width:none;flex:1 1 100%}
   .teach-controls .btn{flex:1 1 100%;justify-content:center}
+  .stmt-head #stmt-resort{margin-left:0}
 }
-.ledger-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
-.ledger-toolbar #led-search{flex:2;min-width:180px}
-.ledger-toolbar select{flex:1;min-width:130px;max-width:220px}
-.ledger-pager{display:flex;gap:12px;align-items:center;justify-content:center;padding-top:12px}
-.ledger-pager span{color:var(--soft);font-size:.85rem}
-.led-acct-chip{font-size:.72rem;color:var(--soft);white-space:nowrap}
-.led-in{color:var(--moss);font-weight:700}
-.led-out{color:var(--danger)}
-.led-scope{display:flex;align-items:center;gap:6px;color:var(--soft);font-size:.85rem;white-space:nowrap}
-.led-cat-edit{cursor:pointer;border-bottom:1px dashed var(--line)}
-.led-cat-edit:hover{color:var(--moss)}
-/* The shelf is a window onto the papers, not a list that pushes the page
-   down. Twenty kinds of document scroll inside this frame. */
-#vault-list{margin-top:12px;max-height:340px;overflow-y:auto;padding-right:6px}
-#vault-list > details:first-child{margin-top:0}
-#vault-drop{padding:14px}
-.vault-family{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft)}
-.vault-pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 2px 0;
-  font-size:.72rem;color:var(--soft);font-weight:700;opacity:.75}
-.vault-pager .btn{padding:2px 10px;font-size:.75rem}
-.vault-row{display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--line-soft)}
-.vault-row:last-child{border-bottom:0}
-.vault-row .vi{font-size:1.05rem;width:22px;text-align:center;flex:none}
-.vault-row .vt{flex:1;min-width:0;font-size:.9rem;font-weight:600}
-.vault-row .vt small{display:block;font-weight:400;color:var(--soft);font-size:.76rem;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.vault-row .btn{padding:4px 10px;font-size:.76rem;flex:none}
-.vault-year{margin:2px 0}
-.vault-year > summary{cursor:pointer;list-style:none;font-size:.8rem;font-weight:700;color:var(--soft);
-  padding:6px 2px;display:flex;gap:7px;align-items:center}
-.vault-year > summary::-webkit-details-marker{display:none}
-.vault-year > summary::before{content:"›";font-weight:900;transition:transform .15s ease}
-.vault-year[open] > summary::before{transform:rotate(90deg)}
-.standing-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:22px;align-items:start}
-@media (max-width:860px){.standing-grid{grid-template-columns:1fr}}
-.standing-figures .sf{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  padding:9px 0;border-bottom:1px solid var(--line-soft)}
-.standing-figures .sf:last-child{border-bottom:0}
-.standing-figures .sf span{color:var(--soft);font-size:.88rem}
-.standing-figures .sf b{font-size:1.05rem}
-.standing-verdict{margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft);
-  font-style:italic;color:var(--soft)}
-.loan-closed{opacity:.62}
-.loan-closed .loan-grid b{color:var(--muted)!important}
-.badge.closed{background:transparent;border:1px solid var(--line);color:var(--muted)}
-/* A settled loan is history, not a task: it rests as one line and opens
-   into the full card only when asked. */
-/* the overdraft's own card, above the scheduled loans */
-.od-card{border:1px solid var(--line-soft);border-radius:16px;padding:13px 16px;margin-bottom:12px;
-  background:linear-gradient(120deg,var(--terra-wash),transparent 70%)}
-.od-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-.od-what{font-family:var(--serif);font-weight:650;font-size:1.04rem}
-.od-owed{margin-left:auto;font-size:.9rem;font-weight:700;white-space:nowrap;color:var(--danger)}
-.od-owed.unknown{color:var(--soft);font-weight:600}
-.od-set{background:none;border:0;padding:0 0 0 6px;cursor:pointer;color:var(--moss);
-  font-size:.78rem;font-weight:700;text-decoration:underline;text-underline-offset:2px}
-.od-net{font-weight:700;white-space:nowrap}
-.od-net.deeper{color:var(--danger)}
-.od-net.lighter{color:var(--moss)}
-.od-flow{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;font-size:.86rem;color:var(--muted)}
-.od-flow .od-note{margin-left:auto;color:var(--soft);font-size:.78rem}
-.od-since{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);
-  font-size:.86rem;color:var(--muted)}
-.od-since small{display:block;color:var(--soft);font-size:.76rem;margin-top:1px}
-/* one taught rule, and what it is holding */
-.rule-row{display:flex;align-items:center;gap:10px;padding:6px 2px;
-  border-bottom:1px solid var(--line-soft);font-size:.9rem}
-.rule-row:last-child{border-bottom:0}
-.rule-what{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rule-arrow{color:var(--soft)}
-.rule-holds{flex:none;color:var(--soft);font-size:.78rem;white-space:nowrap}
-.rule-holds.wide{color:var(--danger);font-weight:700;cursor:help}
-.rule-row .btn.small{flex:none;padding:2px 10px;font-size:.74rem}
-/* Ten payees at a time, in a frame that keeps its height whether the page
-   holds ten or one — otherwise the panel jumps every time he turns a page,
-   and the last one, with two rows on it, looks like a different panel. */
-.pile-frame{--pile-row:64px;--pile-seen:6;
-  height:calc(var(--pile-row) * var(--pile-seen));
-  overflow-y:auto;overscroll-behavior:contain;
-  border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
-.pile-frame .stmt-review-row:last-child{border-bottom:0}
-@media (max-width:640px){.pile-frame{--pile-seen:4}}
-/* finding one payee among fourteen hundred */
-.stmt-find{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 4px}
-.stmt-find .field{flex:1;min-width:200px;max-width:340px}
-.stmt-found{color:var(--soft);font-size:.82rem;white-space:nowrap}
 .loans-closed{margin-top:18px}
 .loans-closed > summary{cursor:pointer;list-style:none;font-size:.78rem;font-weight:800;
   letter-spacing:.11em;text-transform:uppercase;color:var(--soft);display:flex;align-items:center;gap:7px}
@@ -4277,19 +4189,16 @@ function stmtWayChips(g){
 function stmtReviewShell(host){
   if (host.dataset.shell === "1") return;
   host.dataset.shell = "1";
-  host.innerHTML = `<div class="section-title" style="font-size:.95rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <span id="stmt-left">Sort the unsorted</span>
-      <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort with the rules again</button>
-    </div>
-    <div class="stmt-find">
-      <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour, a mandate number…">
+  host.innerHTML = `<div class="stmt-head">
+      <span class="section-title" id="stmt-left" style="font-size:.95rem;margin:0">Sort the unsorted</span>
+      <input class="field" id="stmt-q" type="search" placeholder="Find a payee — kaliraj, flour…">
       <span class="stmt-found" id="stmt-found"></span>
+      <button class="btn subtle small" id="stmt-resort" title="Rules taught or added since these rows arrived never touched them — this runs the whole rulebook over the pile once more">↻ Sort again</button>
     </div>
-    <div class="section-sub">Each line is one payee. Choose where their payments belong and every entry moves, past and future.</div>
     <div class="stmt-review-row stmt-teach" data-match="">
-      <div class="who"><b>Teach your own</b><small>Any word from the narration — a name, a mandate number, a loan code. “Among” picks where to look: the unsorted pile, or a category that needs splitting.</small></div>
+      <b class="teach-label" title="Any word from the narration — a name, a mandate number, a loan code. “Among” picks where to look: the unsorted pile, or a category that needs splitting.">Teach your own</b>
       <div class="teach-controls">
-        <input class="field" id="stmt-own-match" placeholder="the word — e.g. 0000055944">
+        <input class="field" id="stmt-own-match" placeholder="a word or number">
         <select class="field" id="stmt-own-from"></select>
         <select class="field" id="stmt-own-cat"></select>
         <button class="btn ghost" data-stmt-teach>This is where they go</button>
@@ -4331,8 +4240,8 @@ async function loadStmtReview(){
     stmtOwnOptions();
     $("stmt-left").textContent = `Sort the unsorted — ${r.uncategorised} left`;
     $("stmt-found").textContent = q
-      ? `${r.payees} payee${r.payees === 1 ? "" : "s"} · ${r.matched} row${r.matched === 1 ? "" : "s"} match`
-      : `${r.payees} payee${r.payees === 1 ? "" : "s"} in the pile · biggest first`;
+      ? `${r.payees} found · ${r.matched} row${r.matched === 1 ? "" : "s"}`
+      : `${r.payees} payees`;
     /* The list shows the biggest payees, which is right for working down a
        pile and useless for finding ONE among fourteen hundred. The search
        runs over the whole pile — the payee's key AND the narration, because
