@@ -3069,11 +3069,14 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     emi_total = sum(e["amount"] for e in emis if not e["in_ledger"] and e["due_yet"])
 
     by_category: dict[str, float] = {}
+    # Neither his own money moving nor a debt's balance moving is a spending
+    # bar. The overdraft would otherwise stand at the top of "where it went"
+    # as the largest thing he never spent. But leaving it out entirely made
+    # it look lost, so it is counted apart and shown apart.
+    moved_apart: dict[str, float] = {}
     for row in outgo:
-        # Neither his own money moving nor a debt's balance moving is a
-        # spending bar. The overdraft would otherwise stand at the top of
-        # "where it went" as the largest thing he never spent.
         if row["category"] in ("Self transfer", OD_CATEGORY):
+            moved_apart[row["category"]] = moved_apart.get(row["category"], 0) + row["amount"]
             continue
         by_category[row["category"]] = by_category.get(row["category"], 0) + row["amount"]
     for emi in emis:
@@ -3139,6 +3142,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "months_known": known,
         "salary_months": {m: 1 for m, v in months_state.items() if (v or {}).get("salary")},
         "by_category": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda kv: -kv[1])},
+        # Money that moved without being spent — shown under the bars, never
+        # inside them, so the month's spending stays the month's spending.
+        "moved_apart": {k: round(v, 2) for k, v in sorted(moved_apart.items(), key=lambda kv: -kv[1])},
         "ledger": ledger,
         "emis": emis,
         "alerts": alerts,
