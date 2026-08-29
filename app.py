@@ -13593,6 +13593,26 @@ def _supertrend_ist(value: datetime) -> datetime:
     return value.replace(tzinfo=IST) if value.tzinfo is None else value.astimezone(IST)
 
 
+def _supertrend_stamp(value: Any) -> datetime:
+    """`_CascadeRuntime.last_candle_timestamp` is typed `datetime`, and the shared
+    save path calls `.isoformat()` on it with no guard. Storing the string form
+    here raised `'str' object has no attribute 'isoformat'` on the FIRST save, so
+    Start returned a 500 while the campaign itself was already running.
+
+    Anything the restore path reads back out of JSON arrives as a string, so it
+    is parsed here rather than at each call site.
+    """
+    if isinstance(value, datetime):
+        return _supertrend_ist(value)
+    text = str(value or "").replace("Z", "+00:00")
+    if text:
+        try:
+            return _supertrend_ist(datetime.fromisoformat(text))
+        except ValueError:
+            pass
+    return datetime.now(IST)
+
+
 def _supertrend_contract(strike: int, side: str, expiry: date, lot_size: int = 75) -> FixedCampaignOption:
     """The shape the recorded-history lookup asks for; the archives key on
     underlying/strike/expiry/type, so `security_id` goes unused."""
@@ -13817,7 +13837,7 @@ async def _restore_supertrend_open_state(
             engine=engine,
             adapter=adapter,
             broker=broker,
-            last_candle_timestamp=payload.get("last_candle_timestamp"),
+            last_candle_timestamp=_supertrend_stamp(payload.get("last_candle_timestamp")),
             running=running,
         )
         _supertrend_engines[int(user_id)] = runtime
@@ -13880,7 +13900,12 @@ async def _start_supertrend_campaign(user_id: int, payload, *, broker_client: Dh
     if previous is not None and previous.task is not None:
         previous.running = False
         previous.task.cancel()
-    runtime = _CascadeRuntime(engine=engine, adapter=adapter, broker=broker_client, last_candle_timestamp=None)
+    runtime = _CascadeRuntime(
+        engine=engine,
+        adapter=adapter,
+        broker=broker_client,
+        last_candle_timestamp=_supertrend_stamp(rows[-1].timestamp if rows else None),
+    )
     _supertrend_engines[int(user_id)] = runtime
     runtime.task = asyncio.create_task(_run_supertrend_paper_loop(int(user_id), runtime))
     await _save_supertrend_open_state(int(user_id), force=True)
@@ -13896,7 +13921,7 @@ async def _run_supertrend_paper_loop(user_id: int, runtime: _CascadeRuntime) -> 
             rows = await _supertrend_load_candles(runtime.adapter, engine.config.timeframe, days=12)
             if rows:
                 await asyncio.to_thread(engine.ingest, {engine.config.timeframe: rows})
-                runtime.last_candle_timestamp = str(rows[-1].timestamp)
+                runtime.last_candle_timestamp = _supertrend_stamp(rows[-1].timestamp)
             if engine.has_open_position:
                 position = engine.position
                 premium = None

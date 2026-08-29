@@ -6394,7 +6394,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #oc-candle-advanced .ocp-switch-grid,
 #oc-gap-advanced .ocp-switch-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:0 28px; margin-top:2px; }
 /* The three-choice groups would render 2+1 in a two-column grid. */
-#oc-gap-rsi-toggle, #oc-gap-offset-toggle, #oc-gap-lots-toggle { grid-template-columns: repeat(3, minmax(0,1fr)); }
+#oc-gap-rsi-toggle, #oc-gap-offset-toggle, #oc-gap-lots-toggle,
+#oc-st-multiplier-toggle, #oc-st-roll-toggle, #oc-st-lots-toggle { grid-template-columns: repeat(3, minmax(0,1fr)); }
 #oc-candle-advanced .ocp-switch-grid > div {
   display:grid; grid-template-columns: minmax(0,1fr) auto; align-items:center; gap:10px;
   min-height:38px; padding:5px 0; border-bottom:1px solid rgba(148,163,184,.10);

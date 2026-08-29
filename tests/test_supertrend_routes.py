@@ -144,5 +144,120 @@ class PanelTests(unittest.TestCase):
         self.assertIn("refreshSupertrendStatus()", JS[JS.index("_fibBoundaryPollTimer = setInterval") :][:600])
 
 
+class PanelLayoutTests(unittest.TestCase):
+    """Phil, 2026-08-29, on the Supertrend fold: "Arrange this neatly on each
+    line not with fields overflow to the next line... The pattern is correct but
+    the fields are not", and "The chart 1h measured... seems odd in the panel".
+
+    Both were the same kind of mistake -- the panel was built to the right shape
+    but never joined the vocabulary the other four panels share.
+    """
+
+    CSS = (_REPO / "static" / "philforge-app.css").read_text()
+
+    def test_no_dropdown_wears_button_styling(self):
+        """`cascade-options-control` is a BUTTON class. On a <select> it paints a
+        gradient pill unlike every other panel's plain monospace dropdown. This
+        is the second time it landed on a non-button -- the trail number inputs
+        were the first."""
+        offenders = re.findall(r"<select[^>]*cascade-options-control[^>]*id=\"([\w-]+)\"", HTML)
+        offenders += re.findall(r"<select[^>]*id=\"([\w-]+)\"[^>]*cascade-options-control", HTML)
+        self.assertEqual(offenders, [], f"these dropdowns are styled as buttons: {offenders}")
+
+    def test_every_three_choice_toggle_is_given_three_columns(self):
+        """`.scalp-toggle` is a two-column grid, so a third choice wraps to a
+        ragged second line under its own label."""
+        for toggle in re.finditer(r'<div id="([\w-]+)"[^>]*class="scalp-toggle[^"]*"(.*?)</div>', HTML, re.S):
+            name, body = toggle.group(1), toggle.group(2)
+            if len(re.findall(r"scalp-toggle-btn", body)) < 3:
+                continue
+            self.assertRegex(
+                self.CSS,
+                rf"#{re.escape(name)}\b[^{{}}]*{{[^}}]*grid-template-columns:\s*repeat\(3",
+                f"{name} offers three choices but no rule widens it past two columns",
+            )
+
+    def test_the_fold_keeps_its_label_above_the_field(self):
+        """Phil approved the PATTERN -- a label over its control, full width --
+        and asked only that the fields stop overflowing. Borrowing Candle
+        Entry's hairline rows instead puts the label beside the control, where
+        `Multiplier` is clipped and `Trail - arm / give back` stacks four deep.
+        The fix belongs in the column count, not the layout."""
+        self.assertNotIn(
+            "#oc-st-advanced .ocp-switch-grid > div",
+            self.CSS,
+            "this re-flows the supertrend fold to label-beside-field, which Phil did not ask for",
+        )
+
+
+class RuntimeStampTests(unittest.TestCase):
+    """`_CascadeRuntime.last_candle_timestamp` is typed `datetime`, and the shared
+    save path calls `.isoformat()` on it unguarded. Supertrend stored the string
+    form, so the first save after Start raised `'str' object has no attribute
+    'isoformat'`: Phil got a 500 from Start while the campaign was in fact
+    running behind it.
+    """
+
+    def _supertrend_assignments(self):
+        """Every `last_candle_timestamp = ...` inside a supertrend function.
+
+        Scoped by the enclosing def, because the other strategies set the same
+        field and their assignments are none of this test's business.
+        """
+        found, current = [], ""
+        for line in APP.splitlines():
+            defined = re.match(r"(?:async )?def (\w+)", line)
+            if defined:
+                current = defined.group(1)
+            if "supertrend" not in current:
+                continue
+            for value in re.findall(r"last_candle_timestamp\s*=\s*([^,\n]+)", line):
+                found.append((current, value.strip().rstrip(",)")))
+        return found
+
+    def test_the_shared_save_path_still_calls_isoformat_unguarded(self):
+        """If that ever gains a guard, the rule below stops being load-bearing."""
+        self.assertIn('"last_candle_timestamp": runtime.last_candle_timestamp.isoformat()', APP)
+
+    def test_no_supertrend_assignment_bypasses_the_parser(self):
+        assignments = self._supertrend_assignments()
+        self.assertTrue(assignments, "found no assignments to check -- the scan broke, not the code")
+        for where, value in assignments:
+            self.assertTrue(
+                value.startswith("_supertrend_stamp("),
+                f"{where}() sets last_candle_timestamp = {value}, which may not be a datetime",
+            )
+
+
+class StampParserTests(unittest.TestCase):
+    def _app(self):
+        import os
+        import sys
+
+        os.environ.setdefault("PHILFORGE_PIN", "123456")
+        os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
+        sys.path.insert(0, str(_REPO))
+        import app as app_module
+
+        return app_module
+
+    def test_every_shape_yields_an_aware_datetime(self):
+        import datetime as _dt
+
+        app_module = self._app()
+        for value in [None, "", "not a date", "2026-08-28T15:20:00+05:30", _dt.datetime(2026, 8, 28, 15, 20)]:
+            stamp = app_module._supertrend_stamp(value)
+            self.assertIsInstance(stamp, _dt.datetime, f"{value!r} did not become a datetime")
+            self.assertIsNotNone(stamp.tzinfo, f"{value!r} came back naive")
+            stamp.isoformat()  # the exact call the save path makes
+
+    def test_a_saved_stamp_round_trips(self):
+        import datetime as _dt
+
+        app_module = self._app()
+        original = _dt.datetime(2026, 8, 28, 15, 20, tzinfo=app_module.IST)
+        self.assertEqual(app_module._supertrend_stamp(original.isoformat()), original)
+
+
 if __name__ == "__main__":
     unittest.main()
