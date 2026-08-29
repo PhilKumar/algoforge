@@ -67,8 +67,8 @@ class HeicTests(unittest.TestCase):
                 self.assertEqual(sanitize_image(self._heic_bytes(), declared).content_type, "image/jpeg")
 
     @unittest.skipUnless(image_uploads.HEIC_READABLE, "pillow-heif is not installed")
-    def test_an_unspoken_type_still_admits_nothing_else(self):
-        for blob in (self._heic_bytes()[:11], b"<script>alert(1)</script>", ImageUploadTests._image_bytes("PNG")):
+    def test_an_unspoken_type_still_admits_nothing_that_is_not_a_picture(self):
+        for blob in (self._heic_bytes()[:11], b"<script>alert(1)</script>", b"%PDF-1.7 not a picture"):
             with self.subTest(blob=blob[:8]):
                 with self.assertRaises(ImageValidationError):
                     sanitize_image(blob, "application/octet-stream")
@@ -76,6 +76,45 @@ class HeicTests(unittest.TestCase):
     def test_a_file_that_only_claims_to_be_heic_is_refused(self):
         with self.assertRaises(ImageValidationError):
             sanitize_image(ImageUploadTests._image_bytes("PNG"), "image/heic")
+
+
+class WhatAMacHandsOverTests(unittest.TestCase):
+    """A picture leaving the Photos app is rarely a JPEG. Copying one puts a
+    TIFF on the clipboard, dragging one can too, and the library itself holds
+    HEIC. Refusing them by their content type turned real photographs into
+    "only PNG, JPEG, WebP and HEIC images are allowed"."""
+
+    @staticmethod
+    def _bytes(fmt: str, mode: str = "RGB", size: tuple[int, int] = (8, 6)) -> bytes:
+        output = BytesIO()
+        Image.new(mode, size, (12, 34, 56) if mode == "RGB" else (12, 34, 56, 128)).save(output, format=fmt)
+        return output.getvalue()
+
+    def test_a_tiff_off_the_clipboard_is_kept_as_a_jpeg(self):
+        result = sanitize_image(self._bytes("TIFF"), "image/tiff")
+        self.assertEqual((result.extension, result.content_type), (".jpg", "image/jpeg"))
+        self.assertTrue(result.data.startswith(b"\xff\xd8\xff"))
+
+    def test_the_bytes_decide_when_the_browser_says_nothing(self):
+        for fmt in ("TIFF", "GIF", "BMP"):
+            with self.subTest(fmt=fmt):
+                self.assertEqual(sanitize_image(self._bytes(fmt), "").content_type, "image/jpeg")
+
+    def test_transparency_is_kept_by_saving_a_png_instead(self):
+        clear = sanitize_image(self._bytes("TIFF", mode="RGBA"), "image/tiff")
+        self.assertEqual((clear.extension, clear.content_type), (".png", "image/png"))
+
+    def test_a_plain_png_is_still_a_png(self):
+        """The three the browser can already show pass through untouched."""
+        for fmt, ctype, ext in (("PNG", "image/png", ".png"), ("JPEG", "image/jpeg", ".jpg")):
+            with self.subTest(fmt=fmt):
+                result = sanitize_image(self._bytes(fmt), ctype)
+                self.assertEqual((result.extension, result.content_type), (ext, ctype))
+
+    def test_what_is_not_a_picture_is_still_refused_by_name(self):
+        with self.assertRaises(ImageValidationError) as caught:
+            sanitize_image(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n", "image/tiff")
+        self.assertIn("not a valid supported image", str(caught.exception))
 
 
 if __name__ == "__main__":

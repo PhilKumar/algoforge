@@ -28,9 +28,11 @@ _FORMAT_DETAILS = {
     "WEBP": (".webp", "image/webp"),
 }
 
-# What a browser calls an Apple picture. Some send nothing at all for a
-# .heic, so the file's own first bytes have to be able to answer instead.
-_HEIC_TYPES = {"image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"}
+# Everything else a Mac hands over when a picture leaves the Photos app.
+# Copying one puts a TIFF on the clipboard; dragging one can too; an iPhone
+# writes HEIC; a newer library may hold AVIF. None of them open in a browser,
+# so each is kept as JPEG — or PNG, where it carries transparency worth keeping.
+_CONVERTED_FORMATS = {"HEIF", "AVIF", "TIFF", "GIF", "BMP"}
 _UNSPOKEN_TYPES = {"", "application/octet-stream"}
 _HEIF_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"}
 
@@ -65,46 +67,43 @@ def _open_image(data: bytes) -> Image.Image:
 
 
 def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
-    """Validate by file signature, cap decoded size, and strip active/hidden metadata."""
-    declared = str(declared_content_type or "").lower().strip()
-    allowed_declared = {details[1] for details in _FORMAT_DETAILS.values()}
-    heic = declared in _HEIC_TYPES or (declared in _UNSPOKEN_TYPES and looks_like_heic(data))
-    if heic:
-        if not looks_like_heic(data):
-            raise ImageValidationError("The image contents do not match the declared file type.")
-        if not HEIC_READABLE:
-            raise ImageValidationError("HEIC images cannot be read on this server.")
-    elif declared not in allowed_declared:
-        raise ImageValidationError("Only PNG, JPEG, WebP, and HEIC images are allowed.")
+    """Validate by file signature, cap decoded size, and strip active/hidden metadata.
 
+    The FILE says what it is; the browser's content type only gets to catch
+    one lying about itself. Asking the content type first is what turned a
+    picture copied out of Photos — which reaches the page as a TIFF — into
+    "only PNG, JPEG, WebP and HEIC are allowed", for a perfectly good photo.
+    """
+    declared = str(declared_content_type or "").lower().strip()
     image = _open_image(data)
     source_format = str(image.format or "").upper()
-    if heic:
-        if source_format != "HEIF":
+
+    if source_format in _FORMAT_DETAILS:
+        extension, detected_content_type = _FORMAT_DETAILS[source_format]
+        if declared not in _UNSPOKEN_TYPES and declared != detected_content_type:
             image.close()
             raise ImageValidationError("The image contents do not match the declared file type.")
-        # A HEIC is kept as JPEG — the format every browser can actually show.
+    elif source_format in _CONVERTED_FORMATS:
+        # What it will be kept as is decided below, once its transparency
+        # is known; a photograph has none and belongs in JPEG.
         extension, detected_content_type = _FORMAT_DETAILS["JPEG"]
     else:
-        if source_format not in _FORMAT_DETAILS:
-            image.close()
-            raise ImageValidationError("Only PNG, JPEG, WebP, and HEIC images are allowed.")
-
-        extension, detected_content_type = _FORMAT_DETAILS[source_format]
-        if declared != detected_content_type:
-            image.close()
-            raise ImageValidationError("The image contents do not match the declared file type.")
+        image.close()
+        raise ImageValidationError(f"A {source_format.title()} is not a picture this can keep.")
 
     width, height = image.size
     if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
         image.close()
         raise ImageValidationError("The image dimensions are too large.")
 
-    saved_format = "JPEG" if heic else source_format
     try:
         image.seek(0)
         clean = ImageOps.exif_transpose(image)
         has_alpha = clean.mode in {"RGBA", "LA"} or (clean.mode == "P" and "transparency" in clean.info)
+        saved_format = source_format
+        if source_format in _CONVERTED_FORMATS:
+            saved_format = "PNG" if has_alpha else "JPEG"
+            extension, detected_content_type = _FORMAT_DETAILS[saved_format]
         clean = clean.convert("RGBA" if has_alpha and saved_format != "JPEG" else "RGB")
         output = BytesIO()
         if saved_format == "JPEG":

@@ -1454,7 +1454,7 @@ html[data-theme="dark"]{color-scheme:dark}
       <div class="photo-strip" id="c-photos"></div>
       <div class="foot">
         <label class="btn subtle small" style="cursor:pointer">📷 Add pictures
-          <input type="file" id="c-file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif" multiple class="hidden">
+          <input type="file" id="c-file" accept="image/*,.heic,.heif,.avif" multiple class="hidden">
         </label>
         <button class="btn" id="c-save">Keep it 🌿</button>
       </div>
@@ -4079,8 +4079,16 @@ $("c-save").onclick = saveEntry;
    bundle — so dragging a photo straight out of Photos, or copying it and
    pressing paste, is the way in that never asks him to export first. */
 async function addPictures(files){
-  const pictures = [...files].filter((f) => f && (f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name || "")));
-  if (!pictures.length) return;
+  /* A file dragged out of Photos often arrives with no content type at all,
+     so an empty one is carried to the server and let the bytes answer. What
+     is plainly not a picture — a Live Photo's video half, a document — is
+     said out loud rather than vanishing. */
+  const all = [...files].filter(Boolean);
+  const pictures = all.filter((f) => !f.type || f.type.startsWith("image/"));
+  if (!pictures.length) {
+    if (all.length) toast(all.length === 1 ? "That is not a picture" : "None of those are pictures");
+    return;
+  }
   const composer = document.querySelector(".composer");
   composer.classList.add("busy");
   for (const file of pictures) {
