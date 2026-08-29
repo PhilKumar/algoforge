@@ -1393,8 +1393,15 @@ class FibTouchLadder:
           * the whole candle is past it    -> GAPPED, the market jumped it
           * price is still above it        -> nothing, and it is now armed
         """
+        bought = self._bought_keys()
         for rung in self.rungs:
             if rung.status != "PENDING":
+                continue
+            # Already paid for in this round. Without this the same level was
+            # re-collected hours later and bought twice; it also stopped the
+            # log filling with level_gapped for a rung that was long since
+            # spent.
+            if rung.key in bought:
                 continue
             # The structure has to exist before its levels can be traded.
             # Filling a level on a bar earlier than the fib that defines it is
@@ -1424,8 +1431,29 @@ class FibTouchLadder:
             if not self._touched(bar, rung.index_price):
                 rung.armed = True
 
+    def _bought_keys(self) -> set[str]:
+        """Every rung THIS ROUND has already spent money on.
+
+        Read from the fills, not from rung.status, because the fills are the
+        record the money follows: they are persisted, they survive a restart,
+        and they cannot be lost to a ladder rebuild. A rung's status is a
+        mutable flag on an object that `_build_rungs` may replace, and on
+        2026-08-28 F2L2 came back PENDING after buying at 11:30 -- so it was
+        collected again and bought a SECOND time at 14:42, in one round, out of
+        the same cap (Phil found it in the buys table).
+
+        `self.fills` is cleared when a round banks, so the next round may buy
+        these levels again -- which is the rounds rule, and stays intact.
+        """
+        keys: set[str] = set()
+        for fill in self.fills:
+            keys.add(fill.rung_key)
+            keys.update(str(key) for key in (fill.covered or []))
+        return keys
+
     def _collected_rungs(self) -> list[TouchRung]:
-        return [rung for rung in self.rungs if rung.status == "COLLECTED"]
+        bought = self._bought_keys()
+        return [rung for rung in self.rungs if rung.status == "COLLECTED" and rung.key not in bought]
 
     def _advance_turn(self, bar: Bar) -> None:
         """Work the buy-stop that turns collected levels into ONE buy.
