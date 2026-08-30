@@ -2161,9 +2161,10 @@ async def _restore_candle_entry_open_state(
 
 
 def _fib_ladder_has_live_orders(engine) -> bool:
-    """True when any fill or resting target carries a REAL Dhan order id."""
+    """True when any fill, resting target or stop carries a REAL Dhan order id."""
     ids = [str(f.order_id or "") for f in engine.fills]
     ids += [str(row.get("order_id") or "") for row in engine.resting_exits]
+    ids += [str(row.get("order_id") or "") for row in getattr(engine, "resting_stops", [])]
     return any(oid and not oid.startswith("paper-") for oid in ids)
 
 
@@ -2178,29 +2179,40 @@ def _reconcile_fib_ladder(engine, broker: DhanClient) -> list[str]:
     """
     notes: list[str] = []
     now = datetime.now(IST).replace(tzinfo=None)
-    for row in list(engine.resting_exits):
-        order_id = str(row.get("order_id") or "")
-        if not order_id or order_id.startswith("paper-"):
-            continue
-        status = broker.get_order_status(order_id)
-        raw = str(status.get("orderStatus") or status.get("status") or "UNKNOWN").upper()
-        if raw in ("TRADED", "FILLED", "COMPLETE"):
-            avg = 0.0
-            for key in ("averagePrice", "averageTradedPrice", "price"):
-                try:
-                    avg = float(status.get(key) or 0.0)
-                except (TypeError, ValueError):
-                    avg = 0.0
-                if avg > 0:
-                    break
-            engine._rest_traded[str(row.get("rung_key") or "")] = avg if avg > 0 else float(row.get("price") or 0.0)
-            engine.resting_exits.remove(row)
-            notes.append(f"resting target {order_id} TRADED while the app was down; its leg is booked")
-        elif raw in ("REJECTED", "CANCELLED"):
-            engine.resting_exits.remove(row)
-            notes.append(f"resting target {order_id} was {raw} at Dhan; the sync will re-place it")
-        elif raw == "UNKNOWN":
-            notes.append(f"resting target {order_id} status UNKNOWN at Dhan; left standing")
+
+    def _resolve(rows: list, label: str) -> None:
+        """Ask Dhan the fate of one book of resting orders, and book it.
+
+        A stop resolves exactly as a target does -- the only difference is the
+        price it fired at, and `_rest_traded` carries that either way, so the
+        ladder settles the leg once whichever of the two sold it.
+        """
+        for row in list(rows):
+            order_id = str(row.get("order_id") or "")
+            if not order_id or order_id.startswith("paper-"):
+                continue
+            status = broker.get_order_status(order_id)
+            raw = str(status.get("orderStatus") or status.get("status") or "UNKNOWN").upper()
+            if raw in ("TRADED", "FILLED", "COMPLETE"):
+                avg = 0.0
+                for key in ("averagePrice", "averageTradedPrice", "price"):
+                    try:
+                        avg = float(status.get(key) or 0.0)
+                    except (TypeError, ValueError):
+                        avg = 0.0
+                    if avg > 0:
+                        break
+                engine._rest_traded[str(row.get("rung_key") or "")] = avg if avg > 0 else float(row.get("price") or 0.0)
+                rows.remove(row)
+                notes.append(f"resting {label} {order_id} TRADED while the app was down; its leg is booked")
+            elif raw in ("REJECTED", "CANCELLED"):
+                rows.remove(row)
+                notes.append(f"resting {label} {order_id} was {raw} at Dhan; the sync will re-place it")
+            elif raw == "UNKNOWN":
+                notes.append(f"resting {label} {order_id} status UNKNOWN at Dhan; left standing")
+
+    _resolve(engine.resting_exits, "target")
+    _resolve(getattr(engine, "resting_stops", []), "stop")
     if engine._rest_traded:
         engine._absorb_rest_trades(now)
 
@@ -14882,6 +14894,12 @@ async def _start_fib_boundary_ladder(
         deep_carry=bool(payload.deep_carry),
         trailing_stop=bool(payload.trailing_target),
         lot_ramp=bool(payload.lot_ramp),
+        # A STOP AT THE BROKER, LIVE ONLY. It is not a trading rule -- no
+        # measurement in this repo was taken with a stop in the market, and
+        # switching it on for paper or backtest would quietly change what they
+        # report. It is there for the case the engine cannot act at all, so it
+        # belongs only where there is real money to strand.
+        broker_stop_loss=(mode == "live"),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +

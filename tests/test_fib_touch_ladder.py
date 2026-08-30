@@ -1801,6 +1801,167 @@ class RestingExitTests(unittest.TestCase):
         self.assertEqual(engine.resting_exits, [])
 
 
+class BrokerStopTests(unittest.TestCase):
+    """A stop resting at Dhan under every held leg.
+
+    This is NOT one of the ladder's trading rules and must never become one.
+    The ladder's loss control is `max_buys` and the 15:15 close; the mother
+    break sits BEYOND the target, so it ends a campaign that ran past the whole
+    structure, not one going against it. Nothing in this repo was ever measured
+    with a stop in the market.
+
+    What it is: cover for the minutes when the engine cannot act at all -- the
+    app dead, the token dead, the box wedged -- while real lots are held. So it
+    is off everywhere except live, and it sits far enough below the entry that
+    the strategy trades right through it in every normal session.
+    """
+
+    def test_a_normal_ladder_rests_no_stop_at_all(self):
+        """The default. Every backtest and paper replay in this repo was
+        measured without a stop, and they have to keep meaning that."""
+        engine, candles, _ = ladder()
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertTrue(engine.fills, "a leg is held")
+        self.assertEqual(engine.resting_stops, [])
+
+    def test_a_live_ladder_rests_one_stop_under_each_leg(self):
+        engine, candles, _ = ladder(broker_stop_loss=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(len(engine.resting_stops), 1)
+        row = engine.resting_stops[0]
+        fill = engine.fills[0]
+        self.assertEqual(row["quantity"], fill.quantity)
+        self.assertEqual(row["strike"], fill.strike)
+        # 70% below the 200 the leg paid.
+        self.assertAlmostEqual(row["price"], 60.0, places=2)
+
+    def test_the_stop_rests_even_when_the_target_cannot_be_priced(self):
+        """The fixture's flat premium carries no slope, so the target is
+        refused rather than guessed -- and that is exactly the moment the net
+        matters most. A stop needs no slope: it is a fraction of what was
+        actually paid."""
+        engine, candles, _ = ladder(broker_stop_loss=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertEqual(engine.resting_exits, [], "no honest target price")
+        self.assertEqual(len(engine.resting_stops), 1, "the stop stands anyway")
+
+    def test_going_flat_pulls_the_stops_with_the_targets(self):
+        """A stop outliving its leg is a naked short waiting for a bad tick."""
+        engine, candles, _ = ladder(broker_stop_loss=True, intraday=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertTrue(engine.resting_stops)
+        base = engine.history[-1].timestamp
+        engine.kill_and_close(Bar(base + timedelta(seconds=1), 24_600, 24_605, 24_595, 24_600))
+        self.assertEqual(engine.resting_stops, [], "nothing is left working at the broker")
+
+    def test_a_second_buy_replaces_the_stops_instead_of_stacking_them(self):
+        engine, candles, _ = ladder(broker_stop_loss=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        first = [row["order_id"] for row in engine.resting_stops]
+        take_the_turn(engine, last.timestamp, 24_430)
+        self.assertEqual(len(engine.fills), 2)
+        self.assertEqual(len(engine.resting_stops), 2, "one per leg, no orphans")
+        self.assertNotEqual([row["order_id"] for row in engine.resting_stops], first)
+
+    def test_the_stops_survive_a_restart(self):
+        """They outlive the process, so a ladder that came back without them
+        would leave live sell orders nobody is tracking."""
+        engine, candles, _ = ladder(broker_stop_loss=True)
+        for bar in candles:
+            engine.on_candle(bar)
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertTrue(engine.resting_stops)
+        raw = json.loads(json.dumps(engine.to_dict(), default=str))
+        back = FibTouchLadder.from_dict(
+            raw,
+            premium_lookup=lambda *a, **k: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+        )
+        self.assertEqual(back.resting_stops, engine.resting_stops)
+        self.assertEqual(back.get_status()["resting_stops"], engine.resting_stops)
+
+    def test_a_stop_that_already_fired_settles_its_leg_once(self):
+        """The cancel fails because the order TRADED. That leg is sold, at the
+        stop's price, and the basket must not sell the same coin again."""
+
+        class _FiredStop(PaperExecutor):
+            def cancel(self, *, order_id):
+                if str(order_id).startswith("paper-stop-"):
+                    return {"order_id": str(order_id), "cancelled": False, "traded": True, "avg_price": 61.5}
+                return {"order_id": str(order_id), "cancelled": True, "mode": "paper"}
+
+        engine, candles, _ = ladder(broker_stop_loss=True)
+        engine.executor = _FiredStop()
+        for bar in candles:
+            engine.on_candle(bar)
+        last = take_the_turn(engine, candles[-1].timestamp, 24_502)
+        sold = engine.fills[0]
+        take_the_turn(engine, last.timestamp, 24_430)
+        self.assertEqual([fill.rung_key for fill, _ in engine._settled], [sold.rung_key])
+        self.assertEqual([price for _, price in engine._settled], [61.5])
+        self.assertNotIn(sold.rung_key, [fill.rung_key for fill in engine.fills])
+
+    def test_the_live_stop_goes_to_dhan_as_a_stop_limit_sell(self):
+        """SL, not SL-M: the NSE takes no market stop in F&O, which is why
+        every other stop in this repo is an SL too. The limit sits below the
+        trigger so a fast move still fills."""
+        sent = {}
+
+        class _Broker:
+            def place_sl_order(self, **order):
+                sent.update(order)
+                return {"orderId": "DHAN-STOP-1"}
+
+        live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True, product_type="MARGIN")
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.rest_stop(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                trigger_price=60.0,
+            )
+        self.assertEqual(receipt, {"order_id": "DHAN-STOP-1", "mode": "live"})
+        self.assertEqual(sent["transaction_type"], "SELL")
+        self.assertEqual(sent["order_type"], "SL")
+        self.assertEqual(sent["trigger_price"], 60.0)
+        self.assertEqual(sent["price"], 57.0, "5% under the trigger, so it fills")
+        self.assertEqual(sent["product_type"], "MARGIN")
+        self.assertEqual(sent["quantity"], 65)
+        self.assertEqual(sent["tag"], "PF_FIB_BOUNDARY_STOP")
+
+    def test_the_live_stop_is_closed_like_every_other_real_order(self):
+        live = LiveExecutor(broker=object(), symbol="NIFTY", armed=True)
+        with self.assertRaisesRegex(ExecutionRefused, "temporarily disabled"):
+            live.rest_stop(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                trigger_price=60.0,
+            )
+
+    def test_a_stop_at_the_entry_or_at_zero_is_refused(self):
+        """At 1 it would fire on the first tick against the leg; at 0 it rests
+        at zero and can never fill. Neither is a net."""
+        for pct in (0.0, 1.0, -0.1, 1.5):
+            with self.assertRaises(FibTouchError):
+                ladder(broker_stop_loss=True, broker_stop_pct=pct)
+
+
 class SingleFibFallbackTests(unittest.TestCase):
     """Phil, 2026-08-16, on a 5m mother that sat ARMED through a 360-point
     fall: "we can draw 2 fibs here correct?" The market had drawn only one, and
