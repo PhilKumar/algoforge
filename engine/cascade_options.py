@@ -2596,6 +2596,7 @@ class LadderCandleEntryPaper:
         strike_at: str = "mother",
         strike_offset_points: int = -100,
         watch_from: Optional[datetime] = None,
+        executor: Optional[object] = None,
     ) -> None:
         if not adapter.paper_only or contract.option_type not in ("CE", "PE"):
             raise PaperOnlyViolation("The Candle Entry ladder campaign is paper-only, on a CE or a PE")
@@ -2680,6 +2681,10 @@ class LadderCandleEntryPaper:
             range_position=range_position,
             require_below_mother=require_below_mother,
             fallback_strike_for=self._atm_strike_for if atm_fallback else None,
+            # The adapter above stays paper_only whatever this is: in this
+            # strategy it only ever reads candles and chains, and orders go
+            # through the executor instead.
+            executor=executor,
             # The contract decides which way the geometry reads: a CE watches
             # the mother's high and two reds, a PE its low and two greens.
             direction=contract.option_type,

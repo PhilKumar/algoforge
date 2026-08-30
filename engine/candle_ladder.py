@@ -42,6 +42,7 @@ from datetime import time as dt_time
 from typing import Any, Callable, Optional
 
 from cascade_costs import OptionCostFill, OptionRoundCosts, calculate_nifty_option_basket_round_costs
+from engine.options_live_executor import ExecutionRefused
 
 # The last minute a position is sold on a day it must be flat: the 15:15 IST
 # bar closes at 15:30 on every chart, and the closing auction starts at 15:40,
@@ -203,6 +204,10 @@ class LadderFill:
     # a paper campaign sees the bar and buys. `timestamp` stays the bar's open,
     # the way every table on the site names a candle.
     priced_at: Optional[datetime] = None
+    # REAL ORDERS, when this campaign is a live one. Both stay None on paper,
+    # which is every run until the shared executor is proven against Dhan.
+    order_id: Optional[str] = None
+    bracket_order_id: Optional[str] = None
 
 
 @dataclass
@@ -247,12 +252,25 @@ class TwoRedLadder:
         require_below_mother: bool = False,
         fallback_strike_for: Optional[Callable[[datetime, float], list[tuple[int, str]]]] = None,
         direction: str = "CE",
+        executor: Optional[object] = None,
     ) -> None:
         if not stages:
             raise LadderError("a ladder needs at least one timeframe")
         if int(lot_size) <= 0:
             raise LadderError("lot size must be positive")
         self.lot_size = int(lot_size)
+        # SENDS THE REAL ORDERS, when this campaign is live. None is paper,
+        # and the RULES never consult it: the same two reds buy the same rung
+        # either way, and only the last inch to the exchange differs.
+        self.executor = executor
+        # Set when an order's fate is unknown. Nothing automatic follows.
+        self.frozen_reason: Optional[str] = None
+        # WHAT IS STILL WORKING AT THE BROKER. A LadderFill is frozen -- it is
+        # the record of what happened and must never be rewritten -- so the
+        # live state of each leg is kept here: bracket ids still on the book,
+        # and entry ids not yet sold.
+        self._brackets_open: set[str] = set()
+        self._legs_open: set[str] = set()
         self.mother = mother
         self.strike_for = strike_for
         # WHEN THE CHOSEN STRIKE HAS NO PRICE. Phil, 2026-08-20: "As we are
@@ -665,6 +683,50 @@ class TwoRedLadder:
                 return
         else:
             quantity = stage.lots * self.lot_size
+        order_id = bracket_id = None
+        if self.executor is not None and premium is not None and float(premium) > 0:
+            # A net, not a rule: this ladder's own stop is an INDEX level
+            # (`stop_loss_pct` off the mother) and the engine still owns it.
+            # What rests at Dhan is a premium a long option only reaches in a
+            # collapse -- there for the minutes nothing here can act.
+            stop = max(0.05, round(float(premium) * 0.30, 2))
+            try:
+                receipt = self.executor.buy(
+                    when=priced_at,
+                    strike=int(strike),
+                    expiry=self.expiry,
+                    option_type=option_type,
+                    quantity=int(quantity),
+                    premium=float(premium),
+                    stop_price=stop,
+                )
+            except ExecutionRefused as exc:
+                # Nothing is working at the broker. The rung keeps waiting.
+                self._log(candle, "rung_not_sent", rung=stage.rung, detail=str(exc))
+                stage.stop = None
+                stage.armed_at = None
+                if not self.fills:
+                    self.status = "WAITING_TWO_RED"
+                return
+            except Exception as exc:
+                # UNKNOWN. Record no leg and stop deciding: a phantom rung and
+                # a missing real one are both wrong, and only a human looking
+                # at the Dhan book can tell which happened.
+                self.frozen_reason = f"rung {stage.rung} entry outcome unknown -- {exc}"
+                self._log(candle, "rung_send_unknown", rung=stage.rung, detail=str(exc))
+                stage.stop = None
+                stage.armed_at = None
+                return
+            order_id = str(receipt.get("order_id") or "") or None
+            bracket_id = str(receipt.get("bracket_order_id") or "") or None
+            if order_id:
+                self._legs_open.add(order_id)
+            if bracket_id:
+                self._brackets_open.add(bracket_id)
+            if receipt.get("traded_premium"):
+                premium = float(receipt["traded_premium"])
+            if receipt.get("traded_quantity"):
+                quantity = int(receipt["traded_quantity"])
         self.fills.append(
             LadderFill(
                 rung=stage.rung,
@@ -678,6 +740,8 @@ class TwoRedLadder:
                 option_type=option_type,
                 marked_low=self.lowest,
                 priced_at=priced_at,
+                order_id=order_id,
+                bracket_order_id=bracket_id,
             )
         )
         self._log(
@@ -800,6 +864,12 @@ class TwoRedLadder:
         # at 13:15 read as "bought 12:45, closed 12:15" (Phil, 2026-08-14).
         # Fills keep the open, as every table on the site reads them, and the
         # ordering guarantees a close is never earlier than the fill's own bar.
+        if self.executor is not None and self._legs_open:
+            if not self._sell_basket_for_real(closed_at(candle)):
+                # NOT closed. The basket stays held and the campaign stays
+                # open: writing an exit that did not happen is how a ledger
+                # stops describing the account.
+                return
         self.exit_timestamp = closed_at(candle)
         # WHICH CHART CLOSED IT: still worth recording, since a hold time only
         # makes sense against the chart the exit was read on.
@@ -846,6 +916,54 @@ class TwoRedLadder:
         self.net_pnl = round(self.gross_pnl - self.costs.total, 2)
         self.status = "CLOSED"
         self._log(candle, "closed", reason=reason, net_pnl=self.net_pnl)
+
+    def _sell_basket_for_real(self, when: datetime) -> bool:
+        """Sell every held leg at the broker. False means the basket is NOT flat.
+
+        The brackets come off FIRST and all of them, before a single leg is
+        sold: a stop still working at Dhan against a position that is gone is
+        a short nobody asked for. A leg one of those brackets already sold is
+        recorded at its price rather than sold again.
+        """
+        release = getattr(self.executor, "cancel_bracket", None)
+        for fill in self.fills:
+            if not fill.bracket_order_id or fill.bracket_order_id not in self._brackets_open:
+                continue
+            if release is None:
+                continue
+            try:
+                outcome = release(order_id=fill.bracket_order_id)
+            except Exception as exc:
+                self.frozen_reason = f"bracket release failed -- {exc}"
+                return False
+            self._brackets_open.discard(fill.bracket_order_id)
+            if isinstance(outcome, dict) and outcome.get("traded"):
+                # One of its legs already sold this rung. Nothing left to sell.
+                self._legs_open.discard(str(fill.order_id or ""))
+        for fill in self.fills:
+            if not fill.order_id or fill.order_id not in self._legs_open:
+                continue
+            try:
+                receipt = self.executor.sell(
+                    when=when,
+                    strike=int(fill.strike),
+                    expiry=self.expiry,
+                    option_type=fill.option_type,
+                    quantity=int(fill.quantity),
+                )
+            except Exception as exc:
+                self.frozen_reason = f"exit outcome unknown -- {exc}"
+                return False
+            status = str((receipt or {}).get("status") or "UNKNOWN").upper()
+            if status == "FILLED":
+                self._legs_open.discard(fill.order_id)
+                continue
+            if status == "REJECTED":
+                # Nothing is working; the next bar takes the exit again.
+                return False
+            self.frozen_reason = f"exit outcome unknown at Dhan (order {receipt.get('order_id')})"
+            return False
+        return True
 
     def mark_open(self, at: datetime) -> Optional[dict]:
         """The open basket, priced as if it were sold at `at`.

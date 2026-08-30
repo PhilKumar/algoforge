@@ -41,36 +41,50 @@ from engine.fib_touch_ladder import (  # noqa: E402
 )
 
 
-class TradeModeRefusesLiveUnconditionally(unittest.TestCase):
-    """The paper-only strategies refuse "live" even with the fib flag open.
+class TradeModeNeverRidesOnAnotherStrategysFlag(unittest.TestCase):
+    """These three refuse "live" however open the FIB ladder's flag is.
 
-    Their refusal used to ride on FIB_TOUCH_LIVE_EXECUTION_ENABLED, which
-    belongs to a different strategy: the day it flips for the fib ladder,
-    these three would have accepted "live" and traded paper behind a 200.
+    Their refusal once rode on FIB_TOUCH_LIVE_EXECUTION_ENABLED, which belongs
+    to a different strategy: the day it flipped for the fib ladder, these
+    would have accepted "live" and traded paper behind a 200. Since
+    2026-08-30 they have live paths of their own and a gate of their own, and
+    the invariant worth pinning is that the two gates stay SEPARATE.
     """
 
     def setUp(self):
-        self._flag = app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED
+        self._fib = app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED
+        self._shared = app_module._OPTIONS_LIVE_EXECUTION_ENABLED
         app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = True
+        app_module._OPTIONS_LIVE_EXECUTION_ENABLED = False
 
     def tearDown(self):
-        app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = self._flag
+        app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = self._fib
+        app_module._OPTIONS_LIVE_EXECUTION_ENABLED = self._shared
 
-    def test_each_gate_refuses_live_and_accepts_paper(self):
-        for helper in (
+    def _helpers(self):
+        return (
             app_module._candle_entry_trade_mode,
             app_module._gap_carry_trade_mode,
             app_module._supertrend_trade_mode,
-        ):
+        )
+
+    def test_the_fib_flag_alone_opens_none_of_them(self):
+        for helper in self._helpers():
             with self.subTest(helper=helper.__name__):
                 self.assertEqual(helper("paper"), "paper")
                 with self.assertRaises(HTTPException) as caught:
                     helper("live")
                 self.assertEqual(caught.exception.status_code, 503)
-                self.assertIn("no live order path", caught.exception.detail)
+                self.assertIn("built but disabled", caught.exception.detail)
                 with self.assertRaises(HTTPException) as caught:
                     helper("margin")
                 self.assertEqual(caught.exception.status_code, 400)
+
+    def test_their_own_gate_is_what_opens_them(self):
+        app_module._OPTIONS_LIVE_EXECUTION_ENABLED = True
+        for helper in self._helpers():
+            with self.subTest(helper=helper.__name__):
+                self.assertEqual(helper("live"), "live")
 
 
 class _RecordingBroker:

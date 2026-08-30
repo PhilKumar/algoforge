@@ -459,3 +459,87 @@ class SupertrendLiveTests(unittest.TestCase):
         self.assertEqual(ex.released, [bracket])
         self.assertEqual(pos.exit_premium, 271.5)
         self.assertIsNone(eng.position)
+
+
+class CandleEntryLiveTests(unittest.TestCase):
+    """A ladder, so several legs. The brackets must ALL come off before any
+    leg is sold: one still working at Dhan is a short nobody asked for."""
+
+    def ladder(self, executor, fills=2):
+        from engine.candle_ladder import LadderCandle, LadderFill, TwoRedLadder
+
+        mother = LadderCandle(
+            timestamp=datetime(2026, 8, 30, 9, 15),
+            open=24_500.0,
+            high=24_550.0,
+            low=24_450.0,
+            close=24_500.0,
+            timeframe="5m",
+        )
+        lad = TwoRedLadder(
+            mother,
+            stages=("5m",),
+            strike_for=lambda when, price: (24_400, "CE"),
+            premium_lookup=lambda when, strike, option_type: 200.0,
+            lot_size=75,
+            expiry=date(2026, 9, 3),
+            executor=executor,
+        )
+        for i in range(fills):
+            lad.fills.append(
+                LadderFill(
+                    rung=i + 1,
+                    timeframe="5m",
+                    timestamp=WHEN,
+                    index_price=24_400.0,
+                    option_premium=200.0,
+                    lots=1,
+                    quantity=75,
+                    strike=24_400 + i * 50,
+                    option_type="CE",
+                    marked_low=24_400.0,
+                    priced_at=WHEN,
+                    order_id=f"O{i}",
+                    bracket_order_id=f"B{i}",
+                )
+            )
+            # What `_fill` records when it sends a real order: the fill itself
+            # is frozen history, and what is still WORKING lives here.
+            lad._legs_open.add(f"O{i}")
+            lad._brackets_open.add(f"B{i}")
+        return lad
+
+    def test_every_bracket_comes_off_before_any_leg_is_sold(self):
+        ex = _Executor()
+        lad = self.ladder(ex)
+        self.assertTrue(lad._sell_basket_for_real(WHEN))
+        self.assertEqual(ex.released, ["B0", "B1"])
+        self.assertEqual(len(ex.sells), 2)
+
+    def test_a_leg_its_own_bracket_already_sold_is_not_sold_again(self):
+        class _OneTraded(_Executor):
+            def cancel_bracket(self, *, order_id):
+                self.released.append(str(order_id))
+                if order_id == "B0":
+                    return {"order_id": "B0", "traded": True, "avg_price": 55.0}
+                return {"order_id": str(order_id), "cancelled": True}
+
+        ex = _OneTraded()
+        lad = self.ladder(ex)
+        self.assertTrue(lad._sell_basket_for_real(WHEN))
+        self.assertEqual(len(ex.sells), 1, "only the leg still held")
+
+    def test_an_unknown_leg_exit_stops_the_whole_basket(self):
+        class _Unknown(_Executor):
+            def sell(self, **kw):
+                self.sells.append(kw)
+                return {"order_id": "X", "status": "UNKNOWN"}
+
+        ex = _Unknown()
+        lad = self.ladder(ex)
+        self.assertFalse(lad._sell_basket_for_real(WHEN))
+        self.assertTrue(lad.frozen_reason)
+
+    def test_a_paper_ladder_has_no_orders_to_release(self):
+        lad = self.ladder(None, fills=0)
+        self.assertIsNone(lad.executor)

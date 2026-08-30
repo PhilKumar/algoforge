@@ -11440,17 +11440,17 @@ def _candle_entry_trade_mode(value: str) -> str:
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live":
-        # NOT the Fib Boundary flag: Candle Entry has no live order path at
-        # all -- its adapter is constructed paper_only. Tying this refusal to
-        # FIB_TOUCH_LIVE_EXECUTION_ENABLED meant a future flip for the fib
-        # ladder would let this route answer 200 to "live" and silently trade
-        # paper. Live opens here only when this strategy grows its own executor.
+    if mode == "live" and not _OPTIONS_LIVE_EXECUTION_ENABLED:
+        # NEVER the Fib Boundary flag. Candle Entry has its own live path now,
+        # through the shared executor, and it opens on that executor's gate.
+        # Tying this refusal to FIB_TOUCH_LIVE_EXECUTION_ENABLED meant a flip
+        # for the fib ladder would let this route answer 200 to "live" and
+        # silently trade paper.
         raise HTTPException(
             status_code=503,
             detail=(
-                "Candle Entry has no live order path built; live stays closed until its own "
-                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
+                "Candle Entry live execution is built but disabled until its fills, partial fills and "
+                "restart reconciliation are proven against Dhan. Use Paper or Backtest."
             ),
         )
     return mode
@@ -11765,6 +11765,21 @@ async def _start_candle_entry_campaign(user_id: int, payload: CandleEntryPaperSt
         # +Rs 3,25,680 without them, win 85% against 72%, same drawdown.
         require_below_mother=True,
         atm_fallback=True,
+        # MARGIN, not INTRADAY, unless the campaign is a same-day one: Dhan
+        # squares an intraday book off at ~15:20 and a carried ladder would
+        # lose its legs behind the engine's back.
+        executor=(
+            build_executor(
+                broker_client,
+                "NIFTY",
+                mode="live",
+                armed=True,
+                product_type="INTRADAY" if bool(payload.intraday_close) else "MARGIN",
+                tag="PF_CANDLE_ENTRY",
+            )
+            if str(getattr(payload, "mode", "paper") or "paper").strip().lower() == "live"
+            else None
+        ),
     )
     if box_window:
         engine.ladder.prime_range(_candle_entry_ladder_candles(timeframe, box_window))
