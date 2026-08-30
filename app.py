@@ -2165,6 +2165,7 @@ def _fib_ladder_has_live_orders(engine) -> bool:
     ids = [str(f.order_id or "") for f in engine.fills]
     ids += [str(row.get("order_id") or "") for row in engine.resting_exits]
     ids += [str(row.get("order_id") or "") for row in getattr(engine, "resting_stops", [])]
+    ids += [str(oid) for oid in getattr(engine, "_brackets", {}).values()]
     return any(oid and not oid.startswith("paper-") for oid in ids)
 
 
@@ -14900,6 +14901,10 @@ async def _start_fib_boundary_ladder(
         # report. It is there for the case the engine cannot act at all, so it
         # belongs only where there is real money to strand.
         broker_stop_loss=(mode == "live"),
+        # And the stop rides inside the entry as a Dhan Super Order, so the
+        # exchange -- not this process on its next bar -- is what cancels the
+        # stop when the target fills.
+        broker_bracket_entry=(mode == "live"),
     )
     # LIVE MEANS LIVE. Phil asked on 2026-08-15 for a plain Paper/Live toggle
     # like the Scalp page, with no separate arming step and no password +

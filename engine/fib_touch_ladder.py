@@ -495,8 +495,13 @@ class PaperExecutor:
     mode = "paper"
     is_live = False
 
-    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
-        return {"order_id": f"paper-{when.strftime('%H%M%S')}-{int(strike)}{option_type}", "mode": "paper"}
+    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium, stop_price=None) -> dict:
+        receipt = {"order_id": f"paper-{when.strftime('%H%M%S')}-{int(strike)}{option_type}", "mode": "paper"}
+        if stop_price:
+            # The stop rides INSIDE the entry, so paper reports the same shape
+            # live does and the engine's bracket bookkeeping gets exercised.
+            receipt["bracket_order_id"] = receipt["order_id"]
+        return receipt
 
     def sell_all(self, *, when, legs) -> dict:
         return {"order_id": f"paper-exit-{when.strftime('%H%M%S')}", "mode": "paper"}
@@ -507,6 +512,14 @@ class PaperExecutor:
             "order_id": f"paper-rest-{when.strftime('%H%M%S')}-{int(strike)}{option_type}",
             "mode": "paper",
         }
+
+    def amend_bracket_target(self, *, order_id, price) -> dict:
+        """Move a bracket's target leg. Paper just says it worked."""
+        return {"order_id": str(order_id), "amended": True, "mode": "paper"}
+
+    def cancel_bracket(self, *, order_id) -> dict:
+        """Release a bracket's remaining legs before the basket is sold."""
+        return {"order_id": str(order_id), "cancelled": True, "mode": "paper"}
 
     def rest_stop(self, *, when, strike, expiry, option_type, quantity, trigger_price) -> dict:
         """The disaster stop, held in memory the same way.
@@ -581,18 +594,46 @@ class LiveExecutor:
         except Exception as exc:  # a status fetch that dies is an unknown, not a fill
             return {"status": "UNKNOWN", "message": str(exc)}
 
-    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
+    def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium, stop_price=None) -> dict:
         self._guard()
-        order = self.broker.place_option_order(
-            underlying=self.symbol,
-            strike_price=float(strike),
-            option_type=str(option_type),
-            expiry=expiry.isoformat(),
-            transaction_type="BUY",
-            quantity=int(quantity),
-            product_type=self.product_type,
-            tag="PF_FIB_BOUNDARY_BUY",
-        )
+        bracketed = False
+        if stop_price:
+            # A DHAN SUPER ORDER: entry, target and stop submitted as one, with
+            # the exchange cancelling whichever leg the other does not take.
+            # Two separate orders cannot do that -- between the target filling
+            # and this engine's next bar, a lone stop would still be working,
+            # and a stop that fires on a leg already sold opens a SHORT.
+            #
+            # The target leg goes in at 0: at entry there is usually no honest
+            # target to name (it needs the average this fill has only just
+            # moved, and a slope measured from two real quotes), and this
+            # engine does not invent prices. `amend_bracket_target` fills it in
+            # the moment it becomes measurable.
+            order = self.broker.place_super_order(
+                underlying=self.symbol,
+                strike_price=int(strike),
+                option_type=str(option_type),
+                expiry=expiry.isoformat(),
+                transaction_type="BUY",
+                quantity=int(quantity),
+                target_price=0.0,
+                stop_loss_price=float(stop_price),
+                order_type="MARKET",
+                product_type=self.product_type,
+                tag="PF_FIB_BOUNDARY_SO",
+            )
+            bracketed = True
+        else:
+            order = self.broker.place_option_order(
+                underlying=self.symbol,
+                strike_price=float(strike),
+                option_type=str(option_type),
+                expiry=expiry.isoformat(),
+                transaction_type="BUY",
+                quantity=int(quantity),
+                product_type=self.product_type,
+                tag="PF_FIB_BOUNDARY_BUY",
+            )
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
         # The acknowledgement is not the fill. The engine's book has to carry
         # what Dhan actually traded, or every rupee downstream is an estimate.
@@ -601,12 +642,15 @@ class LiveExecutor:
         if status == "FILLED":
             avg = float(outcome.get("avg_price") or 0.0)
             filled = int(outcome.get("filled_qty") or 0)
-            return {
+            receipt = {
                 "order_id": str(order_id),
                 "mode": "live",
                 "traded_premium": avg if avg > 0 else None,
                 "traded_quantity": filled if 0 < filled <= int(quantity) else int(quantity),
             }
+            if bracketed:
+                receipt["bracket_order_id"] = str(order_id)
+            return receipt
         if status in ("REJECTED", "CANCELLED") and int(outcome.get("filled_qty") or 0) == 0:
             raise OrderRejected(f"Dhan {status.lower()} the buy: {outcome.get('message') or 'no reason given'}")
         # TIMEOUT, UNKNOWN, or a reject that already traded something: money
@@ -707,6 +751,55 @@ class LiveExecutor:
         )
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
         return {"order_id": order_id or str(order), "mode": "live"}
+
+    def amend_bracket_target(self, *, order_id, price) -> dict:
+        """Name the bracket's target now that it can honestly be measured.
+
+        The entry went in with no target leg because there was nothing true to
+        put there. This is the correction, and it is the ONLY way a bracketed
+        leg gets a profit exit -- there is no second resting sell for it.
+        """
+        self._availability_guard()
+        if float(price) <= 0:
+            raise ExecutionRefused("a bracket target needs a positive price")
+        result = self.broker.modify_super_order(
+            str(order_id),
+            "TARGET_LEG",
+            target_price=float(price),
+        )
+        return {"order_id": str(order_id), "amended": True, "raw": result, "mode": "live"}
+
+    def cancel_bracket(self, *, order_id) -> dict:
+        """Release a bracket's remaining legs, so the basket can be sold.
+
+        Selling a bracketed leg on the open market without this would leave its
+        target and stop working at Dhan against a position that is gone -- the
+        exact naked short the bracket exists to prevent.
+
+        A cancel that comes back TRADED means one of the legs already sold it,
+        which is reported the same way a filled resting target is: the leg is
+        settled, not still held.
+        """
+        self._availability_guard()
+        result = self.broker.cancel_super_order(str(order_id), "ENTRY_LEG")
+        raw = str((result or {}).get("orderStatus") or "").upper()
+        if raw in ("TRADED", "CLOSED", "FILLED", "COMPLETE"):
+            avg = 0.0
+            for key in ("averagePrice", "averageTradedPrice", "price"):
+                try:
+                    avg = float((result or {}).get(key) or 0.0)
+                except (TypeError, ValueError):
+                    avg = 0.0
+                if avg > 0:
+                    break
+            return {
+                "order_id": str(order_id),
+                "cancelled": False,
+                "traded": True,
+                "avg_price": avg if avg > 0 else None,
+                "mode": "live",
+            }
+        return {"order_id": str(order_id), "cancelled": True, "raw": result, "mode": "live"}
 
     def rest_stop(self, *, when, strike, expiry, option_type, quantity, trigger_price) -> dict:
         """Leave a STOP sitting on the exchange under a held leg.
@@ -876,6 +969,14 @@ class FibTouchConfig:
     # route turns it on; every backtest and replay stays exactly as measured.
     broker_stop_loss: bool = False
     broker_stop_pct: float = 0.70
+    # THE STOP RIDES INSIDE THE ENTRY. With this on, a live buy goes to Dhan as
+    # a Super Order -- entry, target and stop as one, with the exchange
+    # cancelling whichever leg the other does not take. Two separate orders
+    # cannot do that: between the target filling and this engine's next bar a
+    # lone stop is still working, and a stop that fires on a leg already sold
+    # opens a short. Needs `broker_stop_loss`; there is no bracket without a
+    # stop to bracket with.
+    broker_bracket_entry: bool = False
     lookback_bars: int = 240
     involvement_candles: int = INVOLVEMENT_CANDLES
 
@@ -903,6 +1004,8 @@ class FibTouchConfig:
         # it is AT the entry and would fire on the first tick against it.
         if not 0 < float(self.broker_stop_pct) < 1:
             raise FibTouchError("broker_stop_pct must be between 0 and 1")
+        if self.broker_bracket_entry and not self.broker_stop_loss:
+            raise FibTouchError("broker_bracket_entry needs broker_stop_loss: a bracket is the stop")
         if self.min_dte < 0:
             raise FibTouchError("min_dte cannot be negative")
         if str(self.timeframe).lower() not in GEOMETRY_TIMEFRAMES:
@@ -1133,6 +1236,10 @@ class FibTouchLadder:
         # re-priced and pulled in the same breath, because a stop left behind
         # after its leg is sold would sell the leg AGAIN and open a short.
         self.resting_stops: list[dict[str, Any]] = []
+        # LEGS WHOSE STOP RIDES INSIDE THEIR ENTRY, rung_key -> super order id.
+        # These get no separate stop and no separate resting target: both legs
+        # belong to the bracket, and the exchange keeps the two in step.
+        self._brackets: dict[str, str] = {}
         # The bar before the current one: (timestamp, close). The second point
         # a resting order's price is measured from -- see target_premium_for.
         self._prior_bar: Optional[tuple[datetime, float]] = None
@@ -1540,6 +1647,40 @@ class FibTouchLadder:
                 )
         self.resting_stops = []
 
+    def _release_brackets(self, when: datetime) -> None:
+        """Cancel every bracket's remaining legs before the basket is sold.
+
+        Selling a bracketed leg on the open market while its target and stop
+        are still working at Dhan is the naked short the bracket exists to
+        prevent -- so this runs BEFORE any exit, from the same call that pulls
+        the resting orders.
+
+        A cancel that comes back TRADED means one of the legs already sold the
+        leg. That goes through `_rest_traded` exactly as a filled resting
+        target does, so the basket settles it once instead of selling it again.
+        """
+        release = getattr(self.executor, "cancel_bracket", None)
+        if release is None or not self._brackets:
+            self._brackets = {}
+            return
+        for rung_key, order_id in list(self._brackets.items()):
+            try:
+                outcome = release(order_id=order_id)
+            except Exception as exc:
+                self._log(when, "bracket_release_failed", order_id=order_id, detail=str(exc))
+                continue
+            if isinstance(outcome, dict) and outcome.get("traded"):
+                price = float(outcome.get("avg_price") or 0.0)
+                self._rest_traded[str(rung_key)] = price
+                self._log(
+                    when,
+                    "bracket_leg_already_traded",
+                    order_id=order_id,
+                    rung_key=rung_key,
+                    price=round(price, 2) if price else None,
+                )
+        self._brackets = {}
+
     def _sync_resting_stops(self, when: datetime) -> None:
         """Put one stop per held leg on the broker, replacing what was there.
 
@@ -1552,6 +1693,8 @@ class FibTouchLadder:
         if rest is None or not self.config.broker_stop_loss or not self.fills:
             return
         for fill in self.fills:
+            if fill.rung_key in self._brackets:
+                continue  # its stop rides inside its entry
             trigger = self.stop_premium_for(fill)
             if trigger is None:
                 continue
@@ -1616,7 +1759,9 @@ class FibTouchLadder:
         # The stops go with them. A position that is flat must have NOTHING
         # working at the broker: a stop outliving its leg is a naked short
         # waiting for a bad tick.
-        self._pull_resting_stops(self.exit_timestamp or self.config.mother_timestamp)
+        _stamp = self.exit_timestamp or self.config.mother_timestamp
+        self._pull_resting_stops(_stamp)
+        self._release_brackets(_stamp)
 
     def _sync_resting_exits(self, when: datetime, index_now: float) -> None:
         """Put the target on the broker, and keep it honest as the average moves.
@@ -1660,6 +1805,21 @@ class FibTouchLadder:
             price = self.target_premium_for(fill, when, index_now)
             if price is None:
                 self._log(when, "resting_exit_unpriced", level=fill.level, strike=fill.strike)
+                continue
+            bracket_id = self._brackets.get(fill.rung_key)
+            if bracket_id:
+                # Its target leg is part of the entry order. Moving it is the
+                # only way a bracketed leg gets a profit exit -- resting a
+                # second sell beside it would sell the leg twice.
+                amend = getattr(self.executor, "amend_bracket_target", None)
+                if amend is None:
+                    continue
+                try:
+                    amend(order_id=bracket_id, price=price)
+                except Exception as exc:
+                    self._log(when, "bracket_target_amend_failed", level=fill.level, detail=str(exc))
+                    continue
+                self._log(when, "bracket_target_set", level=fill.level, order_id=bracket_id, price=price)
                 continue
             try:
                 receipt = rest(
@@ -1930,6 +2090,12 @@ class FibTouchLadder:
             )
             return
 
+        # The stop is priced off the QUOTE the cap was checked against, because
+        # a bracket has to name it before the entry exists. Once Dhan reports
+        # what the leg actually traded at, `_sync_resting_exits` corrects it.
+        bracket_stop = None
+        if self.config.broker_bracket_entry and self.config.broker_stop_loss and float(premium) > 0:
+            bracket_stop = max(0.05, round(float(premium) * (1.0 - float(self.config.broker_stop_pct)), 2))
         try:
             receipt = self.executor.buy(
                 when=bar.timestamp,
@@ -1939,6 +2105,7 @@ class FibTouchLadder:
                 quantity=quantity,
                 lots=lots,
                 premium=float(premium),
+                stop_price=bracket_stop,
             )
         except ExecutionRefused as exc:
             # The decision was right; the executor would not send it. Say so
@@ -1989,6 +2156,16 @@ class FibTouchLadder:
             covered=[r.key for r in collected],
         )
         self.fills.append(fill)
+        bracket_id = receipt.get("bracket_order_id") if isinstance(receipt, dict) else None
+        if bracket_id:
+            self._brackets[fill.rung_key] = str(bracket_id)
+            self._log(
+                bar.timestamp,
+                "bracket_entry",
+                level=rung.level,
+                order_id=str(bracket_id),
+                stop=bracket_stop,
+            )
         # The first buy fixes the campaign's contract series for good.
         self.expiry_locked = expiry
         self._last_fill_timestamp = bar.timestamp
@@ -2320,6 +2497,10 @@ class FibTouchLadder:
             price = self._rest_traded.get(fill.rung_key)
             if price is not None and price > 0:
                 self._settled.append((fill, float(price)))
+                # Its bracket went with it -- the exchange cancels the other
+                # leg when one fills -- so the id must not linger and get
+                # cancelled again against an order that no longer exists.
+                self._brackets.pop(fill.rung_key, None)
                 self._log(
                     when,
                     "leg_settled_by_resting_target",
@@ -3094,6 +3275,9 @@ class FibTouchLadder:
             # And the stops, for the same reason: a restart that forgot them
             # would leave live sell orders nobody is tracking.
             "resting_stops": [dict(row) for row in self.resting_stops],
+            # Bracketed entries, for the same reason again: a restart that
+            # forgot them would rest a SECOND stop under a leg that has one.
+            "brackets": dict(self._brackets),
             # Rounds already banked, and the price the market must go below to
             # trade this mother again. Without them a restart forgets both the
             # P&L and the fact that it is waiting.
@@ -3235,6 +3419,7 @@ class FibTouchLadder:
         ]
         engine.resting_exits = [dict(row) for row in (raw.get("resting_exits") or [])]
         engine.resting_stops = [dict(row) for row in (raw.get("resting_stops") or [])]
+        engine._brackets = {str(k): str(v) for k, v in (raw.get("brackets") or {}).items()}
         # A restart between "the target traded" and "the leg was absorbed",
         # or during an unknown-exit freeze, must come back knowing it.
         engine._rest_traded = {str(k): float(v) for k, v in (raw.get("rest_traded") or {}).items()}
@@ -3330,6 +3515,7 @@ class FibTouchLadder:
             "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "resting_exits": [dict(row) for row in self.resting_exits],
             "resting_stops": [dict(row) for row in self.resting_stops],
+            "brackets": dict(self._brackets),
             "rounds": [dict(row) for row in self.rounds],
             "rearm_below": self._rearm_below,
             "capital_cap_inr": self.config.capital_cap_inr,

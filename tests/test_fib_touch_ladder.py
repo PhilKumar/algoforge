@@ -1962,6 +1962,176 @@ class BrokerStopTests(unittest.TestCase):
                 ladder(broker_stop_loss=True, broker_stop_pct=pct)
 
 
+class BracketEntryTests(unittest.TestCase):
+    """The stop rides INSIDE the entry, as a Dhan Super Order.
+
+    Two separate orders leave a window nothing local can close: between the
+    target filling at Dhan and this engine's next bar, a lone stop is still
+    working, and a stop that fires on a leg already sold opens a SHORT. A
+    bracket has the exchange cancel one leg when the other fills, so the
+    window is not shortened -- it stops existing.
+    """
+
+    def bracketed(self, **overrides):
+        engine, candles, _ = ladder(broker_stop_loss=True, broker_bracket_entry=True, **overrides)
+        for bar in candles:
+            engine.on_candle(bar)
+        return engine, candles
+
+    def test_a_bracketed_buy_carries_its_stop_and_gets_no_second_one(self):
+        engine, candles = self.bracketed()
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        fill = engine.fills[0]
+        self.assertIn(fill.rung_key, engine._brackets)
+        self.assertEqual(engine.resting_stops, [], "the stop is part of the entry, not beside it")
+
+    def test_a_bracket_needs_a_stop_to_bracket_with(self):
+        with self.assertRaisesRegex(FibTouchError, "broker_stop_loss"):
+            ladder(broker_bracket_entry=True)
+
+    def test_the_live_entry_goes_to_dhan_as_one_super_order(self):
+        """Entry, target and stop submitted together. The target leg goes in at
+        0 because at entry there is no honest target to name -- the average has
+        only just moved and the slope needs two real quotes."""
+        sent = {}
+
+        class _Broker:
+            def place_super_order(self, **order):
+                sent.update(order)
+                return {"orderId": "DHAN-SO-1"}
+
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 198.0}
+
+        live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True, product_type="MARGIN")
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.buy(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                lots=1,
+                premium=200.0,
+                stop_price=60.0,
+            )
+        self.assertEqual(receipt["bracket_order_id"], "DHAN-SO-1")
+        self.assertEqual(receipt["traded_premium"], 198.0)
+        self.assertEqual(sent["transaction_type"], "BUY")
+        self.assertEqual(sent["order_type"], "MARKET")
+        self.assertEqual(sent["stop_loss_price"], 60.0)
+        self.assertEqual(sent["target_price"], 0.0, "no invented target at entry")
+        self.assertEqual(sent["product_type"], "MARGIN")
+        self.assertEqual(sent["tag"], "PF_FIB_BOUNDARY_SO")
+
+    def test_without_a_stop_the_live_entry_is_the_plain_order_it_always_was(self):
+        plain = []
+
+        class _Broker:
+            def place_option_order(self, **order):
+                plain.append(order)
+                return {"orderId": "DHAN-1"}
+
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 200.0}
+
+        live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
+        with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.buy(
+                when=IST_START,
+                strike=24_400,
+                expiry=date(2026, 8, 11),
+                option_type="CE",
+                quantity=65,
+                lots=1,
+                premium=200.0,
+            )
+        self.assertNotIn("bracket_order_id", receipt)
+        self.assertEqual(len(plain), 1)
+
+    def test_the_target_is_amended_onto_the_bracket_not_rested_beside_it(self):
+        """A second sell resting next to a bracket would sell the leg twice."""
+        amended = []
+
+        class _Amending(PaperExecutor):
+            def amend_bracket_target(self, *, order_id, price):
+                amended.append((str(order_id), float(price)))
+                return {"order_id": str(order_id), "amended": True}
+
+        engine, candles, premium, push = RestingExitTests().moving_premium()
+        engine.config = FibTouchConfig(
+            **{
+                **{f.name: getattr(engine.config, f.name) for f in engine.config.__dataclass_fields__.values()},
+                "broker_stop_loss": True,
+                "broker_bracket_entry": True,
+            }
+        )
+        engine.executor = _Amending()
+        RestingExitTests().turn(push, candles[-1].timestamp, 24_502)
+        self.assertEqual(len(engine.fills), 1)
+        self.assertEqual(engine.resting_exits, [], "no second sell beside the bracket")
+        self.assertEqual(len(amended), 1)
+        self.assertEqual(amended[0][0], engine._brackets[engine.fills[0].rung_key])
+
+    def test_going_flat_releases_the_bracket_before_the_basket_is_sold(self):
+        """Selling a bracketed leg while its legs still work at Dhan is the
+        naked short the bracket exists to prevent."""
+        released = []
+
+        class _Releasing(PaperExecutor):
+            def cancel_bracket(self, *, order_id):
+                released.append(str(order_id))
+                return {"order_id": str(order_id), "cancelled": True}
+
+        engine, candles = self.bracketed(intraday=True)
+        engine.executor = _Releasing()
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        held = engine._brackets[engine.fills[0].rung_key]
+        base = engine.history[-1].timestamp
+        engine.kill_and_close(Bar(base + timedelta(seconds=1), 24_600, 24_605, 24_595, 24_600))
+        self.assertEqual(released, [held])
+        self.assertEqual(engine._brackets, {}, "nothing left working at the broker")
+
+    def test_a_bracket_leg_that_already_traded_settles_once(self):
+        """The release comes back TRADED: one of its legs sold the position
+        while the engine was between bars. That leg is booked, not sold again."""
+
+        class _AlreadyTraded(PaperExecutor):
+            def cancel_bracket(self, *, order_id):
+                return {"order_id": str(order_id), "cancelled": False, "traded": True, "avg_price": 62.5}
+
+        engine, candles = self.bracketed(intraday=True)
+        engine.executor = _AlreadyTraded()
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        sold = engine.fills[0]
+        base = engine.history[-1].timestamp
+        engine.kill_and_close(Bar(base + timedelta(seconds=1), 24_600, 24_605, 24_595, 24_600))
+        self.assertEqual([fill.rung_key for fill, _ in engine._settled], [sold.rung_key])
+        self.assertEqual([price for _, price in engine._settled], [62.5])
+
+    def test_the_brackets_survive_a_restart(self):
+        """A ladder that came back without them would rest a SECOND stop under
+        a leg that already has one."""
+        engine, candles = self.bracketed()
+        take_the_turn(engine, candles[-1].timestamp, 24_502)
+        self.assertTrue(engine._brackets)
+        raw = json.loads(json.dumps(engine.to_dict(), default=str))
+        back = FibTouchLadder.from_dict(
+            raw,
+            premium_lookup=lambda *a, **k: 200.0,
+            expiry_source=lambda on: [date(2026, 8, 11)],
+        )
+        self.assertEqual(back._brackets, engine._brackets)
+        self.assertEqual(back.get_status()["brackets"], engine._brackets)
+
+    def test_the_live_release_is_closed_like_every_other_real_order(self):
+        live = LiveExecutor(broker=object(), symbol="NIFTY", armed=True)
+        with self.assertRaisesRegex(ExecutionRefused, "temporarily disabled"):
+            live.cancel_bracket(order_id="DHAN-SO-1")
+        with self.assertRaisesRegex(ExecutionRefused, "temporarily disabled"):
+            live.amend_bracket_target(order_id="DHAN-SO-1", price=250.0)
+
+
 class SingleFibFallbackTests(unittest.TestCase):
     """Phil, 2026-08-16, on a 5m mother that sat ARMED through a 360-point
     fall: "we can draw 2 fibs here correct?" The market had drawn only one, and
