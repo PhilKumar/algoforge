@@ -86,6 +86,14 @@ class _RecordingBroker:
             raise RuntimeError("Dhan timed out; order fate unknown")
         return {"orderId": f"D{len(self.calls)}"}
 
+    def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+        return {
+            "order_id": order_id,
+            "status": "FILLED",
+            "filled_qty": 65,
+            "avg_price": 226.4,
+        }
+
     def cancel_order(self, order_id):
         self.calls.append(("cancel", order_id))
         return {"orderId": order_id}
@@ -367,3 +375,215 @@ class RecoveryRunRemembersSideAndDepth(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuyBooksWhatDhanTraded(unittest.TestCase):
+    """The acknowledgement is not the fill: the ladder's money follows the
+    broker's average traded price, and a REJECTED order -- a known nothing --
+    may retry, while an unknown outcome disarms."""
+
+    def setUp(self):
+        self._flag = ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED
+        ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED = True
+
+    def tearDown(self):
+        ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED = self._flag
+
+    def _ladder_with(self, broker):
+        executor = LiveExecutor(broker, "NIFTY", armed=True)
+        ladder = _armed_ladder(executor)
+        ladder.rungs = [TouchRung(level=2, index_price=24_050.0, status="COLLECTED", fib_id=1)]
+        ladder._buy_stop = 24_080.0
+        ladder._stop_bar = None
+        return ladder, executor
+
+    def test_the_fill_carries_the_traded_price_not_the_estimate(self):
+        ladder, _executor = self._ladder_with(_RecordingBroker())
+        ladder._try_fill(_bar(datetime(2026, 8, 28, 11, 30), 24_100.0))
+        self.assertEqual(len(ladder.fills), 1)
+        # premium_lookup said 200; Dhan traded 226.4 -- the book holds 226.4.
+        self.assertEqual(ladder.fills[0].premium, 226.4)
+        self.assertEqual(ladder.fills[0].quantity, 65)
+
+    def test_a_rejected_buy_stays_armed_and_may_retry(self):
+        class _RejectingBroker(_RecordingBroker):
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {
+                    "order_id": order_id,
+                    "status": "REJECTED",
+                    "filled_qty": 0,
+                    "avg_price": 0.0,
+                    "message": "margin shortfall",
+                }
+
+        ladder, executor = self._ladder_with(_RejectingBroker())
+        ladder._try_fill(_bar(datetime(2026, 8, 28, 11, 30), 24_100.0))
+        self.assertEqual(ladder.fills, [])
+        self.assertEqual(ladder.status, "EXECUTION_REFUSED")
+        self.assertTrue(executor.armed, "a rejection is a known nothing; it must not disarm")
+
+    def test_a_verification_timeout_disarms(self):
+        class _TimeoutBroker(_RecordingBroker):
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {
+                    "order_id": order_id,
+                    "status": "TIMEOUT",
+                    "filled_qty": 0,
+                    "avg_price": 0.0,
+                    "message": "still pending",
+                }
+
+        ladder, executor = self._ladder_with(_TimeoutBroker())
+        ladder._try_fill(_bar(datetime(2026, 8, 28, 11, 30), 24_100.0))
+        self.assertEqual(ladder.fills, [])
+        self.assertEqual(ladder.status, "EXECUTION_ERROR")
+        self.assertFalse(executor.armed, "an unknown outcome must stop the resend loop")
+
+
+def _held_ladder(broker):
+    """An armed live ladder already holding one leg, ready to exit."""
+    executor = LiveExecutor(broker, "NIFTY", armed=True)
+    ladder = _armed_ladder(executor)
+    ladder.fills = [
+        TouchFill(
+            buy_number=1,
+            level=2,
+            timestamp=datetime(2026, 8, 28, 11, 30),
+            index_price=24_080.0,
+            premium=225.0,
+            lots=1,
+            quantity=65,
+            strike=24_000.0,
+            expiry=date(2026, 9, 1),
+            option_type="CE",
+            order_id="D1",
+            fib_id=1,
+            covered=[],
+        )
+    ]
+    return ladder
+
+
+class ExitBooksAndFreezesHonestly(unittest.TestCase):
+    """A confirmed exit books Dhan's price; an unconfirmed one freezes."""
+
+    def setUp(self):
+        self._flag = ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED
+        ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED = True
+
+    def tearDown(self):
+        ladder_mod.FIB_TOUCH_LIVE_EXECUTION_ENABLED = self._flag
+
+    def test_a_confirmed_kill_books_the_broker_price(self):
+        ladder = _held_ladder(_RecordingBroker())
+        self.assertTrue(ladder.kill_and_close(_bar(datetime(2026, 8, 28, 14, 0), 24_150.0)))
+        # premium_lookup said 200; Dhan sold at 226.4 -- the round holds 226.4.
+        self.assertEqual(ladder.rounds[0]["fills"][0]["exit_premium"], 226.4)
+        self.assertEqual(len(ladder.fills), 1, "the legs stay visible after the kill")
+
+    def test_an_unknown_exit_leg_freezes_until_the_next_deliberate_kill(self):
+        class _UnknownExitBroker(_RecordingBroker):
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                kwargs = [k for verb, k in self.calls if verb == "place"]
+                if kwargs and kwargs[-1]["transaction_type"] == "SELL":
+                    return {
+                        "order_id": order_id,
+                        "status": "TIMEOUT",
+                        "filled_qty": 0,
+                        "avg_price": 0.0,
+                        "message": "exchange slow",
+                    }
+                return super().verify_order_fill(order_id, max_wait_sec, poll_interval)
+
+        ladder = _held_ladder(_UnknownExitBroker())
+        self.assertFalse(ladder.kill_and_close(_bar(datetime(2026, 8, 28, 14, 0), 24_150.0)))
+        self.assertEqual(ladder.status, "EXIT_ERROR")
+        self.assertTrue(ladder._exit_unknown)
+        # Frozen: the automatic exits refuse while a leg's fate is unknown.
+        self.assertFalse(ladder._try_exit(_bar(datetime(2026, 8, 28, 14, 1), 24_400.0)))
+        # The next kill is the deliberate human retry: it lifts the freeze.
+        broker2 = _RecordingBroker()
+        ladder.executor = LiveExecutor(broker2, "NIFTY", armed=True)
+        self.assertTrue(ladder.kill_and_close(_bar(datetime(2026, 8, 28, 14, 5), 24_150.0)))
+        self.assertEqual(ladder._exit_unknown, [])
+
+    def test_a_traded_resting_target_settles_its_leg_before_the_market_sell(self):
+        class _RestFilledBroker(_RecordingBroker):
+            def cancel_order(self, order_id):
+                self.calls.append(("cancel", order_id))
+                raise RuntimeError("order is not in a cancellable state")
+
+            def get_order_status(self, order_id):
+                return {"orderStatus": "TRADED", "averagePrice": 251.5}
+
+        broker = _RestFilledBroker()
+        ladder = _held_ladder(broker)
+        ladder.resting_exits = [
+            {
+                "order_id": "R1",
+                "rung_key": ladder.fills[0].rung_key,
+                "strike": 24_000.0,
+                "expiry": "2026-09-01",
+                "option_type": "CE",
+                "quantity": 65,
+                "price": 250.0,
+            }
+        ]
+        self.assertTrue(ladder.kill_and_close(_bar(datetime(2026, 8, 28, 14, 0), 24_150.0)))
+        # The leg sold at the rest's traded price, and NO market sell went out.
+        sells = [k for verb, k in broker.calls if verb == "place" and k["transaction_type"] == "SELL"]
+        self.assertEqual(sells, [], "the rest already sold the leg; a market sell would be a short")
+        self.assertEqual(ladder.rounds[0]["fills"][0]["exit_premium"], 251.5)
+
+
+class RestoreAsksTheBrokerFirst(unittest.TestCase):
+    """After a restart, the one authority on what happened is Dhan's book."""
+
+    def test_a_rest_that_traded_while_down_books_and_a_short_book_freezes(self):
+        class _Broker:
+            def get_order_status(self, order_id):
+                return {"orderStatus": "TRADED", "averagePrice": 260.0}
+
+            def get_positions(self):
+                return [{"securityId": "SEC1", "netQty": 0}]
+
+        ladder = _armed_ladder(SimpleNamespace())
+        ladder.fills = _held_ladder(_Broker()).fills
+        ladder.fills.append(
+            TouchFill(
+                buy_number=2,
+                level=3,
+                timestamp=datetime(2026, 8, 28, 12, 0),
+                index_price=24_050.0,
+                premium=180.0,
+                lots=1,
+                quantity=65,
+                strike=23_950.0,
+                expiry=date(2026, 9, 1),
+                option_type="CE",
+                order_id="D2",
+                fib_id=1,
+                covered=[],
+            )
+        )
+        ladder.resting_exits = [
+            {
+                "order_id": "R9",
+                "rung_key": ladder.fills[0].rung_key,
+                "strike": 24_000.0,
+                "expiry": "2026-09-01",
+                "option_type": "CE",
+                "quantity": 65,
+                "price": 250.0,
+            }
+        ]
+        from unittest.mock import patch
+
+        with patch("broker.dhan.ScripMaster.lookup", return_value="SEC1"):
+            notes = app_module._reconcile_fib_ladder(ladder, _Broker())
+        # The traded rest booked its leg at 260...
+        self.assertEqual(len(ladder._settled), 1)
+        self.assertEqual(ladder._settled[0][1], 260.0)
+        # ...and the broker holding 0 of the remaining 65 froze the exits.
+        self.assertTrue(ladder._exit_unknown)
+        self.assertTrue(any("FROZEN" in note for note in notes))

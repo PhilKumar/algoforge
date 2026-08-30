@@ -512,6 +512,11 @@ class PaperExecutor:
         return {"order_id": str(order_id), "cancelled": True, "mode": "paper"}
 
 
+class OrderRejected(ExecutionRefused):
+    """Dhan examined the order and said no. Nothing is working at the broker,
+    so unlike an unknown outcome this is safe to retry on a later trigger."""
+
+
 class LiveExecutor:
     """The real-money path. Refuses to send until it is explicitly armed.
 
@@ -553,6 +558,16 @@ class LiveExecutor:
                 "then arm live deliberately -- no config value or environment variable opens it."
             )
 
+    def _verify(self, order_id, *, max_wait_sec: int = 20) -> dict:
+        """Ask Dhan what became of the order. UNKNOWN is an answer too."""
+        verify = getattr(self.broker, "verify_order_fill", None)
+        if not order_id or verify is None:
+            return {"status": "UNKNOWN", "message": "no order id or no verifier on this broker"}
+        try:
+            return verify(str(order_id), max_wait_sec=max_wait_sec)
+        except Exception as exc:  # a status fetch that dies is an unknown, not a fill
+            return {"status": "UNKNOWN", "message": str(exc)}
+
     def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
         self._guard()
         order = self.broker.place_option_order(
@@ -566,30 +581,89 @@ class LiveExecutor:
             tag="PF_FIB_BOUNDARY_BUY",
         )
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
-        return {"order_id": order_id or str(order), "mode": "live"}
+        # The acknowledgement is not the fill. The engine's book has to carry
+        # what Dhan actually traded, or every rupee downstream is an estimate.
+        outcome = self._verify(order_id)
+        status = str(outcome.get("status") or "UNKNOWN").upper()
+        if status == "FILLED":
+            avg = float(outcome.get("avg_price") or 0.0)
+            filled = int(outcome.get("filled_qty") or 0)
+            return {
+                "order_id": str(order_id),
+                "mode": "live",
+                "traded_premium": avg if avg > 0 else None,
+                "traded_quantity": filled if 0 < filled <= int(quantity) else int(quantity),
+            }
+        if status in ("REJECTED", "CANCELLED") and int(outcome.get("filled_qty") or 0) == 0:
+            raise OrderRejected(f"Dhan {status.lower()} the buy: {outcome.get('message') or 'no reason given'}")
+        # TIMEOUT, UNKNOWN, or a reject that already traded something: money
+        # may be in motion. Raising a plain error puts the ladder into its
+        # disarm-and-wait state instead of guessing.
+        raise RuntimeError(
+            f"buy outcome unresolved (status={status}, filled={outcome.get('filled_qty') or 0}): "
+            f"{outcome.get('message') or 'no detail'}"
+        )
 
     def sell_all(self, *, when, legs) -> dict:
         # Exits do not require the entry `armed` flag, but the execution-
         # availability gate covers them for now. A multi-strike basket cannot
         # be marked closed from order acknowledgements alone: one leg may fill
-        # while another rejects. The caller keeps the runtime open and surfaces
-        # EXIT_REFUSED instead of inventing a flat broker position.
+        # while another rejects -- so every leg is placed AND verified, and the
+        # receipt says what happened to each. The engine books the legs that
+        # sold, keeps the ones that did not, and holds its hand on the ones
+        # whose fate is unknown.
         self._availability_guard()
-        ids = []
+        results = []
+        halted = False
         for leg in legs:
-            order = self.broker.place_option_order(
-                underlying=self.symbol,
-                strike_price=float(leg["strike"]),
-                option_type=str(leg["option_type"]),
-                expiry=str(leg["expiry"]),
-                transaction_type="SELL",
-                quantity=int(leg["quantity"]),
-                product_type=self.product_type,
-                tag="PF_FIB_BOUNDARY_EXIT",
-            )
+            if halted:
+                results.append({"order_id": None, "status": "NOT_SENT", "avg_price": None})
+                continue
+            try:
+                order = self.broker.place_option_order(
+                    underlying=self.symbol,
+                    strike_price=float(leg["strike"]),
+                    option_type=str(leg["option_type"]),
+                    expiry=str(leg["expiry"]),
+                    transaction_type="SELL",
+                    quantity=int(leg["quantity"]),
+                    product_type=self.product_type,
+                    tag="PF_FIB_BOUNDARY_EXIT",
+                )
+            except Exception as exc:
+                # This leg's fate is unknown and nothing after it was sent.
+                results.append({"order_id": None, "status": "UNKNOWN", "avg_price": None, "message": str(exc)})
+                halted = True
+                continue
             order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
-            ids.append(order_id or str(order))
-        return {"order_id": ",".join(str(i) for i in ids), "mode": "live"}
+            outcome = self._verify(order_id)
+            status = str(outcome.get("status") or "UNKNOWN").upper()
+            if status == "FILLED":
+                avg = float(outcome.get("avg_price") or 0.0)
+                results.append({"order_id": str(order_id), "status": "FILLED", "avg_price": avg if avg > 0 else None})
+            elif status in ("REJECTED", "CANCELLED") and int(outcome.get("filled_qty") or 0) == 0:
+                results.append(
+                    {
+                        "order_id": str(order_id),
+                        "status": "REJECTED",
+                        "avg_price": None,
+                        "message": str(outcome.get("message") or ""),
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "order_id": str(order_id),
+                        "status": "UNKNOWN",
+                        "avg_price": None,
+                        "message": str(outcome.get("message") or ""),
+                    }
+                )
+        return {
+            "order_id": ",".join(str(r["order_id"]) for r in results if r["order_id"]),
+            "mode": "live",
+            "leg_results": results,
+        }
 
     def rest_sell(self, *, when, strike, expiry, option_type, quantity, price) -> dict:
         """Leave a LIMIT sell sitting on the exchange at the target.
@@ -622,9 +696,37 @@ class LiveExecutor:
         return {"order_id": order_id or str(order), "mode": "live"}
 
     def cancel(self, *, order_id) -> dict:
-        """Pull a resting target, so a re-price cannot leave two on the book."""
+        """Pull a resting target, so a re-price cannot leave two on the book.
+
+        A cancel can fail because the target ALREADY FILLED -- that leg is
+        sold, and pretending otherwise is how the same coin gets sold twice.
+        So a failed cancel asks for the order's status and reports a trade
+        when it finds one, instead of raising.
+        """
         self._availability_guard()
-        result = self.broker.cancel_order(str(order_id))
+        try:
+            result = self.broker.cancel_order(str(order_id))
+        except Exception as exc:
+            status_fn = getattr(self.broker, "get_order_status", None)
+            status = status_fn(str(order_id)) if status_fn else {}
+            raw = str(status.get("orderStatus") or status.get("status") or "UNKNOWN").upper()
+            if raw in ("TRADED", "FILLED", "COMPLETE"):
+                avg = 0.0
+                for key in ("averagePrice", "averageTradedPrice", "price"):
+                    try:
+                        avg = float(status.get(key) or 0.0)
+                    except (TypeError, ValueError):
+                        avg = 0.0
+                    if avg > 0:
+                        break
+                return {
+                    "order_id": str(order_id),
+                    "cancelled": False,
+                    "traded": True,
+                    "avg_price": avg if avg > 0 else None,
+                    "mode": "live",
+                }
+            raise exc
         return {"order_id": str(order_id), "cancelled": True, "raw": result, "mode": "live"}
 
 
@@ -1000,6 +1102,14 @@ class FibTouchLadder:
         # and a rebased campaign can span days -- so the near ones settle while
         # the rest keep running.
         self._settled: list[tuple[TouchFill, float]] = []
+        # A resting target that turned out to have TRADED when its cancel was
+        # attempted: rung_key -> the price it sold at. The leg leaves the
+        # basket via _absorb_rest_trades before the basket is priced again.
+        self._rest_traded: dict[str, float] = {}
+        # Order ids (or rung keys) whose exit fate at the broker is UNKNOWN.
+        # While any is present, no automatic exit fires -- a manual kill is
+        # the deliberate human retry that clears them.
+        self._exit_unknown: list[str] = []
         # ONE expiry per campaign, fixed by the first buy. Before this, every
         # rung re-resolved its own expiry, so a ladder that ran past its own
         # contract kept laddering into the NEXT one: the 24-Dec-2025 campaign
@@ -1316,10 +1426,25 @@ class FibTouchLadder:
         """Pull every target order. Called whenever the position goes flat."""
         for row in self.resting_exits:
             try:
-                self.executor.cancel(order_id=row["order_id"])
+                outcome = self.executor.cancel(order_id=row["order_id"])
             except Exception as exc:
                 _log_stamp = self.exit_timestamp or self.config.mother_timestamp
                 self._log(_log_stamp, "resting_exit_cancel_failed", order_id=row["order_id"], detail=str(exc))
+                continue
+            if isinstance(outcome, dict) and outcome.get("traded"):
+                # The cancel failed because the target FILLED: that leg is
+                # sold at the rest price, and the basket must know before it
+                # prices or sells the leg again.
+                price = float(outcome.get("avg_price") or row.get("price") or 0.0)
+                self._rest_traded[str(row.get("rung_key") or "")] = price
+                _log_stamp = self.exit_timestamp or self.config.mother_timestamp
+                self._log(
+                    _log_stamp,
+                    "resting_target_already_filled",
+                    order_id=row["order_id"],
+                    rung_key=row.get("rung_key"),
+                    price=round(price, 2) if price else None,
+                )
         self.resting_exits = []
 
     def _sync_resting_exits(self, when: datetime, index_now: float) -> None:
@@ -1335,12 +1460,25 @@ class FibTouchLadder:
         """
         for row in self.resting_exits:
             try:
-                self.executor.cancel(order_id=row["order_id"])
+                outcome = self.executor.cancel(order_id=row["order_id"])
             except Exception as exc:
                 # A cancel that fails is not fatal, but it IS dangerous to
                 # ignore silently: the old order may still be working.
                 self._log(when, "resting_exit_cancel_failed", order_id=row["order_id"], detail=str(exc))
+                continue
+            if isinstance(outcome, dict) and outcome.get("traded"):
+                price = float(outcome.get("avg_price") or row.get("price") or 0.0)
+                self._rest_traded[str(row.get("rung_key") or "")] = price
+                self._log(
+                    when,
+                    "resting_target_already_filled",
+                    order_id=row["order_id"],
+                    rung_key=row.get("rung_key"),
+                    price=round(price, 2) if price else None,
+                )
         self.resting_exits = []
+        # A leg the target already sold must not be rested for again.
+        self._absorb_rest_trades(when)
         rest = getattr(self.executor, "rest_sell", None)
         if rest is None or not self.fills:
             return
@@ -1645,14 +1783,26 @@ class FibTouchLadder:
             if getattr(self.executor, "is_live", False):
                 self.executor.armed = False
             return
+        traded_premium = receipt.get("traded_premium") if isinstance(receipt, dict) else None
+        traded_quantity = receipt.get("traded_quantity") if isinstance(receipt, dict) else None
+        if traded_premium and abs(float(traded_premium) - float(premium)) > 0.005:
+            # Slippage is a fact worth a line: the cap was checked against the
+            # estimate, the money follows the fill.
+            self._log(
+                bar.timestamp,
+                "fill_slippage",
+                level=rung.level,
+                estimated=round(float(premium), 2),
+                traded=round(float(traded_premium), 2),
+            )
         fill = TouchFill(
             buy_number=len(self.fills) + 1,
             level=rung.level,
             timestamp=bar.timestamp,
             index_price=fill_index,
-            premium=float(premium),
+            premium=float(traded_premium) if traded_premium else float(premium),
             lots=lots,
-            quantity=quantity,
+            quantity=int(traded_quantity) if traded_quantity else quantity,
             strike=strike,
             expiry=expiry,
             option_type=self.side,
@@ -1700,6 +1850,8 @@ class FibTouchLadder:
         Checked BEFORE any fill, so a bar that breaks the mother never also
         buys a rung on the way past.
         """
+        if self._exit_unknown:
+            return False  # an exit leg's fate is unknown; only a manual kill retries
         edge = self.mother_high if self.side == "CE" else self.mother_low
         if edge is None:
             return False
@@ -1734,7 +1886,11 @@ class FibTouchLadder:
             )
             return True
 
-        if self.fills:
+        if self.fills or self._settled:
+            # Same rule as every exit: rests off the book, sold legs out of
+            # the basket, before pricing.
+            self._clear_resting_exits()
+            self._absorb_rest_trades(bar.timestamp)
             prices: list[Optional[float]] = []
             for fill in self.fills:
                 price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
@@ -1751,11 +1907,8 @@ class FibTouchLadder:
                     self._note_gap("mother broken but the basket cannot be priced", bar.timestamp)
                     return False
                 prices.append(price)
-            # Same rule as every exit: no resting target may outlive the
-            # market sells it would double.
-            self._clear_resting_exits()
             try:
-                self.executor.sell_all(
+                receipt = self.executor.sell_all(
                     when=bar.timestamp,
                     legs=[
                         {
@@ -1782,6 +1935,9 @@ class FibTouchLadder:
                 self._log(bar.timestamp, "exit_error", detail=str(exc))
                 self.status = "EXIT_ERROR"
                 return False
+            prices = self._absorb_exit_receipt(receipt, prices, bar.timestamp)
+            if prices is None:
+                return False
             self._exit_premiums = prices
             self._settle(prices)
         self.exit_timestamp = bar.timestamp
@@ -1793,7 +1949,9 @@ class FibTouchLadder:
 
     def _try_exit(self, bar: Bar) -> bool:
         """Close the whole basket when the index reaches the target."""
-        if not self.fills:
+        if self._exit_unknown:
+            return False  # an exit leg's fate is unknown; only a manual kill retries
+        if not self.fills and not self._settled:
             return False
         if self._last_fill_timestamp is not None and bar.timestamp <= self._last_fill_timestamp:
             return False
@@ -1830,6 +1988,12 @@ class FibTouchLadder:
             target = stop
         elif not reached:
             return False
+        # The resting targets come off the book BEFORE the basket is priced or
+        # sold: while both are working, a rest that fills alongside the market
+        # exit is a naked short -- and one that ALREADY filled has sold its
+        # leg, which must leave the basket first.
+        self._clear_resting_exits()
+        self._absorb_rest_trades(bar.timestamp)
         prices: list[Optional[float]] = []
         for fill in self.fills:
             price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
@@ -1849,14 +2013,8 @@ class FibTouchLadder:
                         f"(no print at {bar.timestamp.isoformat()}); understates profit"
                     )
             prices.append(price)
-        # Pull the resting targets BEFORE the market sells go out: while both
-        # are working, a resting LIMIT that fills alongside the market exit is
-        # a naked short. (A rest that already filled can still slip through;
-        # closing that fully needs broker fill verification, which is part of
-        # why live remains gated.)
-        self._clear_resting_exits()
         try:
-            self.executor.sell_all(
+            receipt = self.executor.sell_all(
                 when=bar.timestamp,
                 legs=[
                     {
@@ -1880,6 +2038,9 @@ class FibTouchLadder:
             self.data_gaps.append(f"exit outcome unknown: {exc}")
             self._log(bar.timestamp, "exit_error", detail=str(exc))
             self.status = "EXIT_ERROR"
+            return False
+        prices = self._absorb_exit_receipt(receipt, prices, bar.timestamp)
+        if prices is None:
             return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
@@ -1965,6 +2126,90 @@ class FibTouchLadder:
         )
         self._rearm_below = None
         return True
+
+    def _absorb_rest_trades(self, when: datetime) -> None:
+        """Move legs their resting targets already sold out of the basket.
+
+        The target sat at the broker precisely so it could fill while this
+        process was busy or dead. When a cancel discovers it TRADED, the leg
+        is booked at that price here -- before the basket is priced or sold
+        again -- so the same coin is never sold twice.
+        """
+        if not self._rest_traded:
+            return
+        remaining = []
+        for fill in self.fills:
+            price = self._rest_traded.get(fill.rung_key)
+            if price is not None and price > 0:
+                self._settled.append((fill, float(price)))
+                self._log(
+                    when,
+                    "leg_settled_by_resting_target",
+                    rung_key=fill.rung_key,
+                    price=round(float(price), 2),
+                )
+            else:
+                remaining.append(fill)
+        self.fills = remaining
+        self._rest_traded = {}
+
+    def _absorb_exit_receipt(self, receipt, prices, when: datetime):
+        """Book the exit the broker CONFIRMED, not the one the engine sent.
+
+        Paper receipts carry no leg results: the estimates are the fills, and
+        the list comes back unchanged. A live receipt says what happened to
+        each leg -- FILLED legs settle at Dhan's traded price, REJECTED and
+        NOT_SENT legs stay in the basket for the next attempt, and an UNKNOWN
+        leg freezes automatic exits until a human kills deliberately.
+        Returns the per-open-leg prices to settle at, or None when the basket
+        did not fully close.
+        """
+        legs = receipt.get("leg_results") if isinstance(receipt, dict) else None
+        if not legs:
+            return [float(p) for p in prices]
+        statuses = [str(leg.get("status") or "UNKNOWN").upper() for leg in legs]
+        if len(legs) == len(self.fills) and all(status == "FILLED" for status in statuses):
+            # The whole basket sold: book through the normal path so the legs
+            # stay visible on the console (Phil, 2026-08-17: a killed ladder
+            # still shows what it bought) -- only the PRICES are corrected to
+            # what Dhan traded.
+            return [
+                float(leg.get("avg_price")) if leg.get("avg_price") else float(price)
+                for leg, price in zip(legs, prices)
+            ]
+        keep_fills: list[TouchFill] = []
+        for fill, price, leg in zip(list(self.fills), list(prices), legs):
+            status = str(leg.get("status") or "UNKNOWN").upper()
+            if status == "FILLED":
+                avg = leg.get("avg_price")
+                self._settled.append((fill, float(avg) if avg else float(price)))
+            elif status in ("REJECTED", "NOT_SENT"):
+                keep_fills.append(fill)
+                self._log(
+                    when,
+                    "exit_leg_not_sold",
+                    rung_key=fill.rung_key,
+                    status=status,
+                    detail=str(leg.get("message") or ""),
+                )
+            else:
+                keep_fills.append(fill)
+                self._exit_unknown.append(str(leg.get("order_id") or fill.rung_key))
+                self._log(
+                    when,
+                    "exit_leg_outcome_unknown",
+                    rung_key=fill.rung_key,
+                    order_id=leg.get("order_id"),
+                    detail=str(leg.get("message") or ""),
+                )
+        self.fills = keep_fills
+        self.status = "EXIT_ERROR" if self._exit_unknown else "EXIT_REFUSED"
+        self.data_gaps.append(
+            "exit partially confirmed: "
+            + (f"{len(self._exit_unknown)} leg(s) unknown, " if self._exit_unknown else "")
+            + f"{len(keep_fills)} leg(s) still held"
+        )
+        return None
 
     def _settle(self, exit_prices: Sequence[Optional[float]]) -> None:
         """Book the open legs at ``exit_prices``, plus anything already settled."""
@@ -2339,6 +2584,8 @@ class FibTouchLadder:
         A leg that cannot be priced at all leaves the campaign OPEN rather than
         booking a round nobody could value; the next quote tries again.
         """
+        if self._exit_unknown:
+            return False  # an exit leg's fate is unknown; only a manual kill retries
         if not self.config.intraday_close:
             return False
         if bar.timestamp.time() < self.config.intraday_close_at:
@@ -2353,6 +2600,12 @@ class FibTouchLadder:
             self._clear_resting_exits()
             self._log(bar.timestamp, "intraday_close", open_lots=0, bought=False)
             return True
+        # The resting targets come off the book BEFORE the basket is priced or
+        # sold: while both are working, a rest that fills alongside the market
+        # exit is a naked short -- and one that ALREADY filled has sold its
+        # leg, which must leave the basket first.
+        self._clear_resting_exits()
+        self._absorb_rest_trades(bar.timestamp)
         prices: list[Optional[float]] = []
         for fill in self.fills:
             price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
@@ -2367,14 +2620,8 @@ class FibTouchLadder:
                 self._note_gap("intraday close: a leg has no price", bar.timestamp)
                 return False
             prices.append(price)
-        # Pull the resting targets BEFORE the market sells go out: while both
-        # are working, a resting LIMIT that fills alongside the market exit is
-        # a naked short. (A rest that already filled can still slip through;
-        # closing that fully needs broker fill verification, which is part of
-        # why live remains gated.)
-        self._clear_resting_exits()
         try:
-            self.executor.sell_all(
+            receipt = self.executor.sell_all(
                 when=bar.timestamp,
                 legs=[
                     {
@@ -2397,6 +2644,9 @@ class FibTouchLadder:
             self._log(bar.timestamp, "exit_error", detail=str(exc))
             self.status = "EXIT_ERROR"
             return False
+        prices = self._absorb_exit_receipt(receipt, prices, bar.timestamp)
+        if prices is None:
+            return False
         booked = len(self.rounds)
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
@@ -2418,12 +2668,21 @@ class FibTouchLadder:
         """
         if self.status in _TERMINAL_STATUSES:
             return True
-        if not self.fills:
+        # The kill is the deliberate human retry: a human has looked at the
+        # broker book, so the unknown-exit freeze lifts here and only here.
+        self._exit_unknown = []
+        if not self.fills and not self._settled:
             self.status = "KILLED"
             self.exit_timestamp = bar.timestamp
             self.exit_reason = "killed"
             self._log(bar.timestamp, "killed", open_lots=0)
             return True
+        # The resting targets come off the book BEFORE the basket is priced or
+        # sold: while both are working, a rest that fills alongside the market
+        # exit is a naked short -- and one that ALREADY filled has sold its
+        # leg, which must leave the basket first.
+        self._clear_resting_exits()
+        self._absorb_rest_trades(bar.timestamp)
         prices: list[Optional[float]] = []
         for fill in self.fills:
             price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
@@ -2437,14 +2696,8 @@ class FibTouchLadder:
             if price is None:
                 return False
             prices.append(price)
-        # Pull the resting targets BEFORE the market sells go out: while both
-        # are working, a resting LIMIT that fills alongside the market exit is
-        # a naked short. (A rest that already filled can still slip through;
-        # closing that fully needs broker fill verification, which is part of
-        # why live remains gated.)
-        self._clear_resting_exits()
         try:
-            self.executor.sell_all(
+            receipt = self.executor.sell_all(
                 when=bar.timestamp,
                 legs=[
                     {
@@ -2468,6 +2721,9 @@ class FibTouchLadder:
             self.data_gaps.append(f"manual kill exit outcome unknown: {exc}")
             self._log(bar.timestamp, "exit_error", detail=str(exc))
             self.status = "EXIT_ERROR"
+            return False
+        prices = self._absorb_exit_receipt(receipt, prices, bar.timestamp)
+        if prices is None:
             return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
@@ -2650,6 +2906,8 @@ class FibTouchLadder:
                 for fill in self.fills
             ],
             "settled": [{**fill.as_dict(), "settled_at": price} for fill, price in self._settled],
+            "rest_traded": dict(self._rest_traded),
+            "exit_unknown": list(self._exit_unknown),
             # TARGET ORDERS LEFT ON THE BROKER. Persisted because they outlive
             # this process: the app can restart while a sell is still working,
             # and a ladder that came back not knowing about them would place a
@@ -2795,6 +3053,10 @@ class FibTouchLadder:
             for row in raw.get("settled") or []
         ]
         engine.resting_exits = [dict(row) for row in (raw.get("resting_exits") or [])]
+        # A restart between "the target traded" and "the leg was absorbed",
+        # or during an unknown-exit freeze, must come back knowing it.
+        engine._rest_traded = {str(k): float(v) for k, v in (raw.get("rest_traded") or {}).items()}
+        engine._exit_unknown = [str(x) for x in (raw.get("exit_unknown") or [])]
         engine.rounds = [dict(row) for row in (raw.get("rounds") or [])]
         engine._rearm_below = raw.get("rearm_below")
         engine._lowest_low = raw.get("lowest_low")

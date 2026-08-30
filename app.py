@@ -31,6 +31,7 @@ import sys
 import time
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -1608,6 +1609,10 @@ class _CascadeRuntime:
     # Candle Entry only: whether the engine has been handed recorded option
     # history for bars older than a live quote. See _candle_entry_arm_history.
     history_armed: bool = False
+    # Fib Boundary live only: a live tick verifies fills against Dhan, which
+    # blocks, so it runs off the event loop -- and then a Kill or Arm route
+    # could race it. One lock serialises every mutation of this engine.
+    tick_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
 
 
 @dataclass
@@ -2155,6 +2160,90 @@ async def _restore_candle_entry_open_state(
         return None
 
 
+def _fib_ladder_has_live_orders(engine) -> bool:
+    """True when any fill or resting target carries a REAL Dhan order id."""
+    ids = [str(f.order_id or "") for f in engine.fills]
+    ids += [str(row.get("order_id") or "") for row in engine.resting_exits]
+    return any(oid and not oid.startswith("paper-") for oid in ids)
+
+
+def _reconcile_fib_ladder(engine, broker: DhanClient) -> list[str]:
+    """Ask Dhan what happened while this process was down. BLOCKING -- to_thread.
+
+    Conservative on purpose: a resting target that TRADED books its leg, one
+    that was CANCELLED is dropped so the sync can re-place it, and a broker
+    book that holds LESS than the engine believes freezes automatic exits
+    until a human kills deliberately. The account is shared across strategies,
+    so holding MORE than expected is only noted, never acted on.
+    """
+    notes: list[str] = []
+    now = datetime.now(IST).replace(tzinfo=None)
+    for row in list(engine.resting_exits):
+        order_id = str(row.get("order_id") or "")
+        if not order_id or order_id.startswith("paper-"):
+            continue
+        status = broker.get_order_status(order_id)
+        raw = str(status.get("orderStatus") or status.get("status") or "UNKNOWN").upper()
+        if raw in ("TRADED", "FILLED", "COMPLETE"):
+            avg = 0.0
+            for key in ("averagePrice", "averageTradedPrice", "price"):
+                try:
+                    avg = float(status.get(key) or 0.0)
+                except (TypeError, ValueError):
+                    avg = 0.0
+                if avg > 0:
+                    break
+            engine._rest_traded[str(row.get("rung_key") or "")] = avg if avg > 0 else float(row.get("price") or 0.0)
+            engine.resting_exits.remove(row)
+            notes.append(f"resting target {order_id} TRADED while the app was down; its leg is booked")
+        elif raw in ("REJECTED", "CANCELLED"):
+            engine.resting_exits.remove(row)
+            notes.append(f"resting target {order_id} was {raw} at Dhan; the sync will re-place it")
+        elif raw == "UNKNOWN":
+            notes.append(f"resting target {order_id} status UNKNOWN at Dhan; left standing")
+    if engine._rest_traded:
+        engine._absorb_rest_trades(now)
+
+    expected: dict[tuple, int] = {}
+    for fill in engine.fills:
+        if fill.order_id and not str(fill.order_id).startswith("paper-"):
+            key = (float(fill.strike), fill.expiry.isoformat(), str(fill.option_type))
+            expected[key] = expected.get(key, 0) + int(fill.quantity)
+    if not expected:
+        return notes
+    try:
+        from broker.dhan import ScripMaster
+
+        positions = broker.get_positions() or []
+        held: dict[str, int] = {}
+        for pos in positions:
+            sec = str(pos.get("securityId") or "")
+            try:
+                qty = int(float(pos.get("netQty") or 0))
+            except (TypeError, ValueError):
+                qty = 0
+            if sec:
+                held[sec] = held.get(sec, 0) + qty
+        for (strike, expiry, option_type), qty in expected.items():
+            security_id = str(ScripMaster.lookup(engine.config.symbol, strike, expiry, option_type))
+            broker_qty = held.get(security_id, 0)
+            if broker_qty < qty:
+                engine._exit_unknown.append(f"reconcile:{security_id}:holds{broker_qty}of{qty}")
+                notes.append(
+                    f"Dhan holds {broker_qty} of the {qty} the ladder believes it bought at "
+                    f"{strike:g}{option_type} {expiry}; automatic exits FROZEN until a manual kill"
+                )
+            elif broker_qty > qty:
+                notes.append(
+                    f"Dhan holds {broker_qty} against this ladder's {qty} at {strike:g}{option_type} {expiry} "
+                    f"(another strategy may own the rest); no action taken"
+                )
+    except Exception as exc:
+        engine._exit_unknown.append("reconcile:positions-unavailable")
+        notes.append(f"could not read the broker book ({exc}); automatic exits FROZEN until a manual kill")
+    return notes
+
+
 async def _restore_fib_boundary_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
 ) -> Dict[str, _CascadeRuntime]:
@@ -2225,6 +2314,20 @@ async def _restore_fib_boundary_open_state(
                 expiry_source=_fib_touch_expiry_source(broker, symbol),
                 executor=executor,
             )
+            if _fib_ladder_has_live_orders(engine):
+                # The one moment local state may quietly disagree with Dhan's
+                # is right after being away. Ask before ticking.
+                try:
+                    notes = await asyncio.to_thread(_reconcile_fib_ladder, engine, broker)
+                    for note in notes:
+                        _logger.warning("[FIB TOUCH] %s restore reconcile: %s", symbol, note)
+                except Exception as exc:
+                    engine._exit_unknown.append("reconcile:failed")
+                    _logger.warning(
+                        "[FIB TOUCH] %s restore reconcile failed: %s -- automatic exits frozen until a manual kill",
+                        symbol,
+                        exc,
+                    )
             last = datetime.fromisoformat(str(record.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
             if last.tzinfo is None:
                 last = last.replace(tzinfo=IST)
@@ -12174,7 +12277,17 @@ async def _run_fib_boundary_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             # closed and never ahead of the entry bar being walked. See
             # FibTouchLadder.replay for what geometry-first got wrong; after
             # a restart this tick walks the whole catch-up, so it matters here.
-            engine.replay(geometry_rows, fresh)
+            #
+            # A LIVE walk verifies every order against Dhan, which blocks for
+            # seconds -- inline it would stall every engine and every request
+            # on this loop, the same disease the backtest was cured of on
+            # 2026-08-06. Paper stays inline: it never leaves the process,
+            # and moving it off-loop would only invite torn reads.
+            async with runtime.tick_lock:
+                if bool(getattr(engine.executor, "is_live", False)):
+                    await asyncio.to_thread(engine.replay, geometry_rows, fresh)
+                else:
+                    engine.replay(geometry_rows, fresh)
             # Geometry bars that closed AFTER the last entry bar walked (or with
             # no new entry bar this tick at all -- after hours, or a restart at
             # 15:35) are still knowable now. Nothing can trade on them before
@@ -14872,10 +14985,13 @@ async def fib_boundary_live_arm(symbol: str, request: Request):
         )
     if getattr(executor, "armed", False):
         return {"status": "already_armed", "campaign": runtime.engine.get_status()}
-    executor.armed = True
-    # A refusal parked the campaign; arming releases it to act on the next bar.
-    if runtime.engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED", "EXECUTION_ERROR", "EXIT_ERROR"}:
-        runtime.engine.status = "OPEN" if runtime.engine.fills else "ARMED"
+    async with runtime.tick_lock:
+        executor.armed = True
+        # A refusal parked the campaign; arming releases it to act on the next
+        # bar. EXECUTION_ERROR joins the set because arming after a broker
+        # error IS the human saying the book has been reconciled.
+        if runtime.engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED", "EXECUTION_ERROR", "EXIT_ERROR"}:
+            runtime.engine.status = "OPEN" if runtime.engine.fills else "ARMED"
     _logger.warning(
         "[FIB TOUCH] LIVE ARMED for user %s on %s %s -- real orders will now be sent",
         _request_user_id(request),
@@ -14900,7 +15016,15 @@ async def _kill_fib_boundary_runtime(user_id: int, symbol: str, runtime: _Cascad
         price = float(quote["last_price"])
     except Exception:
         price = float(runtime.engine.history[-1].close) if runtime.engine.history else 0.0
-    if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
+    # Under the tick lock: a live tick may be mid-verify off-loop, and a kill
+    # that interleaves with it can sell a basket the tick is still changing.
+    async with runtime.tick_lock:
+        candle = IndexCandle(now, price, price, price, price)
+        if bool(getattr(runtime.engine.executor, "is_live", False)):
+            closed = await asyncio.to_thread(runtime.engine.kill_and_close, candle)
+        else:
+            closed = runtime.engine.kill_and_close(candle)
+    if not closed:
         raise HTTPException(
             status_code=409, detail="Current option quote or broker exit unavailable; the basket remains monitored."
         )

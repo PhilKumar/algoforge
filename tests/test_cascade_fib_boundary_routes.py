@@ -55,6 +55,11 @@ class _Broker:
     def place_option_order(self, *a, **k):
         return SimpleNamespace(order_id="DHAN-1")
 
+    def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+        # Since 2026-08-30 the live executor verifies every order it places;
+        # a fake broker that cannot answer reads as UNKNOWN and halts.
+        return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
+
 
 class _StubAdapter:
     def get_ticker(self, _symbol):
@@ -614,6 +619,9 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
                 sent.append((order["underlying"], order["transaction_type"], order["quantity"]))
                 return {"orderId": f"DHAN-{order['transaction_type']}-{len(sent)}"}
 
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
+
         broker = _TrackingBroker()
         engine = _live_ladder("NIFTY", broker)
         self.assertEqual([side for _symbol, side, _quantity in sent], ["BUY"])
@@ -637,6 +645,9 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
                 if order["transaction_type"] == "SELL":
                     raise RuntimeError("broker exit failed")
                 return {"orderId": "DHAN-BUY-1"}
+
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
 
         broker = _FailingExitBroker()
         engine = _live_ladder("NIFTY", broker)

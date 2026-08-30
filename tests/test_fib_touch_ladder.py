@@ -712,6 +712,11 @@ class ExecutorTests(unittest.TestCase):
                 )
                 return {"orderId": "DHAN-EXIT-1"}
 
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                # Since 2026-08-30 the live executor verifies every order; a
+                # fake broker that cannot answer would read as UNKNOWN.
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
+
         live = LiveExecutor(broker=_Broker(), symbol="NIFTY")
         with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
             with self.assertRaises(ExecutionRefused):
@@ -735,7 +740,14 @@ class ExecutorTests(unittest.TestCase):
                     }
                 ],
             )
-        self.assertEqual(receipt, {"order_id": "DHAN-EXIT-1", "mode": "live"})
+        self.assertEqual(
+            receipt,
+            {
+                "order_id": "DHAN-EXIT-1",
+                "mode": "live",
+                "leg_results": [{"order_id": "DHAN-EXIT-1", "status": "FILLED", "avg_price": None}],
+            },
+        )
         self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "SELL", 65)])
 
     def test_live_executor_is_safety_locked_even_when_armed(self):
@@ -767,6 +779,11 @@ class ExecutorTests(unittest.TestCase):
                     )
                 )
                 return {"orderId": f"DHAN-{order['transaction_type']}-1"}
+
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                # Since 2026-08-30 the live executor verifies every order; a
+                # fake broker that cannot answer would read as UNKNOWN.
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
 
         candles = falling_then_bouncing()
         executor = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
@@ -830,6 +847,11 @@ class ExecutorTests(unittest.TestCase):
                 )
                 return {"orderId": "DHAN-1"}
 
+            def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+                # Since 2026-08-30 the live executor verifies every order; a
+                # fake broker that cannot answer would read as UNKNOWN.
+                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
+
         live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
         with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
             receipt = live.buy(
@@ -841,7 +863,10 @@ class ExecutorTests(unittest.TestCase):
                 lots=1,
                 premium=200.0,
             )
-        self.assertEqual(receipt, {"order_id": "DHAN-1", "mode": "live"})
+        self.assertEqual(
+            receipt,
+            {"order_id": "DHAN-1", "mode": "live", "traded_premium": None, "traded_quantity": 65},
+        )
         self.assertEqual(sent, [("NIFTY", 24_400.0, "2026-08-11", "CE", "BUY", 65)])
 
 
@@ -937,6 +962,10 @@ class _StubBroker:
             )
         )
         return {"orderId": f"DHAN-{len(self.sent)}"}
+
+    def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
+        # Since 2026-08-30 the live executor verifies every order.
+        return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 0.0}
 
 
 class PersistenceTests(unittest.TestCase):
@@ -1181,7 +1210,7 @@ class MotherBrokenNoBuysTests(unittest.TestCase):
 
 
 class TrailingStopTests(unittest.TestCase):
-    """Phil: "make a trailing SL to catch the higher move as far as it goes.\""""
+    """Phil: "make a trailing SL to catch the higher move as far as it goes.\" """
 
     def trailing(self, multiple=1.0):
         # The standard fixture's mother tops at 24,780, and a trailing move has
@@ -1992,7 +2021,7 @@ class RearmOnNewLowTests(unittest.TestCase):
 
 
 class DeepTargetTests(unittest.TestCase):
-    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\""""
+    """Phil: "tune up to 0.5 towards mother candle if the depth is huge.\" """
 
     def test_a_shallow_ladder_still_asks_for_a_quarter(self):
         engine, candles, _ = ladder()
