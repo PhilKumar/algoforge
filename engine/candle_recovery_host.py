@@ -123,6 +123,7 @@ class CandleRecoveryHost:
         lot_size: int = 75,
         dhan_symbol: Optional[str] = None,
         min_lookback_days: int = MIN_LOOKBACK_DAYS,
+        order_book=None,
     ) -> None:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
@@ -151,6 +152,11 @@ class CandleRecoveryHost:
         self._premium_cache: dict[tuple, float] = {}
         self.last_poll: Optional[datetime] = None
         self.last_report: Optional[PollReport] = None
+        # REAL ORDERS, IF THIS RUN HAS ANY. The replay decides; the book
+        # remembers what was actually sent for each decision, so a second
+        # replay of the same trade cannot buy it twice. None for paper runs,
+        # which is every run until live is proven.
+        self.order_book = order_book
 
     # ── the engine's two callbacks ──────────────────────────────────────────
 
@@ -321,6 +327,27 @@ class CandleRecoveryHost:
                             "reason": t.exit_reason,
                             "net": t.net_pnl,
                         }
+                    )
+
+        # The replay has finished deciding. Only now does anything reach a
+        # broker, and only through the book that knows what was already sent.
+        if self.order_book is not None:
+            for campaign in list(self.campaigns.values()):
+                try:
+                    outcome = self.order_book.sync(
+                        campaign.campaign_id,
+                        list(getattr(campaign.engine, "trades", []) or []),
+                        symbol=self.dhan_symbol,
+                        side=self.side,
+                        when=now,
+                    )
+                except Exception as exc:
+                    report.error = f"order sync failed: {exc}"
+                    continue
+                if outcome.get("frozen"):
+                    report.error = (
+                        "orders exist that this replay no longer accounts for; "
+                        "reconcile the Dhan book by hand before this campaign trades again"
                     )
 
         self.last_poll = now

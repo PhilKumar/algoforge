@@ -102,6 +102,7 @@ from engine.candle_ladder import (
 from engine.candle_recovery import RecoveryConfig
 from engine.candle_recovery_host import MODES as RECOVERY_MODES
 from engine.candle_recovery_host import CandleRecoveryHost
+from engine.candle_recovery_live import RecoveryOrderBook
 from engine.cascade_calendar import ContractCalendar
 from engine.cascade_equity import (
     CashCascadeInstrument,
@@ -156,6 +157,8 @@ from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
 from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
+from engine.options_live_executor import OPTIONS_LIVE_EXECUTION_ENABLED as _OPTIONS_LIVE_EXECUTION_ENABLED
+from engine.options_live_executor import build_executor
 from engine.paper_trading import PaperTradingEngine
 from engine.strategy_contract import validate_strategy_contract
 from engine.strike_utils import round_half_up
@@ -2444,6 +2447,7 @@ def _build_recovery_host(
     config_overrides: dict | None = None,
     premium_source=None,
     lot_size_override: int | None = None,
+    order_book=None,
 ) -> CandleRecoveryHost:
     """Wire the measured rules to the broker's real chain.
 
@@ -2532,6 +2536,7 @@ def _build_recovery_host(
         side=side,
         lot_size=lot_size,
         dhan_symbol=terms["dhan_symbol"],
+        order_book=order_book,
     )
 
 
@@ -16636,6 +16641,20 @@ async def recovery_paper_start(request: Request):
     symbol = str(body.get("symbol") or "nifty").strip().lower()
     timeframe = str(body.get("timeframe") or "15m").strip().lower()
     mode = str(body.get("mode") or "ladder").strip().lower()
+    # PAPER OR REAL MONEY. Separate from `mode`, which names the strategy's
+    # own rule set. Until 2026-08-30 this route had no live door at all: it
+    # was paper by construction, and the console's LIVE badge meant nothing.
+    trade_mode = str(body.get("trade_mode") or "paper").strip().lower()
+    if trade_mode not in ("paper", "live"):
+        raise HTTPException(status_code=400, detail="trade_mode must be paper or live.")
+    if trade_mode == "live" and not _OPTIONS_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "High Entry live execution is built but disabled until its fills, partial fills and "
+                "restart reconciliation are proven against Dhan. Use Paper or Backtest."
+            ),
+        )
     side = str(body.get("side") or "CE").strip().upper()
     if side not in ("CE", "PE"):
         raise HTTPException(status_code=400, detail="Side must be CE or PE.")
@@ -16678,7 +16697,23 @@ async def recovery_paper_start(request: Request):
     if body.get("sl_source"):
         overrides["sl_source"] = str(body["sl_source"])
 
+    # The adapter stays paper-only whatever the trade mode: in this strategy
+    # it only ever fetches candles, and orders go through the executor below.
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    order_book = None
+    if trade_mode == "live":
+        # MARGIN, not INTRADAY: a recovery campaign runs for sessions, and
+        # Dhan squares an INTRADAY book off at ~15:20 behind the engine.
+        order_book = RecoveryOrderBook(
+            build_executor(
+                broker_client,
+                RECOVERY_SYMBOLS[symbol]["dhan_symbol"],
+                mode="live",
+                armed=True,
+                product_type="MARGIN",
+                tag="PF_HIGH_ENTRY",
+            )
+        )
     try:
         host = _build_recovery_host(
             symbol,
@@ -16689,6 +16724,7 @@ async def recovery_paper_start(request: Request):
             side=side,
             itm_steps=itm_steps,
             config_overrides=overrides,
+            order_book=order_book,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -16710,7 +16746,7 @@ async def recovery_paper_start(request: Request):
     await _save_recovery_state(user_id, runtime)
     return {
         "status": "started",
-        "mode": "paper",
+        "mode": trade_mode,
         "symbol": symbol,
         "timeframe": timeframe,
         "strategy_mode": mode,
