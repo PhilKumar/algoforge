@@ -104,15 +104,26 @@ class LiveGateTests(unittest.TestCase):
         self.assertEqual(app_module._gap_carry_trade_mode("paper"), "paper")
 
     def test_live_is_refused_with_the_reason(self):
+        """Gap Carry has a live path since 2026-08-30, so the reason changed:
+        it is built and closed, not missing. The refusal rides on the SHARED
+        executor's own gate and never on the fib ladder's flag."""
         original = app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED
-        app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = False
+        app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = True
         try:
             with self.assertRaises(HTTPException) as ctx:
                 app_module._gap_carry_trade_mode("live")
             self.assertEqual(ctx.exception.status_code, 503)
-            self.assertIn("no live order path", str(ctx.exception.detail))
+            self.assertIn("built but disabled", str(ctx.exception.detail))
         finally:
             app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = original
+
+    def test_the_gate_opens_only_when_the_shared_executor_is_enabled(self):
+        original = app_module._OPTIONS_LIVE_EXECUTION_ENABLED
+        app_module._OPTIONS_LIVE_EXECUTION_ENABLED = True
+        try:
+            self.assertEqual(app_module._gap_carry_trade_mode("live"), "live")
+        finally:
+            app_module._OPTIONS_LIVE_EXECUTION_ENABLED = original
 
     def test_a_nonsense_mode_is_a_400_not_a_503(self):
         with self.assertRaises(HTTPException) as ctx:

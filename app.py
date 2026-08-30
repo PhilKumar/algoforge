@@ -12864,14 +12864,16 @@ def _gap_carry_trade_mode(value: str) -> str:
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live":
-        # Gap Carry has no live order path at all -- see _candle_entry_trade_mode
-        # for why this refusal is unconditional rather than behind the fib flag.
+    if mode == "live" and not _OPTIONS_LIVE_EXECUTION_ENABLED:
+        # Gap Carry has a live path now -- the shared executor, a stop inside
+        # the entry, and a close that refuses to book a position it could not
+        # actually sell. What it has not had is a single real order, so the
+        # gate stays shut until that is proven.
         raise HTTPException(
             status_code=503,
             detail=(
-                "Gap Carry has no live order path built; live stays closed until its own "
-                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
+                "Gap Carry live execution is built but disabled until its fills, partial fills and "
+                "restart reconciliation are proven against Dhan. Use Paper or Backtest."
             ),
         )
     return mode
@@ -13120,11 +13122,27 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
         )
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
     rows = await _gap_carry_load_candles(adapter, config.timeframe)
+    # MARGIN, not INTRADAY: the whole rule is a contract held across ONE
+    # NIGHT, and Dhan squares an INTRADAY book off at ~15:20 -- before the
+    # carry has even started.
+    trade_mode = str(getattr(payload, "mode", "paper") or "paper").strip().lower()
     engine = _gap_carry_paper.GapCarryPaper(
         config=config,
         option_premium_lookup=_gap_carry_premium_lookup(broker_client),
         expiry_lookup=_gap_carry_expiry_lookup(broker_client, expiry_rule),
         lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
+        executor=(
+            build_executor(
+                broker_client,
+                "NIFTY",
+                mode="live",
+                armed=True,
+                product_type="MARGIN",
+                tag="PF_GAP_CARRY",
+            )
+            if trade_mode == "live"
+            else None
+        ),
     )
     await asyncio.to_thread(engine.ingest, {config.timeframe: rows})
     last = rows[-1].timestamp if rows else datetime.now(IST)

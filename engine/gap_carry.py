@@ -317,6 +317,12 @@ class GapCarryPosition:
     exit_priced: bool = True
     charges: float = 0.0
     notes: list = field(default_factory=list)
+    # REAL ORDERS, when this campaign is a live one. `order_id` is the entry
+    # at Dhan and `bracket_order_id` the Super Order carrying its stop; both
+    # stay None on paper, which is every run until live is proven.
+    order_id: Optional[str] = None
+    bracket_order_id: Optional[str] = None
+    exit_order_id: Optional[str] = None
 
     @property
     def quantity(self) -> int:

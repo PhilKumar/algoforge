@@ -286,3 +286,108 @@ class SharedExecutorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GapCarryLiveTests(unittest.TestCase):
+    """Gap Carry holds ONE leg across one night. The seam is its arm and its
+    close, and the close must refuse to book a position it could not sell."""
+
+    def engine(self, executor):
+        from datetime import time as dt_time
+
+        from engine.gap_carry import GapCarryConfig
+        from engine.gap_carry_paper import GapCarryPaper
+
+        return GapCarryPaper(
+            config=GapCarryConfig(),
+            option_premium_lookup=lambda when, strike, side, expiry: 200.0,
+            expiry_lookup=lambda session: date(2026, 9, 3),
+            lot_size_lookup=lambda expiry: 75,
+            executor=executor,
+        ), dt_time
+
+    def armed(self, executor):
+        """Arm one position without driving the whole signal machinery."""
+        from engine.gap_carry import SignalReading
+
+        eng, _ = self.engine(executor)
+        signal = SignalReading(
+            timestamp=datetime(2026, 8, 31, 15, 10),
+            close=24_500.0,
+            ema=24_480.0,
+            rsi=61.0,
+            side="CE",
+            reason="test",
+        )
+        eng.last_index_close = 24_500.0
+        eng._arm(date(2026, 8, 31), signal)
+        return eng
+
+    def test_a_live_arm_sends_one_bracketed_buy(self):
+        ex = _Executor()
+        eng = self.armed(ex)
+        self.assertEqual(len(ex.buys), 1)
+        self.assertEqual(ex.buys[0]["stop_price"], 60.0)
+        self.assertIsNotNone(eng.position)
+        self.assertTrue(eng.position.order_id)
+        self.assertTrue(eng.position.bracket_order_id)
+
+    def test_a_paper_arm_sends_nothing_and_carries_no_order_id(self):
+        eng = self.armed(None)
+        self.assertIsNotNone(eng.position)
+        self.assertIsNone(eng.position.order_id)
+
+    def test_a_refused_entry_leaves_no_position(self):
+        class _Refusing(_Executor):
+            def buy(self, **kw):
+                raise ExecutionRefused("not armed")
+
+        eng = self.armed(_Refusing())
+        self.assertIsNone(eng.position, "nothing is held that was never bought")
+
+    def test_an_unknown_entry_freezes_and_holds_no_position(self):
+        class _Unknown(_Executor):
+            def buy(self, **kw):
+                raise RuntimeError("timeout")
+
+        eng = self.armed(_Unknown())
+        self.assertIsNone(eng.position)
+        self.assertTrue(eng.frozen_reason)
+
+    def test_the_exit_books_the_price_dhan_traded(self):
+        class _Priced(_Executor):
+            def sell(self, **kw):
+                self.sells.append(kw)
+                return {"order_id": "X1", "status": "FILLED", "avg_price": 244.0}
+
+        ex = _Priced()
+        eng = self.armed(ex)
+        pos = eng.position
+        eng._close(pos, datetime(2026, 9, 1, 9, 20), 250.0, "clock", priced=True)
+        self.assertEqual(pos.exit_premium, 244.0, "the broker's price, not the quote")
+        self.assertEqual(eng.position, None)
+
+    def test_an_unknown_exit_does_not_retire_the_position(self):
+        """A book that marks a position closed while its order may still be
+        working is a book that lies about real money."""
+
+        class _Unknown(_Executor):
+            def sell(self, **kw):
+                self.sells.append(kw)
+                return {"order_id": "X1", "status": "UNKNOWN", "avg_price": None}
+
+        eng = self.armed(_Unknown())
+        pos = eng.position
+        eng._close(pos, datetime(2026, 9, 1, 9, 20), 250.0, "clock", priced=True)
+        self.assertIs(eng.position, pos, "still held")
+        self.assertEqual(eng.history, [])
+        self.assertTrue(eng.frozen_reason)
+
+    def test_the_bracket_is_released_before_the_leg_is_sold(self):
+        ex = _Executor()
+        eng = self.armed(ex)
+        pos = eng.position
+        bracket = pos.bracket_order_id
+        eng._close(pos, datetime(2026, 9, 1, 9, 20), 250.0, "clock", priced=True)
+        self.assertEqual(ex.released, [bracket])
+        self.assertEqual(len(ex.sells), 1)

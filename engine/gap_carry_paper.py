@@ -41,6 +41,7 @@ from engine.gap_carry import (
     read_signal,
     strike_for,
 )
+from engine.options_live_executor import ExecutionRefused
 
 try:  # pragma: no cover - the costs module is always present in the app
     from cascade_costs import calculate_nifty_option_round_costs
@@ -118,6 +119,16 @@ class GapCarryPaper:
     expiry_lookup: Optional[Callable] = None
     #: Resolves an expiry -> its lot size.
     lot_size_lookup: Optional[Callable] = None
+
+    #: Sends the real orders when this campaign is live. None means paper,
+    #: and paper is every run until the shared executor is proven against
+    #: Dhan. The RULES do not consult this: the same signal arms the same
+    #: contract either way, and only the last inch differs.
+    executor: Optional[object] = None
+    #: Set when an order's fate is unknown. Nothing automatic happens after
+    #: that -- not an entry, not an exit -- until a human has looked at the
+    #: broker book, because money may be in motion.
+    frozen_reason: Optional[str] = None
 
     position: Optional[GapCarryPosition] = None
     history: list = field(default_factory=list)
@@ -200,6 +211,45 @@ class GapCarryPaper:
             self.notes.append(f"{session}: no premium for {strike}{signal.side}; nothing bought")
             self._status = WAITING
             return
+        quantity = int(lot) * int(self.config.lots)
+        order_id = bracket_id = None
+        traded = float(premium)
+        if self.executor is not None:
+            # A stop rides inside the entry so the exchange retires it. This
+            # is a NET and not a rule: Gap Carry's exit is a CLOCK, and a
+            # premium this far under the entry is only reached in a collapse
+            # -- which is exactly the night nobody is watching.
+            stop = max(0.05, round(float(premium) * 0.30, 2))
+            try:
+                receipt = self.executor.buy(
+                    when=entry_ts,
+                    strike=int(strike),
+                    expiry=expiry,
+                    option_type=signal.side,
+                    quantity=quantity,
+                    premium=float(premium),
+                    stop_price=stop,
+                )
+            except ExecutionRefused as exc:
+                # The decision was right; the executor would not send it.
+                # Nothing is working at the broker, so tomorrow can try again.
+                self.notes.append(f"{session}: not sent -- {exc}")
+                self._status = WAITING
+                return
+            except Exception as exc:
+                # The order's fate is UNKNOWN. Recording a position that may
+                # not exist, or none where one does, are both wrong -- so
+                # record neither and stop deciding.
+                self.frozen_reason = f"{session}: entry outcome unknown -- {exc}"
+                self.notes.append(self.frozen_reason)
+                self._status = WAITING
+                return
+            order_id = str(receipt.get("order_id") or "") or None
+            bracket_id = str(receipt.get("bracket_order_id") or "") or None
+            if receipt.get("traded_premium"):
+                traded = float(receipt["traded_premium"])
+            if receipt.get("traded_quantity"):
+                quantity = int(receipt["traded_quantity"])
         self.position = GapCarryPosition(
             session=session,
             side=signal.side,
@@ -210,7 +260,9 @@ class GapCarryPaper:
             signal=signal,
             entry_timestamp=_ist(entry_ts),
             entry_spot=spot,
-            entry_premium=float(premium),
+            entry_premium=traded,
+            order_id=order_id,
+            bracket_order_id=bracket_id,
         )
         self._status = HOLDING
         self.started_at = self.started_at or entry_ts
@@ -290,6 +342,53 @@ class GapCarryPaper:
         self._close(pos, datetime.now(), float(premium), "KILLED", priced=True, status=KILLED)
         return True
 
+    def _sell_for_real(self, pos: GapCarryPosition, when: datetime) -> Optional[float]:
+        """Close the leg at the broker. None means it is NOT closed.
+
+        Returns the traded premium on a fill. A rejection leaves the position
+        open for the next mark to try again; an unknown outcome freezes the
+        campaign, because a position booked as closed while its order may
+        still be working is a book that lies about real money.
+        """
+        if self.executor is None or not pos.order_id:
+            return None
+        if pos.bracket_order_id:
+            # The bracket's own legs come off first: a stop still working at
+            # Dhan would sell a position that is already gone.
+            try:
+                outcome = self.executor.cancel_bracket(order_id=pos.bracket_order_id)
+            except Exception as exc:
+                self.frozen_reason = f"bracket release failed -- {exc}"
+                self.notes.append(self.frozen_reason)
+                return None
+            pos.bracket_order_id = None
+            if isinstance(outcome, dict) and outcome.get("traded"):
+                # One of its legs already sold the position.
+                pos.notes.append("closed by its own bracket leg")
+                return float(outcome.get("avg_price") or 0.0) or None
+        try:
+            receipt = self.executor.sell(
+                when=when,
+                strike=int(pos.strike),
+                expiry=pos.expiry,
+                option_type=pos.side,
+                quantity=int(pos.quantity),
+            )
+        except Exception as exc:
+            self.frozen_reason = f"exit outcome unknown -- {exc}"
+            self.notes.append(self.frozen_reason)
+            return None
+        status = str((receipt or {}).get("status") or "UNKNOWN").upper()
+        if status == "FILLED":
+            pos.exit_order_id = str(receipt.get("order_id") or "")
+            return float(receipt.get("avg_price") or 0.0) or None
+        if status == "REJECTED":
+            self.notes.append("broker rejected the exit; it will be tried again")
+            return None
+        self.frozen_reason = f"exit outcome unknown at Dhan (order {receipt.get('order_id')})"
+        self.notes.append(self.frozen_reason)
+        return None
+
     def _close(
         self,
         pos: GapCarryPosition,
@@ -300,6 +399,13 @@ class GapCarryPaper:
         priced: bool,
         status: str = CLOSED,
     ) -> None:
+        if self.executor is not None and pos.order_id:
+            traded = self._sell_for_real(pos, when)
+            if traded is None:
+                # NOT closed. The position stays open and stays HOLDING; the
+                # next mark tries again, or a human clears the freeze.
+                return
+            premium, priced = traded, True
         pos.exit_timestamp = _ist(when)
         pos.exit_spot = float(self.last_index_close or pos.entry_spot)
         pos.exit_premium = float(premium)
