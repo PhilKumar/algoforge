@@ -277,6 +277,92 @@ def build_executor(
     return OptionsPaperExecutor(tag=tag)
 
 
+def reconcile_live_orders(broker: Any, *, symbol: str, legs: list[dict]) -> dict:
+    """Ask Dhan what happened to these legs while the process was down.
+
+    BLOCKING -- call it through `asyncio.to_thread`.
+
+    `legs` are what the engine BELIEVES it holds, each
+    ``{order_id, bracket_order_id, strike, expiry, option_type, quantity}``.
+    What comes back says which of them the broker has already sold, and
+    whether the account agrees about the rest.
+
+    Conservative on purpose, and asymmetric on purpose:
+
+    * a bracket that TRADED means one of its legs sold the position, so the
+      engine must book that leg rather than sell it again;
+    * the account holding LESS than the engine expects is the dangerous
+      direction -- something closed that the engine still thinks it owns --
+      so it is reported as `short_by` and the caller freezes;
+    * holding MORE is only noted. The Dhan account is shared across every
+      strategy here, and a leg belonging to a different one is not this
+      engine's business to close.
+    """
+    notes: list[str] = []
+    settled: dict[str, float] = {}
+    for leg in legs:
+        bracket = str(leg.get("bracket_order_id") or "")
+        if not bracket or bracket.startswith("paper-"):
+            continue
+        try:
+            status = broker.get_order_status(bracket) or {}
+        except Exception as exc:  # a status fetch that dies is not an answer
+            notes.append(f"bracket {bracket} could not be checked at Dhan: {exc}")
+            continue
+        raw = str(status.get("orderStatus") or status.get("status") or "UNKNOWN").upper()
+        if raw in ("TRADED", "FILLED", "COMPLETE", "CLOSED"):
+            price = 0.0
+            for key in ("averagePrice", "averageTradedPrice", "price"):
+                try:
+                    price = float(status.get(key) or 0.0)
+                except (TypeError, ValueError):
+                    price = 0.0
+                if price > 0:
+                    break
+            settled[str(leg.get("order_id") or bracket)] = price
+            notes.append(f"bracket {bracket} TRADED while the app was down; its leg is booked")
+        elif raw == "UNKNOWN":
+            notes.append(f"bracket {bracket} status UNKNOWN at Dhan; left standing")
+
+    expected: dict[tuple, int] = {}
+    for leg in legs:
+        if str(leg.get("order_id") or "") in settled:
+            continue
+        if not leg.get("order_id") or str(leg["order_id"]).startswith("paper-"):
+            continue
+        key = (float(leg["strike"]), str(leg["expiry"]), str(leg["option_type"]))
+        expected[key] = expected.get(key, 0) + int(leg.get("quantity") or 0)
+    short_by: dict[str, int] = {}
+    if expected:
+        try:
+            from broker.dhan import ScripMaster
+
+            held: dict[str, int] = {}
+            for pos in broker.get_positions() or []:
+                sec = str(pos.get("securityId") or "")
+                try:
+                    qty = int(float(pos.get("netQty") or 0))
+                except (TypeError, ValueError):
+                    qty = 0
+                if sec:
+                    held[sec] = held.get(sec, 0) + qty
+            for (strike, expiry, option_type), qty in expected.items():
+                security_id = str(ScripMaster.lookup(symbol, strike, expiry, option_type))
+                have = held.get(security_id, 0)
+                label = f"{int(strike)}{option_type} {expiry}"
+                if have < qty:
+                    short_by[label] = qty - have
+                    notes.append(f"Dhan holds {have} of the {qty} this engine expects on {label}")
+                elif have > qty:
+                    notes.append(f"Dhan holds {have} on {label}, more than this engine's {qty} -- not touched")
+        except Exception as exc:
+            # No position check is not the same as a clean one. Say so, and
+            # let the caller decide; it must not read as "everything agrees".
+            notes.append(f"could not compare the Dhan position book: {exc}")
+            short_by["__unchecked__"] = 0
+    return {"notes": notes, "settled": settled, "short_by": short_by}
+
+
 __all__ = [
     "OPTIONS_LIVE_EXECUTION_ENABLED",
     "ExecutionRefused",
@@ -284,4 +370,5 @@ __all__ = [
     "OptionsPaperExecutor",
     "OrderRejected",
     "build_executor",
+    "reconcile_live_orders",
 ]

@@ -566,6 +566,10 @@ def _position_to_dict(pos: Optional[GapCarryPosition]) -> Optional[dict]:
         "exit_priced": pos.exit_priced,
         "charges": pos.charges,
         "notes": list(pos.notes),
+        # THE REAL ORDERS, so a restart knows what it holds at the broker.
+        "order_id": pos.order_id,
+        "bracket_order_id": pos.bracket_order_id,
+        "exit_order_id": pos.exit_order_id,
     }
 
 
@@ -605,6 +609,9 @@ def _position_from_dict(row: Any) -> Optional[GapCarryPosition]:
         charges=float(row.get("charges") or 0.0),
     )
     pos.notes = list(row.get("notes") or [])
+    pos.order_id = row.get("order_id") or None
+    pos.bracket_order_id = row.get("bracket_order_id") or None
+    pos.exit_order_id = row.get("exit_order_id") or None
     return pos
 
 

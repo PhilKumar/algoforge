@@ -583,6 +583,12 @@ def _position_to_dict(position: Optional[SupertrendPosition]) -> Optional[dict]:
         "charges": float(position.charges),
         "notes": list(position.notes),
         "signal": position.signal.as_dict() if position.signal else None,
+        # THE REAL ORDERS. A restart that forgot these would come back not
+        # knowing what it holds at the broker, which is the whole reason
+        # restart reconciliation exists.
+        "order_id": position.order_id,
+        "bracket_order_id": position.bracket_order_id,
+        "exit_order_id": position.exit_order_id,
     }
 
 
@@ -613,6 +619,9 @@ def _position_from_dict(raw) -> Optional[SupertrendPosition]:
     position.exit_priced = bool(raw.get("exit_priced", True))
     position.charges = float(raw.get("charges") or 0.0)
     position.notes = list(raw.get("notes") or [])
+    position.order_id = raw.get("order_id") or None
+    position.bracket_order_id = raw.get("bracket_order_id") or None
+    position.exit_order_id = raw.get("exit_order_id") or None
     return position
 
 

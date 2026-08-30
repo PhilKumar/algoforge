@@ -158,7 +158,7 @@ from engine.indicators import infer_execution_timeframe, normalize_strategy_indi
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.options_live_executor import OPTIONS_LIVE_EXECUTION_ENABLED as _OPTIONS_LIVE_EXECUTION_ENABLED
-from engine.options_live_executor import build_executor
+from engine.options_live_executor import build_executor, reconcile_live_orders
 from engine.paper_trading import PaperTradingEngine
 from engine.strategy_contract import validate_strategy_contract
 from engine.strike_utils import round_half_up
@@ -2153,6 +2153,29 @@ async def _restore_candle_entry_open_state(
                 engine.status,
                 len(engine.ladder.fills),
             )
+        # THE ONE MOMENT LOCAL STATE MAY DISAGREE WITH DHAN is right after
+        # being away. Ask before ticking, and freeze rather than trade on a
+        # book that does not match the account.
+        frozen = await _reconcile_shared_live_orders(
+            "CANDLE ENTRY",
+            broker,
+            symbol="NIFTY",
+            legs=[
+                {
+                    "order_id": fill.order_id,
+                    "bracket_order_id": fill.bracket_order_id,
+                    "strike": fill.strike,
+                    "expiry": engine.ladder.expiry.isoformat() if engine.ladder.expiry else "",
+                    "option_type": fill.option_type,
+                    "quantity": fill.quantity,
+                }
+                for fill in engine.ladder.fills
+                if fill.order_id and fill.order_id in engine.ladder._legs_open
+            ],
+        )
+        if frozen:
+            engine.ladder.frozen_reason = frozen
+            running = False
         runtime = _CascadeRuntime(engine, adapter, broker, last, running=running)
         _candle_entry_engines[int(user_id)] = runtime
         if running and activate and _engine_restore_owner_is_active_instance():
@@ -2161,6 +2184,41 @@ async def _restore_candle_entry_open_state(
     except Exception as exc:
         _logger.warning("[CANDLE ENTRY] Skipping invalid persisted campaign for user %s: %s", user_id, exc)
         return None
+
+
+async def _reconcile_shared_live_orders(label: str, broker, *, symbol: str, legs: list[dict]) -> Optional[str]:
+    """Ask Dhan what became of these legs while the app was down.
+
+    Returns None when the broker and the engine agree, or a sentence saying
+    why they do not -- which the caller records as the campaign's freeze. The
+    four strategies on the shared executor all reconcile through here, so
+    "what happens after a restart" is one behaviour and not four.
+
+    Never raises: a restore that dies leaves a user with no campaign at all,
+    which is worse than one that comes back frozen and says so.
+    """
+    real = [leg for leg in legs if str(leg.get("order_id") or "") and not str(leg["order_id"]).startswith("paper-")]
+    if not real:
+        return None
+    try:
+        outcome = await asyncio.to_thread(reconcile_live_orders, broker, symbol=symbol, legs=real)
+    except Exception as exc:
+        _logger.warning("[%s] restore reconcile failed: %s", label, exc)
+        return f"could not reconcile with Dhan after a restart: {exc}"
+    for note in outcome.get("notes") or []:
+        _logger.warning("[%s] restore reconcile: %s", label, note)
+    if outcome.get("settled"):
+        # Something sold while nobody was watching. The engine's own ledger
+        # cannot be trusted to price it, so a human books it.
+        return f"{len(outcome['settled'])} leg(s) were sold at Dhan while the app was down; reconcile by hand"
+    short = outcome.get("short_by") or {}
+    if "__unchecked__" in short:
+        return "the Dhan position book could not be read after a restart; reconcile by hand"
+    if short:
+        return "Dhan holds less than this campaign expects: " + ", ".join(
+            f"{qty} short on {label_}" for label_, qty in short.items()
+        )
+    return None
 
 
 def _fib_ladder_has_live_orders(engine) -> bool:
@@ -2569,6 +2627,13 @@ async def _save_recovery_state(user_id: int, runtime: _RecoveryRuntime) -> None:
                     "horizon_sessions": runtime.host.config.horizon_sessions,
                 },
                 "mothers": sorted(c.mother.timestamp.isoformat() for c in runtime.host.campaigns.values()),
+                # THE REAL ORDERS. The campaigns themselves replay from bars,
+                # but what was SENT for them cannot be replayed -- a restart
+                # without this comes back and buys every open trade again.
+                "trade_mode": "live" if getattr(runtime.host, "order_book", None) is not None else "paper",
+                "orders": (
+                    runtime.host.order_book.to_dict() if getattr(runtime.host, "order_book", None) is not None else None
+                ),
             }
         ),
     )
@@ -2640,6 +2705,31 @@ async def _restore_recovery_run(user_id: int, broker: DhanClient | None) -> _Rec
     except Exception as exc:
         _logger.warning("[RECOVERY] Cannot restore %s run for user %s: %s", symbol, user_id, exc)
         return None
+    if str(saved.get("trade_mode") or "paper").lower() == "live":
+        book = RecoveryOrderBook(
+            build_executor(
+                broker,
+                RECOVERY_SYMBOLS[symbol]["dhan_symbol"],
+                mode="live",
+                armed=True,
+                product_type="MARGIN",
+                tag="PF_HIGH_ENTRY",
+            )
+        )
+        book.load(saved.get("orders"))
+        host.order_book = book
+        frozen = await _reconcile_shared_live_orders(
+            "HIGH ENTRY",
+            broker,
+            symbol=RECOVERY_SYMBOLS[symbol]["dhan_symbol"],
+            legs=book.open_orders(),
+        )
+        if frozen:
+            # A book that cannot agree with Dhan decides nothing until a
+            # human has looked. `clear_freeze` is that human.
+            book.orphans.append("__restart__")
+            book._note(datetime.now(IST).replace(tzinfo=None), "restart_freeze", detail=frozen)
+            _logger.warning("[HIGH ENTRY] frozen after restart: %s", frozen)
     started_at = datetime.now(IST).replace(tzinfo=None)
     try:
         started_at = datetime.fromisoformat(str(saved.get("started_at")))
@@ -13080,6 +13170,31 @@ async def _restore_gap_carry_open_state(
         # running=False over a leg that is still open.
         unfinished = engine.status not in _GAP_CARRY_TERMINAL
         running = unfinished and (bool(payload.get("running")) or engine.has_open_position)
+        # Ask Dhan before ticking: the one moment local state may quietly
+        # disagree with the account is right after being away.
+        pos = engine.position
+        frozen = await _reconcile_shared_live_orders(
+            "GAP CARRY",
+            broker,
+            symbol="NIFTY",
+            legs=(
+                [
+                    {
+                        "order_id": pos.order_id,
+                        "bracket_order_id": pos.bracket_order_id,
+                        "strike": pos.strike,
+                        "expiry": pos.expiry.isoformat(),
+                        "option_type": pos.side,
+                        "quantity": pos.quantity,
+                    }
+                ]
+                if pos is not None and pos.order_id
+                else []
+            ),
+        )
+        if frozen:
+            engine.frozen_reason = frozen
+            running = False
         runtime = _CascadeRuntime(
             engine=engine, adapter=adapter, broker=broker, last_candle_timestamp=last, running=running
         )
@@ -14126,6 +14241,29 @@ async def _restore_supertrend_open_state(
         # settled while the process was down must not be restarted as running.
         unfinished = engine.status not in _SUPERTREND_TERMINAL
         running = unfinished and (bool(payload.get("running")) or engine.has_open_position)
+        pos = engine.position
+        frozen = await _reconcile_shared_live_orders(
+            "SUPERTREND",
+            broker,
+            symbol="NIFTY",
+            legs=(
+                [
+                    {
+                        "order_id": pos.order_id,
+                        "bracket_order_id": pos.bracket_order_id,
+                        "strike": pos.strike,
+                        "expiry": pos.expiry.isoformat(),
+                        "option_type": pos.side,
+                        "quantity": pos.quantity,
+                    }
+                ]
+                if pos is not None and pos.order_id
+                else []
+            ),
+        )
+        if frozen:
+            engine.frozen_reason = frozen
+            running = False
         runtime = _CascadeRuntime(
             engine=engine,
             adapter=adapter,

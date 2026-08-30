@@ -3272,6 +3272,10 @@ class LadderCandleEntryPaper:
                         "option_type": fill.option_type,
                         "marked_low": fill.marked_low,
                         "priced_at": fill.priced_at.isoformat() if fill.priced_at is not None else None,
+                        # THE REAL ORDERS behind this rung, so a restart knows
+                        # what it holds at the broker.
+                        "order_id": fill.order_id,
+                        "bracket_order_id": fill.bracket_order_id,
                     }
                     for fill in ladder.fills
                 ],
@@ -3373,9 +3377,16 @@ class LadderCandleEntryPaper:
                 option_type=str(row["option_type"]),
                 marked_low=float(row["marked_low"]),
                 priced_at=moment(row["priced_at"]) if row.get("priced_at") else None,
+                order_id=row.get("order_id") or None,
+                bracket_order_id=row.get("bracket_order_id") or None,
             )
             for row in raw_ladder.get("fills") or []
         ]
+        # What is still WORKING at the broker. The fill is frozen history, so
+        # a restored ladder rebuilds its live state from those records rather
+        # than trusting a second copy that could disagree with them.
+        ladder._legs_open = {str(fill.order_id) for fill in ladder.fills if fill.order_id}
+        ladder._brackets_open = {str(fill.bracket_order_id) for fill in ladder.fills if fill.bracket_order_id}
         ladder.lowest = float(raw_ladder.get("lowest") if raw_ladder.get("lowest") is not None else mother.low)
         ladder.gate_low = float(raw_ladder["gate_low"]) if raw_ladder.get("gate_low") is not None else None
         ladder.status = str(raw_ladder.get("status") or "WAITING_TWO_RED")

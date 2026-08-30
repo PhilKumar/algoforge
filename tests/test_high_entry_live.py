@@ -543,3 +543,105 @@ class CandleEntryLiveTests(unittest.TestCase):
     def test_a_paper_ladder_has_no_orders_to_release(self):
         lad = self.ladder(None, fills=0)
         self.assertIsNone(lad.executor)
+
+
+class _ReconcileBroker:
+    """A Dhan that answers about orders and positions."""
+
+    def __init__(self, *, bracket_status="PENDING", held=None, positions_raise=False):
+        self.bracket_status = bracket_status
+        self.held = held
+        self.positions_raise = positions_raise
+
+    def get_order_status(self, order_id):
+        return {"orderStatus": self.bracket_status, "averagePrice": 61.0}
+
+    def get_positions(self):
+        if self.positions_raise:
+            raise RuntimeError("token expired")
+        return [{"securityId": "SEC1", "netQty": self.held if self.held is not None else 75}]
+
+
+class ReconcileTests(unittest.TestCase):
+    """What the four ask Dhan after a restart, and what they do with it."""
+
+    def legs(self, quantity=75):
+        return [
+            {
+                "order_id": "O1",
+                "bracket_order_id": "B1",
+                "strike": 24_400,
+                "expiry": "2026-09-03",
+                "option_type": "CE",
+                "quantity": quantity,
+            }
+        ]
+
+    def reconcile(self, broker, legs=None):
+        from engine.options_live_executor import reconcile_live_orders
+
+        with patch("broker.dhan.ScripMaster") as scrip:
+            scrip.lookup.return_value = "SEC1"
+            return reconcile_live_orders(broker, symbol="NIFTY", legs=legs or self.legs())
+
+    def test_a_matching_book_reports_nothing_to_do(self):
+        out = self.reconcile(_ReconcileBroker(held=75))
+        self.assertEqual(out["settled"], {})
+        self.assertEqual(out["short_by"], {})
+
+    def test_a_bracket_that_traded_while_down_books_its_leg(self):
+        out = self.reconcile(_ReconcileBroker(bracket_status="TRADED"))
+        self.assertEqual(out["settled"], {"O1": 61.0})
+
+    def test_the_broker_holding_less_is_reported_as_short(self):
+        """The dangerous direction: something closed that the engine still
+        thinks it owns."""
+        out = self.reconcile(_ReconcileBroker(held=0))
+        self.assertTrue(out["short_by"])
+
+    def test_the_broker_holding_more_is_only_noted(self):
+        """The account is shared across strategies. A leg belonging to
+        another one is not this engine's to close."""
+        out = self.reconcile(_ReconcileBroker(held=150))
+        self.assertEqual(out["short_by"], {})
+        self.assertTrue(any("more than" in note for note in out["notes"]))
+
+    def test_a_position_book_that_cannot_be_read_is_not_agreement(self):
+        out = self.reconcile(_ReconcileBroker(positions_raise=True))
+        self.assertIn("__unchecked__", out["short_by"])
+
+    def test_paper_orders_are_never_taken_to_the_broker(self):
+        legs = self.legs()
+        legs[0]["order_id"] = "paper-1"
+        legs[0]["bracket_order_id"] = "paper-1"
+        out = self.reconcile(_ReconcileBroker(held=0), legs)
+        self.assertEqual(out["short_by"], {}, "nothing real to compare")
+
+
+class ReconcilePersistenceTests(unittest.TestCase):
+    """Order ids have to survive the restart, or reconciliation has nothing
+    to ask about."""
+
+    def test_the_high_entry_book_round_trips(self):
+        bk, _ = book()
+        sync(bk, [FakeTrade(trade_no=1, armed_at=WHEN)])
+        back = RecoveryOrderBook(_Executor())
+        back.load(bk.to_dict())
+        self.assertEqual(back.open_orders(), bk.open_orders())
+        self.assertTrue(back.open_orders()[0]["order_id"])
+
+    def test_gap_carry_persists_its_order_ids(self):
+        from engine.gap_carry_paper import _position_from_dict, _position_to_dict
+
+        eng = GapCarryLiveTests().armed(_Executor())
+        row = _position_to_dict(eng.position)
+        self.assertTrue(row["order_id"])
+        self.assertEqual(_position_from_dict(row).bracket_order_id, eng.position.bracket_order_id)
+
+    def test_supertrend_persists_its_order_ids(self):
+        from engine.supertrend_paper import _position_from_dict, _position_to_dict
+
+        eng = SupertrendLiveTests().armed(_Executor())
+        row = _position_to_dict(eng.position)
+        self.assertTrue(row["order_id"])
+        self.assertEqual(_position_from_dict(row).bracket_order_id, eng.position.bracket_order_id)
