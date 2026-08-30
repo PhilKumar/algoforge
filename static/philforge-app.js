@@ -5009,13 +5009,17 @@ function _syncFibLevelsHint() {
       : 'Lone: buys every level of every drawn fib, one lot each.';
   }
 
-  // Do not advertise a real-money path while the server's fill/reconciliation
-  // safety gate is closed.
+  // Do not advertise a real-money path while the server's safety gate is
+  // closed. The note says WHY, and the why changed on 2026-08-30: fill
+  // verification, partial fills and restart reconciliation are built and
+  // tested now, and a stop rides inside every live entry. What is left is
+  // proving it against Dhan with real money, which no amount of testing here
+  // can stand in for.
   const mode = document.getElementById('oc-fib-mode')?.value || 'paper';
   const modeNote = document.getElementById('oc-fib-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
-      ? 'Unavailable — broker fill verification and restart reconciliation are still pending.'
+      ? 'Unavailable — fills, partial fills, restart reconciliation and a broker-side stop are built; live opens once proven on one lot.'
       : 'Records fills, sends nothing. Same rules as live.';
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
