@@ -123,6 +123,9 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         app_module._db_mod.config.USER_DATA_ROOT = str(TEST_USER_DATA)
         app_module._db_mod._initialized = False
         app_module._fib_boundary_engines.clear()
+        # The start route is rate limited like its siblings; a test file calls
+        # it far faster than any human, so each test starts with a clean slate.
+        app_module._rate_limits.clear()
         await app_module._db_mod.init_db()
 
     async def asyncTearDown(self):
@@ -642,10 +645,15 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
             with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
-                with self.assertRaises(RuntimeError):
+                # Since 2026-08-30 the engine books the unknown outcome as
+                # EXIT_ERROR instead of letting the broker error escape as a
+                # 500, so the route answers 409 and the basket stays monitored.
+                with self.assertRaises(app_module.HTTPException) as raised:
                     await app_module.fib_boundary_live_kill("NIFTY", _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 409)
         self.assertTrue(runtime.running)
         self.assertNotEqual(engine.status, "KILLED")
+        self.assertEqual(engine.status, "EXIT_ERROR")
 
     async def test_live_kill_is_safety_locked_without_changing_runtime_state(self):
         broker = _Broker()
@@ -1145,6 +1153,11 @@ class FibBoundaryPaperLoopTests(unittest.IsolatedAsyncioTestCase):
 class DeepCarryRouteTests(unittest.IsolatedAsyncioTestCase):
     """The form's "Deep ladder" switch has to reach the engine on BOTH routes,
     or Start and Backtest would replay different campaigns for one mother."""
+
+    async def asyncSetUp(self):
+        # See FibBoundaryRouteTests: the rate-limited start route needs a
+        # clean limiter per test.
+        app_module._rate_limits.clear()
 
     def _mother_and_stream(self):
         # A completed 5m candle at 10:15 five days back, on a stream that

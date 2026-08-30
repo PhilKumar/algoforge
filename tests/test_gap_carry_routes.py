@@ -110,7 +110,7 @@ class LiveGateTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 app_module._gap_carry_trade_mode("live")
             self.assertEqual(ctx.exception.status_code, 503)
-            self.assertIn("partial-fill handling", str(ctx.exception.detail))
+            self.assertIn("no live order path", str(ctx.exception.detail))
         finally:
             app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = original
 

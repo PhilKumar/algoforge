@@ -2435,6 +2435,12 @@ async def _save_recovery_state(user_id: int, runtime: _RecoveryRuntime) -> None:
                 "started_at": runtime.started_at.isoformat(),
                 "timeframe": runtime.host.config.timeframe,
                 "mode": runtime.host.mode,
+                # Side and depth are per-run choices captured at start; before
+                # they were saved, every deploy brought a PE run back as CE and
+                # a custom ITM depth back at the symbol default -- silently,
+                # with the wrong strikes selected from then on.
+                "side": runtime.host.side,
+                "itm_steps": int(runtime.host.config.itm_steps),
                 "config": {
                     "lots_schedule": list(runtime.host.config.lots_schedule),
                     "min_profit_inr": runtime.host.config.min_profit_inr,
@@ -2506,6 +2512,8 @@ async def _restore_recovery_run(user_id: int, broker: DhanClient | None) -> _Rec
             broker,
             timeframe=str(saved.get("timeframe") or "15m"),
             mode=str(saved.get("mode") or "ladder"),
+            side=str(saved.get("side") or "CE"),
+            itm_steps=int(saved["itm_steps"]) if saved.get("itm_steps") is not None else None,
             config_overrides=saved.get("config") or {},
         )
     except Exception as exc:
@@ -7188,6 +7196,10 @@ def _runtime_owner_ids() -> set[int]:
         | set(_gap_carry_engines)
         | set(_fib_boundary_engines)
         | set(_terminal_cascade_engines)
+        | set(_supertrend_engines)
+        | set(_recovery_engines)
+        | set(_fib_space_engines)
+        | set(_two_red_engines)
     )
 
 
@@ -7511,6 +7523,64 @@ async def emergency_stop(request: Request):
                 }
         if terminal:
             await _save_terminal_cascade_open_state(owner_id, force=True)
+
+        # PAPER-ONLY families that postdate this route's original registry
+        # list; a "kill all" that left them ticking was a lie. They hold no
+        # broker positions, so the emergency action is to halt the loop and
+        # save state -- it never needs a quote, so unlike the families above
+        # it can never refuse.
+        supertrend = _supertrend_engines.get(owner_id)
+        if supertrend and supertrend.running:
+            try:
+                supertrend.engine.stop()
+                supertrend.running = False
+                if supertrend.task and not supertrend.task.done():
+                    supertrend.task.cancel()
+                await _save_supertrend_open_state(owner_id, force=True)
+                stopped_count += 1
+                results[f"supertrend:{owner_id}"] = "stopped"
+            except Exception as exc:
+                results[f"supertrend:{owner_id}"] = f"error: {exc}"
+
+        recovery = _recovery_engines.get(owner_id)
+        if recovery and recovery.running:
+            try:
+                recovery.running = False
+                if recovery.task and not recovery.task.done():
+                    recovery.task.cancel()
+                await _save_recovery_state(owner_id, recovery)
+                stopped_count += 1
+                results[f"high-entry:{owner_id}"] = "stopped"
+            except Exception as exc:
+                results[f"high-entry:{owner_id}"] = f"error: {exc}"
+
+        fib_space = _fib_space_engines.get(owner_id)
+        if fib_space and fib_space.running:
+            try:
+                fib_space.running = False
+                if fib_space.task and not fib_space.task.done():
+                    fib_space.task.cancel()
+                await _save_fib_space_state(owner_id, fib_space)
+                stopped_count += 1
+                results[f"fib-space:{owner_id}"] = "stopped"
+            except Exception as exc:
+                results[f"fib-space:{owner_id}"] = f"error: {exc}"
+
+        two_red_stopped = False
+        for tr_symbol, two_red in list(_two_red_engines.get(owner_id, {}).items()):
+            if not two_red.running:
+                continue
+            try:
+                two_red.running = False
+                if two_red.task and not two_red.task.done():
+                    two_red.task.cancel()
+                two_red_stopped = True
+                stopped_count += 1
+                results[f"two-red:{owner_id}:{tr_symbol}"] = "stopped"
+            except Exception as exc:
+                results[f"two-red:{owner_id}:{tr_symbol}"] = f"error: {exc}"
+        if two_red_stopped:
+            await _save_two_red_state(owner_id, force=True)
 
     # Cancel background tasks and clear stopped registries for target users
     for owner_id in target_user_ids:
@@ -11249,16 +11319,17 @@ def _candle_entry_trade_mode(value: str) -> str:
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
-        # The same gate the Fib Boundary page stands behind: no real order
-        # path opens until Dhan fill verification, partial fills and restart
-        # reconciliation are built and tested. The toggle is on the form so
-        # the day it opens nothing else has to change.
+    if mode == "live":
+        # NOT the Fib Boundary flag: Candle Entry has no live order path at
+        # all -- its adapter is constructed paper_only. Tying this refusal to
+        # FIB_TOUCH_LIVE_EXECUTION_ENABLED meant a future flip for the fib
+        # ladder would let this route answer 200 to "live" and silently trade
+        # paper. Live opens here only when this strategy grows its own executor.
         raise HTTPException(
             status_code=503,
             detail=(
-                "Candle Entry live execution is disabled until Dhan fill verification, "
-                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+                "Candle Entry has no live order path built; live stays closed until its own "
+                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
             ),
         )
     return mode
@@ -12662,12 +12733,14 @@ def _gap_carry_trade_mode(value: str) -> str:
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+    if mode == "live":
+        # Gap Carry has no live order path at all -- see _candle_entry_trade_mode
+        # for why this refusal is unconditional rather than behind the fib flag.
         raise HTTPException(
             status_code=503,
             detail=(
-                "Gap Carry live execution is disabled until Dhan fill verification, "
-                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+                "Gap Carry has no live order path built; live stays closed until its own "
+                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
             ),
         )
     return mode
@@ -12789,8 +12862,9 @@ def _gap_carry_lot_size_lookup(broker: DhanClient):
             value = ScripMaster.get_lot_size("NIFTY", expiry.isoformat())
             if int(value or 0) > 0:
                 return int(value)
-        except Exception:
-            pass
+            _logger.warning("[GAP CARRY] ScripMaster has no NIFTY lot for %s; falling back to 75", expiry)
+        except Exception as exc:
+            _logger.warning("[GAP CARRY] NIFTY lot lookup failed for %s; falling back to 75: %s", expiry, exc)
         return 75
 
     return lookup
@@ -13570,12 +13644,13 @@ async def export_gap_carry_backtest_json(request: Request):
 @app.post("/api/gap-carry/auto")
 async def gap_carry_auto(payload: GapCarryAutoPayload, request: Request):
     """Switch the unattended Gap Carry on or off, pinned to the measured rule."""
-    if payload.enabled:
-        _gap_carry_trade_mode(payload.mode)
+    mode = _gap_carry_trade_mode(payload.mode) if payload.enabled else "paper"
     user_id = _request_user_id(request)
     setting = await _gap_carry_auto_settings(user_id)
     setting["enabled"] = bool(payload.enabled)
-    setting["mode"] = str(payload.mode or "paper").lower()
+    # The VALIDATED mode, never the raw payload: a disabled toggle must not
+    # park mode="live" in app_state for a later enable to inherit.
+    setting["mode"] = mode
     setting["rule"] = dict(_GAP_CARRY_AUTO_RULE)
     setting["changed_at"] = datetime.now(IST).isoformat()
     if payload.enabled:
@@ -13669,16 +13744,18 @@ def _supertrend_backtest_key(user_id: int) -> str:
 
 
 def _supertrend_trade_mode(value: str) -> str:
-    """Live stays shut behind the same door as every other strategy here."""
+    """Live stays shut unconditionally: Supertrend has no live order path at all."""
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+    if mode == "live":
+        # See _candle_entry_trade_mode for why this refusal is unconditional
+        # rather than behind the fib flag.
         raise HTTPException(
             status_code=503,
             detail=(
-                "Supertrend live execution is disabled until Dhan fill verification, "
-                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+                "Supertrend has no live order path built; live stays closed until its own "
+                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
             ),
         )
     return mode
@@ -13768,8 +13845,9 @@ def _supertrend_lot_size_lookup(broker: DhanClient):
             value = ScripMaster.get_lot_size("NIFTY", expiry.isoformat())
             if int(value or 0) > 0:
                 return int(value)
-        except Exception:
-            pass
+            _logger.warning("[SUPERTREND] ScripMaster has no NIFTY lot for %s; falling back to 75", expiry)
+        except Exception as exc:
+            _logger.warning("[SUPERTREND] NIFTY lot lookup failed for %s; falling back to 75: %s", expiry, exc)
         return 75
 
     return lookup
@@ -13779,9 +13857,25 @@ async def _save_supertrend_open_state(user_id: int, *, force: bool = False) -> N
     """Persist the campaign, and persist an EMPTY registry as a fact."""
     uid = int(user_id)
     if uid not in _supertrend_engines:
+        # An empty registry means "nothing is running", not "nothing ever
+        # ran". The kill route saves the final campaign, pops the runtime and
+        # saves again; this branch used to overwrite that final snapshot with
+        # None. Keep the last engine snapshot -- only the running flag is the
+        # fact being recorded here, and the restore path's own status check
+        # keeps a terminal campaign from resurrecting.
+        engine_snapshot = None
+        try:
+            raw = await _db_mod.get_app_state(_supertrend_open_state_key(uid))
+            if raw:
+                engine_snapshot = (json.loads(raw) or {}).get("engine")
+        except Exception:
+            engine_snapshot = None
         await _db_mod.set_app_state(
             _supertrend_open_state_key(uid),
-            json.dumps({"engine": None, "running": False, "saved_at": datetime.now(IST).isoformat()}, default=str),
+            json.dumps(
+                {"engine": engine_snapshot, "running": False, "saved_at": datetime.now(IST).isoformat()},
+                default=str,
+            ),
         )
         _supertrend_open_state_last_save[uid] = time.time()
         return
@@ -14334,12 +14428,13 @@ async def export_supertrend_backtest_csv(request: Request):
 @app.post("/api/supertrend/auto")
 async def supertrend_auto(payload: SupertrendAutoPayload, request: Request):
     """Switch the unattended Supertrend on or off, pinned to the measured rule."""
-    if payload.enabled:
-        _supertrend_trade_mode(payload.mode)
+    mode = _supertrend_trade_mode(payload.mode) if payload.enabled else "paper"
     user_id = _request_user_id(request)
     setting = await _supertrend_auto_settings(user_id)
     setting["enabled"] = bool(payload.enabled)
-    setting["mode"] = str(payload.mode or "paper").lower()
+    # The VALIDATED mode, never the raw payload: a disabled toggle must not
+    # park mode="live" in app_state for a later enable to inherit.
+    setting["mode"] = mode
     setting["rule"] = dict(_SUPERTREND_AUTO_RULE)
     setting["changed_at"] = datetime.now(IST).isoformat()
     if payload.enabled:
@@ -14521,6 +14616,11 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     the levels to the lot count to the expiry follows Phil's locked spec --
     see engine/fib_touch_ladder.py for why each number is what it is.
     """
+    # The one start route that can construct a LIVE executor gets a throttle
+    # like its paper-only siblings. Looser than theirs on purpose: ladders are
+    # PER SYMBOL here, and starting five instruments back-to-back is a normal
+    # board, not a runaway loop.
+    check_rate_limit("fib_boundary_start", _request_rate_subject(request), max_calls=10, window_sec=5)
     user_id = _request_user_id(request)
 
     async def _broker():
@@ -14678,8 +14778,14 @@ async def _start_fib_boundary_ladder(
     # still refuses every exchange call until broker fills, partial fills and
     # restart reconciliation are verified. That gate is about correctness, and
     # it is not what he asked to remove.
+    # A campaign built to hold overnight (deep carry, or intraday close off)
+    # must not go to Dhan as INTRADAY: the broker would square it off at
+    # ~15:20 behind the engine's back. MARGIN is Dhan's FnO carry product.
+    live_product_type = "INTRADAY" if (config.intraday_close and not config.deep_carry) else "MARGIN"
     executor = (
-        _FibTouchLiveExecutor(broker_client, terms.symbol, armed=True) if mode == "live" else _FibTouchPaperExecutor()
+        _FibTouchLiveExecutor(broker_client, terms.symbol, armed=True, product_type=live_product_type)
+        if mode == "live"
+        else _FibTouchPaperExecutor()
     )
     # Any bar older than the live-quote window needs RECORDED prices -- a
     # mother from an earlier day, and equally TODAY'S mother started hours
@@ -14742,8 +14848,9 @@ async def fib_boundary_live_arm(symbol: str, request: Request):
 
     This is the deliberate step the executor refuses without. It is a separate
     route on purpose: no payload, config value or environment variable can open
-    live execution, and it sits on `_SENSITIVE_ACTION_RULES` so it costs a
-    password and an authenticator code exactly like starting live trading does.
+    live execution. It left `_SENSITIVE_ACTION_RULES` on 2026-08-15 at Phil's
+    request -- a plain session-authenticated toggle like the Scalp page, with
+    no password + authenticator challenge per flip.
 
     Arming does NOT retro-fill anything. Rungs the ladder decided on while it
     was refused stay refused; only decisions made from here on are sent.
@@ -14767,7 +14874,7 @@ async def fib_boundary_live_arm(symbol: str, request: Request):
         return {"status": "already_armed", "campaign": runtime.engine.get_status()}
     executor.armed = True
     # A refusal parked the campaign; arming releases it to act on the next bar.
-    if runtime.engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED"}:
+    if runtime.engine.status in {"EXECUTION_REFUSED", "EXIT_REFUSED", "EXECUTION_ERROR", "EXIT_ERROR"}:
         runtime.engine.status = "OPEN" if runtime.engine.fills else "ARMED"
     _logger.warning(
         "[FIB TOUCH] LIVE ARMED for user %s on %s %s -- real orders will now be sent",
@@ -16411,7 +16518,13 @@ async def recovery_paper_start(request: Request):
 
     overrides = {}
     if body.get("lots_schedule"):
-        overrides["lots_schedule"] = [int(x) for x in body["lots_schedule"]]
+        try:
+            schedule = [int(x) for x in body["lots_schedule"]]
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="lots_schedule must be whole numbers.") from None
+        if not 1 <= len(schedule) <= 8 or any(not 1 <= lots <= 20 for lots in schedule):
+            raise HTTPException(status_code=400, detail="lots_schedule takes 1-8 entries of 1-20 lots each.")
+        overrides["lots_schedule"] = schedule
     for key in ("min_profit_inr", "horizon_sessions"):
         if body.get(key) is not None:
             overrides[key] = body[key]

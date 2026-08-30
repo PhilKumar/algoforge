@@ -526,10 +526,17 @@ class LiveExecutor:
     mode = "live"
     is_live = True
 
-    def __init__(self, broker: Any, symbol: str, *, armed: bool = False) -> None:
+    def __init__(self, broker: Any, symbol: str, *, armed: bool = False, product_type: str = "MARGIN") -> None:
         self.broker = broker
         self.symbol = symbol
         self.armed = bool(armed)
+        # One product for every leg of the campaign. INTRADAY for a same-day
+        # book, MARGIN (Dhan's FnO carry product) for one built to hold --
+        # sending no product at all meant Dhan defaulted every entry to
+        # INTRADAY and squared off carry campaigns at ~15:20 on its own. And
+        # a SELL under a different product than its BUY does not net at the
+        # broker; it opens a short.
+        self.product_type = str(product_type).upper()
 
     def _availability_guard(self) -> None:
         if not FIB_TOUCH_LIVE_EXECUTION_ENABLED:
@@ -555,6 +562,7 @@ class LiveExecutor:
             expiry=expiry.isoformat(),
             transaction_type="BUY",
             quantity=int(quantity),
+            product_type=self.product_type,
             tag="PF_FIB_BOUNDARY_BUY",
         )
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
@@ -576,6 +584,7 @@ class LiveExecutor:
                 expiry=str(leg["expiry"]),
                 transaction_type="SELL",
                 quantity=int(leg["quantity"]),
+                product_type=self.product_type,
                 tag="PF_FIB_BOUNDARY_EXIT",
             )
             order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
@@ -606,6 +615,7 @@ class LiveExecutor:
             quantity=int(quantity),
             order_type="LIMIT",
             price=float(price),
+            product_type=self.product_type,
             tag="PF_FIB_BOUNDARY_TARGET",
         )
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
@@ -1621,6 +1631,20 @@ class FibTouchLadder:
             self._log(bar.timestamp, "execution_refused", level=rung.level, detail=str(exc))
             self.status = "EXECUTION_REFUSED"
             return
+        except Exception as exc:
+            # Anything else means the order's fate at the broker is UNKNOWN --
+            # a timeout, an ambiguous submission, a rejected payload. The rung
+            # stays COLLECTED, and before this handler existed the next tick
+            # would resend the same buy against an order that may already be
+            # working. Disarm instead: entries stop until a human reconciles
+            # the broker book and arms again. Exits never needed arming and
+            # still work.
+            self.data_gaps.append(f"L{rung.level} send outcome unknown: {exc}")
+            self._log(bar.timestamp, "execution_error", level=rung.level, detail=str(exc))
+            self.status = "EXECUTION_ERROR"
+            if getattr(self.executor, "is_live", False):
+                self.executor.armed = False
+            return
         fill = TouchFill(
             buy_number=len(self.fills) + 1,
             level=rung.level,
@@ -1727,6 +1751,9 @@ class FibTouchLadder:
                     self._note_gap("mother broken but the basket cannot be priced", bar.timestamp)
                     return False
                 prices.append(price)
+            # Same rule as every exit: no resting target may outlive the
+            # market sells it would double.
+            self._clear_resting_exits()
             try:
                 self.executor.sell_all(
                     when=bar.timestamp,
@@ -1744,6 +1771,16 @@ class FibTouchLadder:
                 self.data_gaps.append(f"mother-break exit not sent: {exc}")
                 self._log(bar.timestamp, "exit_refused", detail=str(exc))
                 self.status = "EXIT_REFUSED"
+                return False
+            except Exception as exc:
+                # The basket's fate is UNKNOWN -- some legs may be sold, some
+                # not. Stay open and say so loudly rather than let the poll
+                # loop swallow it as a generic warning. The next bar retries;
+                # per-leg fill verification is the full answer and is why live
+                # remains gated.
+                self.data_gaps.append(f"mother-break exit outcome unknown: {exc}")
+                self._log(bar.timestamp, "exit_error", detail=str(exc))
+                self.status = "EXIT_ERROR"
                 return False
             self._exit_premiums = prices
             self._settle(prices)
@@ -1812,6 +1849,12 @@ class FibTouchLadder:
                         f"(no print at {bar.timestamp.isoformat()}); understates profit"
                     )
             prices.append(price)
+        # Pull the resting targets BEFORE the market sells go out: while both
+        # are working, a resting LIMIT that fills alongside the market exit is
+        # a naked short. (A rest that already filled can still slip through;
+        # closing that fully needs broker fill verification, which is part of
+        # why live remains gated.)
+        self._clear_resting_exits()
         try:
             self.executor.sell_all(
                 when=bar.timestamp,
@@ -1831,6 +1874,12 @@ class FibTouchLadder:
             self.data_gaps.append(f"exit not sent: {exc}")
             self._log(bar.timestamp, "exit_refused", detail=str(exc))
             self.status = "EXIT_REFUSED"
+            return False
+        except Exception as exc:
+            # Unknown basket fate: stay open, log loudly, retry next bar.
+            self.data_gaps.append(f"exit outcome unknown: {exc}")
+            self._log(bar.timestamp, "exit_error", detail=str(exc))
+            self.status = "EXIT_ERROR"
             return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
@@ -2318,6 +2367,12 @@ class FibTouchLadder:
                 self._note_gap("intraday close: a leg has no price", bar.timestamp)
                 return False
             prices.append(price)
+        # Pull the resting targets BEFORE the market sells go out: while both
+        # are working, a resting LIMIT that fills alongside the market exit is
+        # a naked short. (A rest that already filled can still slip through;
+        # closing that fully needs broker fill verification, which is part of
+        # why live remains gated.)
+        self._clear_resting_exits()
         try:
             self.executor.sell_all(
                 when=bar.timestamp,
@@ -2335,6 +2390,12 @@ class FibTouchLadder:
             self.data_gaps.append(f"intraday close not sent: {exc}")
             self._log(bar.timestamp, "exit_refused", detail=str(exc))
             self.status = "EXIT_REFUSED"
+            return False
+        except Exception as exc:
+            # Unknown basket fate: stay open, log loudly, retry next bar.
+            self.data_gaps.append(f"intraday close outcome unknown: {exc}")
+            self._log(bar.timestamp, "exit_error", detail=str(exc))
+            self.status = "EXIT_ERROR"
             return False
         booked = len(self.rounds)
         self._exit_premiums = prices
@@ -2376,6 +2437,12 @@ class FibTouchLadder:
             if price is None:
                 return False
             prices.append(price)
+        # Pull the resting targets BEFORE the market sells go out: while both
+        # are working, a resting LIMIT that fills alongside the market exit is
+        # a naked short. (A rest that already filled can still slip through;
+        # closing that fully needs broker fill verification, which is part of
+        # why live remains gated.)
+        self._clear_resting_exits()
         try:
             self.executor.sell_all(
                 when=bar.timestamp,
@@ -2394,6 +2461,13 @@ class FibTouchLadder:
             self.data_gaps.append(f"manual kill exit not sent: {exc}")
             self._log(bar.timestamp, "exit_refused", detail=str(exc))
             self.status = "EXIT_REFUSED"
+            return False
+        except Exception as exc:
+            # Unknown basket fate: stay open, log loudly, let the kill be
+            # pressed again rather than report KILLED over an unconfirmed exit.
+            self.data_gaps.append(f"manual kill exit outcome unknown: {exc}")
+            self._log(bar.timestamp, "exit_error", detail=str(exc))
+            self.status = "EXIT_ERROR"
             return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp

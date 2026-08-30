@@ -44,7 +44,11 @@ class RouteTests(unittest.TestCase):
 class LiveGateTests(unittest.TestCase):
     def test_live_is_refused_with_503_like_every_other_strategy(self):
         block = APP[APP.index("def _supertrend_trade_mode") : APP.index("def _supertrend_timeframe")]
-        self.assertIn("_FIB_TOUCH_LIVE_EXECUTION_ENABLED", block)
+        # UNCONDITIONAL since 2026-08-30: Supertrend has no live order path,
+        # so its refusal must not ride on another strategy's execution flag --
+        # flipping that flag for the fib ladder must never open this door.
+        self.assertNotIn("_FIB_TOUCH_LIVE_EXECUTION_ENABLED", block)
+        self.assertIn('if mode == "live":', block)
         self.assertIn("status_code=503", block)
 
     def test_start_and_auto_both_pass_through_the_gate(self):
