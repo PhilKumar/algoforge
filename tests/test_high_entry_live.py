@@ -391,3 +391,71 @@ class GapCarryLiveTests(unittest.TestCase):
         eng._close(pos, datetime(2026, 9, 1, 9, 20), 250.0, "clock", priced=True)
         self.assertEqual(ex.released, [bracket])
         self.assertEqual(len(ex.sells), 1)
+
+
+class SupertrendLiveTests(unittest.TestCase):
+    """Same shape as Gap Carry: one leg, an arm and a close."""
+
+    def armed(self, executor):
+        from engine.supertrend_entry import SupertrendConfig
+        from engine.supertrend_paper import SupertrendPaper
+
+        eng = SupertrendPaper(
+            config=SupertrendConfig(),
+            option_premium_lookup=lambda when, strike, side, expiry: 200.0,
+            expiry_lookup=lambda session: date(2026, 9, 3),
+            lot_size_lookup=lambda expiry: 75,
+            executor=executor,
+        )
+        eng.last_index_close = 24_500.0
+        eng._arm(WHEN, None)
+        return eng
+
+    def test_a_live_arm_sends_one_bracketed_buy(self):
+        ex = _Executor()
+        eng = self.armed(ex)
+        self.assertEqual(len(ex.buys), 1)
+        self.assertEqual(ex.buys[0]["stop_price"], 60.0)
+        self.assertTrue(eng.position.bracket_order_id)
+
+    def test_paper_still_arms_with_no_orders_at_all(self):
+        eng = self.armed(None)
+        self.assertIsNotNone(eng.position)
+        self.assertIsNone(eng.position.order_id)
+
+    def test_an_unknown_entry_holds_nothing_and_freezes(self):
+        class _Unknown(_Executor):
+            def buy(self, **kw):
+                raise RuntimeError("timeout")
+
+        eng = self.armed(_Unknown())
+        self.assertIsNone(eng.position)
+        self.assertTrue(eng.frozen_reason)
+
+    def test_an_unknown_exit_keeps_the_position_held(self):
+        class _Unknown(_Executor):
+            def sell(self, **kw):
+                self.sells.append(kw)
+                return {"order_id": "X1", "status": "UNKNOWN"}
+
+        eng = self.armed(_Unknown())
+        pos = eng.position
+        eng._close(pos, WHEN, 250.0, "flip", priced=True, spot=24_600.0, status="CLOSED")
+        self.assertIs(eng.position, pos)
+        self.assertEqual(eng.history, [])
+        self.assertTrue(eng.frozen_reason)
+
+    def test_the_exit_books_what_dhan_traded(self):
+        class _Priced(_Executor):
+            def sell(self, **kw):
+                self.sells.append(kw)
+                return {"order_id": "X1", "status": "FILLED", "avg_price": 271.5}
+
+        ex = _Priced()
+        eng = self.armed(ex)
+        pos = eng.position
+        bracket = pos.bracket_order_id
+        eng._close(pos, WHEN, 250.0, "flip", priced=True, spot=24_600.0, status="CLOSED")
+        self.assertEqual(ex.released, [bracket])
+        self.assertEqual(pos.exit_premium, 271.5)
+        self.assertIsNone(eng.position)

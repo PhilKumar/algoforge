@@ -13893,18 +13893,16 @@ def _supertrend_backtest_key(user_id: int) -> str:
 
 
 def _supertrend_trade_mode(value: str) -> str:
-    """Live stays shut unconditionally: Supertrend has no live order path at all."""
+    """Live is built now, and still shut until one real order has proven it."""
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live":
-        # See _candle_entry_trade_mode for why this refusal is unconditional
-        # rather than behind the fib flag.
+    if mode == "live" and not _OPTIONS_LIVE_EXECUTION_ENABLED:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Supertrend has no live order path built; live stays closed until its own "
-                "executor, fill verification and restart reconciliation exist. Use Paper or Backtest."
+                "Supertrend live execution is built but disabled until its fills, partial fills and "
+                "restart reconciliation are proven against Dhan. Use Paper or Backtest."
             ),
         )
     return mode
@@ -14167,11 +14165,26 @@ async def _start_supertrend_campaign(user_id: int, payload, *, broker_client: Dh
         raise HTTPException(status_code=409, detail="A Supertrend campaign is already running.")
     config = _supertrend_config(payload)
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+    # MARGIN, not INTRADAY: a Supertrend leg is held until the trend flips,
+    # which is days, and Dhan squares an intraday book off at ~15:20.
+    trade_mode = str(getattr(payload, "mode", "paper") or "paper").strip().lower()
     engine = _supertrend_paper.SupertrendPaper(
         config=config,
         option_premium_lookup=_supertrend_premium_lookup(broker_client),
         expiry_lookup=_supertrend_expiry_lookup(broker_client, config.expiry_rank),
         lot_size_lookup=_supertrend_lot_size_lookup(broker_client),
+        executor=(
+            build_executor(
+                broker_client,
+                "NIFTY",
+                mode="live",
+                armed=True,
+                product_type="MARGIN",
+                tag="PF_SUPERTREND",
+            )
+            if trade_mode == "live"
+            else None
+        ),
     )
     rows = await _supertrend_load_candles(adapter, config.timeframe, days=_SUPERTREND_CHART_DAYS)
     if rows:

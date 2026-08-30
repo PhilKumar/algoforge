@@ -308,6 +308,10 @@ class SupertrendPosition:
     exit_priced: bool = True
     charges: float = 0.0
     notes: list = field(default_factory=list)
+    # REAL ORDERS, when this campaign is a live one. Both stay None on paper.
+    order_id: Optional[str] = None
+    bracket_order_id: Optional[str] = None
+    exit_order_id: Optional[str] = None
 
     @property
     def quantity(self) -> int:
