@@ -36,7 +36,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff bandit pytest pip-audit==2.10.1
+          # ruff is pinned to the same version as the ruff-pre-commit rev in
+          # .pre-commit-config.yaml. When the two drift apart they reformat each
+          # other's output and every commit the hook touches fails this job.
+          pip install ruff==0.4.4 bandit pytest pip-audit==2.10.1
 
       - name: Python dependency vulnerability scan
         run: pip-audit
