@@ -650,12 +650,24 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
     undated = [entry for entry in fresh if not entry["entry_date"]]
     span = [entry["entry_date"] for entry in fresh if entry["entry_date"]]
     if dry_run:
+        # Days already on the shelf whose pictures never made it — the whole
+        # of his first import. Counted here so the page can offer to fetch
+        # them rather than saying "all of those are already here" and stopping.
+        fillable = 0
+        for entry in entries:
+            if entry["fingerprint"] not in seen or not entry["photos"] or not entry["entry_date"]:
+                continue
+            standing = await _entry_already_here(user_id, seen.get(entry["fingerprint"]), entry)
+            if standing is not None and not standing.get("photos"):
+                fillable += 1
         return {
             "entries": len(entries),
             "fresh": len(fresh),
+            "fillable": fillable,
             "already_here": len(entries) - len(fresh),
             "undated": len(undated),
-            "pictures": sum(len(entry["photos"]) for entry in fresh),
+            "pictures": sum(len(entry["photos"]) for entry in fresh)
+            or sum(len(entry["photos"]) for entry in entries if entry["fingerprint"] in seen),
             # A video has nowhere to live here; better said than dropped quietly.
             "videos": sum(entry.get("videos") or 0 for entry in fresh),
             "from": min(span, default=""),

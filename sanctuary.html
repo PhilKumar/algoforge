@@ -4317,11 +4317,16 @@ $("aj-file").addEventListener("change", async (e) => {
   let seen;
   try { seen = await api("/api/sanctuary/journal/import/apple", {method: "POST", body: look}); }
   catch (err) { return toast(err.message || "That export would not open"); }
-  if (!seen.fresh) {
+  /* A day can be here already and still be missing what it came with: the
+     first import wrote every entry and not one photograph. Offering nothing
+     in that case left the pictures stranded with no way to ask for them. */
+  if (!seen.fresh && !seen.fillable) {
     return toast(seen.already_here ? `All ${seen.already_here} of those are already here 🌿` : "Nothing to bring over");
   }
   const span = seen.from && seen.to && seen.from !== seen.to ? ` from ${niceDate(seen.from)} to ${niceDate(seen.to)}` : "";
-  const parts = [`${seen.fresh} entr${seen.fresh === 1 ? "y" : "ies"}${span}`];
+  const parts = [];
+  if (seen.fresh) parts.push(`${seen.fresh} entr${seen.fresh === 1 ? "y" : "ies"}${span}`);
+  if (seen.fillable) parts.push(`${seen.fillable} day${seen.fillable === 1 ? "" : "s"} already here still missing their pictures`);
   if (seen.pictures) parts.push(`${seen.pictures} picture${seen.pictures === 1 ? "" : "s"}`);
   if (seen.already_here) parts.push(`${seen.already_here} already here`);
   if (seen.undated) parts.push(`${seen.undated} with no date, which cannot be filed`);
