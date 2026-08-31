@@ -15,11 +15,9 @@ view loads, which survives deploys without a background task.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import hashlib
 import html
 import logging
-import multiprocessing
 import os
 import re
 import secrets
@@ -501,44 +499,36 @@ async def _read_upload(file: UploadFile) -> bytes:
 
 
 # Converting a phone's photograph costs more memory than this machine has to
-# spare — a hundred megabytes a picture, and Python keeps what it takes. A
-# journal of a hundred and twenty six of them would leave the server that
-# much heavier for good, on a box already deep into its swap. So an import
-# converts in a child process that is retired every few pictures, and the
-# server itself never grows.
-_PICTURE_HANDS = None
-# Four, not eight: a child's memory creeps upward as it works — a hundred
-# and twenty megabytes by the fourth picture — and on this machine that is
-# the difference between fitting under the ceiling and being killed under it.
-_PICTURES_PER_CHILD = 4
+# spare, and Python does not hand it back when it is done — a journal of a
+# hundred and twenty six pictures would leave the server that much heavier
+# for good, on a box already deep into its swap.
+#
+# The first three attempts at that gave the work to a child process. All
+# three failed, each in its own way and all of them silently: a pool cannot
+# retire a child it made by forking, which is what Linux does by default; a
+# forkserver's socket name is too long to live in this machine's temp
+# directory; and a spawned child re-opens the pool's semaphore by name, a
+# name that is gone by the time the second child asks for it under this
+# unit's private /dev/shm. Every one of those lost every picture while the
+# writing imported perfectly.
+#
+# So the conversion happens here, in a thread, one picture at a time — and
+# what it cost is handed back to the machine when the import is over.
+def _hand_the_memory_back() -> None:
+    """Return what the conversion took to the operating system.
 
-
-def _picture_hands():
-    """One worker, retired every few pictures.
-
-    Retiring it is the whole point — and a pool cannot retire a child it
-    made by forking, which is exactly what Linux does by default. Asking for
-    one anyway raises before a single picture is converted; on the Mac this
-    was written on the default is spawn, so it worked here and refused
-    there, and every one of his hundred and twenty six photographs was
-    quietly skipped while the writing imported perfectly.
+    Freeing a picture only returns it to Python's allocator, which keeps it;
+    the server's own footprint is what stays large. glibc will give the
+    arenas back if it is asked, and asking is the whole reason the work
+    used to be done in a child at all. Anywhere that is not glibc, nothing
+    happens and nothing breaks.
     """
-    global _PICTURE_HANDS
-    if _PICTURE_HANDS is None:
-        # Spawn before forkserver: a forkserver listens on a Unix socket in
-        # the temp directory, and a temp directory whose path is long enough
-        # blows the socket's own name limit. Spawn talks over a pipe.
-        for method in ("spawn", "forkserver"):
-            try:
-                _PICTURE_HANDS = concurrent.futures.ProcessPoolExecutor(
-                    max_workers=1,
-                    max_tasks_per_child=_PICTURES_PER_CHILD,
-                    mp_context=multiprocessing.get_context(method),
-                )
-                break
-            except (ValueError, OSError):
-                continue
-    return _PICTURE_HANDS
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 - a courtesy, never a requirement
+        pass
 
 
 async def _entry_already_here(user_id: int, entry_id, entry: dict) -> dict | None:
@@ -688,14 +678,10 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
             # whole journal never sits in memory at once.
             try:
                 blob = await asyncio.to_thread(sanctuary_apple_journal.picture_bytes, path, picture["member"])
-                hands = _picture_hands()
-                if hands is None:
-                    data, extension, _ = await asyncio.to_thread(sanitized_parts, blob, "")
-                else:
-                    data, extension, _ = await asyncio.get_running_loop().run_in_executor(
-                        hands, sanitized_parts, blob, ""
-                    )
+                data, extension, _ = await asyncio.to_thread(sanitized_parts, blob, "")
+                del blob
                 stored = await asyncio.to_thread(_write_photo, user_id, data, extension, on)
+                del data
             except Exception as exc:  # noqa: BLE001 - one bad picture is not a lost entry
                 lost += 1
                 if not trouble:
@@ -747,6 +733,8 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
         filled += 1
 
     await sanctuary_db.set_json_state(user_id, _APPLE_JOURNAL_SEEN, seen)
+    if pictures or lost:
+        await asyncio.to_thread(_hand_the_memory_back)
     return {
         "written": written,
         "filled": filled,
