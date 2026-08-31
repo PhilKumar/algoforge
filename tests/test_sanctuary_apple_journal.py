@@ -19,6 +19,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sanctuary_apple_journal as aj  # noqa: E402
 
+# The shape a real export has: no <time> anywhere, the day in a pageHeader,
+# the pictures in an assetGrid pointing at ../Resources, and the writing
+# itself OUTSIDE the container, in the spans Cocoa's HTML writer wrapped it
+# in. Apple's own title and body divs are left empty.
+REAL_SHAPE = """<!DOCTYPE html><html><body>
+<p class="p1"><span class="s1"><div class="pageContainer">
+  <div class="pageHeader">Saturday, 14 September 2024</div>
+  <div class="assetGrid">
+    <div class="gridItem assetType_photo" id="AAA"><img class="asset_image" src="../Resources/AAA.jpeg"/></div>
+    <div class="gridItem assetType_music" id="BBB"><img class="mediaPlayIcon" src="../Resources/mediaPlayIcon.heic"/>
+      <img class="asset_image" src="../Resources/BBB.heic"/></div>
+    <div class="gridItem assetType_video" id="CCC"><video class="asset_video"><source src="../Resources/CCC.MOV"/></video></div>
+    <div class="gridItem assetType_link" id="DDD"><a href="https://example.org/a-page">
+      <img class="asset_image" src="../Resources/DDD.heic"/></a></div>
+    <div class="gridItem assetType_stateOfMind" id="EEE">
+      <div class="gridItemOverlayText">Content</div><div class="gridItemOverlayText">Family</div>
+      <img class="asset_image" src="../Resources/EEE.heic"/></div>
+  </div><div class="title"></div></div></span><span class="s2">Sedentary lifestyle </span>
+<span class="s1"><div class="bodyText"></div></span></p>
+<p class="p2"><span class="s3">What a hectic day. Fifteen hours of sitting.</span></p>
+</body></html>"""
+
 WITH_TIME = """<html><body>
 <article><time datetime="2024-01-14T09:12:00Z">Sunday, January 14, 2024</time>
 <h1>The long walk</h1>
@@ -153,12 +175,66 @@ class WhatCanGoWrongTests(unittest.TestCase):
         self.assertEqual([e["entry_date"] for e in aj.read_export(blob)], ["2024-01-14", "2024-03-05"])
 
 
+class TheShapeAppleActuallyWritesTests(unittest.TestCase):
+    """Built from his own export. The synthetic entries above are the shape
+    the documentation describes; this is the shape the phone produced, and
+    the two are not the same — which is why the reader holds both."""
+
+    def setUp(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("AppleJournalEntries/index.html", "<html>index</html>")
+            archive.writestr("AppleJournalEntries/Entries/2024-09-14_Sedentary_lifestyle.html", REAL_SHAPE)
+            # What a Mac puts in every zip it makes, shadowing every file.
+            archive.writestr("__MACOSX/AppleJournalEntries/Entries/._2024-09-14_Sedentary_lifestyle.html", "\x00junk")
+            for name in ("AAA.jpeg", "BBB.heic", "DDD.heic", "EEE.heic", "mediaPlayIcon.heic"):
+                archive.writestr(f"AppleJournalEntries/Resources/{name}", _jpeg())
+        self.entries = aj.read_export(buf.getvalue())
+
+    def test_the_mac_s_shadow_files_are_not_a_second_journal(self):
+        self.assertEqual(len(self.entries), 1, "__MACOSX would have doubled every entry")
+
+    def test_the_day_is_read_from_the_header_apple_prints(self):
+        self.assertEqual(self.entries[0]["entry_date"], "2024-09-14")
+
+    def test_the_title_comes_from_the_name_apple_gave_the_file(self):
+        self.assertEqual(self.entries[0]["title"], "Sedentary lifestyle")
+
+    def test_the_writing_is_found_outside_the_container(self):
+        self.assertIn("Fifteen hours of sitting", self.entries[0]["body"])
+        self.assertNotIn("Saturday, 14 September", self.entries[0]["body"])
+
+    def test_only_his_photographs_come_over(self):
+        """Cover art, a link's preview, a mood's swatch and a play button are
+        all .heic files in Resources beside the real pictures."""
+        self.assertEqual([p["name"] for p in self.entries[0]["photos"]], ["AAA.jpeg"])
+
+    def test_a_video_is_counted_rather_than_dropped_in_silence(self):
+        self.assertEqual(self.entries[0]["videos"], 1)
+
+    def test_what_was_attached_in_words_is_kept_as_words(self):
+        body = self.entries[0]["body"]
+        self.assertIn("Felt: Content · Family", body)
+        self.assertIn("https://example.org/a-page", body)
+
+    def test_an_untitled_day_is_not_given_its_first_sentence_as_a_title(self):
+        untitled = REAL_SHAPE.replace('<span class="s2">Sedentary lifestyle </span>', "")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("AppleJournalEntries/Entries/2024-09-14.html", untitled)
+        self.assertEqual(aj.read_export(buf.getvalue())[0]["title"], "")
+
+
 class DateReadingTests(unittest.TestCase):
     def test_the_shapes_apple_prints(self):
         for said, expected in (
             ("Sunday, January 14, 2024", date(2024, 1, 14)),
             ("January 14, 2024", date(2024, 1, 14)),
             ("Wednesday, September 3 2025", date(2025, 9, 3)),
+            # What his own phone prints — the day before the month.
+            ("Saturday, 14 September 2024", date(2024, 9, 14)),
+            ("Monday, 12 August 2024", date(2024, 8, 12)),
+            ("14 September 2024", date(2024, 9, 14)),
         ):
             with self.subTest(said=said):
                 self.assertEqual(aj._date_from_text(said), expected)

@@ -125,3 +125,14 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
         width=width,
         height=height,
     )
+
+
+def sanitized_parts(data: bytes, declared_content_type: str) -> tuple[bytes, str, str]:
+    """sanitize_image, in the shape a worker process can hand back.
+
+    A twelve-megapixel photograph needs a hundred megabytes to decode, and
+    Python hands that back to itself, not to the machine. Doing this in a
+    child that exits keeps the server the size it was.
+    """
+    cleaned = sanitize_image(data, declared_content_type)
+    return cleaned.data, cleaned.extension, cleaned.content_type

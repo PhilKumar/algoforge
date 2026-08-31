@@ -78,6 +78,30 @@ class HeicTests(unittest.TestCase):
             sanitize_image(ImageUploadTests._image_bytes("PNG"), "image/heic")
 
 
+class ConvertingAwayFromTheServerTests(unittest.TestCase):
+    """A journal import converts its photographs in a child process that is
+    retired as it goes, because a twelve-megapixel picture costs a hundred
+    megabytes to decode and Python gives that back to itself, not to the
+    machine. The child hands back plain values, which is all that can cross
+    between processes."""
+
+    def test_the_parts_a_worker_can_hand_back(self):
+        from image_uploads import sanitized_parts
+
+        buf = BytesIO()
+        Image.new("RGB", (8, 6), (12, 34, 56)).save(buf, format="TIFF")
+        data, extension, content_type = sanitized_parts(buf.getvalue(), "image/tiff")
+        self.assertEqual((extension, content_type), (".jpg", "image/jpeg"))
+        self.assertTrue(data.startswith(b"\xff\xd8\xff"))
+        self.assertTrue(all(isinstance(part, (bytes, str)) for part in (data, extension, content_type)))
+
+    def test_it_refuses_what_sanitize_refuses(self):
+        from image_uploads import sanitized_parts
+
+        with self.assertRaises(ImageValidationError):
+            sanitized_parts(b"%PDF-1.7", "image/jpeg")
+
+
 class WhatAMacHandsOverTests(unittest.TestCase):
     """A picture leaving the Photos app is rarely a JPEG. Copying one puts a
     TIFF on the clipboard, dragging one can too, and the library itself holds

@@ -1523,7 +1523,7 @@ html[data-theme="dark"]{color-scheme:dark}
            its own export over, and this reads it. -->
       <label class="btn ghost small" style="cursor:pointer;white-space:nowrap"
         title="Journal on the iPhone ▸ ⋯ ▸ Export, then choose AppleJournalEntries.zip">📔 From my iPhone
-        <input type="file" id="aj-file" accept=".zip,application/zip" class="hidden">
+        <input type="file" id="aj-file" accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream" class="hidden">
       </label>
     </div>
 
@@ -4325,6 +4325,7 @@ $("aj-file").addEventListener("change", async (e) => {
   if (seen.pictures) parts.push(`${seen.pictures} picture${seen.pictures === 1 ? "" : "s"}`);
   if (seen.already_here) parts.push(`${seen.already_here} already here`);
   if (seen.undated) parts.push(`${seen.undated} with no date, which cannot be filed`);
+  if (seen.videos) parts.push(`${seen.videos} video${seen.videos === 1 ? "" : "s"} that must stay on the phone`);
   if (!await confirmDialog(`${parts.join(", ")}. Each one lands on the day it was written.`, "Bring them in")) return;
   toast("Bringing them over…");
   const bring = new FormData(); bring.append("file", file);

@@ -15,12 +15,14 @@ view loads, which survives deploys without a background task.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import html
 import logging
 import os
 import re
 import secrets
+import tempfile
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -42,7 +44,7 @@ import sanctuary_holdings
 import sanctuary_identity
 import sanctuary_plan
 import sanctuary_statements
-from image_uploads import ImageValidationError, looks_like_heic, sanitize_image
+from image_uploads import ImageValidationError, looks_like_heic, sanitize_image, sanitized_parts
 
 router = APIRouter()
 
@@ -497,6 +499,34 @@ async def _read_upload(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
+# Converting a phone's photograph costs more memory than this machine has to
+# spare — a hundred megabytes a picture, and Python keeps what it takes. A
+# journal of a hundred and twenty six of them would leave the server that
+# much heavier for good, on a box already deep into its swap. So an import
+# converts in a child process that is retired every few pictures, and the
+# server itself never grows.
+_PICTURE_HANDS = None
+_PICTURES_PER_CHILD = 8
+
+
+def _picture_hands():
+    global _PICTURE_HANDS
+    if _PICTURE_HANDS is None:
+        _PICTURE_HANDS = concurrent.futures.ProcessPoolExecutor(max_workers=1, max_tasks_per_child=_PICTURES_PER_CHILD)
+    return _PICTURE_HANDS
+
+
+def _write_photo(user_id: int, data: bytes, extension: str, on: date) -> str:
+    rel_dir = on.strftime("%Y/%m")
+    directory = os.path.join(_photo_root(user_id), rel_dir)
+    os.makedirs(directory, exist_ok=True)
+    name = f"{on.strftime('%d')}-{secrets.token_hex(8)}{extension}"
+    fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    return f"{rel_dir}/{name}"
+
+
 def _keep_photo(user_id: int, data: bytes, declared: str, on: date) -> str:
     """Decode a picture, strip it, and file it under the day it belongs to.
 
@@ -538,18 +568,34 @@ _MAX_JOURNAL_ZIP = 600 * 1024 * 1024
 @router.post("/api/sanctuary/journal/import/apple")
 async def apple_journal_import(file: UploadFile, request: Request, user: dict = Depends(_unlocked_user)):
     user_id = int(user["id"])
-    blob = bytearray()
-    while True:
-        chunk = await file.read(1024 * 1024)
-        if not chunk:
-            break
-        blob.extend(chunk)
-        if len(blob) > _MAX_JOURNAL_ZIP:
-            raise HTTPException(status_code=413, detail="That export is larger than this can take")
-    if not blob:
-        raise HTTPException(status_code=400, detail="Empty file")
+    # A journal off a phone is a hundred megabytes and more; it goes to disk
+    # as it arrives and is read from there. Held in memory it would be the
+    # largest thing on this machine, twice over.
+    spool = tempfile.NamedTemporaryFile(prefix="apple-journal-", suffix=".zip", delete=False)
     try:
-        entries = await asyncio.to_thread(sanctuary_apple_journal.read_export, bytes(blob))
+        size = 0
+        with spool:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > _MAX_JOURNAL_ZIP:
+                    raise HTTPException(status_code=413, detail="That export is larger than this can take")
+                spool.write(chunk)
+        if not size:
+            raise HTTPException(status_code=400, detail="Empty file")
+        return await _bring_the_journal_over(spool.name, user_id, request)
+    finally:
+        try:
+            os.remove(spool.name)
+        except OSError:
+            pass
+
+
+async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> dict:
+    try:
+        entries = await asyncio.to_thread(sanctuary_apple_journal.read_export, path, False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -566,6 +612,8 @@ async def apple_journal_import(file: UploadFile, request: Request, user: dict = 
             "already_here": len(entries) - len(fresh),
             "undated": len(undated),
             "pictures": sum(len(entry["photos"]) for entry in fresh),
+            # A video has nowhere to live here; better said than dropped quietly.
+            "videos": sum(entry.get("videos") or 0 for entry in fresh),
             "from": min(span, default=""),
             "to": max(span, default=""),
         }
@@ -578,9 +626,15 @@ async def apple_journal_import(file: UploadFile, request: Request, user: dict = 
         on = date.fromisoformat(entry["entry_date"])
         kept = []
         for picture in entry["photos"]:
+            # Fetched one at a time and let go of before the next, so the
+            # whole journal never sits in memory at once.
             try:
-                stored = await asyncio.to_thread(_keep_photo, user_id, picture["data"], "", on)
-            except (ImageValidationError, OSError):
+                blob = await asyncio.to_thread(sanctuary_apple_journal.picture_bytes, path, picture["member"])
+                data, extension, _ = await asyncio.get_running_loop().run_in_executor(
+                    _picture_hands(), sanitized_parts, blob, ""
+                )
+                stored = await asyncio.to_thread(_write_photo, user_id, data, extension, on)
+            except (ImageValidationError, ValueError, KeyError, OSError, concurrent.futures.BrokenExecutor):
                 continue  # one unreadable picture is not a lost entry
             kept.append({"file": stored, "caption": picture["caption"]})
         pictures += len(kept)
@@ -602,6 +656,7 @@ async def apple_journal_import(file: UploadFile, request: Request, user: dict = 
     return {
         "written": written,
         "pictures": pictures,
+        "videos": sum(entry.get("videos") or 0 for entry in fresh),
         "already_here": len(entries) - len(fresh),
         "undated": skipped,
         "from": min(span, default=""),
