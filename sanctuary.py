@@ -506,7 +506,10 @@ async def _read_upload(file: UploadFile) -> bytes:
 # converts in a child process that is retired every few pictures, and the
 # server itself never grows.
 _PICTURE_HANDS = None
-_PICTURES_PER_CHILD = 8
+# Four, not eight: a child's memory creeps upward as it works — a hundred
+# and twenty megabytes by the fourth picture — and on this machine that is
+# the difference between fitting under the ceiling and being killed under it.
+_PICTURES_PER_CHILD = 4
 
 
 def _picture_hands():

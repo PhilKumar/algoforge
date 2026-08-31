@@ -124,9 +124,38 @@ class WhatAMacHandsOverTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 self.assertEqual(sanitize_image(self._bytes(fmt), "").content_type, "image/jpeg")
 
-    def test_transparency_is_kept_by_saving_a_png_instead(self):
-        clear = sanitize_image(self._bytes("TIFF", mode="RGBA"), "image/tiff")
-        self.assertEqual((clear.extension, clear.content_type), (".png", "image/png"))
+    def test_a_cutout_is_kept_by_saving_a_png_instead(self):
+        """Transparency that is really transparency — a hole in the picture."""
+        cutout = Image.new("RGBA", (8, 6), (12, 34, 56, 255))
+        cutout.putpixel((0, 0), (0, 0, 0, 0))
+        buf = BytesIO()
+        cutout.save(buf, format="PNG")
+        kept = sanitize_image(buf.getvalue(), "image/png")
+        self.assertEqual((kept.extension, kept.content_type), (".png", "image/png"))
+
+    def test_an_alpha_channel_nothing_shows_through_is_not_transparency(self):
+        """Every photograph off his phone decodes with an alpha channel and
+        says it has one, yet none of it is see-through. Believed, it stored
+        each one as a ten-megabyte PNG."""
+        opaque = Image.new("RGBA", (8, 6), (12, 34, 56, 200))
+        buf = BytesIO()
+        opaque.save(buf, format="TIFF")
+        kept = sanitize_image(buf.getvalue(), "image/tiff")
+        self.assertEqual((kept.extension, kept.content_type), (".jpg", "image/jpeg"))
+
+    def test_a_picture_larger_than_a_screen_is_kept_at_screen_size(self):
+        from image_uploads import MAX_STORED_EDGE
+
+        big = Image.new("RGB", (MAX_STORED_EDGE + 900, 400), (9, 9, 9))
+        buf = BytesIO()
+        big.save(buf, format="PNG")
+        kept = sanitize_image(buf.getvalue(), "image/png")
+        self.assertEqual(kept.width, MAX_STORED_EDGE)
+        self.assertEqual(kept.height, round(400 * MAX_STORED_EDGE / (MAX_STORED_EDGE + 900)))
+
+    def test_a_picture_that_already_fits_is_left_alone(self):
+        small = sanitize_image(self._bytes("PNG", size=(320, 240)), "image/png")
+        self.assertEqual((small.width, small.height), (320, 240))
 
     def test_a_plain_png_is_still_a_png(self):
         """The three the browser can already show pass through untouched."""

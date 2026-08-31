@@ -28,6 +28,7 @@ import logging
 import os
 import secrets
 import sys
+import tempfile
 import time
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
@@ -5086,6 +5087,32 @@ import re as _re
 
 CHARTS_DIR = os.getenv("CHARTS_DIR", os.path.join(_HERE, "Daily Charts"))
 _USER_DATA_ROOT = config.USER_DATA_ROOT
+
+
+def _temp_files_belong_on_the_disk() -> None:
+    """Keep Python's scratch files off /tmp, which on this server is RAM.
+
+    The unit runs with PrivateTmp, and that private /tmp is a tmpfs — every
+    byte written there is a byte of memory, counted against the same ceiling
+    as the app itself. An upload spooled there is the upload held in memory
+    twice: once by the framework and once by us. A hundred-megabyte journal
+    export died exactly there, and reported only "bad request".
+
+    The data root is on the real disk, so scratch goes beside it.
+    """
+    scratch = os.path.join(_USER_DATA_ROOT, ".scratch")
+    try:
+        os.makedirs(scratch, exist_ok=True)
+        probe = os.path.join(scratch, ".writable")
+        with open(probe, "wb") as handle:
+            handle.write(b"1")
+        os.remove(probe)
+    except OSError:
+        return  # unwritable for any reason: leave the default alone
+    tempfile.tempdir = scratch
+
+
+_temp_files_belong_on_the_disk()
 _journal_chart_task: asyncio.Task | None = None
 _journal_chart_wakeup: asyncio.Event | None = None
 

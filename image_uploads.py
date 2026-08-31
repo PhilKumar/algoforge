@@ -21,6 +21,8 @@ except Exception:  # pragma: no cover - only where the package is absent
     HEIC_READABLE = False
 
 MAX_IMAGE_PIXELS = 25_000_000
+# The longest edge anything is kept at. A journal is read on a screen.
+MAX_STORED_EDGE = 2560
 
 _FORMAT_DETAILS = {
     "JPEG": (".jpg", "image/jpeg"),
@@ -54,6 +56,33 @@ class SanitizedImage:
     height: int
 
 
+# Below this a pixel is see-through; above it, the picture is a picture.
+_SEE_THROUGH = 16
+
+
+def _really_transparent(image: Image.Image) -> bool:
+    """Whether a picture is see-through anywhere, not merely carries a channel.
+
+    Every HEIC out of his phone decodes with an alpha channel, and the file
+    itself says it has one — yet nothing in the photograph is see-through:
+    dropped, composited or kept, the picture looks identical. Believing that
+    channel stored each photograph as a PNG, ten megabytes where a JPEG is
+    one and a half, a hundred and twenty six times over.
+
+    A cutout — the thing transparency is for — has pixels at or near nothing,
+    and that is what is looked for.
+    """
+    if image.mode == "P":
+        return "transparency" in image.info
+    if image.mode not in {"RGBA", "LA", "PA"}:
+        return False
+    try:
+        low, _high = image.getchannel("A").getextrema()
+    except (ValueError, OSError):
+        return True  # cannot tell: keep what is there
+    return low < _SEE_THROUGH
+
+
 def looks_like_heic(data: bytes) -> bool:
     """An ISO container whose brand says HEIF — the box, not the name."""
     return len(data) >= 12 and data[4:8] == b"ftyp" and data[8:12].lower() in _HEIF_BRANDS
@@ -65,6 +94,7 @@ def _open_image(data: bytes) -> Image.Image:
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             image = Image.open(BytesIO(data))
             image.verify()
+            image.close()  # the checking copy, before a second one is opened
         return Image.open(BytesIO(data))
     except (Image.DecompressionBombError, Image.DecompressionBombWarning, UnidentifiedImageError, OSError) as exc:
         raise ImageValidationError("The upload is not a valid supported image.") from exc
@@ -99,8 +129,16 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
 
     try:
         image.seek(0)
-        clean = ImageOps.exif_transpose(image)
-        has_alpha = clean.mode in {"RGBA", "LA"} or (clean.mode == "P" and "transparency" in clean.info)
+        # In place, because turning a twelve-megapixel photograph the right way
+        # up otherwise costs a second copy of it — fifty megabytes on a machine
+        # that has sixty to spare.
+        clean = ImageOps.exif_transpose(image, in_place=True) or image
+        # Scaled down in place — never copied, which would be the whole picture
+        # again. A photograph kept at 2560 is sharper than any screen he reads
+        # it on, a tenth of the bytes, and a tenth of the room in the backup.
+        if max(clean.size) > MAX_STORED_EDGE:
+            clean.thumbnail((MAX_STORED_EDGE, MAX_STORED_EDGE), Image.LANCZOS)
+        has_alpha = _really_transparent(clean)
         saved_format = source_format
         if source_format not in _FORMAT_DETAILS:
             saved_format = "PNG" if has_alpha else "JPEG"
@@ -113,6 +151,7 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
             clean.save(output, format="PNG", optimize=True)
         else:
             clean.save(output, format="WEBP", quality=92, method=4)
+        kept = clean.size
     except OSError as exc:
         raise ImageValidationError("The image could not be safely decoded.") from exc
     finally:
@@ -122,8 +161,8 @@ def sanitize_image(data: bytes, declared_content_type: str) -> SanitizedImage:
         data=output.getvalue(),
         extension=extension,
         content_type=detected_content_type,
-        width=width,
-        height=height,
+        width=kept[0],
+        height=kept[1],
     )
 
 
