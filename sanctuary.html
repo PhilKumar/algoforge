@@ -4331,7 +4331,16 @@ $("aj-file").addEventListener("change", async (e) => {
   const bring = new FormData(); bring.append("file", file);
   try {
     const done = await api("/api/sanctuary/journal/import/apple", {method: "POST", body: bring});
-    toast(`${done.written} entr${done.written === 1 ? "y" : "ies"} came over${done.pictures ? ` with ${done.pictures} pictures` : ""}. 🌿`);
+    /* Said plainly, including what did not come: a hundred and twenty six
+       pictures failing once looked exactly like a hundred and twenty six
+       arriving, because nothing counted them. */
+    const said = [];
+    if (done.written) said.push(`${done.written} entr${done.written === 1 ? "y" : "ies"} came over`);
+    if (done.filled) said.push(`${done.filled} day${done.filled === 1 ? "" : "s"} got the pictures they were missing`);
+    if (done.pictures) said.push(`${done.pictures} picture${done.pictures === 1 ? "" : "s"}`);
+    if (done.pictures_lost) said.push(`${done.pictures_lost} could not be read`);
+    toast(said.length ? `${said.join(", ")}. 🌿` : "Nothing new to bring over");
+    if (done.pictures_lost) console.warn("Apple Journal import:", done.trouble);
     refreshJournal();
   } catch (err) { toast(err.message || "They would not come over"); }
 });

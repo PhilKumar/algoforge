@@ -19,6 +19,7 @@ import concurrent.futures
 import hashlib
 import html
 import logging
+import multiprocessing
 import os
 import re
 import secrets
@@ -513,10 +514,47 @@ _PICTURES_PER_CHILD = 4
 
 
 def _picture_hands():
+    """One worker, retired every few pictures.
+
+    Retiring it is the whole point — and a pool cannot retire a child it
+    made by forking, which is exactly what Linux does by default. Asking for
+    one anyway raises before a single picture is converted; on the Mac this
+    was written on the default is spawn, so it worked here and refused
+    there, and every one of his hundred and twenty six photographs was
+    quietly skipped while the writing imported perfectly.
+    """
     global _PICTURE_HANDS
     if _PICTURE_HANDS is None:
-        _PICTURE_HANDS = concurrent.futures.ProcessPoolExecutor(max_workers=1, max_tasks_per_child=_PICTURES_PER_CHILD)
+        # Spawn before forkserver: a forkserver listens on a Unix socket in
+        # the temp directory, and a temp directory whose path is long enough
+        # blows the socket's own name limit. Spawn talks over a pipe.
+        for method in ("spawn", "forkserver"):
+            try:
+                _PICTURE_HANDS = concurrent.futures.ProcessPoolExecutor(
+                    max_workers=1,
+                    max_tasks_per_child=_PICTURES_PER_CHILD,
+                    mp_context=multiprocessing.get_context(method),
+                )
+                break
+            except (ValueError, OSError):
+                continue
     return _PICTURE_HANDS
+
+
+async def _entry_already_here(user_id: int, entry_id, entry: dict) -> dict | None:
+    """The entry a fingerprint stands for, by its id or by what it says."""
+    if entry_id:
+        standing = await sanctuary_db.get_entry(user_id, int(entry_id))
+        if standing:
+            return standing
+    for standing in await sanctuary_db.list_entries(user_id, month=entry["entry_date"][:7]):
+        if (
+            standing["entry_date"] == entry["entry_date"]
+            and (standing.get("title") or "") == entry["title"]
+            and (standing.get("body") or "") == entry["body"]
+        ):
+            return standing
+    return None
 
 
 def _write_photo(user_id: int, data: bytes, extension: str, on: date) -> str:
@@ -604,7 +642,10 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
 
     form = await request.form()
     dry_run = str(form.get("look") or "") == "1"
-    seen = set(await sanctuary_db.get_json_state(user_id, _APPLE_JOURNAL_SEEN, []))
+    # What has come over already, and where it landed. It was a plain list
+    # once; a list read back is a map with nothing known about where.
+    remembered = await sanctuary_db.get_json_state(user_id, _APPLE_JOURNAL_SEEN, {})
+    seen = dict(remembered) if isinstance(remembered, dict) else {fp: None for fp in remembered}
     fresh = [entry for entry in entries if entry["fingerprint"] not in seen]
     undated = [entry for entry in fresh if not entry["entry_date"]]
     span = [entry["entry_date"] for entry in fresh if entry["entry_date"]]
@@ -621,27 +662,45 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
             "to": max(span, default=""),
         }
 
-    written, pictures, skipped = 0, 0, 0
-    for entry in fresh:
-        if not entry["entry_date"]:
-            skipped += 1
-            continue
-        on = date.fromisoformat(entry["entry_date"])
+    written, filled, pictures, skipped, lost = 0, 0, 0, 0, 0
+    trouble = ""
+
+    async def _photographs(entry: dict, on: date) -> list[dict]:
+        """The entry's pictures, converted and filed. What cannot be read is
+        counted and named — a hundred and twenty six failures once looked
+        exactly like a hundred and twenty six successes."""
+        nonlocal lost, trouble
         kept = []
         for picture in entry["photos"]:
             # Fetched one at a time and let go of before the next, so the
             # whole journal never sits in memory at once.
             try:
                 blob = await asyncio.to_thread(sanctuary_apple_journal.picture_bytes, path, picture["member"])
-                data, extension, _ = await asyncio.get_running_loop().run_in_executor(
-                    _picture_hands(), sanitized_parts, blob, ""
-                )
+                hands = _picture_hands()
+                if hands is None:
+                    data, extension, _ = await asyncio.to_thread(sanitized_parts, blob, "")
+                else:
+                    data, extension, _ = await asyncio.get_running_loop().run_in_executor(
+                        hands, sanitized_parts, blob, ""
+                    )
                 stored = await asyncio.to_thread(_write_photo, user_id, data, extension, on)
-            except (ImageValidationError, ValueError, KeyError, OSError, concurrent.futures.BrokenExecutor):
-                continue  # one unreadable picture is not a lost entry
+            except Exception as exc:  # noqa: BLE001 - one bad picture is not a lost entry
+                lost += 1
+                if not trouble:
+                    trouble = f"{type(exc).__name__}: {exc}"
+                    _logger.warning("Apple Journal import could not keep a picture — %s", trouble)
+                continue
             kept.append({"file": stored, "caption": picture["caption"]})
+        return kept
+
+    for entry in fresh:
+        if not entry["entry_date"]:
+            skipped += 1
+            continue
+        on = date.fromisoformat(entry["entry_date"])
+        kept = await _photographs(entry, on)
         pictures += len(kept)
-        await sanctuary_db.create_entry(
+        entry_id = await sanctuary_db.create_entry(
             user_id,
             {
                 "entry_date": entry["entry_date"],
@@ -653,12 +712,35 @@ async def _bring_the_journal_over(path: str, user_id: int, request: Request) -> 
                 "photos": kept,
             },
         )
-        seen.add(entry["fingerprint"])
+        seen[entry["fingerprint"]] = entry_id
         written += 1
-    await sanctuary_db.set_json_state(user_id, _APPLE_JOURNAL_SEEN, sorted(seen))
+
+    # An entry that came over before but lost its pictures on the way — the
+    # whole of his first import — is filled in rather than brought again.
+    just_written = {entry["fingerprint"] for entry in fresh}
+    for entry in entries:
+        if entry["fingerprint"] in just_written or entry["fingerprint"] not in seen:
+            continue
+        if not entry["photos"] or not entry["entry_date"]:
+            continue
+        standing = await _entry_already_here(user_id, seen.get(entry["fingerprint"]), entry)
+        if standing is None or standing.get("photos"):
+            continue
+        kept = await _photographs(entry, date.fromisoformat(entry["entry_date"]))
+        if not kept:
+            continue
+        await sanctuary_db.update_entry(user_id, standing["id"], {"photos": kept})
+        seen[entry["fingerprint"]] = standing["id"]
+        pictures += len(kept)
+        filled += 1
+
+    await sanctuary_db.set_json_state(user_id, _APPLE_JOURNAL_SEEN, seen)
     return {
         "written": written,
+        "filled": filled,
         "pictures": pictures,
+        "pictures_lost": lost,
+        "trouble": trouble,
         "videos": sum(entry.get("videos") or 0 for entry in fresh),
         "already_here": len(entries) - len(fresh),
         "undated": skipped,
