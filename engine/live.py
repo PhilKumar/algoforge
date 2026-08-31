@@ -40,6 +40,7 @@ from engine.backtest import (
     get_strike_step,
     inspect_condition_group,
 )
+from engine.execution_profiles import resolve_execution_costs
 from engine.indicators import (
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -234,7 +235,10 @@ class LiveEngine:
         )
         self.strategy = strategy
         self._indicator_context_raw = pd.DataFrame()
-        self.deploy_config = deploy_config or strategy.get("deploy_config", {})
+        # Rebind the local too: everything below reads `deploy_config`, and a
+        # None default made configure() raise on the fill-timeout lookup.
+        deploy_config = deploy_config or strategy.get("deploy_config", {}) or {}
+        self.deploy_config = deploy_config
         self.max_daily_loss = float(strategy.get("max_daily_loss", 0) or 0)
 
         # Pre-compute strategy-level SL/TP values
@@ -243,11 +247,17 @@ class LiveEngine:
         self._tp_pct = float(strategy.get("target_profit_pct", 0) or 0)
         self._tp_rupees = float(strategy.get("target_profit_rupees", 0) or 0)
         self.initial_capital = float(strategy.get("initial_capital", 0) or 0)
-        self._enforce_capital = bool(strategy.get("enforce_capital", False))
-        self._capital_buffer_pct = min(99.0, max(0.0, float(strategy.get("capital_buffer_pct", 0) or 0)))
+        # Same rule as paper: on "auto" the instrument decides. Live does not
+        # simulate slippage -- it gets real fills -- but the capital check and
+        # its buffer come from the same row, and that check is what stands
+        # between a signal and an order the account cannot fund.
+        costs = resolve_execution_costs(strategy)
+        self.execution_profile = costs["execution_profile"]
+        self._enforce_capital = bool(costs["enforce_capital"])
+        self._capital_buffer_pct = min(99.0, costs["capital_buffer_pct"])
         self._sell_option_margin_per_lot = get_sell_option_margin_per_lot(
             strategy.get("instrument", "26000"),
-            strategy.get("sell_option_margin_per_lot", 0),
+            costs["sell_option_margin_per_lot"],
         )
         fill_timeout = int(
             deploy_config.get("order_fill_timeout_sec", strategy.get("order_fill_timeout_sec", 15)) or 15

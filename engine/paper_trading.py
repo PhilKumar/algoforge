@@ -40,6 +40,7 @@ from engine.backtest import (
     get_strike_step,
     inspect_condition_group,
 )
+from engine.execution_profiles import resolve_execution_costs
 from engine.indicators import (
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -470,16 +471,27 @@ class PaperTradingEngine:
         self._tp_pct = tp_pct
         self._tp_rupees = tp_rupees
         self.initial_capital = float(strategy.get("initial_capital", 500000.0) or 500000.0)
-        self._enforce_capital = bool(strategy.get("enforce_capital", False))
-        self._capital_buffer_pct = min(99.0, max(0.0, float(strategy.get("capital_buffer_pct", 0) or 0)))
+        # "auto" means the INSTRUMENT decides, not whatever basis points the
+        # payload happens to carry. Three running strategies were under-costed
+        # because a stored number outlived the profile that should have set it.
+        costs = resolve_execution_costs(strategy)
+        self.execution_profile = costs["execution_profile"]
+        self._enforce_capital = bool(costs["enforce_capital"])
+        self._capital_buffer_pct = min(99.0, costs["capital_buffer_pct"])
         self._sell_option_margin_per_lot = get_sell_option_margin_per_lot(
             strategy.get("instrument", "26000"),
-            strategy.get("sell_option_margin_per_lot", 0),
+            costs["sell_option_margin_per_lot"],
         )
-        self.execution_profile = str(strategy.get("execution_profile", "auto") or "auto")
-        self._spread_bps = max(0.0, float(strategy.get("spread_bps", 0) or 0))
-        self._entry_slippage_bps = max(0.0, float(strategy.get("entry_slippage_bps", 0) or 0))
-        self._exit_slippage_bps = max(0.0, float(strategy.get("exit_slippage_bps", 0) or 0))
+        self._spread_bps = costs["spread_bps"]
+        self._entry_slippage_bps = costs["entry_slippage_bps"]
+        self._exit_slippage_bps = costs["exit_slippage_bps"]
+        self.log_event(
+            "info",
+            f"Execution profile: {self.execution_profile} ({costs['profile_label']}) - "
+            f"spread {self._spread_bps:g}bps, entry slip {self._entry_slippage_bps:g}bps, "
+            f"exit slip {self._exit_slippage_bps:g}bps, capital check "
+            f"{'ON' if self._enforce_capital else 'OFF'}",
+        )
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         self.log_event("info", f"Product: {self._product_type(strategy)}")

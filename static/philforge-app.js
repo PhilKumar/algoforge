@@ -7102,15 +7102,26 @@ function restoreExecutionSettings(source) {
   // Treat those as Custom rather than silently applying today's Auto values.
   const profile = data.execution_profile || 'custom';
   document.getElementById('execution-profile').value = profile;
-  applyExecutionProfile(false);
-  document.getElementById('spread-bps').value = data.spread_bps ?? 0;
-  document.getElementById('entry-slippage-bps').value = data.entry_slippage_bps ?? 0;
-  document.getElementById('exit-slippage-bps').value = data.exit_slippage_bps ?? 0;
   document.getElementById('entry-delay-candles').value = data.entry_delay_candles ?? 0;
   document.getElementById('signal-exit-delay-candles').value = data.signal_exit_delay_candles ?? 0;
-  document.getElementById('capital-buffer-pct').value = data.capital_buffer_pct ?? 0;
-  document.getElementById('sell-option-margin-per-lot').value = data.sell_option_margin_per_lot ?? 0;
-  document.getElementById('enforce-capital').checked = !!data.enforce_capital;
+  // On AUTO the instrument decides, so let applyExecutionProfile stand and do
+  // NOT paint the stored numbers back over it. Loading the stored values here
+  // is how My_First_Run_PE and _CE kept saying "auto" while carrying the Cash
+  // Equity row: one bad moment wrote 12/6/8, and every load-and-save since
+  // restored it, re-saved it, and made it permanent.
+  if (profile === 'auto') {
+    // false, not true: with profile 'auto' the numbers are applied either
+    // way, and forceApply ALSO zeroes the two delay fields we just restored.
+    applyExecutionProfile(false);
+  } else {
+    applyExecutionProfile(false);
+    document.getElementById('spread-bps').value = data.spread_bps ?? 0;
+    document.getElementById('entry-slippage-bps').value = data.entry_slippage_bps ?? 0;
+    document.getElementById('exit-slippage-bps').value = data.exit_slippage_bps ?? 0;
+    document.getElementById('capital-buffer-pct').value = data.capital_buffer_pct ?? 0;
+    document.getElementById('sell-option-margin-per-lot').value = data.sell_option_margin_per_lot ?? 0;
+    document.getElementById('enforce-capital').checked = !!data.enforce_capital;
+  }
   const inferredNextMinute = Number(data.execution_timeframe_minutes) === 1
     && Number(data.entry_evaluation_timeframe_minutes) > 1
     && data.signal_exit_next_open === true;
