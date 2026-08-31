@@ -118,3 +118,30 @@ class BothEnginesUseIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ADeployIsPersistedBeforeAnythingCanRestartIt(unittest.TestCase):
+    """The window that made PE_NoTarget keep reverting.
+
+    `_paper_start_impl` replaces an engine by calling `old_engine.stop()`,
+    which writes the OLD engine's dying in-memory config to the state file,
+    then configures the new one -- and used to start the task without saving.
+    Between those two moments the file on disk described the run that had just
+    been replaced, so any restart in that window restored the old config and
+    silently undid the deploy. `live_start` always persisted here; paper did
+    not.
+    """
+
+    def test_paper_start_saves_state_after_configuring_the_new_engine(self):
+        import inspect
+
+        import app as app_module
+
+        src = inspect.getsource(app_module._paper_start_impl)
+        start = src.index("paper_task_bucket[run_id] = asyncio.create_task")
+        self.assertIn(
+            "_save_state()",
+            src[start:],
+            "paper_start must persist the new engine's config before returning, "
+            "or a restart restores the engine it just replaced",
+        )

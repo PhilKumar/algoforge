@@ -18622,6 +18622,15 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     paper_bucket[run_id] = engine
     paper_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
 
+    # Persist NOW, the way live_start already does. The old engine's stop()
+    # saved its dying in-memory config a few lines above, so until the new
+    # engine writes something the file on disk still describes the run that was
+    # just replaced -- and a restart in that window restores the OLD config and
+    # silently undoes the deploy. That is exactly how PE_NoTarget kept coming
+    # back on the custom 0/0/0 profile after being redeployed onto auto.
+    engine.session_date = _ist_today()
+    engine._save_state()
+
     alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
