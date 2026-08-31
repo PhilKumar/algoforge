@@ -2307,7 +2307,15 @@ class DhanClient:
         return resp.json()
 
     def get_order_status(self, order_id: str) -> dict:
-        """Get status of a specific order"""
+        """Get status of a specific order.
+
+        Dhan answers /v2/orders/{id} with a single-element ARRAY, not an
+        object -- every caller here does `status.get(...)`, which on a list
+        raises AttributeError and reads through as a verification failure.
+        Normalising here means one place knows the shape.
+        """
+        if not str(order_id or "").strip():
+            return {"orderStatus": "UNKNOWN", "message": "no order id"}
         try:
             resp = _request_with_retry(
                 "GET",
@@ -2318,10 +2326,21 @@ class DhanClient:
                 refresh_token_func=self.refresh_access_token,
             )
             if resp.status_code != 200:
-                return {"orderStatus": "UNKNOWN"}
-            return resp.json()
-        except Exception:
-            return {"orderStatus": "UNKNOWN"}
+                return {"orderStatus": "UNKNOWN", "message": f"HTTP {resp.status_code}"}
+            body = resp.json()
+        except Exception as exc:
+            return {"orderStatus": "UNKNOWN", "message": str(exc)}
+
+        if isinstance(body, list):
+            # An EMPTY array is Dhan saying it has no such order. That is not
+            # an empty object -- returning one hands every caller a dict with
+            # no status in it at all.
+            if not body:
+                return {"orderStatus": "UNKNOWN", "message": "order not found"}
+            body = body[0]
+        if not isinstance(body, dict):
+            return {"orderStatus": "UNKNOWN", "message": "unrecognised order payload"}
+        return body
 
     # ──────────────────────────────────────────────────────────
     # Order Verification (#7) — poll until filled or timeout
@@ -2353,10 +2372,22 @@ class DhanClient:
         while _t.time() - start < max_wait_sec:
             status = self.get_order_status(order_id)
             last_status = status
-            os = status.get("orderStatus", status.get("status", "UNKNOWN")).upper()
-            filled_qty = _to_int(status.get("filledQty", status.get("tradedQuantity", status.get("quantity", 0))), 0)
+            os = str(status.get("orderStatus", status.get("status", "UNKNOWN")) or "UNKNOWN").upper()
+            # ONLY a real fill key counts. This used to fall back to
+            # `quantity` -- the ORDER quantity -- so a pending order whose
+            # payload carried no fill key reported filled == requested and was
+            # declared FILLED, with an average price of zero. The engine then
+            # opened a position that did not exist. An absent fill key means
+            # unknown, and unknown is not filled.
+            filled_qty = 0
+            for key in ("filledQty", "filled_qty", "tradedQuantity", "traded_quantity"):
+                if status.get(key) not in (None, ""):
+                    filled_qty = _to_int(status.get(key), 0)
+                    break
             requested_qty = _to_int(status.get("quantity", status.get("orderQuantity", 0)), 0)
-            avg_price = _to_float(status.get("averagePrice", status.get("price", 0)), 0.0)
+            avg_price = _to_float(
+                status.get("averageTradedPrice", status.get("averagePrice", status.get("price", 0))), 0.0
+            )
             # Terminal states
             if os in ("TRADED", "FILLED", "COMPLETE") or (requested_qty > 0 and filled_qty >= requested_qty):
                 return {
@@ -2368,7 +2399,10 @@ class DhanClient:
                     "avg_price": avg_price,
                     "message": "Order filled successfully",
                 }
-            if os in ("REJECTED", "CANCELLED"):
+            # EXPIRED is terminal too, and it is a clean nothing-happened --
+            # leaving it out meant polling it for the full timeout and then
+            # reporting TIMEOUT, which reads as "might have filled".
+            if os in ("REJECTED", "CANCELLED", "EXPIRED"):
                 return {
                     "order_id": order_id,
                     "status": os,
@@ -2386,7 +2420,10 @@ class DhanClient:
             "raw_status": str(last_status.get("orderStatus", last_status.get("status", "UNKNOWN"))).upper(),
             "requested_qty": _to_int(last_status.get("quantity", last_status.get("orderQuantity", 0)), 0),
             "filled_qty": _to_int(last_status.get("filledQty", last_status.get("tradedQuantity", 0)), 0),
-            "avg_price": _to_float(last_status.get("averagePrice", last_status.get("price", 0)), 0.0),
+            "avg_price": _to_float(
+                last_status.get("averageTradedPrice", last_status.get("averagePrice", last_status.get("price", 0))),
+                0.0,
+            ),
             "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}",
         }
 

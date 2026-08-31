@@ -203,6 +203,10 @@ class LiveEngine:
         self._signal_candle = None  # OHLC of the candle that triggered entry signal
 
         # ── "Quantman Way" — 1-second candle-boundary execution ──
+        # Set when a leg failed in a state where the broker might still hold
+        # it. Blocks the retry-once path: re-sending then is how you end up
+        # holding twice what the engine thinks it holds.
+        self._entry_retry_blocked = False
         self._pending_order: Optional[dict] = None  # Rich signal context for next-candle entry
         self._last_processed_candle_time: Optional[datetime] = None  # Double-trigger guard
         self._last_strategy_candle_time: Optional[datetime] = None  # Last closed execution-timeframe candle seen
@@ -723,6 +727,7 @@ class LiveEngine:
             "avg_price": 0.0,
             "passed": False,
             "partial_fill": False,
+            "safe_to_retry": False,
             "message": "",
         }
 
@@ -758,12 +763,23 @@ class LiveEngine:
 
         if not passed:
             self.order_verification_failures += 1
+            # May this leg be sent again? Only when the broker is certain
+            # nothing happened. A clean refusal is certain; a timeout is not.
+            safe_to_retry = status in {"REJECTED", "CANCELLED", "EXPIRED"} and filled_qty <= 0
             if status in {"TIMEOUT", "UNKNOWN", "OPEN", "PENDING"} or partial_fill:
                 try:
                     await self.dhan.async_cancel_order(order_id)
                     verification["cancelled_after_failure"] = True
+                    # The cancel was ACCEPTED, so the order was still resting
+                    # unfilled when we pulled it. That -- and only that --
+                    # makes an unfilled market order safe to send again.
+                    safe_to_retry = not partial_fill
                 except Exception as cancel_exc:
                     verification["cancel_after_failure_error"] = str(cancel_exc)
+                    # A cancel that will not go through is the signature of an
+                    # order that already traded. Never re-send after this.
+                    safe_to_retry = False
+            verification["safe_to_retry"] = bool(safe_to_retry)
             self.log_event(
                 "warning",
                 f"{stage.title()} order not fully filled for {label}: {status} qty {filled_qty}/{expected_qty} {verification['message']}".strip(),
@@ -1978,6 +1994,15 @@ class LiveEngine:
             return True
         else:
             # Entry failed
+            if self._entry_retry_blocked:
+                self.log_event(
+                    "error",
+                    "Entry retry refused — a leg could not be proven flat at the broker. "
+                    "Reconcile Dhan before this strategy trades again.",
+                )
+                self._clear_pending_order()
+                self._save_state()
+                return False
             if attempt >= 2:
                 self.log_event(
                     "error", f"❌ Entry FAILED after {attempt} attempts — giving up. Check debug_engine_state()."
@@ -2392,6 +2417,7 @@ class LiveEngine:
         Uses true-async httpx calls + parallel leg placement for minimum latency.
         """
         self._entry_submission_ambiguous = False
+        self._entry_retry_blocked = False
         # The why, frozen at the instant of decision, attached to every leg below.
         entry_why = decision_why(row, self.entry_conditions, self._condition_debug, self._prev_row, "ENTRY_SIGNAL")
         self.log_event(
@@ -2588,6 +2614,22 @@ class LiveEngine:
             )
             self._save_state()
             return
+
+        unsafe = [r for r in results if not r[0] and not (r[-1] or {}).get("safe_to_retry")]
+        if unsafe:
+            # Not necessarily a stop -- some legs may have filled fine, and the
+            # basket below still handles those. What it does mean is that this
+            # entry must never be fired a second time.
+            self._entry_retry_blocked = True
+            self.manual_intervention_required = True
+            for res in unsafe:
+                v = res[-1] or {}
+                self.log_event(
+                    "error",
+                    f"CRITICAL: Leg {res[1] + 1} ended {v.get('status')} and could not be proven flat "
+                    f"({v.get('message') or 'no detail'}). This entry will NOT be retried; "
+                    f"check the Dhan order book for a live order before restarting.",
+                )
 
         # ── Phase 3: Build positions from results ──
         entered_positions = []

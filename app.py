@@ -3955,6 +3955,58 @@ async def _live_engine_broadcast(user_id: int, run_id: str, event: dict):
         await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
 
+def _supervise_engine_task(task, engine, *, run_id: str, mode_label: str = "Auto"):
+    """Notice when a driver task dies instead of letting it vanish.
+
+    `asyncio.create_task(engine.start(...))` was fired and forgotten. The WS
+    loop guards its own body, so transient errors are survivable -- but
+    anything raised OUTSIDE it (the scrip-master load, the feed bootstrap, the
+    history seed) killed the task with the exception sitting unretrieved on an
+    object nobody held. `engine.running` stayed True, so the panel went on
+    reporting a live strategy that had no driver behind it.
+
+    The engine is marked stopped, the reason is written into its own event log
+    where the panel already reads it, and an alert goes out.
+    """
+
+    def _finished(done, _engine=engine, _run_id=run_id, _mode=mode_label):
+        if done.cancelled():
+            return
+        try:
+            exc = done.exception()
+        except Exception:  # pragma: no cover - retrieving it is what matters
+            return
+        if exc is None:
+            return
+        import traceback as _tb  # module-local, like every other use in this file
+
+        detail = f"{type(exc).__name__}: {exc}"
+        print(f"❌ [{_mode}] Engine task '{_run_id}' died: {detail}")
+        _tb.print_exception(type(exc), exc, exc.__traceback__)
+        try:
+            _engine.running = False
+            _engine.log_event(
+                "error",
+                f"CRITICAL: the engine driver stopped unexpectedly ({detail}). "
+                f"No signals are being evaluated and no exits will fire. "
+                f"Check any open broker position before restarting.",
+            )
+            _engine._save_state()
+        except Exception as report_exc:
+            print(f"❌ [{_mode}] Could not record the driver death for '{_run_id}': {report_exc}")
+        try:
+            alerter.alert(
+                "Engine Driver Stopped",
+                f"Strategy: {_run_id}\nMode: {_mode}\n{detail}",
+                level="error",
+            )
+        except Exception:
+            pass
+
+    task.add_done_callback(_finished)
+    return task
+
+
 async def _square_off_live_engine_positions(engine, user_id: int, run_id: str, *, reason: str = "ENGINE_STOP") -> dict:
     """Attempt broker-aware square-off for all open live positions.
 
@@ -17912,7 +17964,9 @@ async def live_start(req: LiveStartRequest, request: Request):
 
     # Store engine and start task
     live_bucket[run_id] = engine
-    live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+    live_task_bucket[run_id] = _supervise_engine_task(
+        asyncio.create_task(engine.start(callback=broadcast)), engine, run_id=run_id
+    )
 
     # Persist config + state immediately so it survives server restarts
     engine.session_date = _ist_today()
@@ -22700,18 +22754,17 @@ async def _restore_live_engines():
             engine._load_state()
             engine.running = True
 
-            async def broadcast(event: dict, _rid=run_id, _user_id=getattr(engine, "_user_id", None)):
-                await _broadcast_user_ws_json(_user_id, {"source": "live", "run_id": _rid, **event})
-                if event.get("type") == "exit" and event.get("trade"):
-                    await _save_single_trade_to_history(
-                        event["trade"],
-                        "live",
-                        run_name=_rid,
-                        explicit_user_id=_user_id,
-                    )
+            # The SHARED helper, not a local copy of it. The copy that used to
+            # live here left out _check_trade_alerts, so every deploy and every
+            # restart silently ended live trade alerting for the rest of the
+            # day -- the engine kept trading and Phil stopped hearing about it.
+            async def broadcast(event: dict, _rid=run_id, _user_id=int(getattr(engine, "_user_id", None) or user_id)):
+                await _live_engine_broadcast(_user_id, _rid, event)
 
             live_bucket[run_id] = engine
-            live_task_bucket[run_id] = asyncio.create_task(engine.start(callback=broadcast))
+            live_task_bucket[run_id] = _supervise_engine_task(
+                asyncio.create_task(engine.start(callback=broadcast)), engine, run_id=run_id
+            )
             restored += 1
             print(f"✅ [Restore] Live engine '{run_id}' restored and started")
 
