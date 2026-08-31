@@ -1519,6 +1519,12 @@ html[data-theme="dark"]{color-scheme:dark}
       <input class="field" type="month" id="f-month" style="max-width:170px">
       <select class="field" id="f-kind" style="max-width:170px"><option value="">Everything</option></select>
       <input class="field" id="f-q" placeholder="Search words…" style="flex:1;min-width:140px">
+      <!-- Nothing can reach into the iPhone's Journal; the phone can hand
+           its own export over, and this reads it. -->
+      <label class="btn ghost small" style="cursor:pointer;white-space:nowrap"
+        title="Journal on the iPhone ▸ ⋯ ▸ Export, then choose AppleJournalEntries.zip">📔 From my iPhone
+        <input type="file" id="aj-file" accept=".zip,application/zip" class="hidden">
+      </label>
     </div>
 
     <!-- The journal IS the book. Two glass leaves meeting at a spine, days
@@ -4295,6 +4301,38 @@ document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && document.activeElement?.classList?.contains("photo-deck")) {
     e.preventDefault(); openDeck(document.activeElement);
   }
+});
+/* ── the iPhone's journal ──
+   Apple keeps those entries in an encrypted store on the phone that nothing
+   can read; the app's own Export writes AppleJournalEntries.zip, and that is
+   what he hands over. It is read and counted first, so he agrees to a number
+   of days before any of them are written; the same export offered twice adds
+   nothing the second time. */
+$("aj-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  toast("Reading the export…");
+  const look = new FormData(); look.append("file", file); look.append("look", "1");
+  let seen;
+  try { seen = await api("/api/sanctuary/journal/import/apple", {method: "POST", body: look}); }
+  catch (err) { return toast(err.message || "That export would not open"); }
+  if (!seen.fresh) {
+    return toast(seen.already_here ? `All ${seen.already_here} of those are already here 🌿` : "Nothing to bring over");
+  }
+  const span = seen.from && seen.to && seen.from !== seen.to ? ` from ${niceDate(seen.from)} to ${niceDate(seen.to)}` : "";
+  const parts = [`${seen.fresh} entr${seen.fresh === 1 ? "y" : "ies"}${span}`];
+  if (seen.pictures) parts.push(`${seen.pictures} picture${seen.pictures === 1 ? "" : "s"}`);
+  if (seen.already_here) parts.push(`${seen.already_here} already here`);
+  if (seen.undated) parts.push(`${seen.undated} with no date, which cannot be filed`);
+  if (!await confirmDialog(`${parts.join(", ")}. Each one lands on the day it was written.`, "Bring them in")) return;
+  toast("Bringing them over…");
+  const bring = new FormData(); bring.append("file", file);
+  try {
+    const done = await api("/api/sanctuary/journal/import/apple", {method: "POST", body: bring});
+    toast(`${done.written} entr${done.written === 1 ? "y" : "ies"} came over${done.pictures ? ` with ${done.pictures} pictures` : ""}. 🌿`);
+    refreshJournal();
+  } catch (err) { toast(err.message || "They would not come over"); }
 });
 $("f-month").addEventListener("change", () => { S.jMonth = $("f-month").value; refreshJournal(); });
 $("f-kind").addEventListener("change", () => { S.jKind = $("f-kind").value; refreshJournal(); });

@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 import auth
 import config
 import db as core_db
+import sanctuary_apple_journal
 import sanctuary_content
 import sanctuary_db
 import sanctuary_docs
@@ -496,22 +497,116 @@ async def _read_upload(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
+def _keep_photo(user_id: int, data: bytes, declared: str, on: date) -> str:
+    """Decode a picture, strip it, and file it under the day it belongs to.
+
+    An imported entry's picture is filed under the day it was taken, not the
+    day it was imported, so the folders on disk still read as a diary.
+    """
+    cleaned = sanitize_image(data, declared)
+    rel_dir = on.strftime("%Y/%m")
+    directory = os.path.join(_photo_root(user_id), rel_dir)
+    os.makedirs(directory, exist_ok=True)
+    name = f"{on.strftime('%d')}-{secrets.token_hex(8)}{cleaned.extension}"
+    fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(cleaned.data)
+    return f"{rel_dir}/{name}"
+
+
 @router.post("/api/sanctuary/photos")
 async def photo_upload(file: UploadFile, user: dict = Depends(_unlocked_user)):
     data = await _read_upload(file)
     try:
-        cleaned = await asyncio.to_thread(sanitize_image, data, file.content_type or "")
+        stored = await asyncio.to_thread(_keep_photo, int(user["id"]), data, file.content_type or "", _today_ist())
     except ImageValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    today = _today_ist()
-    rel_dir = today.strftime("%Y/%m")
-    directory = os.path.join(_photo_root(int(user["id"])), rel_dir)
-    os.makedirs(directory, exist_ok=True)
-    name = f"{today.strftime('%d')}-{secrets.token_hex(8)}{cleaned.extension}"
-    fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(cleaned.data)
-    return {"file": f"{rel_dir}/{name}"}
+    return {"file": stored}
+
+
+# ── The iPhone's own Journal ─────────────────────────────────────
+#
+# Nothing can connect to it: Apple keeps those entries in an encrypted store
+# on the phone with no API. The app exports them though — Journal ▸ ⋯ ▸
+# Export writes AppleJournalEntries.zip — and that is what this reads. The
+# same zip offered twice adds nothing the second time.
+
+_APPLE_JOURNAL_SEEN = "apple_journal_seen"
+_MAX_JOURNAL_ZIP = 600 * 1024 * 1024
+
+
+@router.post("/api/sanctuary/journal/import/apple")
+async def apple_journal_import(file: UploadFile, request: Request, user: dict = Depends(_unlocked_user)):
+    user_id = int(user["id"])
+    blob = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        blob.extend(chunk)
+        if len(blob) > _MAX_JOURNAL_ZIP:
+            raise HTTPException(status_code=413, detail="That export is larger than this can take")
+    if not blob:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        entries = await asyncio.to_thread(sanctuary_apple_journal.read_export, bytes(blob))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    form = await request.form()
+    dry_run = str(form.get("look") or "") == "1"
+    seen = set(await sanctuary_db.get_json_state(user_id, _APPLE_JOURNAL_SEEN, []))
+    fresh = [entry for entry in entries if entry["fingerprint"] not in seen]
+    undated = [entry for entry in fresh if not entry["entry_date"]]
+    span = [entry["entry_date"] for entry in fresh if entry["entry_date"]]
+    if dry_run:
+        return {
+            "entries": len(entries),
+            "fresh": len(fresh),
+            "already_here": len(entries) - len(fresh),
+            "undated": len(undated),
+            "pictures": sum(len(entry["photos"]) for entry in fresh),
+            "from": min(span, default=""),
+            "to": max(span, default=""),
+        }
+
+    written, pictures, skipped = 0, 0, 0
+    for entry in fresh:
+        if not entry["entry_date"]:
+            skipped += 1
+            continue
+        on = date.fromisoformat(entry["entry_date"])
+        kept = []
+        for picture in entry["photos"]:
+            try:
+                stored = await asyncio.to_thread(_keep_photo, user_id, picture["data"], "", on)
+            except (ImageValidationError, OSError):
+                continue  # one unreadable picture is not a lost entry
+            kept.append({"file": stored, "caption": picture["caption"]})
+        pictures += len(kept)
+        await sanctuary_db.create_entry(
+            user_id,
+            {
+                "entry_date": entry["entry_date"],
+                "kind": "photo" if kept and not entry["body"] else "note",
+                "title": entry["title"],
+                "body": entry["body"],
+                "music": "",
+                "mood": None,
+                "photos": kept,
+            },
+        )
+        seen.add(entry["fingerprint"])
+        written += 1
+    await sanctuary_db.set_json_state(user_id, _APPLE_JOURNAL_SEEN, sorted(seen))
+    return {
+        "written": written,
+        "pictures": pictures,
+        "already_here": len(entries) - len(fresh),
+        "undated": skipped,
+        "from": min(span, default=""),
+        "to": max(span, default=""),
+    }
 
 
 @router.get("/api/sanctuary/photos/{file_path:path}")
