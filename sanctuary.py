@@ -971,10 +971,35 @@ async def _pay_that_arrived(user_id: int, month: str, months_state: dict, defaul
     mis-filed row into a figure nobody could check.
     """
     entry = months_state.get(month) or {}
-    if "salary" in entry:  # his own figure, or a payslip's, outranks the bank
-        return round(float(entry["salary"]), 2)
+    stated, said = _stated_salary(entry)
+    if _salary_outranks_the_bank(said):  # his own figure, or a payslip's
+        return stated
     ledger = await sanctuary_db.list_ledger(user_id, month)
-    return round(_salary_from_ledger(ledger) or default_salary, 2)
+    return round(_salary_from_ledger(ledger) or (default_salary if stated is None else stated), 2)
+
+
+def _stated_salary(entry: dict) -> tuple[float | None, str]:
+    """This month's pay as it has been written down, and who wrote it.
+
+    Only his own correction and a payslip outrank what the bank actually
+    saw arrive. A figure with nobody behind it does not: it was written
+    before this page recorded who said what, and it is exactly the stale
+    one — his tile sat on an old employer's number for months while the
+    statement underneath it carried the true credit, because any stored
+    figure at all stopped the bank from being consulted.
+    """
+    if "salary" not in entry:
+        return None, ""
+    try:
+        figure = round(float(entry["salary"]), 2)
+    except (TypeError, ValueError):
+        return None, ""
+    said = str(entry.get("salary_source") or "")
+    return figure, said if said in ("manual", "payslip") else "kept"
+
+
+def _salary_outranks_the_bank(said: str) -> bool:
+    return said in ("manual", "payslip")
 
 
 def _salary_from_ledger(ledger: list[dict]) -> float:
@@ -1012,7 +1037,15 @@ async def _salary_from_payslip(user_id: int, blob: bytes) -> dict | None:
     except Exception:  # noqa: BLE001 - an unreadable upload is not an error
         return None
     if not read:
-        return None
+        # A paper that calls itself a payslip and still will not parse is
+        # worth saying out loud. Filed in silence, it looked exactly like a
+        # payslip that had been read, and the tile it should have corrected
+        # went on showing a figure from a previous employer.
+        try:
+            announced = await asyncio.to_thread(_payslip_text_unread, blob)
+        except Exception:  # noqa: BLE001
+            announced = False
+        return {"unread": True} if announced else None
     months = await sanctuary_db.get_json_state(user_id, "months", {})
     entry = dict(months.get(read["month"]) or {})
     if entry.get("salary_source") == "manual":
@@ -1024,6 +1057,16 @@ async def _salary_from_payslip(user_id: int, blob: bytes) -> dict | None:
     months[read["month"]] = entry
     await sanctuary_db.set_json_state(user_id, "months", months)
     return {"month": read["month"], "net": read["net"], "employer": read.get("employer", "")}
+
+
+def _payslip_text_unread(blob: bytes) -> bool:
+    """Whether the upload announced itself a payslip though nothing parsed."""
+    import io
+
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(blob)) as pdf:
+        return sanctuary_docs.looks_like_a_payslip(pdf.pages[0].extract_text() or "")
 
 
 def _read_payslip_pdf(blob: bytes) -> dict | None:
@@ -3420,13 +3463,14 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
     entry = months_state.get(month) or {}
-    salary = float(entry.get("salary", default_salary))
-    salary_source = str(entry.get("salary_source") or "")
-    # No payslip for this month, but the bank saw the pay arrive: the
-    # employer's credit is the salary. His own figure and a payslip both
-    # outrank it, and it is never written down — the statement stays the
-    # source, so a corrected import corrects the tile.
-    if "salary" not in entry:
+    stated, said = _stated_salary(entry)
+    salary = default_salary if stated is None else stated
+    salary_source = said
+    # The bank saw the pay arrive: the employer's credit is the salary. His
+    # own figure and a payslip outrank it; nothing else does. It is never
+    # written down — the statement stays the source, so a corrected import
+    # corrects the tile.
+    if not _salary_outranks_the_bank(said):
         from_bank = _salary_from_ledger(ledger)
         if from_bank:
             salary, salary_source = from_bank, "statement"

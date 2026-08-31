@@ -1764,6 +1764,102 @@ class PayslipReadingTests(unittest.TestCase):
         self.assertIsNone(self.read("Take Home Pay 95,170.45"))
         self.assertIsNone(self.read("a shopping list"))
 
+    # ── the layout that replaced the one above ──────────────────
+    #
+    # Every figure below is invented. The employer's newer slip writes "Pay
+    # Slip" as two words, rules nothing into a table, and calls the figure
+    # NET PAY. The reader knew only the older shape, so each of these was
+    # refused without a word and the pay tile kept an out-of-date number.
+    NEW = (
+        "Acme Systems Private Limited\n"
+        "RMZ Titanium, No 175, First Floor\n"
+        "Pay Slip for the Month of August 2026\n"
+        "Employee Name : A N OTHER Pay Date : 31.08.2026\n"
+        "EARNINGS & ALLOWANCES UNITS INR DEDUCTIONS INR\n"
+        "Monthly Basic Salary 40,000.00 EE Provident Fund 1,800.00\n"
+        "Total Earnings 90,000.00 Total Deductions 12,345.00\n"
+        "NET PAY: 77,655.00\n"
+        "NET PAY (in words): SEVENTY SEVEN THOUSAND SIX HUNDRED FIFTY FIVE RUPEES ONLY\n"
+    )
+
+    def test_the_two_word_heading_and_net_pay_are_read(self):
+        r = self.read(self.NEW)
+        self.assertEqual(r["month"], "2026-08")
+        self.assertEqual(r["net"], 77655.00)
+        self.assertEqual(r["employer"], "Acme Systems Private Limited")
+
+    def test_the_stated_pay_date_stands_in_for_a_transfer_row(self):
+        self.assertEqual(self.read(self.NEW)["paid_on"], "2026-08-31")
+
+    def test_the_unruled_totals_line_is_read(self):
+        r = self.read(self.NEW)
+        self.assertEqual(r["gross"], 90000.00)
+        self.assertEqual(r["deductions"], 12345.00)
+
+    def test_the_figure_in_words_is_never_mistaken_for_the_figure(self):
+        # "NET PAY (in words): SEVENTY SEVEN..." carries no digits. A reader
+        # that matched it would set the salary from whatever came next.
+        words_first = self.NEW.replace("NET PAY: 77,655.00\n", "")
+        self.assertIsNone(self.read(words_first))
+
+    def test_take_home_still_wins_where_a_slip_prints_both(self):
+        both = self.NEW + "Take Home Pay 66,000.00\n"
+        self.assertEqual(self.read(both)["net"], 66000.00)
+
+    def test_a_paper_that_calls_itself_a_payslip_is_recognisable_as_one(self):
+        from sanctuary_docs import looks_like_a_payslip
+
+        self.assertTrue(looks_like_a_payslip("Pay Slip for the Month of August 2026"))
+        self.assertTrue(looks_like_a_payslip("PAYSLIP FOR THE MONTH OF April 2016"))
+        self.assertFalse(looks_like_a_payslip("Statement of Account for August 2026"))
+
+
+class WhoSaysWhatThePayWasTests(unittest.TestCase):
+    """Which figure the pay tile trusts, and whose it is.
+
+    Every amount here is invented. His own correction and a payslip outrank
+    the bank; a figure with nobody behind it does not — that one was written
+    before this page recorded its sources, and it is exactly the stale one.
+    A month whose salary was stored without a source used to shut the bank
+    out for good: the statement carried the true credit and the tile went on
+    showing an old employer's number, calling it "your usual pay".
+    """
+
+    def stated(self, entry):
+        import sanctuary
+
+        return sanctuary._stated_salary(entry)
+
+    def outranks(self, said):
+        import sanctuary
+
+        return sanctuary._salary_outranks_the_bank(said)
+
+    def test_a_month_never_spoken_for_has_nothing_stated(self):
+        self.assertEqual(self.stated({}), (None, ""))
+
+    def test_his_own_figure_and_a_payslip_outrank_the_bank(self):
+        self.assertEqual(self.stated({"salary": 90000.0, "salary_source": "manual"}), (90000.0, "manual"))
+        self.assertEqual(self.stated({"salary": 90000.0, "salary_source": "payslip"}), (90000.0, "payslip"))
+        self.assertTrue(self.outranks("manual"))
+        self.assertTrue(self.outranks("payslip"))
+
+    def test_a_figure_with_nobody_behind_it_does_not_outrank_the_bank(self):
+        figure, said = self.stated({"salary": 120000.0})
+        self.assertEqual(figure, 120000.0)
+        self.assertEqual(said, "kept")
+        self.assertFalse(self.outranks("kept"))
+
+    def test_a_statement_never_outranks_itself_into_the_stored_month(self):
+        # The bank's figure is never written down, so it can never become
+        # the thing that blocks a later, corrected import.
+        self.assertFalse(self.outranks("statement"))
+        self.assertFalse(self.outranks(""))
+
+    def test_an_unreadable_figure_is_treated_as_nothing_stated(self):
+        self.assertEqual(self.stated({"salary": None}), (None, ""))
+        self.assertEqual(self.stated({"salary": "not a number"}), (None, ""))
+
 
 class VaultTests(unittest.TestCase):
     """The vault: encrypted at rest, refusing to store plaintext, and the

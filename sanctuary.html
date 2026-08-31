@@ -3052,6 +3052,7 @@ const SALARY_SAID = {
   statement: "the bank saw it arrive",
   payslip: "from your payslip",
   manual: "your own figure",
+  kept: "a figure kept from before",
   default: "your usual pay",
 };
 function renderLedgerTable(){
@@ -4892,9 +4893,10 @@ function vaultForm(file){
       const r = await api("/api/sanctuary/vault", {method: "POST", body: fd});
       wrap.remove();
       toast(r.duplicate ? `Already in the vault${r.title ? ` as “${r.title}”` : ""} — kept once.`
+        : r.salary && r.salary.unread ? "Kept safe — but this payslip's figures would not read, so the pay tile is unchanged."
         : r.salary ? `Kept safe — and ${niceMonth(r.salary.month)} salary reads ${inr(r.salary.net)}. 🌿`
         : "Kept safe, under lock. 🌿");
-      loadVault(); if (r.salary) refreshFinance();
+      loadVault(); if (r.salary && !r.salary.unread) refreshFinance();
     } catch (e) { toast(e.message || "It would not go in"); }
   };
 }
@@ -4938,7 +4940,7 @@ $("vault-folder").onchange = async (e) => {
     + (skipped ? `\n\n${skipped} left behind — archives, or larger than 10 MB.` : ""),
     "Keep them safe"))) return;
   const bar = $("vault-progress");
-  let done = 0, failed = 0, salaried = 0, twins = 0;
+  let done = 0, failed = 0, salaried = 0, twins = 0, unread = 0;
   for (const file of files) {
     const rel = file.webkitRelativePath || file.name;
     /* webkitRelativePath opens with the folder HE picked, and that name then
@@ -4953,6 +4955,7 @@ $("vault-folder").onchange = async (e) => {
     try {
       const r = await api("/api/sanctuary/vault", {method: "POST", body: fd});
       if (r.duplicate) twins++;
+      else if (r.salary && r.salary.unread) unread++;
       else if (r.salary) salaried++;
     } catch { failed++; }
     done++;
@@ -4960,7 +4963,7 @@ $("vault-folder").onchange = async (e) => {
       <div class="loan-progress"><i style="width:${Math.round(done / files.length * 100)}%"></i></div>`;
   }
   bar.innerHTML = "";
-  toast(`${done - failed - twins} kept safe${twins ? `, ${twins} already in the vault` : ""}${failed ? `, ${failed} refused` : ""}${skipped ? `, ${skipped} skipped` : ""}${salaried ? ` · ${salaried} months of salary read` : ""}. 🌿`);
+  toast(`${done - failed - twins} kept safe${twins ? `, ${twins} already in the vault` : ""}${failed ? `, ${failed} refused` : ""}${skipped ? `, ${skipped} skipped` : ""}${salaried ? ` · ${salaried} months of salary read` : ""}${unread ? ` · ${unread} payslip${unread === 1 ? "" : "s"} would not read` : ""}. 🌿`);
   loadVault(); refreshFinance();
 };
 $("vault-drop").onclick = () => $("vault-file").click();

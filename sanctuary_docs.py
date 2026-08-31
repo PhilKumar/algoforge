@@ -204,14 +204,48 @@ def classify_document(filename: str, folder: str = "") -> dict:
 
 # ── Reading a payslip ────────────────────────────────────────────
 
-_TAKE_HOME_RE = re.compile(r"take\s*home\s*pay\s*([\d.,]+)", re.IGNORECASE)
-_PERIOD_RE = re.compile(r"payslip\s+for\s+the\s+month\s+of\s+(\w+)\s+((?:19|20)\d{2})", re.IGNORECASE)
+# Two employers, two layouts. The old IBM slip heads itself "Payslip for the
+# month of", totals in a pipe-ruled table, and calls the figure Take Home
+# Pay. The Kyndryl slip that replaced it writes "Pay Slip" as two words,
+# rules nothing, and calls the figure NET PAY. Reading only the first, every
+# Kyndryl payslip he filed was refused in silence and his pay tile kept a
+# number nobody had checked since IBM.
+_PAYSLIP_WORDS = ("payslip", "pay slip")
+_PERIOD_RE = re.compile(r"pay\s*slip\s+for\s+the\s+month\s+of\s+(\w+)\s+((?:19|20)\d{2})", re.IGNORECASE)
+# Take-home first: a slip that prints both means the one it calls take-home.
+# "NET PAY (in words)" must not answer — a colon and a digit must follow.
+_TAKE_HOME_RES = (
+    re.compile(r"take\s*home\s*pay\s*:?\s*([\d.,]+)", re.IGNORECASE),
+    re.compile(r"net\s*pay\s*:\s*([\d.,]+)", re.IGNORECASE),
+)
 _EMPLOYER_RE = re.compile(r"^([A-Za-z][A-Za-z .&]+(?:Ltd|Limited|Pvt|Inc)\.?)", re.MULTILINE)
-_GROSS_RE = re.compile(r"\|Total\s*\|\s*([\d.,]+)\s*\|Total\s*\|\s*([\d.,]+)", re.IGNORECASE)
+_GROSS_RES = (
+    re.compile(r"\|Total\s*\|\s*([\d.,]+)\s*\|Total\s*\|\s*([\d.,]+)", re.IGNORECASE),
+    re.compile(r"total\s+earnings\s+([\d.,]+)\s+total\s+deductions\s+([\d.,]+)", re.IGNORECASE),
+)
 # The transfer row opens with its own date and carries the arithmetic:
 # "30.09.2022 ICICI BANK <account> 95,170.45 = ... - ... + ...". The pay
 # PERIOD is printed earlier, so a bare date search finds the wrong one.
+# The newer slip has no such row and states a Pay Date outright.
 _TRANSFER_ROW_RE = re.compile(r"(\d{2})\.(\d{2})\.((?:19|20)\d{2})[^\n|]*?=", re.MULTILINE)
+_PAY_DATE_RE = re.compile(r"pay\s*date\s*:?\s*(\d{2})\.(\d{2})\.((?:19|20)\d{2})", re.IGNORECASE)
+
+
+def looks_like_a_payslip(text: str) -> bool:
+    """Whether the paper announces itself as a payslip at all.
+
+    An upload that says so and still will not parse is worth telling him
+    about; one that never claimed to be a payslip is not."""
+    low = (text or "").lower()
+    return any(word in low for word in _PAYSLIP_WORDS)
+
+
+def _first_match(patterns, text):
+    for pattern in patterns:
+        found = pattern.search(text)
+        if found:
+            return found
+    return None
 
 
 def _money(text: str) -> float | None:
@@ -241,10 +275,10 @@ def read_payslip(text: str) -> dict | None:
     Returns None unless BOTH a month and a take-home figure are found —
     a payslip that half-parses must not quietly set a salary to nonsense.
     """
-    if not text or "payslip" not in text.lower():
+    if not looks_like_a_payslip(text):
         return None
     period = _PERIOD_RE.search(text)
-    take_home = _TAKE_HOME_RE.search(text)
+    take_home = _first_match(_TAKE_HOME_RES, text)
     if not period or not take_home:
         return None
     month = _MONTHS.get(period.group(1).lower())
@@ -262,11 +296,11 @@ def read_payslip(text: str) -> dict | None:
     employer = _EMPLOYER_RE.search(text)
     if employer:
         result["employer"] = employer.group(1).strip()[:60]
-    totals = _GROSS_RE.search(text)
+    totals = _first_match(_GROSS_RES, text)
     if totals:
         result["gross"] = _money(totals.group(1))
         result["deductions"] = _money(totals.group(2))
-    transfer = _TRANSFER_ROW_RE.search(text)
+    transfer = _TRANSFER_ROW_RE.search(text) or _PAY_DATE_RE.search(text)
     if transfer:
         day, mon, year = transfer.groups()
         result["paid_on"] = f"{year}-{mon}-{day}"
