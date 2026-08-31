@@ -16842,6 +16842,56 @@ function _pfRestoreScroll(root, saved) {
   });
 }
 
+// ── Engine alerts ────────────────────────────────────────────────────
+// Two states the engine already knew about and the panel never showed. The
+// first is the one that matters: the live engine sets
+// manual_intervention_required when an order's state is unknown -- an entry it
+// could not confirm, an exit that failed three times, a partial fill it could
+// not flatten -- and then stops itself. Before this, the only outward sign was
+// the badge turning Stopped, which looks exactly like a stop you asked for.
+// The second says the leg's stop percentage has nothing resting at Dhan to
+// enforce it, so it dies with this process.
+function _renderLiveEngineAlerts(d) {
+  const out = [];
+
+  if (d && d.manual_intervention_required) {
+    const v = d.last_order_verification || {};
+    const bits = [];
+    if (v.label) bits.push(escapeHtml(String(v.label)));
+    if (v.status) bits.push(`status <b>${escapeHtml(String(v.status))}</b>`);
+    if (v.expected_qty) bits.push(`filled ${Number(v.filled_qty || 0)}/${Number(v.expected_qty)}`);
+    if (v.order_id) bits.push(`order ${escapeHtml(String(v.order_id))}`);
+    if (v.message) bits.push(escapeHtml(String(v.message)));
+    out.push(`
+      <div class="live-alert is-critical" role="alert">
+        <span class="live-alert-tag">Reconcile</span>
+        <div class="live-alert-body">
+          <div class="live-alert-title">The engine stopped with an order it could not confirm</div>
+          <div class="live-alert-text">Check your Dhan order book and positions before restarting this run. Restarting is blocked until the state is cleared, so nothing will re-send on its own.</div>
+          ${bits.length ? `<div class="live-alert-detail">${bits.join(' &middot; ')}</div>` : ''}
+        </div>
+      </div>`);
+  }
+
+  const bs = (d && d.broker_stop) || null;
+  const bare = bs ? Number(bs.unprotected_legs || 0) : 0;
+  if (bare > 0) {
+    const why = bs.requested
+      ? 'the stop order did not confirm at the broker'
+      : "the deploy option <b>Place leg SL</b> is set to No";
+    out.push(`
+      <div class="live-alert is-warn" role="status">
+        <span class="live-alert-tag">Unprotected</span>
+        <div class="live-alert-body">
+          <div class="live-alert-title">${bare} open leg${bare === 1 ? '' : 's'} with no stop resting at Dhan</div>
+          <div class="live-alert-text">The stop is being enforced by this engine only, because ${why}. If the app stops, the position runs unprotected until the exchange squares it off.</div>
+        </div>
+      </div>`);
+  }
+
+  return out.length ? `<div class="live-alerts">${out.join('')}</div>` : '';
+}
+
 function renderLivePanel(d, idx) {
   const container = document.getElementById('live-panels-container');
   const running = d.running;
@@ -17003,6 +17053,8 @@ function renderLivePanel(d, idx) {
     </div>`;
   }
 
+  const alertsHtml = _renderLiveEngineAlerts(d);
+
   // Keep the reader where they were: this write destroys every node.
   const _keptScroll = _pfCaptureScroll(container);
   container.innerHTML = `
@@ -17023,6 +17075,7 @@ function renderLivePanel(d, idx) {
   </div>
 
   ${conditionsHtml}
+  ${alertsHtml}
 
   <!-- The run at a glance. One tile vocabulary: an uppercase mono label over a
        tabular figure. Colour is reserved for meaning -- P&L and state -- so a

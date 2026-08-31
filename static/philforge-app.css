@@ -9125,6 +9125,44 @@ body :is(
 #live-page .live-chip.is-exit { background: rgba(245,158,11,.10); border-color: rgba(245,158,11,.22); }
 #live-page .live-chip.is-leg { background: rgba(139,92,246,.10); border-color: rgba(139,92,246,.24); }
 
+/* ── Engine alerts. Sits between the rule strip and the stat tiles, because
+   that is where the eye already lands and because it must be read before the
+   P&L is. Two tones only: critical (the engine stopped holding an order it
+   could not confirm) and warn (a leg with no stop resting at the broker).
+   Colour is the whole signal here, so the tone is on the strip, the tag and
+   the title -- not a bare left border that a light theme washes out. ── */
+#live-page .live-alerts {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+#live-page .live-alert {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 11px 14px; border-radius: 10px;
+  border: 1px solid var(--alert-line); background: var(--alert-bg);
+  border-left-width: 3px;
+}
+#live-page .live-alert.is-critical {
+  --alert-tone: #fca5a5; --alert-line: rgba(239,68,68,.42); --alert-bg: rgba(239,68,68,.10);
+}
+#live-page .live-alert.is-warn {
+  --alert-tone: #fbbf24; --alert-line: rgba(245,158,11,.40); --alert-bg: rgba(245,158,11,.09);
+}
+#live-page .live-alert-tag {
+  flex: none; margin-top: 1px; padding: 3px 9px; border-radius: 999px;
+  font: 800 9.5px 'JetBrains Mono', monospace;
+  letter-spacing: .7px; text-transform: uppercase;
+  color: var(--alert-tone); border: 1px solid var(--alert-line);
+  background: rgba(0,0,0,.16);
+}
+#live-page .live-alert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#live-page .live-alert-title { font-size: 13px; font-weight: 700; color: var(--alert-tone); }
+#live-page .live-alert-text { font-size: 12px; line-height: 1.55; color: var(--text); }
+#live-page .live-alert-text b { color: var(--alert-tone); }
+#live-page .live-alert-detail {
+  margin-top: 2px; font: 10.5px 'JetBrains Mono', monospace; line-height: 1.6;
+  color: var(--muted); overflow-x: auto; white-space: nowrap;
+}
+
 /* ── The trade journal: a per-trade chart button and the why panel under the
    frozen chart. Phil, 2026-08-17: "where, when, why the trade was taken and
    exited, with all CPR and indicators ... a frozen chart like CryptoForge."
@@ -9265,6 +9303,15 @@ body :is(
 }
 [data-theme="light"] #live-page .live-chip { background: rgba(15,23,42,.04); }
 [data-theme="light"] #live-page .live-conditions { background: rgba(15,23,42,.03); }
+/* The dark tones are readable on ink and vanish on paper, so the light theme
+   takes its own darker pair rather than the same hex at a different opacity. */
+[data-theme="light"] #live-page .live-alert.is-critical {
+  --alert-tone: #9f1239; --alert-line: rgba(190,18,60,.34); --alert-bg: rgba(190,18,60,.07);
+}
+[data-theme="light"] #live-page .live-alert.is-warn {
+  --alert-tone: #92400e; --alert-line: rgba(180,83,9,.32); --alert-bg: rgba(180,83,9,.07);
+}
+[data-theme="light"] #live-page .live-alert-tag { background: rgba(15,23,42,.05); }
 [data-theme="light"] #live-page .live-card-count { background: rgba(15,23,42,.04); }
 
 /* Scalp density pass: Cascade-sized panels that stop at their own content.

@@ -157,6 +157,10 @@ class LiveEngine:
         self.positions: List[dict] = []  # Open positions with order info
         self.closed_trades: List[dict] = []  # Completed trades
         self._trades_lock = asyncio.Lock()  # guards positions + closed_trades mutations
+        # Strong references to detached tasks. A task nobody holds can be
+        # collected mid-await, and the one thing this engine detaches is the
+        # broker stop-loss -- losing that silently is the worst way to lose it.
+        self._background_tasks: set = set()
         self.trades_today = 0
         self.daily_pnl = 0.0
         self.max_daily_loss = 0.0
@@ -1086,6 +1090,51 @@ class LiveEngine:
             print(f"[LIVE] State file delete failed: {e}")
 
     # ── Logging ───────────────────────────────────────────────
+    def _spawn_tracked(self, coro, label: str) -> asyncio.Task:
+        """Run a coroutine detached, but keep a strong reference to it.
+
+        asyncio only holds a weak reference to a running task, so a task the
+        caller drops can be garbage-collected part-way through. For the leg
+        stop-loss that means the protective order simply never arrives, and
+        because _place_sl_order handles its own exceptions there would be
+        nothing in the log to say so. Holding the task here and reporting what
+        it raised is the difference between a stop that failed and a stop that
+        never happened.
+        """
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+
+        def _finished(done: asyncio.Task, _label=label):
+            self._background_tasks.discard(done)
+            if done.cancelled():
+                self.log_event("error", f"CRITICAL: {_label} was cancelled before it completed")
+                return
+            exc = done.exception()
+            if exc is not None:
+                self.log_event("error", f"CRITICAL: {_label} raised {type(exc).__name__}: {exc}")
+
+        task.add_done_callback(_finished)
+        return task
+
+    def _unprotected_legs(self) -> list[dict]:
+        """Open legs that carry a stop percentage with nothing resting at Dhan.
+
+        Either the deploy asked for no broker stop, or the order that would
+        have placed one never came back with an id. Both leave the stop living
+        only inside this process, which is exactly the state the panel has to
+        show rather than imply.
+        """
+        out = []
+        for pos in self.positions:
+            if pos.get("status") == "closed":
+                continue
+            if self._safe_float(pos.get("sl_pct"), 0.0) <= 0:
+                continue
+            if str(pos.get("sl_order_id") or "").strip():
+                continue
+            out.append(pos)
+        return out
+
     def log_event(self, event_type: str, message: str, data: dict = None):
         event = {"time": _now_ist(), "type": event_type, "message": message, "data": data or {}}
         self.event_log.append(event)
@@ -2637,7 +2686,17 @@ class LiveEngine:
                     if pos.get("sl_pct", 0) > 0:
                         await self._place_sl_order(pos)
 
-            asyncio.create_task(_bg_sl())
+            self._spawn_tracked(_bg_sl(), "Broker stop-loss placement")
+        elif entered_positions and any(self._safe_float(p.get("sl_pct"), 0.0) > 0 for p in entered_positions):
+            # Say it out loud, once, at the moment the exposure opens. The leg
+            # carries a stop percentage but nothing rests at the broker to
+            # enforce it, so the stop dies with this process.
+            self.log_event(
+                "warning",
+                "Leg stop-loss is engine-side only (deploy option 'Place leg SL' is No) - "
+                "no protective order rests at Dhan; if this process stops, the position is unprotected "
+                "until the exchange squares off",
+            )
 
         # Handle sqoff_on_fail
         if any_failed and sqoff_on_fail and entered_positions:
@@ -2701,15 +2760,35 @@ class LiveEngine:
                 order_type="SL",
                 tag=f"AF_SL_{pos['option_type']}_{pos['strike']}",
             )
-            pos["sl_order_id"] = result.get("orderId", "")
+            order_id = str(result.get("orderId", "") or "").strip()
+            pos["sl_order_id"] = order_id
+            if not order_id:
+                # A 200 is not acceptance. Without an id there is nothing
+                # resting at Dhan and nothing to cancel on the way out.
+                pos["sl_order_status"] = "UNCONFIRMED"
+                self.log_event(
+                    "error",
+                    f"CRITICAL: SL order for Leg {pos['leg_num']} returned no order id - "
+                    f"the position is UNPROTECTED at the broker. Place the stop manually.",
+                )
+                self._save_state()
+                return
+            pos["sl_order_status"] = "PLACED"
             self.log_event(
                 "order",
                 f"🛡 SL order placed for Leg {pos['leg_num']}: "
                 f"trigger=₹{trigger} limit=₹{limit_price} "
-                f"OrderID: {pos['sl_order_id']}",
+                f"OrderID: {order_id}",
             )
+            self._save_state()
         except Exception as e:
-            self.log_event("error", f"SL order failed for Leg {pos['leg_num']}: {e}")
+            pos["sl_order_status"] = "FAILED"
+            self.log_event(
+                "error",
+                f"CRITICAL: SL order FAILED for Leg {pos['leg_num']} ({e}) - "
+                f"the position is UNPROTECTED at the broker. Place the stop manually.",
+            )
+            self._save_state()
 
     # ── Exit ──────────────────────────────────────────────────
     async def _record_closed_trade(self, pos: dict, reason: str, exit_premium: float, quantity: int):
@@ -3305,6 +3384,10 @@ class LiveEngine:
             "order_verification_failures": self.order_verification_failures,
             "last_order_verification": self.last_order_verification,
             "manual_intervention_required": self.manual_intervention_required,
+            "broker_stop": {
+                "requested": str((self.deploy_config or {}).get("place_leg_sl", "no")).lower() == "yes",
+                "unprotected_legs": len(self._unprotected_legs()),
+            },
             "positions": positions_out,
             "closed_trades": closed_out,
             "total_pnl": round(total_pnl, 2),
