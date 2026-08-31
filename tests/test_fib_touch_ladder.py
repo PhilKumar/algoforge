@@ -1990,9 +1990,9 @@ class BracketEntryTests(unittest.TestCase):
             ladder(broker_bracket_entry=True)
 
     def test_the_live_entry_goes_to_dhan_as_one_super_order(self):
-        """Entry, target and stop submitted together. The target leg goes in at
-        0 because at entry there is no honest target to name -- the average has
-        only just moved and the slope needs two real quotes."""
+        """Entry, target and stop submitted together. The target leg goes in
+        at a PLACEHOLDER -- at entry there is no honest target to name, and
+        Dhan refuses a super order that carries none at all."""
         sent = {}
 
         class _Broker:
@@ -2000,8 +2000,21 @@ class BracketEntryTests(unittest.TestCase):
                 sent.update(order)
                 return {"orderId": "DHAN-SO-1"}
 
+            def get_super_orders(self):
+                # Where a bracketed entry actually lives. The ordinary book
+                # does not carry it, and asking there answers UNKNOWN for an
+                # entry that filled -- which would disarm the ladder.
+                return [
+                    {
+                        "orderId": "DHAN-SO-1",
+                        "orderStatus": "TRADED",
+                        "filledQty": 65,
+                        "averageTradedPrice": 198.0,
+                    }
+                ]
+
             def verify_order_fill(self, order_id, max_wait_sec=20, poll_interval=1.5):
-                return {"order_id": order_id, "status": "FILLED", "filled_qty": 65, "avg_price": 198.0}
+                raise AssertionError("a bracketed entry must be read from the super order book")
 
         live = LiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True, product_type="MARGIN")
         with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
@@ -2020,7 +2033,7 @@ class BracketEntryTests(unittest.TestCase):
         self.assertEqual(sent["transaction_type"], "BUY")
         self.assertEqual(sent["order_type"], "MARKET")
         self.assertEqual(sent["stop_loss_price"], 60.0)
-        self.assertEqual(sent["target_price"], 0.0, "no invented target at entry")
+        self.assertEqual(sent["target_price"], 2000.0, "ten times the entry: a placeholder, not an exit")
         self.assertEqual(sent["product_type"], "MARGIN")
         self.assertEqual(sent["tag"], "PF_FIB_BOUNDARY_SO")
 

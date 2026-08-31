@@ -222,7 +222,7 @@ class SharedExecutorTests(unittest.TestCase):
                     when=WHEN, strike=24_400, expiry=date(2026, 9, 3), option_type="CE", quantity=75, premium=200.0
                 )
 
-    def test_a_bracketed_buy_is_one_super_order_with_no_invented_target(self):
+    def test_a_bracketed_buy_is_one_super_order_with_a_placeholder_target(self):
         sent = {}
 
         class _Broker:
@@ -230,8 +230,20 @@ class SharedExecutorTests(unittest.TestCase):
                 sent.update(order)
                 return {"orderId": "SO-1"}
 
+            def get_super_orders(self):
+                # A super order is NOT in the ordinary order book. Asking the
+                # wrong one reads UNKNOWN for an entry that filled.
+                return [
+                    {
+                        "orderId": "SO-1",
+                        "orderStatus": "TRADED",
+                        "filledQty": 75,
+                        "averageTradedPrice": 198.5,
+                    }
+                ]
+
             def verify_order_fill(self, order_id, max_wait_sec=20):
-                return {"status": "FILLED", "filled_qty": 75, "avg_price": 198.5}
+                raise AssertionError("a bracketed entry must be read from the super order book")
 
         live = OptionsLiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True, tag="PF_HIGH_ENTRY")
         with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
@@ -246,7 +258,11 @@ class SharedExecutorTests(unittest.TestCase):
             )
         self.assertEqual(receipt["bracket_order_id"], "SO-1")
         self.assertEqual(receipt["traded_premium"], 198.5)
-        self.assertEqual(sent["target_price"], 0.0)
+        # NOT a decision, and NOT zero: Dhan refuses a super order with no
+        # target leg, which is why live Scalp forces both exit prices in.
+        # Ten times the entry is far outside anything a rule would ask for,
+        # and `amend_bracket_target` replaces it once one is measurable.
+        self.assertEqual(sent["target_price"], 2000.0)
         self.assertEqual(sent["stop_loss_price"], 60.0)
         self.assertEqual(sent["product_type"], "MARGIN")
         self.assertEqual(sent["tag"], "PF_HIGH_ENTRY_SO")
@@ -645,3 +661,134 @@ class ReconcilePersistenceTests(unittest.TestCase):
         row = _position_to_dict(eng.position)
         self.assertTrue(row["order_id"])
         self.assertEqual(_position_from_dict(row).bracket_order_id, eng.position.bracket_order_id)
+
+
+class PlacementResponseTests(unittest.TestCase):
+    """A 200 from Dhan is not acceptance.
+
+    Scalp has read the response body since it started trading live -- it
+    checks orderStatus and the presence of an order id before believing an
+    order exists. Nothing built here did, and the difference matters: a clean
+    REJECTED read as an unknown outcome freezes a strategy that could simply
+    have tried again on the next trigger.
+    """
+
+    def executor(self, response):
+        class _Broker:
+            def place_option_order(self, **kw):
+                return response
+
+            def place_super_order(self, **kw):
+                return response
+
+            def verify_order_fill(self, order_id, max_wait_sec=20):
+                raise AssertionError("a refused order must never reach the fill check")
+
+        return OptionsLiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
+
+    def buy(self, live, **kw):
+        return live.buy(
+            when=WHEN, strike=24_400, expiry=date(2026, 9, 3), option_type="CE", quantity=65, premium=200.0, **kw
+        )
+
+    def test_a_rejected_body_is_a_rejection_not_an_unknown(self):
+        live = self.executor({"orderStatus": "REJECTED", "remarks": "insufficient margin"})
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            with self.assertRaises(OrderRejected) as caught:
+                self.buy(live)
+        self.assertIn("insufficient margin", str(caught.exception))
+
+    def test_a_body_with_no_order_id_is_a_rejection_too(self):
+        live = self.executor({"status": "failed", "message": "market closed"})
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            with self.assertRaises(OrderRejected):
+                self.buy(live)
+
+    def test_the_same_holds_for_a_bracketed_entry(self):
+        live = self.executor({"orderStatus": "REJECTED", "remarks": "no such contract"})
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            with self.assertRaises(OrderRejected):
+                self.buy(live, stop_price=60.0)
+
+    def test_a_refused_exit_reports_rejected_and_never_freezes(self):
+        """An exit that was refused leaves nothing working, so the next bar
+        can take it again. Only an UNKNOWN exit should freeze anything."""
+        live = self.executor({"orderStatus": "REJECTED", "remarks": "closed"})
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.sell(when=WHEN, strike=24_400, expiry=date(2026, 9, 3), option_type="CE", quantity=65)
+        self.assertEqual(receipt["status"], "REJECTED")
+
+    def test_a_clean_acknowledgement_still_goes_on_to_the_fill_check(self):
+        class _Broker:
+            def place_option_order(self, **kw):
+                return {"orderId": "OK-1", "orderStatus": "TRANSIT"}
+
+            def verify_order_fill(self, order_id, max_wait_sec=20):
+                return {"status": "FILLED", "filled_qty": 65, "avg_price": 201.0}
+
+        live = OptionsLiveExecutor(broker=_Broker(), symbol="NIFTY", armed=True)
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            receipt = self.buy(live)
+        self.assertEqual(receipt["traded_premium"], 201.0)
+
+
+class SuperOrderBookTests(unittest.TestCase):
+    """A bracketed entry lives in the SUPER ORDER book, not the ordinary one.
+
+    Getting this wrong is not a small mistake: `verify_order_fill` would
+    answer UNKNOWN for an entry that filled perfectly, an unknown entry
+    freezes the strategy, and every live campaign would stop on its first
+    trade holding a real position it did not believe in.
+    """
+
+    def broker(self, rows, *, plain=None):
+        class _Broker:
+            def place_super_order(self, **kw):
+                return {"orderId": "SO-9"}
+
+            def place_option_order(self, **kw):
+                return {"orderId": "PLAIN-9"}
+
+            def get_super_orders(self):
+                return rows
+
+            def verify_order_fill(self, order_id, max_wait_sec=20):
+                if plain is None:
+                    raise AssertionError("the ordinary book must not be asked about a super order")
+                return plain
+
+        return _Broker()
+
+    def buy(self, broker, **kw):
+        live = OptionsLiveExecutor(broker=broker, symbol="NIFTY", armed=True)
+        live.verify_wait_sec = 1  # the same question, asked in a second
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            return live.buy(
+                when=WHEN, strike=24_400, expiry=date(2026, 9, 3), option_type="CE", quantity=65, premium=200.0, **kw
+            )
+
+    def test_a_filled_super_order_is_read_from_its_own_book(self):
+        receipt = self.buy(
+            self.broker([{"orderId": "SO-9", "orderStatus": "TRADED", "filledQty": 65, "averageTradedPrice": 205.5}]),
+            stop_price=60.0,
+        )
+        self.assertEqual(receipt["traded_premium"], 205.5)
+        self.assertEqual(receipt["traded_quantity"], 65)
+        self.assertEqual(receipt["bracket_order_id"], "SO-9")
+
+    def test_a_rejected_super_order_is_a_rejection_not_a_freeze(self):
+        broker = self.broker([{"orderId": "SO-9", "orderStatus": "REJECTED", "remarks": "margin"}])
+        with self.assertRaises(OrderRejected):
+            self.buy(broker, stop_price=60.0)
+
+    def test_an_entry_that_never_appears_times_out_rather_than_inventing_a_fill(self):
+        broker = self.broker([])
+        with self.assertRaises(RuntimeError) as caught:
+            self.buy(broker, stop_price=60.0)
+        self.assertNotIsInstance(caught.exception, OrderRejected)
+
+    def test_an_unbracketed_buy_still_uses_the_ordinary_book(self):
+        broker = self.broker([], plain={"status": "FILLED", "filled_qty": 65, "avg_price": 199.0})
+        receipt = self.buy(broker)
+        self.assertEqual(receipt["traded_premium"], 199.0)
+        self.assertNotIn("bracket_order_id", receipt)

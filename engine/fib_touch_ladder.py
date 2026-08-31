@@ -41,6 +41,7 @@ here too.
 
 from __future__ import annotations
 
+import time as _time
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from datetime import time as dt_time
@@ -482,11 +483,38 @@ class ExecutionRefused(RuntimeError):
     """An order was decided but the executor would not send it."""
 
 
+def _placement_error(result) -> str:
+    """What Dhan said wrong in its acknowledgement, or "" if it said nothing.
+
+    A 200 from the order endpoint is not acceptance: the body can carry
+    REJECTED, FAILED or no order id at all. Reading only the HTTP status turns
+    a clean refusal -- safe to retry on the next trigger -- into an unknown
+    outcome, which disarms the ladder and waits for a human. Scalp has read
+    this body since it started trading live; nothing here did until now.
+    """
+    if not isinstance(result, dict):
+        return "" if result else "no response from the broker"
+    status = str(result.get("orderStatus", result.get("status", ""))).upper()
+    if status in ("REJECTED", "FAILED", "CANCELLED"):
+        return str(result.get("remarks") or result.get("message") or result.get("rejectedReason") or status)
+    if not result.get("orderId"):
+        return str(result.get("message") or result)
+    return ""
+
+
 # This strategy's live adapter does not yet reconcile Dhan acknowledgements,
 # partial fills and ambiguous submissions into its persisted rung state.  Keep
 # every real order path closed until that lifecycle is implemented and tested;
 # an `armed` flag alone is not an execution-safety boundary.
 FIB_TOUCH_LIVE_EXECUTION_ENABLED = False
+
+# Dhan will not take a Super Order without a target leg. The first version of
+# the bracket sent 0 -- at entry there is no honest target to name -- but Scalp,
+# the one live-traded path in this system, already forces both exit prices in
+# for exactly this reason. So the target goes in at this multiple of the entry
+# premium: far enough out that no rule is expecting to take it, and replaced by
+# the real one through `amend_bracket_target` as soon as one is measurable.
+BRACKET_PLACEHOLDER_TARGET_MULTIPLE = 10.0
 
 
 class PaperExecutor:
@@ -584,6 +612,54 @@ class LiveExecutor:
                 "then arm live deliberately -- no config value or environment variable opens it."
             )
 
+    def _verify_super(self, order_id, *, max_wait_sec: int = 20) -> dict:
+        """Ask the SUPER ORDER book what became of a bracketed entry.
+
+        A super order is not in the ordinary order book, so the plain fill
+        check cannot see it: it answers UNKNOWN for an entry that filled
+        perfectly, and an unknown entry disarms the ladder. Scalp -- the one
+        live-traded path here -- has always read `get_super_orders` for these.
+        """
+        fetch = getattr(self.broker, "get_super_orders", None)
+        if not order_id or fetch is None:
+            return {"status": "UNKNOWN", "message": "no order id or no super order book on this broker"}
+        deadline = _time.monotonic() + max(1, int(max_wait_sec))
+        last: dict = {}
+        while True:
+            try:
+                book = fetch() or []
+            except Exception as exc:
+                return {"status": "UNKNOWN", "message": str(exc)}
+            for row in book:
+                if str(row.get("orderId") or "") != str(order_id):
+                    continue
+                last = row
+                status = str(row.get("orderStatus") or "").upper()
+                try:
+                    filled = int(float(row.get("filledQty") or 0))
+                except (TypeError, ValueError):
+                    filled = 0
+                try:
+                    avg = float(row.get("averageTradedPrice") or 0.0)
+                except (TypeError, ValueError):
+                    avg = 0.0
+                if status in ("TRADED", "FILLED", "COMPLETE", "PART_TRADED") and filled > 0:
+                    return {"status": "FILLED", "filled_qty": filled, "avg_price": avg}
+                if status in ("REJECTED", "CANCELLED", "FAILED"):
+                    return {
+                        "status": "REJECTED",
+                        "filled_qty": filled,
+                        "message": str(row.get("remarks") or row.get("omsErrorDescription") or status),
+                    }
+                break
+            if _time.monotonic() >= deadline:
+                return {
+                    "status": "TIMEOUT",
+                    "filled_qty": 0,
+                    "message": f"super order still {last.get('orderStatus') or 'unseen'} after {max_wait_sec}s",
+                }
+            _time.sleep(1.0)
+
     def _verify(self, order_id, *, max_wait_sec: int = 20) -> dict:
         """Ask Dhan what became of the order. UNKNOWN is an answer too."""
         verify = getattr(self.broker, "verify_order_fill", None)
@@ -604,11 +680,11 @@ class LiveExecutor:
             # and this engine's next bar, a lone stop would still be working,
             # and a stop that fires on a leg already sold opens a SHORT.
             #
-            # The target leg goes in at 0: at entry there is usually no honest
-            # target to name (it needs the average this fill has only just
-            # moved, and a slope measured from two real quotes), and this
-            # engine does not invent prices. `amend_bracket_target` fills it in
-            # the moment it becomes measurable.
+            # The target leg goes in at a PLACEHOLDER, not a decision: at
+            # entry there is no honest target to name (it needs the average
+            # this fill has only just moved, and a slope measured from two real
+            # quotes), and Dhan refuses a Super Order with no target at all.
+            # `amend_bracket_target` replaces it the moment one is measurable.
             order = self.broker.place_super_order(
                 underlying=self.symbol,
                 strike_price=int(strike),
@@ -616,7 +692,7 @@ class LiveExecutor:
                 expiry=expiry.isoformat(),
                 transaction_type="BUY",
                 quantity=int(quantity),
-                target_price=0.0,
+                target_price=round(float(premium) * BRACKET_PLACEHOLDER_TARGET_MULTIPLE, 2),
                 stop_loss_price=float(stop_price),
                 order_type="MARKET",
                 product_type=self.product_type,
@@ -634,10 +710,16 @@ class LiveExecutor:
                 product_type=self.product_type,
                 tag="PF_FIB_BOUNDARY_BUY",
             )
+        refused = _placement_error(order)
+        if refused:
+            raise OrderRejected(f"Dhan refused the buy: {refused}")
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
         # The acknowledgement is not the fill. The engine's book has to carry
         # what Dhan actually traded, or every rupee downstream is an estimate.
-        outcome = self._verify(order_id)
+        # A BRACKETED entry is asked about in the SUPER ORDER book -- it is not
+        # in the ordinary one, and asking the wrong book reads UNKNOWN for an
+        # entry that filled, which disarms the ladder on its first live buy.
+        outcome = self._verify_super(order_id) if bracketed else self._verify(order_id)
         status = str(outcome.get("status") or "UNKNOWN").upper()
         if status == "FILLED":
             avg = float(outcome.get("avg_price") or 0.0)
@@ -691,6 +773,10 @@ class LiveExecutor:
                 # This leg's fate is unknown and nothing after it was sent.
                 results.append({"order_id": None, "status": "UNKNOWN", "avg_price": None, "message": str(exc)})
                 halted = True
+                continue
+            refused = _placement_error(order)
+            if refused:
+                results.append({"order_id": None, "status": "REJECTED", "avg_price": None, "message": refused})
                 continue
             order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
             outcome = self._verify(order_id)
@@ -749,8 +835,11 @@ class LiveExecutor:
             product_type=self.product_type,
             tag="PF_FIB_BOUNDARY_TARGET",
         )
+        refused = _placement_error(order)
+        if refused:
+            raise OrderRejected(f"Dhan refused the resting target: {refused}")
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
-        return {"order_id": order_id or str(order), "mode": "live"}
+        return {"order_id": order_id, "mode": "live"}
 
     def amend_bracket_target(self, *, order_id, price) -> dict:
         """Name the bracket's target now that it can honestly be measured.
@@ -833,8 +922,11 @@ class LiveExecutor:
             order_type="SL",
             tag="PF_FIB_BOUNDARY_STOP",
         )
+        refused = _placement_error(order)
+        if refused:
+            raise OrderRejected(f"Dhan refused the resting stop: {refused}")
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
-        return {"order_id": order_id or str(order), "mode": "live"}
+        return {"order_id": order_id, "mode": "live"}
 
     def cancel(self, *, order_id) -> dict:
         """Pull a resting target, so a re-price cannot leave two on the book.
