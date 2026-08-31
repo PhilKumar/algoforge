@@ -10,8 +10,13 @@ been put to the real API.
 
 This puts them to the real API, once, with one lot, and nothing else running.
 
-    Q1  Does Dhan accept a Super Order whose target leg is 0?
+    Q1  Does Dhan accept the PLACEHOLDER target the engines send (10x the
+        entry premium)? Zero was the first design and Scalp's live code says
+        Dhan refuses that, which is why it is no longer what we send.
     Q2  Can TARGET_LEG be amended after the entry has filled?
+    Q3  Does the filled entry show up in the SUPER ORDER book with a real
+        averageTradedPrice? That is where the engines read their fills from,
+        and reading the wrong book would freeze every live campaign.
 
 It is deliberately not part of the app: no strategy is armed, no gate is
 opened, no engine is started. It buys one lot, asks the two questions, and
@@ -138,7 +143,7 @@ def main() -> int:
         f"  last traded premium : Rs {premium:,.2f}\n"
         f"  premium at risk     : Rs {premium * contract['lot']:,.0f}\n"
         f"  stop leg            : Rs {stop:,.2f}  ({args.stop_pct:.0%} under the entry)\n"
-        f"  target leg          : 0   <-- QUESTION 1 is whether Dhan accepts this",
+        f"  target leg          : Rs {premium * 10:,.2f}   (placeholder, 10x entry)",
     )
 
     if not args.i_mean_it:
@@ -150,7 +155,7 @@ def main() -> int:
         return 1
 
     # ── Q1: a super order with no target leg ─────────────────────────────
-    say("Q1 -- placing the super order with targetPrice 0")
+    say("Q1 -- placing the super order with a placeholder target")
     try:
         placed = broker.place_super_order(
             underlying="NIFTY",
@@ -159,23 +164,47 @@ def main() -> int:
             expiry=contract["expiry"],
             transaction_type="BUY",
             quantity=contract["lot"],
-            target_price=0.0,
+            target_price=round(premium * 10, 2),
             stop_loss_price=stop,
             order_type="MARKET",
             product_type="MARGIN",
             tag="PF_PROBE",
         )
     except Exception as exc:
-        say("Q1 ANSWER: NO", f"Dhan refused a zero target leg:\n  {exc}\n\nNothing is working. Nothing to clean up.")
-        say("WHAT THIS MEANS", "The engines must name a target at entry, or place the stop as a separate order.")
+        say("Q1 ANSWER: NO", f"Dhan refused it:\n  {exc}\n\nNothing is working. Nothing to clean up.")
+        say("WHAT THIS MEANS", "Read the reason above -- the engines send exactly this shape.")
         return 2
     say("Q1 ANSWER: YES -- Dhan accepted it", placed)
     order_id = str((placed or {}).get("orderId") or "")
     print(f"\n!! LIVE ORDER {order_id} -- if this probe dies, close it with:")
     print(f"   python3 tools/dhan_super_order_probe.py --i-mean-it --close-only {order_id}")
 
-    say("waiting for the entry to fill")
-    print(json.dumps(broker.verify_order_fill(order_id, max_wait_sec=30), indent=2, default=str))
+    # Q3: the engines read a bracketed fill from the SUPER ORDER book, never
+    # from the ordinary one. If the fill is not visible here with a real
+    # average price, every live campaign freezes on its first trade.
+    say("Q3 -- looking for the fill in the SUPER ORDER book")
+    import time as _t
+
+    seen = None
+    for _ in range(15):
+        try:
+            seen = next((o for o in broker.get_super_orders() if str(o.get("orderId")) == order_id), None)
+        except Exception as exc:
+            print(f"  super order book unreadable: {exc}")
+            break
+        if seen and str(seen.get("orderStatus", "")).upper() in ("TRADED", "COMPLETE", "FILLED", "PART_TRADED"):
+            break
+        _t.sleep(2)
+    print(json.dumps(seen, indent=2, default=str))
+    if seen and float(seen.get("averageTradedPrice") or 0) > 0:
+        say("Q3 ANSWER: YES", f"the engines can read their fill price here: Rs {seen['averageTradedPrice']}")
+    else:
+        say("Q3 ANSWER: NO or NOT YET", "the engines would call this entry UNKNOWN and freeze. Tell Claude.")
+    say("and what the ordinary order book says about the same id")
+    try:
+        print(json.dumps(broker.verify_order_fill(order_id, max_wait_sec=10), indent=2, default=str))
+    except Exception as exc:
+        print(f"  (the ordinary book does not carry it: {exc})")
 
     # ── Q2: amend the target leg after the entry filled ──────────────────
     target = round(premium * 1.5, 2) if premium else 500.0
