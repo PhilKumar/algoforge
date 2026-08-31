@@ -1005,24 +1005,23 @@ def _salary_outranks_the_bank(said: str) -> bool:
 def _salary_from_ledger(ledger: list[dict]) -> float:
     """What the bank saw arrive from his employer this month.
 
-    Pay can land in two credits (arrears, a shift allowance paid apart), so
-    the month's pay credits are summed rather than picking the largest. Only
-    money coming IN counts: a debit to an employer is not pay. Rows imported
-    before the employer was a known payer still read as Uncategorised, so
-    the narration is consulted too and nothing needs re-importing.
+    Pay can land in two credits — arrears, a shift allowance paid apart, or
+    the month an employer changes and both of them pay — so the month's pay
+    credits are summed rather than picking the largest. Only money coming IN
+    counts: a debit to an employer is not pay.
+
+    An employer's own credit is the trustworthy one. Filed under Salary is
+    not the same thing: a transfer of somebody else's pay into the house
+    reads "Salary" too, and adding it made his month look five and ten
+    thousand rupees richer than it was. So a named employer answers first,
+    and the filing only answers for months where no employer is named — the
+    old imports, which predate the payer being known, and which nothing
+    should need re-importing to correct.
     """
-    return round(
-        sum(
-            row["amount"]
-            for row in ledger
-            if row.get("source") == "statement-in"
-            and (
-                row.get("category") == "Salary"
-                or any(word in (row.get("note") or "").lower() for word in _EMPLOYER_WORDS)
-            )
-        ),
-        2,
-    )
+    credits = [row for row in ledger if row.get("source") == "statement-in"]
+    from_employer = [row for row in credits if any(word in (row.get("note") or "").lower() for word in _EMPLOYER_WORDS)]
+    counted = from_employer or [row for row in credits if row.get("category") == "Salary"]
+    return round(sum(row["amount"] for row in counted), 2)
 
 
 async def _salary_from_payslip(user_id: int, blob: bytes) -> dict | None:
@@ -1716,16 +1715,32 @@ async def month_put(request: Request, user: dict = Depends(_unlocked_user)):
     months = await sanctuary_db.get_json_state(int(user["id"]), "months", {})
     entry = months.get(month) or {}
     if "salary" in payload:
-        entry["salary"] = max(0.0, float(payload.get("salary") or 0))
-        # Marked as his, so a payslip uploaded later cannot overwrite what he
-        # deliberately typed.
-        entry["salary_source"] = "manual"
+        typed = max(0.0, float(payload.get("salary") or 0))
+        # The box opens already holding whatever the tile is showing, which
+        # is usually the bank's own figure. Saving it unchanged would freeze
+        # that reading as his, outranking the bank for good — and a frozen
+        # reading is how a tile came to spend a month showing the pay of the
+        # month before. Agreeing with the bank is not a correction: the
+        # month goes back to being told by the statement.
+        ledger = await sanctuary_db.list_ledger(int(user["id"]), month)
+        if typed and typed == _salary_from_ledger(ledger):
+            entry.pop("salary", None)
+            entry.pop("salary_source", None)
+        else:
+            entry["salary"] = typed
+            # Marked as his, so a payslip uploaded later cannot overwrite
+            # what he deliberately typed.
+            entry["salary_source"] = "manual"
     if "note" in payload:
         entry["note"] = str(payload.get("note") or "")[:1000]
     months[month] = entry
     await sanctuary_db.set_json_state(int(user["id"]), "months", months)
-    if payload.get("make_default") and "salary" in entry:
-        await sanctuary_db.set_state(int(user["id"]), "salary_default", str(entry["salary"]))
+    # Asking for it to become the usual figure still means it, even when the
+    # month itself went back to being told by the bank.
+    if payload.get("make_default") and "salary" in payload:
+        await sanctuary_db.set_state(
+            int(user["id"]), "salary_default", str(max(0.0, float(payload.get("salary") or 0)))
+        )
     return {"ok": True}
 
 

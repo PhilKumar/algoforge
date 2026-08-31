@@ -1814,6 +1814,58 @@ class PayslipReadingTests(unittest.TestCase):
         self.assertFalse(looks_like_a_payslip("Statement of Account for August 2026"))
 
 
+class PayIsWhatAnEmployerPaidTests(unittest.TestCase):
+    """Which credits in a month count as his pay. Every figure invented.
+
+    A transfer of somebody else's pay into the house is filed under Salary
+    too — the narration even says so. Counting it made a month read five and
+    ten thousand rupees richer than the payslip did, and in a month with no
+    payslip to argue there would have been nothing to notice it by.
+    """
+
+    def sum_of(self, rows):
+        import sanctuary
+
+        return sanctuary._salary_from_ledger(rows)
+
+    def credit(self, amount, note, category="Salary"):
+        return {"source": "statement-in", "amount": amount, "category": category, "note": note}
+
+    EMPLOYER = "NEFT-0001-KYNDRYL SOLUTIONS-500284000000101 SALARY"
+    HOUSEHOLD = "UPI/012310092089/Salary/someone@okbank/Other Bank"
+
+    def test_an_employers_credit_is_his_pay(self):
+        self.assertEqual(self.sum_of([self.credit(90000.0, self.EMPLOYER)]), 90000.0)
+
+    def test_a_household_transfer_filed_under_salary_is_not_his_pay(self):
+        rows = [self.credit(90000.0, self.EMPLOYER), self.credit(5000.0, self.HOUSEHOLD)]
+        self.assertEqual(self.sum_of(rows), 90000.0)
+
+    def test_two_employers_in_the_month_they_changed_are_both_his_pay(self):
+        # The month the employer split, both of them paid him.
+        rows = [
+            self.credit(80000.0, "NEFT-1-KYNDRYL SOLUTIONS-SALARY"),
+            self.credit(3875.0, "NEFT-2-IBM INDIA PRIVATE LIMITED-SALARY SEP"),
+        ]
+        self.assertEqual(self.sum_of(rows), 83875.0)
+
+    def test_old_imports_that_name_no_employer_still_answer(self):
+        # Statements imported before the payer was known name nobody. The
+        # filing answers for those months so nothing needs re-importing.
+        self.assertEqual(self.sum_of([self.credit(72000.0, "NEFT-SALARY CREDIT")]), 72000.0)
+
+    def test_but_only_when_no_employer_is_named_that_month(self):
+        rows = [self.credit(90000.0, self.EMPLOYER), self.credit(72000.0, "NEFT-SALARY CREDIT")]
+        self.assertEqual(self.sum_of(rows), 90000.0)
+
+    def test_money_going_out_is_never_pay(self):
+        rows = [{"source": "statement", "amount": 90000.0, "category": "Salary", "note": self.EMPLOYER}]
+        self.assertEqual(self.sum_of(rows), 0.0)
+
+    def test_a_month_with_no_credits_at_all(self):
+        self.assertEqual(self.sum_of([]), 0.0)
+
+
 class WhoSaysWhatThePayWasTests(unittest.TestCase):
     """Which figure the pay tile trusts, and whose it is.
 
