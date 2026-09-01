@@ -14147,6 +14147,44 @@ def _supertrend_config(payload) -> "_supertrend_mod.SupertrendConfig":
     return config
 
 
+async def _supertrend_history_lookup(broker: DhanClient, days: int = 10):
+    """Recorded option prices for the last few sessions, or None.
+
+    THE LIVE PATH RAN WITHOUT THIS. `_supertrend_premium_lookup` prices a
+    minute inside the live-quote window from Dhan and anything older from
+    `history` -- and both live construction sites passed history=None. So an
+    exit stamped at a bar close more than seven minutes before the poll that
+    saw it had NO price at all, and `_close` floored it at intrinsic: zero for
+    anything out of the money.
+
+    That is how a 24100 CE with a fortnight to run, worth perhaps Rs 170, was
+    booked sold at Rs 0 for a Rs 14,501 loss on 2026-09-01. Nothing was wrong
+    with the trade; the paper book simply could not price its exit, which is
+    the one thing a paper book exists to do.
+
+    Same source the backtest and every other strategy replay on: Upstox for an
+    expired contract, Dhan's own option candles for a listed one. BLOCKING, so
+    it is built off the event loop once at start rather than per lookup.
+    """
+    today = datetime.now(IST).date()
+    try:
+        pricing = await asyncio.to_thread(_candle_entry_pricing, broker, today - timedelta(days=int(days)), today)
+    except Exception as exc:
+        _logger.warning("[SUPERTREND] no recorded-price source: %s", exc)
+        return None
+    price_history = pricing[0] if isinstance(pricing, tuple) else pricing
+    if price_history is None:
+        return None
+
+    def history(when: datetime, strike: int, side: str, expiry: date):
+        try:
+            return price_history(when, _supertrend_contract(int(strike), str(side), expiry))
+        except Exception:
+            return None
+
+    return history
+
+
 def _supertrend_premium_lookup(broker: DhanClient, history=None):
     """Price by the AGE of the minute -- live quote if it is now, archive if not.
 
@@ -14312,7 +14350,10 @@ async def _restore_supertrend_open_state(
         adapter = CascadeOptionsAdapter(broker, paper_only=True)
         engine = _supertrend_paper.SupertrendPaper.from_dict(
             saved,
-            option_premium_lookup=_supertrend_premium_lookup(broker),
+            # A restored campaign needs the recorded prices just as much as a
+            # fresh one: a deploy is exactly when an exit lands outside the
+            # live-quote window.
+            option_premium_lookup=_supertrend_premium_lookup(broker, await _supertrend_history_lookup(broker)),
             expiry_lookup=_supertrend_expiry_lookup(broker, int(saved.get("config", {}).get("expiry_rank", 2) or 2)),
             lot_size_lookup=_supertrend_lot_size_lookup(broker),
         )
@@ -14402,7 +14443,12 @@ async def _start_supertrend_campaign(user_id: int, payload, *, broker_client: Dh
     trade_mode = str(getattr(payload, "mode", "paper") or "paper").strip().lower()
     engine = _supertrend_paper.SupertrendPaper(
         config=config,
-        option_premium_lookup=_supertrend_premium_lookup(broker_client),
+        # An exit older than the live-quote window is priced from recorded
+        # data instead of being floored at intrinsic. See
+        # `_supertrend_history_lookup` for what that cost before.
+        option_premium_lookup=_supertrend_premium_lookup(
+            broker_client, await _supertrend_history_lookup(broker_client)
+        ),
         expiry_lookup=_supertrend_expiry_lookup(broker_client, config.expiry_rank),
         lot_size_lookup=_supertrend_lot_size_lookup(broker_client),
         executor=(
