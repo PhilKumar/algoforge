@@ -161,17 +161,25 @@ class DhanHistoricalPremiumSelector:
             self.last_gap = f"no priced Dhan {option_type} strike at {stamp:%Y-%m-%d %H:%M}"
             return None
 
+        # POSITIONAL, never .loc. `at_entry` holds one row per STRIKE at a
+        # single timestamp, so the index is full of duplicates -- and
+        # `.loc[idxmin()]` looks up by that timestamp and hands back every
+        # strike at it. `int(row["strike"])` on the resulting frame raises
+        # "cannot convert the series to int", which is what a five-year CE
+        # replay died on. `premium_near` below was always positional and so
+        # never hit it, which is why only the premium_above/below strike types
+        # were affected.
         if strike_type == "premium_above":
             valid = at_entry[at_entry["open"] >= target]
             row = (
-                valid.loc[valid["open"].idxmin()]
+                valid.iloc[int(valid["open"].values.argmin())]
                 if len(valid)
                 else at_entry.iloc[(at_entry["open"] - target).abs().argsort()[:1]].iloc[0]
             )
         elif strike_type == "premium_below":
             valid = at_entry[at_entry["open"] <= target]
             row = (
-                valid.loc[valid["open"].idxmax()]
+                valid.iloc[int(valid["open"].values.argmax())]
                 if len(valid)
                 else at_entry.iloc[(at_entry["open"] - target).abs().argsort()[:1]].iloc[0]
             )
