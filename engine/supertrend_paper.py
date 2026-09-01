@@ -394,6 +394,16 @@ class SupertrendPaper:
                 return
             premium, priced = traded, True
         if premium is None:
+            # A FLOOR, NOT A PRICE. The trade still closes -- the rule fired,
+            # and holding on because a quote was missing would be a position
+            # decision nobody made -- but intrinsic on a contract with weeks to
+            # run is zero for anything out of the money, so this books the WHOLE
+            # premium as lost. On 2026-09-01 that turned a 24100 CE worth
+            # perhaps Rs 170 into a Rs 14,501 loss on the panel.
+            #
+            # `summarise()` already separates these into priced_net / floored_net
+            # for the tearsheet. What was missing was any of that reaching the
+            # screen, so the note below now says plainly what happened.
             premium = position.intrinsic(spot)
             priced = False
         buy = float(position.entry_premium)
@@ -408,10 +418,14 @@ class SupertrendPaper:
         self.position = None
         self._status = status
         self.last_mark = None
-        self.notes.append(
-            f"{when:%Y-%m-%d %H:%M}: {reason} at Rs {sell:.2f} · net Rs {position.net:,.0f}"
-            + ("" if priced else " (at intrinsic)")
-        )
+        if priced or reason == "expiry":
+            self.notes.append(f"{when:%Y-%m-%d %H:%M}: {reason} at Rs {sell:.2f} · net Rs {position.net:,.0f}")
+        else:
+            self.notes.append(
+                f"{when:%Y-%m-%d %H:%M}: {reason} — NO QUOTE for {position.strike} {position.side} "
+                f"{position.expiry}. Closed, but its P&L is unknown and is NOT in the realised total. "
+                f"(Intrinsic was Rs {sell:.2f}; the leg cost Rs {buy:.2f}.)"
+            )
 
     def _sell_for_real(self, position: SupertrendPosition, when: datetime) -> Optional[float]:
         """Close the leg at the broker. None means it is NOT closed."""

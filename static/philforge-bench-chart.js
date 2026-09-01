@@ -911,7 +911,11 @@ function _pfChartCanvasLabels(c, p, labels) {
 // are horizontal and a trendline has exactly two anchors. Hence a real path.
 function _pfChartCanvasIndicators(c, p, PAL, labels) {
   var ind = (c.data || {}).indicators;
-  var series = ind && ind.ema;
+  // EMA or SUPERTREND -- both are curves and draw identically. Supertrend has
+  // sent its series as `indicators.supertrend` since the console was built,
+  // and this only ever looked at `ema`, so the one strategy NAMED after an
+  // indicator was the one chart that never showed it (Phil, 2026-09-01).
+  var series = (ind && (ind.ema || ind.supertrend)) || null;
   if (!series || !series.length) return 0;
   var ctx = c.ctx, drawn = 0, last = null;
   _pfChartCanvasClip(ctx, p, function () {
