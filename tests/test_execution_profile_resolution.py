@@ -25,6 +25,17 @@ from engine.execution_profiles import resolve_execution_costs  # noqa: E402
 from engine.live import LiveEngine  # noqa: E402
 from engine.paper_trading import PaperTradingEngine  # noqa: E402
 
+# Another test in this suite repoints tempfile.tempdir at a scratch directory
+# and then deletes it, so a bare TemporaryDirectory() fails for everything that
+# runs afterwards. Naming the parent keeps these tests independent of run order.
+_TMP_ROOT = "/tmp/philforge-engine-tests"
+
+
+def _tmpdir():
+    os.makedirs(_TMP_ROOT, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=_TMP_ROOT)
+
+
 NIFTY = "26000"
 
 
@@ -76,7 +87,7 @@ class CustomStillMeansCustom(unittest.TestCase):
 
 class BothEnginesUseIt(unittest.TestCase):
     def _configure(self, cls, strategy):
-        with tempfile.TemporaryDirectory() as tmp:
+        with _tmpdir() as tmp:
             engine = cls(dhan=object(), run_id="profile-check", state_dir=tmp)
             engine.configure(strategy=strategy, entry_conditions=[], exit_conditions=[])
             return engine

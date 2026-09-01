@@ -179,6 +179,24 @@ class DhanOrderError(Exception):
         super().__init__(f"{action} failed ({status_code}): {self.reason}")
 
 
+def _first_positive_price(payload: dict, keys: tuple) -> float:
+    """The first of these keys that carries a real price.
+
+    NOT the first key PRESENT. Dhan returns averageTradedPrice as 0.0 on a
+    genuinely traded order in at least one book -- proven on a real order,
+    2026-09-01 -- and dict.get(k, fallback) hands back that zero rather than
+    falling through to the field that actually holds the traded price.
+    """
+    for key in keys:
+        try:
+            value = float(payload.get(key) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0.0
+
+
 class AmbiguousOrderSubmission(RuntimeError):
     """Dhan may have accepted an order although no confirmation reached us.
 
@@ -2385,9 +2403,7 @@ class DhanClient:
                     filled_qty = _to_int(status.get(key), 0)
                     break
             requested_qty = _to_int(status.get("quantity", status.get("orderQuantity", 0)), 0)
-            avg_price = _to_float(
-                status.get("averageTradedPrice", status.get("averagePrice", status.get("price", 0))), 0.0
-            )
+            avg_price = _first_positive_price(status, ("averageTradedPrice", "averagePrice", "price"))
             # Terminal states
             if os in ("TRADED", "FILLED", "COMPLETE") or (requested_qty > 0 and filled_qty >= requested_qty):
                 return {
@@ -2420,10 +2436,7 @@ class DhanClient:
             "raw_status": str(last_status.get("orderStatus", last_status.get("status", "UNKNOWN"))).upper(),
             "requested_qty": _to_int(last_status.get("quantity", last_status.get("orderQuantity", 0)), 0),
             "filled_qty": _to_int(last_status.get("filledQty", last_status.get("tradedQuantity", 0)), 0),
-            "avg_price": _to_float(
-                last_status.get("averageTradedPrice", last_status.get("averagePrice", last_status.get("price", 0))),
-                0.0,
-            ),
+            "avg_price": _first_positive_price(last_status, ("averageTradedPrice", "averagePrice", "price")),
             "message": f"Order not filled within {max_wait_sec}s. Last status: {last_status.get('orderStatus', 'UNKNOWN')}",
         }
 

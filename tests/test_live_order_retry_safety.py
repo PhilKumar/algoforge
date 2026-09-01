@@ -333,3 +333,43 @@ class RestoredEnginesStillAlert(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AZeroIsNotAPrice(unittest.TestCase):
+    """Dhan returns averageTradedPrice as 0.0 on a genuinely traded order in at
+    least one book -- proven on a real order, 2026-09-01. `dict.get(k, other)`
+    hands back that zero instead of falling through to the field holding the
+    true price, so the preference order has to skip zeros, not absent keys."""
+
+    def test_a_zero_traded_price_falls_through_to_the_real_one(self):
+        out = _verify(
+            _StatusStub(
+                {
+                    "orderStatus": "TRADED",
+                    "quantity": 65,
+                    "filledQty": 65,
+                    "averageTradedPrice": 0.0,
+                    "averagePrice": 251.5,
+                }
+            )
+        )
+        self.assertEqual(out["status"], "FILLED")
+        self.assertAlmostEqual(out["avg_price"], 251.5, msg="a 0.0 must not win over a real price")
+
+    def test_a_real_traded_price_is_still_preferred(self):
+        out = _verify(
+            _StatusStub(
+                {
+                    "orderStatus": "TRADED",
+                    "quantity": 65,
+                    "filledQty": 65,
+                    "averageTradedPrice": 204.25,
+                    "averagePrice": 199.0,
+                }
+            )
+        )
+        self.assertAlmostEqual(out["avg_price"], 204.25)
+
+    def test_all_zero_stays_zero(self):
+        out = _verify(_StatusStub({"orderStatus": "TRADED", "quantity": 65, "filledQty": 65, "averagePrice": 0}))
+        self.assertEqual(out["avg_price"], 0.0)

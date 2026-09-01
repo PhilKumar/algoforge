@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from broker.dhan import DhanClient, ScripMaster
 from engine.backtest import (
     decision_why,
+    drain_cross_skips,
     eval_condition_group,
     get_lot_size,
     get_sell_option_margin_per_lot,
@@ -508,6 +509,26 @@ class PaperTradingEngine:
             preview = f"{preview} +{extra} more"
         return f"missing_condition_data ({preview})"
 
+    def _log_cross_skips(self, stage: str) -> None:
+        """Say when a cross could not be decided, instead of failing silently.
+
+        A cross with no usable previous bar is FALSE now, not a plain > or <.
+        That is correct -- but it is also invisible: the rule simply stops
+        firing and nothing says why. One line per evaluation that hit it,
+        summarising the reasons, is enough to find the cause without filling
+        the log on every bar.
+        """
+        skips = drain_cross_skips()
+        if not skips:
+            return
+        reasons = sorted({skip["reason"] for skip in skips})
+        fields = sorted({f"{skip['operator']} {skip['left']}/{skip['right']}" for skip in skips})[:4]
+        self.log_event(
+            "warning",
+            f"{stage}: {len(skips)} cross condition(s) could not be decided and were treated as FALSE — "
+            f"{'; '.join(reasons)} [{', '.join(fields)}]",
+        )
+
     def _evaluate_entry_conditions_with_debug(self, latest_row, prev_row, now: datetime):
         if not self._signals_live(now):
             cutoff = self._signal_cutoff_time()
@@ -520,6 +541,7 @@ class PaperTradingEngine:
             }
         raw_overall, cond_details, missing_fields = inspect_condition_group(latest_row, self.entry_conditions, prev_row)
         entry_triggered = raw_overall and not missing_fields
+        self._log_cross_skips("entry")
         debug_payload = {
             "time": now.strftime("%H:%M:%S"),
             "overall": entry_triggered,
@@ -2041,7 +2063,11 @@ class PaperTradingEngine:
             if self._signal_candle:
                 for _k, _v in self._signal_candle.items():
                     _exit_row[_k] = _v
-            if eval_condition_group(_exit_row, self.exit_conditions, self._prev_row):
+            signal_exit = eval_condition_group(_exit_row, self.exit_conditions, self._prev_row)
+            # Report before returning: an exit that could not be decided is the
+            # case worth seeing, and returning first would swallow it.
+            self._log_cross_skips("exit")
+            if signal_exit:
                 return "EXIT_SIGNAL"
 
         if self._is_intraday_product():

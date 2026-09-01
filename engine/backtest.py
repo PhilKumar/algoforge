@@ -10,6 +10,7 @@ engine/backtest.py — PhilForge Backtest Engine v3
 import math
 import os
 import sys
+from collections import deque
 from datetime import date, datetime, time, timedelta
 
 import numpy as np
@@ -226,6 +227,52 @@ _TOUCH_POINT_KEYS = {"current_open", "current_close"}
 _ROW_INDEPENDENT_CONDITION_KEYS = {"Time_Of_Day", "Day_Of_Week", "number", "time", "days", "true", "false"}
 _PREV_SENSITIVE_OPERATORS = {"crosses_above", "crosses_below"}
 
+# Why a cross could not be decided, most recent last. A cross needs the
+# previous bar; when there isn't one these operators used to fall back to a
+# plain > or <, which answers a DIFFERENT question and answers it wrongly --
+# "crossed above S1" became "is above S1", so every level under the current
+# price reported a cross that never happened. They return False now, and drop
+# a note here so the engines can say WHY rather than leaving it invisible.
+#
+# Written only on the skip path, so a clean backtest never touches it, and
+# bounded so a dirty one cannot grow it without limit.
+_CROSS_SKIPS: deque = deque(maxlen=64)
+
+
+def _note_cross_skip(op: str, left, right, reason: str) -> None:
+    try:
+        _CROSS_SKIPS.append(
+            {
+                "operator": str(op),
+                "left": str(left),
+                "right": str(right) if not isinstance(right, dict) else str(right.get("value", right)),
+                "reason": reason,
+            }
+        )
+    except Exception:
+        pass
+
+
+def drain_cross_skips() -> list:
+    """Take and clear the notes. Callers log them; nobody accumulates them."""
+    out = list(_CROSS_SKIPS)
+    _CROSS_SKIPS.clear()
+    return out
+
+
+def _prev_cross_operand(prev_row, key, cond, op, side: str):
+    """One side of the previous bar, or None with a note saying what was wrong."""
+    value = _resolve_value(prev_row, key, cond)
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        _note_cross_skip(op, key, key, f"previous bar has no {side} value")
+        return None
+    if as_float != as_float:  # NaN — an indicator still warming up
+        _note_cross_skip(op, key, key, f"previous bar {side} value is NaN (indicator warming up)")
+        return None
+    return as_float
+
 
 def _resolve_value(row, key, cond=None):
     """Map a condition field name to the actual DataFrame column value."""
@@ -393,28 +440,21 @@ def eval_condition(row, cond, prev_row=None):
     lv_f = float(lv)
     rv_f = float(rv)
 
-    # Crossover detection: requires previous row to compare
-    if op == "crosses_above":
+    # Crossover detection: needs the previous bar. Without it there is no
+    # answer -- NOT a plain comparison. Falling back to `lv > rv` turned
+    # "crossed above S1" into "is above S1", so on 2026-09-01 a NIFTY 24300PE
+    # exit showed S1, S2 and S3 all crossed on one bar with the index sitting
+    # above all three and never having dipped below any of them.
+    if op in ("crosses_above", "crosses_below"):
         if prev_row is None:
-            return lv_f > rv_f  # fallback if no prev row
-        plv = _resolve_value(prev_row, left)
-        prv = _resolve_value(prev_row, r, cond)
-        try:
-            plv_f = float(plv)
-            prv_f = float(prv)
-        except (TypeError, ValueError):
-            return lv_f > rv_f
-        return plv_f <= prv_f and lv_f > rv_f
-    elif op == "crosses_below":
-        if prev_row is None:
-            return lv_f < rv_f  # fallback if no prev row
-        plv = _resolve_value(prev_row, left)
-        prv = _resolve_value(prev_row, r, cond)
-        try:
-            plv_f = float(plv)
-            prv_f = float(prv)
-        except (TypeError, ValueError):
-            return lv_f < rv_f
+            _note_cross_skip(op, left, r, "no previous bar to compare against")
+            return False
+        plv_f = _prev_cross_operand(prev_row, left, None, op, "left")
+        prv_f = _prev_cross_operand(prev_row, r, cond, op, "right")
+        if plv_f is None or prv_f is None:
+            return False
+        if op == "crosses_above":
+            return plv_f <= prv_f and lv_f > rv_f
         return plv_f >= prv_f and lv_f < rv_f
     if op == "touches":
         return _touch_fill_price(row, cond, prev_row) is not None
