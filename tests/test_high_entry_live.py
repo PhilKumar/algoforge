@@ -792,3 +792,127 @@ class SuperOrderBookTests(unittest.TestCase):
         receipt = self.buy(broker)
         self.assertEqual(receipt["traded_premium"], 199.0)
         self.assertNotIn("bracket_order_id", receipt)
+
+
+class RealDhanBehaviourTests(unittest.TestCase):
+    """Pinned to what a REAL Dhan super order did on 2026-09-01.
+
+    Order 34326090116372: NIFTY 24350CE 08-Sep, 65 qty, MARGIN. Both of these
+    were wrong in code until that order was placed, and neither was findable
+    with a fake broker, because the fakes were built from the same assumptions.
+    """
+
+    ENTRY = "34326090116372"
+
+    def broker(self, *, leg_status="CANCELLED", leg_error="", super_avg=0.0, plain_avg=37.05):
+        entry = self
+
+        class _Broker:
+            cancels: list = []
+
+            def place_super_order(self, **kw):
+                return {"orderId": entry.ENTRY, "orderStatus": "TRANSIT"}
+
+            def get_super_orders(self):
+                # EXACTLY what Dhan returned: TRADED, a real filledQty, and
+                # averageTradedPrice 0.0.
+                return [
+                    {
+                        "orderId": entry.ENTRY,
+                        "orderStatus": "TRADED",
+                        "filledQty": 65,
+                        "averageTradedPrice": super_avg,
+                        "omsErrorDescription": "TRADE CONFIRMED",
+                        "legDetails": [
+                            {"legName": "STOP_LOSS_LEG", "orderStatus": "PENDING", "price": 11.0},
+                            {"legName": "TARGET_LEG", "orderStatus": "PENDING", "price": 54.95},
+                        ],
+                    }
+                ]
+
+            def verify_order_fill(self, order_id, max_wait_sec=20):
+                # The ordinary book DOES resolve a super order id, with the
+                # price the super order book withheld.
+                return {"status": "FILLED", "filled_qty": 65, "avg_price": plain_avg}
+
+            def cancel_super_order(self, order_id, leg_name="ENTRY_LEG"):
+                type(self).cancels.append(leg_name)
+                if leg_name == "ENTRY_LEG":
+                    raise AssertionError("cancelling ENTRY_LEG after a fill leaves the exit legs working")
+                if leg_error:
+                    return {"orderId": order_id, "orderStatus": "TRADED", "errorMessage": leg_error}
+                return {"orderId": order_id, "orderStatus": leg_status}
+
+        _Broker.cancels = []
+        return _Broker()
+
+    def live(self, broker):
+        ex = OptionsLiveExecutor(broker=broker, symbol="NIFTY", armed=True)
+        ex.verify_wait_sec = 2
+        return ex
+
+    def test_the_fill_price_comes_from_the_book_that_actually_has_it(self):
+        """The super order book says TRADED but reports averageTradedPrice 0.
+        Booking that would put the QUOTE in the ledger instead of the fill."""
+        live = self.live(self.broker(super_avg=0.0, plain_avg=37.05))
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.buy(
+                when=WHEN,
+                strike=24_350,
+                expiry=date(2026, 9, 8),
+                option_type="CE",
+                quantity=65,
+                premium=36.65,
+                stop_price=11.0,
+            )
+        self.assertEqual(receipt["traded_premium"], 37.05, "the real fill, not the quote")
+        self.assertEqual(receipt["traded_quantity"], 65)
+
+    def test_the_super_book_is_believed_when_it_does_carry_a_price(self):
+        live = self.live(self.broker(super_avg=37.5, plain_avg=99.0))
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            receipt = live.buy(
+                when=WHEN,
+                strike=24_350,
+                expiry=date(2026, 9, 8),
+                option_type="CE",
+                quantity=65,
+                premium=36.65,
+                stop_price=11.0,
+            )
+        self.assertEqual(receipt["traded_premium"], 37.5)
+
+    def test_releasing_a_bracket_cancels_the_exit_legs_not_the_entry(self):
+        """Cancelling ENTRY_LEG after the fill returns DH-906 and leaves the
+        target and stop WORKING over a position the engine thinks is closed."""
+        broker = self.broker()
+        live = self.live(broker)
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            outcome = live.cancel_bracket(order_id=self.ENTRY)
+        self.assertEqual(type(broker).cancels, ["TARGET_LEG", "STOP_LOSS_LEG"])
+        self.assertTrue(outcome["cancelled"])
+        self.assertNotIn("traded", outcome)
+
+    def test_a_leg_that_really_traded_is_still_reported_as_a_sale(self):
+        broker = self.broker(leg_error="Order Has Traded Please Refresh Order Book")
+        live = self.live(broker)
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            outcome = live.cancel_bracket(order_id=self.ENTRY)
+        self.assertTrue(outcome["traded"])
+        self.assertEqual(outcome["avg_price"], 54.95, "priced from the leg that sold it")
+
+    def test_a_leg_that_will_not_cancel_is_refused_loudly(self):
+        """Half a bracket released is worse than none: the other leg is still
+        live over a position about to be sold."""
+
+        class _Stuck:
+            def cancel_super_order(self, order_id, leg_name="ENTRY_LEG"):
+                raise RuntimeError("broker down")
+
+            def get_super_orders(self):
+                return []
+
+        live = self.live(_Stuck())
+        with patch("engine.options_live_executor.OPTIONS_LIVE_EXECUTION_ENABLED", True):
+            with self.assertRaises(ExecutionRefused):
+                live.cancel_bracket(order_id=self.ENTRY)

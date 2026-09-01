@@ -644,6 +644,18 @@ class LiveExecutor:
                 except (TypeError, ValueError):
                     avg = 0.0
                 if status in ("TRADED", "FILLED", "COMPLETE", "PART_TRADED") and filled > 0:
+                    if avg <= 0:
+                        # PROVEN ON A REAL ORDER, 2026-09-01: the super order
+                        # book reports the entry TRADED with a real filledQty
+                        # and averageTradedPrice 0.0 -- Dhan does not fill that
+                        # field in here. The ordinary book resolves the same id
+                        # and gives the true price. Each book is asked for what
+                        # it actually knows.
+                        plain = self._verify(order_id, max_wait_sec=5)
+                        try:
+                            avg = float(plain.get("avg_price") or 0.0)
+                        except (TypeError, ValueError):
+                            avg = 0.0
                     return {"status": "FILLED", "filled_qty": filled, "avg_price": avg}
                 if status in ("REJECTED", "CANCELLED", "FAILED"):
                     return {
@@ -858,37 +870,75 @@ class LiveExecutor:
         )
         return {"order_id": str(order_id), "amended": True, "raw": result, "mode": "live"}
 
+    def _bracket_leg_price(self, order_id, leg_name: str) -> Optional[float]:
+        """What a bracket leg traded at, asking whichever book knows."""
+        fetch = getattr(self.broker, "get_super_orders", None)
+        if fetch is not None:
+            try:
+                for row in fetch() or []:
+                    if str(row.get("orderId") or "") != str(order_id):
+                        continue
+                    for leg in row.get("legDetails") or []:
+                        if str(leg.get("legName") or "").upper() != leg_name:
+                            continue
+                        for key in ("averageTradedPrice", "price"):
+                            try:
+                                value = float(leg.get(key) or 0.0)
+                            except (TypeError, ValueError):
+                                value = 0.0
+                            if value > 0:
+                                return value
+            except Exception:
+                pass
+        plain = self._verify(order_id, max_wait_sec=3)
+        try:
+            value = float(plain.get("avg_price") or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        return value if value > 0 else None
+
     def cancel_bracket(self, *, order_id) -> dict:
-        """Release a bracket's remaining legs, so the basket can be sold.
+        """Release a bracket's EXIT legs, so the basket can be sold.
 
-        Selling a bracketed leg on the open market without this would leave its
-        target and stop working at Dhan against a position that is gone -- the
-        exact naked short the bracket exists to prevent.
+        The exit legs, never the entry. Cancelling ENTRY_LEG after the entry
+        has traded returns `DH-906 Order Has Traded`, and the first version of
+        this read that as "a leg already sold the position": it told the ladder
+        to settle the leg while the target and stop were STILL WORKING at Dhan
+        against a position now believed closed. Proven on a real order on
+        2026-09-01, where both legs sat PENDING over a flat position until they
+        were cancelled by hand. That is the naked short the bracket exists to
+        prevent, arriving through the code meant to prevent it.
 
-        A cancel that comes back TRADED means one of the legs already sold it,
-        which is reported the same way a filled resting target is: the leg is
-        settled, not still held.
+        A leg that reports TRADED really did sell the position, and that is
+        reported so the basket books it instead of selling the lot twice.
         """
         self._availability_guard()
-        result = self.broker.cancel_super_order(str(order_id), "ENTRY_LEG")
-        raw = str((result or {}).get("orderStatus") or "").upper()
-        if raw in ("TRADED", "CLOSED", "FILLED", "COMPLETE"):
-            avg = 0.0
-            for key in ("averagePrice", "averageTradedPrice", "price"):
-                try:
-                    avg = float((result or {}).get(key) or 0.0)
-                except (TypeError, ValueError):
-                    avg = 0.0
-                if avg > 0:
-                    break
+        cancelled, traded_at = [], None
+        for leg_name in ("TARGET_LEG", "STOP_LOSS_LEG"):
+            try:
+                result = self.broker.cancel_super_order(str(order_id), leg_name)
+            except Exception as exc:
+                cancelled.append({"leg": leg_name, "error": str(exc)})
+                continue
+            raw = str((result or {}).get("orderStatus") or "").upper()
+            message = str((result or {}).get("errorMessage") or "")
+            if raw in ("TRADED", "FILLED", "COMPLETE") or "Has Traded" in message:
+                traded_at = traded_at or self._bracket_leg_price(order_id, leg_name)
+                cancelled.append({"leg": leg_name, "traded": True})
+                continue
+            cancelled.append({"leg": leg_name, "cancelled": True})
+        if any(row.get("error") for row in cancelled):
+            raise ExecutionRefused(f"a bracket leg would not cancel: {cancelled}")
+        if any(row.get("traded") for row in cancelled):
             return {
                 "order_id": str(order_id),
                 "cancelled": False,
                 "traded": True,
-                "avg_price": avg if avg > 0 else None,
+                "avg_price": traded_at,
+                "legs": cancelled,
                 "mode": "live",
             }
-        return {"order_id": str(order_id), "cancelled": True, "raw": result, "mode": "live"}
+        return {"order_id": str(order_id), "cancelled": True, "legs": cancelled, "mode": "live"}
 
     def rest_stop(self, *, when, strike, expiry, option_type, quantity, trigger_price) -> dict:
         """Leave a STOP sitting on the exchange under a held leg.

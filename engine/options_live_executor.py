@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Optional
 
 # THE ONE SWITCH. Every real order in this module goes through
 # `_availability_guard`, and it refuses while this is False. Like Fib
@@ -178,6 +178,23 @@ class OptionsLiveExecutor:
                 except (TypeError, ValueError):
                     avg = 0.0
                 if status in ("TRADED", "FILLED", "COMPLETE", "PART_TRADED") and filled > 0:
+                    if avg <= 0:
+                        # PROVEN ON A REAL ORDER, 2026-09-01: the super order
+                        # book reports the entry TRADED with filledQty 65 and
+                        # "TRADE CONFIRMED" -- and averageTradedPrice 0.0.
+                        # Dhan does not fill that field in here. The ORDINARY
+                        # order book resolves the same id and gives the real
+                        # price (37.05 on that order), so the two books are
+                        # asked for what each actually knows: this one for
+                        # whether the bracket traded, that one for what it
+                        # cost. Without this the engine books the QUOTE
+                        # instead of the fill, which is the estimate that
+                        # verifying fills exists to remove.
+                        plain = self._verify(order_id, max_wait_sec=5)
+                        try:
+                            avg = float(plain.get("avg_price") or 0.0)
+                        except (TypeError, ValueError):
+                            avg = 0.0
                     return {"status": "FILLED", "filled_qty": filled, "avg_price": avg}
                 if status in ("REJECTED", "CANCELLED", "FAILED"):
                     return {
@@ -337,33 +354,76 @@ class OptionsLiveExecutor:
         result = self.broker.modify_super_order(str(order_id), "TARGET_LEG", target_price=float(price))
         return {"order_id": str(order_id), "amended": True, "raw": result, "mode": "live"}
 
-    def cancel_bracket(self, *, order_id) -> dict:
-        """Release a bracket's remaining legs so the leg can be sold.
+    def _bracket_leg_price(self, order_id, leg_name: str) -> Optional[float]:
+        """What a bracket leg traded at, asking whichever book knows."""
+        fetch = getattr(self.broker, "get_super_orders", None)
+        if fetch is not None:
+            try:
+                for row in fetch() or []:
+                    if str(row.get("orderId") or "") != str(order_id):
+                        continue
+                    for leg in row.get("legDetails") or []:
+                        if str(leg.get("legName") or "").upper() != leg_name:
+                            continue
+                        for key in ("averageTradedPrice", "price"):
+                            try:
+                                value = float(leg.get(key) or 0.0)
+                            except (TypeError, ValueError):
+                                value = 0.0
+                            if value > 0:
+                                return value
+            except Exception:
+                pass
+        plain = self._verify(order_id, max_wait_sec=3)
+        try:
+            value = float(plain.get("avg_price") or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        return value if value > 0 else None
 
-        A cancel that comes back TRADED means one of the legs already sold the
-        position. That is reported, not swallowed: the caller books the leg at
-        that price instead of selling it a second time.
+    def cancel_bracket(self, *, order_id) -> dict:
+        """Release a bracket's exit legs so the position can be sold.
+
+        THE EXIT LEGS, NOT THE ENTRY. Cancelling ENTRY_LEG after the entry has
+        traded comes back `DH-906 Order Has Traded` -- and the first version of
+        this read that as "a leg already sold the position", told the engine to
+        book the leg as settled, and left the target and stop STILL WORKING at
+        Dhan against a position the engine now believed was closed. Proven on a
+        real order on 2026-09-01: both legs sat PENDING over a flat position
+        until they were cancelled by hand. That is a naked short waiting for a
+        bad tick, and a ledger that disagrees with the account.
+
+        A leg that reports TRADED really did sell the position, and that IS
+        reported, so the caller books it instead of selling the same lot twice.
         """
         self._availability_guard()
-        result = self.broker.cancel_super_order(str(order_id), "ENTRY_LEG")
-        raw = str((result or {}).get("orderStatus") or "").upper()
-        if raw in ("TRADED", "CLOSED", "FILLED", "COMPLETE"):
-            avg = 0.0
-            for key in ("averagePrice", "averageTradedPrice", "price"):
-                try:
-                    avg = float((result or {}).get(key) or 0.0)
-                except (TypeError, ValueError):
-                    avg = 0.0
-                if avg > 0:
-                    break
+        cancelled, traded_at = [], None
+        for leg_name in ("TARGET_LEG", "STOP_LOSS_LEG"):
+            try:
+                result = self.broker.cancel_super_order(str(order_id), leg_name)
+            except Exception as exc:
+                # One leg failing must not leave the other one working.
+                cancelled.append({"leg": leg_name, "error": str(exc)})
+                continue
+            raw = str((result or {}).get("orderStatus") or "").upper()
+            message = str((result or {}).get("errorMessage") or "")
+            if raw in ("TRADED", "FILLED", "COMPLETE") or "Has Traded" in message:
+                traded_at = traded_at or self._bracket_leg_price(order_id, leg_name)
+                cancelled.append({"leg": leg_name, "traded": True})
+                continue
+            cancelled.append({"leg": leg_name, "cancelled": True})
+        if any(row.get("error") for row in cancelled):
+            raise ExecutionRefused(f"a bracket leg would not cancel: {cancelled}")
+        if traded_at is not None or any(row.get("traded") for row in cancelled):
             return {
                 "order_id": str(order_id),
                 "cancelled": False,
                 "traded": True,
-                "avg_price": avg if avg > 0 else None,
+                "avg_price": traded_at,
+                "legs": cancelled,
                 "mode": "live",
             }
-        return {"order_id": str(order_id), "cancelled": True, "raw": result, "mode": "live"}
+        return {"order_id": str(order_id), "cancelled": True, "legs": cancelled, "mode": "live"}
 
 
 def build_executor(
