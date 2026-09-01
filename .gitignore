@@ -110,3 +110,14 @@ WorkArchive/
 
 # Data pulled off prod for safekeeping. Real trading history: never in git.
 backups/
+
+# The Dhan option archive — 272 parquet files, ~1.5 GB of vendor minute bars
+# across the four moneyness stores, plus the index cache built from them.
+# Rebuildable from Dhan; never a git object. Nothing kept these out before,
+# they were simply never added, which is one `git add .` away from a 1.5 GB
+# commit.
+data/dhan_options/
+data/dhan_options_e2/
+data/dhan_options_m1/
+data/dhan_options_m2/
+cache/nifty_index_from_dhan.parquet
