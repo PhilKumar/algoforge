@@ -2116,6 +2116,23 @@ async def _save_fib_boundary_open_state(user_id: int, *, force: bool = False) ->
         await _archive_paper_campaign(int(user_id), "fib_boundary", runtime.engine.get_status(), runtime.engine)
 
 
+async def _candle_entry_restore_history(broker: DhanClient, days: int = 10):
+    """Recorded prices for a restored campaign, or None.
+
+    The start route builds this; the restore never did. So a basket that came
+    back after a deploy could price only minutes inside the live-quote window,
+    and a deploy is exactly when an exit lands outside it. Ten sessions is
+    comfortably more than a Candle Entry campaign's life.
+    """
+    today = datetime.now(IST).date()
+    try:
+        pricing = await asyncio.to_thread(_candle_entry_pricing, broker, today - timedelta(days=int(days)), today)
+    except Exception as exc:
+        _logger.warning("[CANDLE ENTRY] no recorded-price source on restore: %s", exc)
+        return None
+    return pricing[0] if isinstance(pricing, tuple) else pricing
+
+
 async def _restore_candle_entry_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
 ) -> _CascadeRuntime | None:
@@ -2133,7 +2150,13 @@ async def _restore_candle_entry_open_state(
         # Live quotes for now, recorded history for anything older -- the poll
         # arms the history on its first tick when the catch-up needs it.
         engine = LadderCandleEntryPaper.from_dict(
-            payload["engine"], adapter=adapter, option_premium_lookup=_candle_entry_premium_lookup(broker, None)
+            payload["engine"],
+            adapter=adapter,
+            # NOT None. The start route builds this and the restore did not, so
+            # a campaign that came back after a deploy lost its recorded-price
+            # fallback -- and a deploy is exactly when an exit lands outside
+            # the live-quote window.
+            option_premium_lookup=_candle_entry_premium_lookup(broker, (await _candle_entry_restore_history(broker))),
         )
         last = datetime.fromisoformat(str(payload.get("last_candle_timestamp") or "").replace("Z", "+00:00"))
         if last.tzinfo is None:
@@ -13115,6 +13138,38 @@ def _gap_carry_config(payload) -> "_gap_carry_mod.GapCarryConfig":
     return config
 
 
+async def _gap_carry_history_lookup(broker: DhanClient, days: int = 10):
+    """Recorded option prices for the last few sessions, or None.
+
+    Gap Carry ran without this, the same way Supertrend did. Its symptom is
+    milder and worse to spot: `mark()` only closes when it HAS a premium, so
+    an unpriceable 09:20 exit does not book a wrong number -- it simply does
+    not exit. A one-night carry then keeps running, held by nothing but a
+    missing quote, which is not a position anybody chose.
+
+    Same recorded source as everywhere else: Upstox for an expired contract,
+    Dhan's own option candles for a listed one. BLOCKING, so it is built once
+    at start rather than per lookup.
+    """
+    today = datetime.now(IST).date()
+    try:
+        pricing = await asyncio.to_thread(_candle_entry_pricing, broker, today - timedelta(days=int(days)), today)
+    except Exception as exc:
+        _logger.warning("[GAP CARRY] no recorded-price source: %s", exc)
+        return None
+    price_history = pricing[0] if isinstance(pricing, tuple) else pricing
+    if price_history is None:
+        return None
+
+    def history(when: datetime, strike: int, side: str, expiry: date):
+        try:
+            return price_history(when, _gap_carry_contract(int(strike), str(side), expiry))
+        except Exception:
+            return None
+
+    return history
+
+
 def _gap_carry_premium_lookup(broker: DhanClient, history=None):
     """Price by the AGE of the minute: the live quote if it is now, history if not.
 
@@ -13234,7 +13289,7 @@ async def _restore_gap_carry_open_state(
         adapter = CascadeOptionsAdapter(broker, paper_only=True)
         engine = _gap_carry_paper.GapCarryPaper.from_dict(
             saved,
-            option_premium_lookup=_gap_carry_premium_lookup(broker),
+            option_premium_lookup=_gap_carry_premium_lookup(broker, await _gap_carry_history_lookup(broker)),
             expiry_lookup=_gap_carry_expiry_lookup(broker),
             lot_size_lookup=_gap_carry_lot_size_lookup(broker),
         )
@@ -13337,7 +13392,7 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     trade_mode = str(getattr(payload, "mode", "paper") or "paper").strip().lower()
     engine = _gap_carry_paper.GapCarryPaper(
         config=config,
-        option_premium_lookup=_gap_carry_premium_lookup(broker_client),
+        option_premium_lookup=_gap_carry_premium_lookup(broker_client, await _gap_carry_history_lookup(broker_client)),
         expiry_lookup=_gap_carry_expiry_lookup(broker_client, expiry_rule),
         lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
         executor=(

@@ -69,3 +69,50 @@ class ZeroCostWarningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecordedPriceFallbackTests(unittest.TestCase):
+    """Every live book must be able to price an exit it did not see live.
+
+    `*_premium_lookup(broker, history)` serves a recent minute from Dhan's
+    live quote and anything older from `history`. Three of the five live paths
+    passed history=None, so an exit noticed more than a few minutes after its
+    bar closed had NO price. Supertrend then floored it at intrinsic -- zero
+    for anything out of the money -- and booked a Rs 14,501 loss on a leg
+    worth about Rs 170 (2026-09-01). Gap Carry instead refused to exit at all,
+    holding an overnight carry on nothing but a missing quote.
+    """
+
+    def _source(self):
+        import inspect
+
+        import app as app_module
+
+        return inspect.getsource(app_module)
+
+    def test_supertrend_live_paths_are_given_recorded_prices(self):
+        src = self._source()
+        self.assertIn("broker_client, await _supertrend_history_lookup(broker_client)", src)
+        self.assertIn("_supertrend_premium_lookup(broker, await _supertrend_history_lookup(broker))", src)
+
+    def test_gap_carry_live_paths_are_given_recorded_prices(self):
+        src = self._source()
+        self.assertIn("_gap_carry_premium_lookup(broker, await _gap_carry_history_lookup(broker))", src)
+        self.assertIn("broker_client, await _gap_carry_history_lookup(broker_client)", src)
+
+    def test_candle_entry_restore_is_given_recorded_prices(self):
+        """The start route always built this; only the restore went without."""
+        src = self._source()
+        self.assertNotIn("_candle_entry_premium_lookup(broker, None)", src)
+        self.assertIn("_candle_entry_restore_history", src)
+
+    def test_none_of_them_still_hardcode_a_missing_history(self):
+        src = self._source()
+        for call in (
+            "_supertrend_premium_lookup(broker)",
+            "_supertrend_premium_lookup(broker_client)",
+            "_gap_carry_premium_lookup(broker)",
+            "_gap_carry_premium_lookup(broker_client)",
+        ):
+            with self.subTest(call=call):
+                self.assertNotIn(f"{call},", src, f"{call} passes no history — an exit it cannot quote has no price")
