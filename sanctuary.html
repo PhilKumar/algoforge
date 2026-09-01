@@ -37,6 +37,10 @@
      still read. Raising the tint instead would have cost him the view. */
   --glass-blur:blur(26px) saturate(1.45) contrast(.42) brightness(1.58);
   --glass-tint:rgba(255,253,246,.58);
+  /* A leaf in mid-turn cannot be glass: a strip that blurs what is behind
+     it blurs a different patch of the world from its neighbour, and the
+     curve breaks into sixteen tiles. Turning paper is opaque paper. */
+  --page-solid:#f7f4ea;
   --glass-tint-2:rgba(241,246,243,.4);
   --glass-edge:rgba(255,255,255,.6);
   --glass-rim:rgba(43,51,80,.12);
@@ -84,6 +88,7 @@ html[data-theme="dark"]{
      text keeps its footing against a lamp or a bright window. */
   --glass-blur:blur(26px) saturate(1.35) brightness(.5);
   --glass-tint:rgba(16,24,42,.46);
+  --page-solid:#141d31;
   --glass-tint-2:rgba(24,34,56,.34);
   --glass-edge:rgba(190,210,240,.24);
   --glass-rim:rgba(0,0,0,.34);
@@ -480,26 +485,17 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
    that the edge is almost never reached. */
 .leaf-stage{position:absolute;z-index:6;overflow:hidden;pointer-events:none;
   perspective:3400px;perspective-origin:50% 50%}
-.leaf-flip{position:absolute;transform-style:preserve-3d;pointer-events:none;
-  will-change:transform}
-.leaf-flip .leaf-face{position:absolute;inset:0;height:auto;backface-visibility:hidden;
-  transition:none;animation:none;margin:0}
-/* The back of a right-hand leaf is a left-hand page, and the other way
-   round — so each face wears the shape of the side it will land on. */
-.leaf-flip .leaf-face.back{transform:rotateY(180deg)}
-/* Paper is not evenly lit as it lifts: the edge nearest the reader catches
-   the light and the hinge falls into the fold's shadow. */
-.leaf-flip .leaf-face::after{content:"";position:absolute;inset:0;border-radius:inherit;
-  pointer-events:none;opacity:0;transition:opacity .62s ease}
-.leaf-flip.away .leaf-face::after{opacity:1}
-.leaf-flip.forward .leaf-face.front::after{
-  background:linear-gradient(100deg,rgba(4,10,18,.44),rgba(4,10,18,0) 62%)}
-.leaf-flip.forward .leaf-face.back::after{
-  background:linear-gradient(260deg,rgba(4,10,18,.30),rgba(4,10,18,0) 58%)}
-.leaf-flip.back-turn .leaf-face.front::after{
-  background:linear-gradient(260deg,rgba(4,10,18,.44),rgba(4,10,18,0) 62%)}
-.leaf-flip.back-turn .leaf-face.back::after{
-  background:linear-gradient(100deg,rgba(4,10,18,.30),rgba(4,10,18,0) 58%)}
+/* One upright slice of the leaf, standing wherever the roll has carried
+   its own column of the page. Each keeps both faces of the sheet. */
+.curl-strip{position:absolute;overflow:hidden;transform-style:preserve-3d;
+  pointer-events:none;will-change:transform,filter;backface-visibility:visible}
+.curl-face{position:absolute;top:0;height:auto;backface-visibility:hidden;
+  transition:none;animation:none;margin:0;border-radius:0;border-left:0;border-right:0;
+  box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+  background-color:var(--page-solid)}
+/* Seen from behind, so it is drawn reversed and reads correctly on the
+   underside of the sheet. */
+.curl-face.back{transform:rotateY(180deg)}
 /* The page it is being lifted off darkens under it, then comes back up. */
 .book.turning .book-spread .book-leaf{filter:brightness(.86);transition:filter .62s ease}
 .page-turn{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
@@ -2607,19 +2603,30 @@ function monthBeside(delta){
    next leaf. Turning past the last day of a month carries into the first
    day of the next one, and turning back off the first day lands on the last
    day of the one before. */
-const TURN_MS = 620;
-/* The leaf that is being turned: a copy of the page he is leaving, lifted
-   off the spread and carried over on its hinge, with its own back on the
-   other side. The book underneath is redrawn first, so the destination is
-   already lying there — this is the paper coming off it, not a transition
-   between two drawings. */
-function flipLeaf(delta, frontHtml, backHtml){
+const TURN_MS = 700;
+/* ── the curl ──
+   A leaf does not pivot like a door. It peels: the free edge lifts first
+   and the paper wraps itself around a cylinder that travels across the page
+   towards the spine, so at any moment part of the leaf is still flat, part
+   is standing in an arc, and part has already come over and is lying face
+   down. That shape is what makes it read as paper rather than a panel on a
+   hinge.
+
+   Nothing in CSS bends a rectangle, so the leaf is cut into upright strips
+   and each strip is placed on the cylinder where its own column of the page
+   would be. Enough strips and the joins disappear into the curve.
+
+   Every strip carries the page on its front and the page it is turning
+   towards on its back, so what he sees folded over is the other side of the
+   sheet in his hand, the way it is in a book. */
+const CURL_STRIPS = 16;
+function curlLeaf(delta, frontHtml, backHtml){
   const book = $("book");
   const leaf = $(delta > 0 ? "page-right" : "page-left");
   const box = leaf.getBoundingClientRect();
   const spread = $("book-spread").getBoundingClientRect();
   const frame = book.getBoundingClientRect();
-  /* The stage is the spread itself: the leaf turns over the book and never
+  /* The stage is the spread itself: the leaf turns over the book, never
      off it. */
   const stage = document.createElement("div");
   stage.className = "leaf-stage";
@@ -2627,28 +2634,92 @@ function flipLeaf(delta, frontHtml, backHtml){
   stage.style.top = (spread.top - frame.top) + "px";
   stage.style.width = spread.width + "px";
   stage.style.height = spread.height + "px";
-  const flip = document.createElement("div");
-  flip.className = "leaf-flip " + (delta > 0 ? "forward" : "back-turn");
-  flip.style.left = (box.left - spread.left) + "px";
-  flip.style.top = (box.top - spread.top) + "px";
-  flip.style.width = box.width + "px";
-  flip.style.height = box.height + "px";
-  /* The hinge is the spine: a right-hand leaf turns about its left edge. */
-  flip.style.transformOrigin = delta > 0 ? "left center" : "right center";
-  flip.style.transform = "rotateY(0deg)";
-  flip.style.transition = `transform ${TURN_MS}ms cubic-bezier(.34,.03,.24,1)`;
-  const side = (which) => delta > 0
-    ? (which === "front" ? "recto" : "verso")
-    : (which === "front" ? "verso" : "recto");
-  flip.innerHTML =
-    `<div class="leaf-face front book-leaf ${side("front")}">${frontHtml}</div>` +
-    `<div class="leaf-face back book-leaf ${side("back")}">${backHtml}</div>`;
-  stage.appendChild(flip);
+
+  const W = box.width, H = box.height;
+  const sw = W / CURL_STRIPS;
+  const left0 = box.left - spread.left;
+  const top0 = box.top - spread.top;
+  /* How tightly the paper rolls. Too wide and it is a hinge again; too
+     tight and it is a scroll — about a quarter of the page reads as a leaf
+     being peeled rather than a board being swung. */
+  const R = Math.max(42, W / 4.4);
+  const side = delta > 0
+    ? {front: "recto", back: "verso"}
+    : {front: "verso", back: "recto"};
+
+  const strips = [];
+  for (let i = 0; i < CURL_STRIPS; i++){
+    const strip = document.createElement("div");
+    strip.className = "curl-strip";
+    strip.style.width = sw + 0.6 + "px";   /* a hair of overlap hides the joins */
+    strip.style.height = H + "px";
+    strip.style.left = (left0 + i * sw) + "px";
+    strip.style.top = top0 + "px";
+    /* Each strip turns about the edge nearer the spine. */
+    strip.style.transformOrigin = delta > 0 ? "left center" : "right center";
+    /* Both faces are the whole page, slid sideways so this strip shows its
+       own column of it. The back is seen from behind, so its columns run
+       the other way. */
+    const back = CURL_STRIPS - 1 - i;
+    strip.innerHTML =
+      `<div class="curl-face front book-leaf ${side.front}" style="width:${W}px;height:${H}px;left:${-i * sw}px">${frontHtml}</div>`
+      + `<div class="curl-face back book-leaf ${side.back}" style="width:${W}px;height:${H}px;left:${-back * sw}px">${backHtml}</div>`;
+    stage.appendChild(strip);
+    strips.push(strip);
+  }
   book.appendChild(stage);
-  void flip.offsetHeight;          /* the flat state has to be seen before it is left */
-  flip.classList.add("away");
-  flip.style.transform = `rotateY(${delta > 0 ? -180 : 180}deg)`;
-  setTimeout(() => stage.remove(), TURN_MS + 40);
+
+  /* Where the fold stands, measured from the spine. It starts at the free
+     edge — the whole leaf flat — and travels past the spine until even the
+     last column has come over. */
+  const place = (fold) => {
+    for (let i = 0; i < CURL_STRIPS; i++){
+      /* the hinge-side edge of this strip, as a distance from the spine */
+      const a = delta > 0 ? i * sw : W - (i + 1) * sw;
+      let x, z, turn;
+      if (a <= fold){ x = a; z = 0; turn = 0; }
+      else {
+        const along = a - fold;              /* how far round the roll it has gone */
+        const angle = along / R;
+        if (angle <= Math.PI){
+          x = fold + R * Math.sin(angle);
+          z = R * (1 - Math.cos(angle));
+          turn = -angle;
+        } else {                              /* over the top and lying back down */
+          x = fold - (along - Math.PI * R);
+          z = 2 * R;
+          turn = -Math.PI;
+        }
+      }
+      const strip = strips[i];
+      const flat = delta > 0 ? i * sw : (i + 1) * sw;
+      const here = delta > 0 ? x : W - x;
+      const shift = (here - flat).toFixed(2), lift = z.toFixed(2);
+      strip.style.transform =
+        `translate3d(${shift}px,0,${lift}px) rotateY(${(delta > 0 ? turn : -turn).toFixed(4)}rad)`;
+      /* Paper in an arc is not evenly lit. The part rising towards him
+         turns its face to the light and takes a sheen; carried on over, it
+         goes away from the light and falls into the fold's own shadow. */
+      const ang = Math.min(Math.abs(turn), Math.PI);
+      const lit = 1 + 0.15 * Math.sin(ang) - 0.46 * (1 - Math.cos(ang)) / 2;
+      strip.style.filter = `brightness(${lit.toFixed(3)})`;
+    }
+  };
+
+  const from = W, to = -(Math.PI * R + sw);
+  stage._place = place;   /* so the shape of the roll can be measured, not just watched */
+  place(from);
+  const begun = performance.now();
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const step = (now) => {
+    const t = Math.min(1, (now - begun) / TURN_MS);
+    place(from + (to - from) * ease(t));
+    if (t < 1) requestAnimationFrame(step); else stage.remove();
+  };
+  requestAnimationFrame(step);
+  /* rAF never runs in a tab nobody is looking at, so the stage is swept up
+     on a timer as well; a leaf left standing would cover the book. */
+  setTimeout(() => stage.remove(), TURN_MS + 400);
 }
 function turnPage(delta){
   if (S.deckOpen) return;          /* the arrows belong to the pictures */
@@ -2676,7 +2747,7 @@ function turnPage(delta){
        into another month cannot know that yet — the underside of paper is
        what a leaf shows while the next month is still being fetched. */
     const landing = $(delta > 0 ? "page-left" : "page-right").innerHTML;
-    flipLeaf(delta, frontHtml, crossing ? BLANK_LEAF : landing);
+    curlLeaf(delta, frontHtml, crossing ? BLANK_LEAF : landing);
     setTimeout(settle, TURN_MS);
   };
   book.classList.add("turning");

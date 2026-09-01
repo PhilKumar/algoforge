@@ -1926,34 +1926,67 @@ class TheBookTurnsLikePaperTests(unittest.TestCase):
     def test_a_day_can_be_asked_for_by_its_date(self):
         self.assertIn("const found = leaves.findIndex((leaf) => leaf.date === want.date);", self.page)
 
-    def test_a_real_leaf_is_carried_over_rather_than_a_panel_redrawn(self):
-        # A page that fades, or swings halfway and swaps what it says, is not
-        # a page turning. A copy of the leaf is lifted off and taken the whole
-        # way over on its hinge, with its own back on the other side.
-        self.assertIn("function flipLeaf(delta, frontHtml, backHtml)", self.page)
-        self.assertIn("flip.innerHTML =", self.page)
-        self.assertIn("leaf-face front book-leaf", self.page)
-        self.assertIn("leaf-face back book-leaf", self.page)
-        self.assertIn(".leaf-flip .leaf-face.back{transform:rotateY(180deg)}", self.page)
-        self.assertNotIn("@keyframes leafOver", self.page)
+    def test_the_leaf_peels_rather_than_pivoting(self):
+        # A leaf does not swing like a door. The free edge lifts first and
+        # the paper wraps round a roll that travels towards the spine, so
+        # part of the page is still flat while part has already come over.
+        # Nothing in CSS bends a rectangle, so it is cut into upright strips
+        # and each is stood where its own column of the page would be.
+        self.assertIn("function curlLeaf(delta, frontHtml, backHtml)", self.page)
+        self.assertIn("const CURL_STRIPS", self.page)
+        self.assertIn('strip.className = "curl-strip";', self.page)
+        self.assertNotIn("function flipLeaf", self.page)
 
-    def test_the_hinge_is_the_spine(self):
-        # A right-hand leaf turns about its left edge and the other way round.
-        self.assertIn('flip.style.transformOrigin = delta > 0 ? "left center" : "right center";', self.page)
+    def test_the_roll_is_a_cylinder_and_the_page_wraps_around_it(self):
+        # Arc length along the paper, turned into an angle by one radius —
+        # which is what makes the curvature even instead of a crease.
+        self.assertIn("const along = a - fold;", self.page)
+        self.assertIn("const angle = along / R;", self.page)
+        self.assertIn("x = fold + R * Math.sin(angle);", self.page)
+        self.assertIn("z = R * (1 - Math.cos(angle));", self.page)
 
-    def test_it_goes_the_whole_way_over(self):
-        # Not to ninety and back: a full half-turn, in one continuous move.
-        self.assertIn("rotateY(${delta > 0 ? -180 : 180}deg)", self.page)
+    def test_the_flat_part_of_the_page_stays_flat(self):
+        # Everything between the spine and the fold has not been reached yet.
+        self.assertIn("if (a <= fold){ x = a; z = 0; turn = 0; }", self.page)
+
+    def test_paper_folded_right_over_lies_down_instead_of_rolling_on(self):
+        # Past half a turn the sheet is face down; carrying on round would
+        # roll it into a tube.
+        self.assertIn("if (angle <= Math.PI){", self.page)
+        self.assertIn("x = fold - (along - Math.PI * R);", self.page)
+        self.assertIn("turn = -Math.PI;", self.page)
+
+    def test_each_strip_turns_about_the_edge_nearer_the_spine(self):
+        self.assertIn('strip.style.transformOrigin = delta > 0 ? "left center" : "right center";', self.page)
+
+    def test_both_sides_of_the_sheet_are_there(self):
+        # What folds over is the other side of the page in his hand, and it
+        # is seen from behind, so its columns run the other way.
+        self.assertIn("const back = CURL_STRIPS - 1 - i;", self.page)
+        self.assertIn(".curl-face.back{transform:rotateY(180deg)}", self.page)
+
+    def test_turning_paper_is_opaque_paper(self):
+        # A strip that blurs what is behind it blurs a different patch of
+        # the world from its neighbour, and the curve breaks into tiles.
+        self.assertIn("--page-solid:", self.page)
+        self.assertIn("backdrop-filter:none", self.page)
+
+    def test_the_rising_page_takes_the_light_and_the_fold_takes_the_shadow(self):
+        # Evenly lit paper reads as a board. It brightens as it turns its
+        # face to the light, and darkens once it is carried past.
+        self.assertIn("const lit = 1 + 0.15 * Math.sin(ang) - 0.46 * (1 - Math.cos(ang)) / 2;", self.page)
 
     def test_the_leaf_never_leaves_the_notebook(self):
-        # A page swung on a hinge is projected towards the reader as it
-        # rises. Unpenned it grew taller than the spread and swept up over
-        # the card above — a leaf leaving the book altogether. It turns
-        # inside the spread's own footprint.
+        # A page lifted towards the reader grows as it rises. Unpenned it
+        # swept up out of the book and over the card above.
         self.assertIn(".leaf-stage{position:absolute;z-index:6;overflow:hidden", self.page)
         self.assertIn('stage.style.width = spread.width + "px";', self.page)
         self.assertIn('stage.style.height = spread.height + "px";', self.page)
-        self.assertIn("stage.appendChild(flip);", self.page)
+
+    def test_a_leaf_is_never_left_standing_over_the_book(self):
+        # The animation runs on frames, and frames stop entirely in a tab
+        # nobody is looking at — so the sweeping-up is on a timer too.
+        self.assertIn("setTimeout(() => stage.remove(), TURN_MS + 400);", self.page)
 
     def test_the_destination_is_already_lying_underneath(self):
         # The book is redrawn first; what turns over it is the paper coming
