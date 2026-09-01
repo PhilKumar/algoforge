@@ -92,17 +92,28 @@ def say(step: str, detail: object = "") -> None:
         print(detail if isinstance(detail, str) else json.dumps(detail, indent=2, default=str))
 
 
-def pick_contract(broker: DhanClient, *, itm_steps: int = 2) -> dict:
-    """The contract this probe will buy: ATM-2 CE on the nearest weekly.
+def pick_contract(broker: DhanClient, *, itm_steps: int = 2, min_dte: int = 3) -> dict:
+    """The contract this probe will buy.
 
     Everything here is READ, never assumed -- the strike step, the expiry and
     the lot all come from what Dhan is listing right now. Quoting a number
     from memory is how you end up sizing a trade wrong.
+
+    NOT the nearest expiry. On its own expiry day the near contract is a
+    lottery ticket with hours to live: a strike a few steps out prices at a
+    rupee or two, its stop lands at the tick floor, and an order Dhan refuses
+    for THAT reason would read as an answer to the questions this probe is
+    asking. The strategies themselves require days to expiry; so does this.
     """
-    expiries = [e for e in ScripMaster.get_expiries("NIFTY") if str(e) >= date.today().isoformat()]
+    today = date.today()
+    expiries = sorted(
+        e for e in ScripMaster.get_expiries("NIFTY") if (date.fromisoformat(str(e)) - today).days >= int(min_dte)
+    )
     if not expiries:
-        raise SystemExit("Dhan is listing no NIFTY expiries; is the scrip master loaded?")
-    expiry = sorted(expiries)[0]
+        raise SystemExit(
+            f"Dhan lists no NIFTY expiry at least {min_dte} days out. " "Lower --min-dte only if you know why."
+        )
+    expiry = expiries[0]
     # NIFTY 50's index security id is 13 on IDX_I -- the same one
     # `get_nifty_intraday` uses, so this reads the level the engines read.
     try:
@@ -137,7 +148,19 @@ def pick_contract(broker: DhanClient, *, itm_steps: int = 2) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--i-mean-it", action="store_true", help="actually place the order (default: dry run)")
-    ap.add_argument("--itm-steps", type=int, default=2)
+    ap.add_argument(
+        "--itm-steps",
+        type=int,
+        default=2,
+        help="strikes IN the money (negative walks it out). Far OTM is cheap and a poor test.",
+    )
+    ap.add_argument("--min-dte", type=int, default=3, help="skip expiries closer than this many days")
+    ap.add_argument(
+        "--min-premium",
+        type=float,
+        default=15.0,
+        help="refuse a contract cheaper than this; its stop would sit at the tick floor",
+    )
     ap.add_argument("--stop-pct", type=float, default=0.70, help="stop this far under the entry, as the engines do")
     ap.add_argument("--close-only", metavar="ORDER_ID", help="skip the probe; just close this super order")
     args = ap.parse_args()
@@ -151,7 +174,7 @@ def main() -> int:
         print("\nCheck your Dhan positions: if a leg is still held, sell it there.")
         return 0
 
-    contract = pick_contract(broker, itm_steps=args.itm_steps)
+    contract = pick_contract(broker, itm_steps=args.itm_steps, min_dte=args.min_dte)
     say("CONTRACT", contract)
     premium = first_price(broker.get_ltp([contract["security_id"]], "NSE_FNO") or {})
     if premium <= 0:
@@ -160,10 +183,25 @@ def main() -> int:
             "Outside market hours nothing is quoted, and a strike this far out can be\n"
             "untraded even in session -- try fewer --itm-steps. Nothing was sent."
         )
+    if premium < float(args.min_premium):
+        # A contract this cheap cannot answer the questions. Its stop lands at
+        # or under the tick floor, and a refusal for THAT would read as an
+        # answer about the order shape, which is the one thing this must not
+        # get wrong.
+        raise SystemExit(
+            f"NIFTY {contract['strike']}CE {contract['expiry']} is quoting Rs {premium:.2f}, under the "
+            f"Rs {args.min_premium:.2f} floor.\n"
+            f"Its stop would sit at Rs {max(0.05, round(premium * 0.30, 2)):.2f} -- at the tick floor, where a "
+            "rejection would say nothing\nabout the order shape this probe exists to test.\n\n"
+            "Move the strike closer to the money (spot is "
+            f"{contract['spot']:,.0f}, this strike is {contract['strike']:,}) with fewer --itm-steps,\n"
+            "or lower --min-premium if you have a reason. Nothing was sent."
+        )
     stop = round(max(0.05, premium * (1.0 - args.stop_pct)), 2)
+    dte = (date.fromisoformat(contract["expiry"]) - date.today()).days
     say(
         "WHAT THIS WILL DO",
-        f"BUY 1 lot ({contract['lot']} qty) NIFTY {contract['strike']}CE {contract['expiry']}\n"
+        f"BUY 1 lot ({contract['lot']} qty) NIFTY {contract['strike']}CE {contract['expiry']} ({dte}d to expiry)\n"
         f"  last traded premium : Rs {premium:,.2f}\n"
         f"  premium at risk     : Rs {premium * contract['lot']:,.0f}\n"
         f"  stop leg            : Rs {stop:,.2f}  ({args.stop_pct:.0%} under the entry)\n"
