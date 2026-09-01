@@ -4,7 +4,7 @@ uvicorn[standard]==0.29.0
 pandas==2.2.1
 # The Dhan option archive is parquet, and pandas cannot read it alone. Tests
 # that touch the store skip without it rather than failing.
-pyarrow==21.0.0
+pyarrow==25.0.1
 numpy==1.26.4
 requests==2.34.2
 pydantic==2.13.4
