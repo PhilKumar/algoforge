@@ -57,6 +57,35 @@ from engine.backtest import get_option_contract_lot_size  # noqa: E402
 IST_NOW = datetime.now
 
 
+def first_price(payload) -> float:
+    """Dig the first last_price out of a market-feed payload.
+
+    Dhan nests these by SEGMENT and then by security id --
+    {"IDX_I": {"13": {"last_price": 24500}}} -- so reading one level down
+    finds a dict where a number was expected and quietly reports no price.
+    The app walks the same payload recursively for the same reason.
+    """
+    if isinstance(payload, dict):
+        for key in ("last_price", "ltp", "LTP"):
+            if key in payload:
+                try:
+                    value = float(payload[key])
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    return value
+        for value in payload.values():
+            found = first_price(value)
+            if found:
+                return found
+    elif isinstance(payload, list):
+        for value in payload:
+            found = first_price(value)
+            if found:
+                return found
+    return 0.0
+
+
 def say(step: str, detail: object = "") -> None:
     print(f"\n=== {step} ===")
     if detail != "":
@@ -88,16 +117,13 @@ def pick_contract(broker: DhanClient, *, itm_steps: int = 2) -> dict:
             "active at a time -- stop PhilForge locally (ports 8000/8001), refresh the\n"
             "token, and run this again. Nothing was sent."
         ) from exc
-    spot = 0.0
-    for value in (quote or {}).values():
-        try:
-            spot = float(value if not isinstance(value, dict) else value.get("last_price") or 0)
-        except (TypeError, ValueError):
-            spot = 0.0
-        if spot:
-            break
+    spot = first_price(quote)
     if not spot:
-        raise SystemExit("Could not read the NIFTY spot; refusing to choose a strike blind.")
+        raise SystemExit(
+            "Could not read the NIFTY spot; refusing to choose a strike blind.\n"
+            "The index is only quoted during market hours -- if it is before 09:15 or\n"
+            "after 15:30, that is all this is. Nothing was sent."
+        )
     step = 50.0
     atm = round(spot / step) * step
     strike = int(atm - itm_steps * step)  # in the money for a CE
@@ -127,15 +153,13 @@ def main() -> int:
 
     contract = pick_contract(broker, itm_steps=args.itm_steps)
     say("CONTRACT", contract)
-    premium = 0.0
-    quote = broker.get_ltp([contract["security_id"]], "NSE_FNO") or {}
-    for value in quote.values():
-        try:
-            premium = float(value if not isinstance(value, dict) else value.get("last_price") or 0)
-        except (TypeError, ValueError):
-            premium = 0.0
-        if premium:
-            break
+    premium = first_price(broker.get_ltp([contract["security_id"]], "NSE_FNO") or {})
+    if premium <= 0:
+        raise SystemExit(
+            f"No quote for NIFTY {contract['strike']}CE {contract['expiry']}.\n"
+            "Outside market hours nothing is quoted, and a strike this far out can be\n"
+            "untraded even in session -- try fewer --itm-steps. Nothing was sent."
+        )
     stop = round(max(0.05, premium * (1.0 - args.stop_pct)), 2)
     say(
         "WHAT THIS WILL DO",
