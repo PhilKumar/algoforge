@@ -395,6 +395,19 @@ async def journal_list(
     return {"entries": entries}
 
 
+@router.get("/api/sanctuary/journal/months")
+async def journal_months(
+    kind: str | None = None,
+    q: str | None = None,
+    user: dict = Depends(_unlocked_user),
+):
+    """Which months hold writing — so the book can turn out of one into the
+    next instead of stopping at the month's edge."""
+    if kind and kind not in ENTRY_KINDS:
+        raise HTTPException(status_code=400, detail="Bad kind")
+    return {"months": await sanctuary_db.entry_months(int(user["id"]), kind=kind, query=q)}
+
+
 @router.post("/api/sanctuary/journal")
 async def journal_create(request: Request, user: dict = Depends(_unlocked_user)):
     payload = await request.json()

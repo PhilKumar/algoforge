@@ -1814,6 +1814,167 @@ class PayslipReadingTests(unittest.TestCase):
         self.assertFalse(looks_like_a_payslip("Statement of Account for August 2026"))
 
 
+class TurningOutOfAMonthTests(unittest.TestCase):
+    """The book turns a day at a time, and the day after the last of a month
+    is the first of the next. It could only ever be told which month to
+    show, so it stopped at the month's edge and waited to be told again —
+    and the months between two entries can be empty, so stepping one along
+    blindly would land on a blank spread.
+    """
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def write(self, *days, kind="note", body="something"):
+        async def run():
+            for day in days:
+                await self.db.create_entry(
+                    1,
+                    {
+                        "entry_date": day,
+                        "kind": kind,
+                        "title": "",
+                        "body": body,
+                        "music": "",
+                        "mood": None,
+                        "photos": [],
+                    },
+                )
+
+        asyncio.run(run())
+
+    def months(self, **kw):
+        return asyncio.run(self.db.entry_months(1, **kw))
+
+    def test_the_months_that_hold_writing_come_back_oldest_first(self):
+        self.write("2026-03-14", "2026-01-02", "2026-01-29")
+        self.assertEqual(self.months(), ["2026-01", "2026-03"])
+
+    def test_a_month_is_named_once_however_many_days_it_holds(self):
+        self.write("2026-05-01", "2026-05-02", "2026-05-31")
+        self.assertEqual(self.months(), ["2026-05"])
+
+    def test_an_empty_journal_names_no_months(self):
+        self.assertEqual(self.months(), [])
+
+    def test_the_months_answer_under_the_same_filter_the_book_is_showing(self):
+        # Turning must not carry him into a month that holds nothing the
+        # filter would show — the spread would arrive blank.
+        self.write("2026-01-05", kind="note")
+        self.write("2026-02-05", kind="achievement")
+        self.assertEqual(self.months(kind="achievement"), ["2026-02"])
+        self.assertEqual(self.months(kind="note"), ["2026-01"])
+
+    def test_a_search_narrows_the_months_too(self):
+        self.write("2026-06-01", body="the harbour at dawn")
+        self.write("2026-07-01", body="nothing to report")
+        self.assertEqual(self.months(query="harbour"), ["2026-06"])
+
+
+class TheBookTurnsLikePaperTests(unittest.TestCase):
+    """What the page itself must do, checked in the page it serves.
+
+    All four of these were his own report: the turn stopped dead at the end
+    of a month, arriving in a month it opened at the wrong end, and browsing
+    a day's photographs walked the book to the end of the month underneath
+    so that closing them never gave the day back.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_turning_off_the_edge_of_a_month_looks_for_the_month_beside_it(self):
+        self.assertIn("function monthBeside(delta)", self.page)
+        self.assertIn("const beside = crossing ? monthBeside(delta) : null;", self.page)
+
+    def test_it_arrives_at_the_edge_it_crossed(self):
+        self.assertIn('S.dWant = delta > 0 ? "first" : "last";', self.page)
+
+    def test_the_arrow_stays_live_while_a_month_beside_it_holds_writing(self):
+        self.assertIn('$("d-older").disabled = S.dPage === 0 && !monthBeside(-1);', self.page)
+        self.assertIn('$("d-newer").disabled = S.dPage === spreads - 1 && !monthBeside(1);', self.page)
+
+    def test_the_pictures_keep_the_arrows_to_themselves(self):
+        self.assertIn("S.deckOpen = true;", self.page)
+        self.assertIn("if (S.deckOpen) return;", self.page)
+
+    def test_a_refresh_keeps_the_day_he_was_reading(self):
+        self.assertIn("if (S.dWant == null){", self.page)
+        self.assertIn("if (here) S.dWant = {date: here.date};", self.page)
+
+    def test_a_day_can_be_asked_for_by_its_date(self):
+        self.assertIn("const found = leaves.findIndex((leaf) => leaf.date === want.date);", self.page)
+
+    def test_a_real_leaf_is_carried_over_rather_than_a_panel_redrawn(self):
+        # A page that fades, or swings halfway and swaps what it says, is not
+        # a page turning. A copy of the leaf is lifted off and taken the whole
+        # way over on its hinge, with its own back on the other side.
+        self.assertIn("function flipLeaf(delta, frontHtml, backHtml)", self.page)
+        self.assertIn("flip.innerHTML =", self.page)
+        self.assertIn("leaf-face front book-leaf", self.page)
+        self.assertIn("leaf-face back book-leaf", self.page)
+        self.assertIn(".leaf-flip .leaf-face.back{transform:rotateY(180deg)}", self.page)
+        self.assertNotIn("@keyframes leafOver", self.page)
+
+    def test_the_hinge_is_the_spine(self):
+        # A right-hand leaf turns about its left edge and the other way round.
+        self.assertIn('flip.style.transformOrigin = delta > 0 ? "left center" : "right center";', self.page)
+
+    def test_it_goes_the_whole_way_over(self):
+        # Not to ninety and back: a full half-turn, in one continuous move.
+        self.assertIn("rotateY(${delta > 0 ? -180 : 180}deg)", self.page)
+
+    def test_the_leaf_never_leaves_the_notebook(self):
+        # A page swung on a hinge is projected towards the reader as it
+        # rises. Unpenned it grew taller than the spread and swept up over
+        # the card above — a leaf leaving the book altogether. It turns
+        # inside the spread's own footprint.
+        self.assertIn(".leaf-stage{position:absolute;z-index:6;overflow:hidden", self.page)
+        self.assertIn('stage.style.width = spread.width + "px";', self.page)
+        self.assertIn('stage.style.height = spread.height + "px";', self.page)
+        self.assertIn("stage.appendChild(flip);", self.page)
+
+    def test_the_destination_is_already_lying_underneath(self):
+        # The book is redrawn first; what turns over it is the paper coming
+        # off, not a transition between two drawings.
+        self.assertIn('const frontHtml = $(delta > 0 ? "page-right" : "page-left").innerHTML;', self.page)
+        self.assertIn('const landing = $(delta > 0 ? "page-left" : "page-right").innerHTML;', self.page)
+
+    def test_a_still_page_is_turned_without_the_flight(self):
+        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)").matches', self.page)
+        self.assertIn("if (still) return settle();", self.page)
+
+    def test_one_leaf_at_a_time_and_the_second_press_is_kept(self):
+        self.assertIn('if (book.classList.contains("turning")){ S.turnQueued = delta; return; }', self.page)
+        self.assertIn("if (S.turnQueued){ const q = S.turnQueued; S.turnQueued = 0; turnPage(q); }", self.page)
+
+    def test_the_month_never_wraps_onto_a_second_line(self):
+        # "September 2024" is the longest a month gets, and it wrapped inside
+        # the field — a two-storey box among one-storey ones.
+        self.assertIn(".cal-face .cal-txt{white-space:nowrap", self.page)
+
+
 class PayIsWhatAnEmployerPaidTests(unittest.TestCase):
     """Which credits in a month count as his pay. Every figure invented.
 

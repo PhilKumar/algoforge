@@ -98,6 +98,30 @@ async def list_entries(
         return [_entry_from_row(row) for row in await cursor.fetchall()]
 
 
+async def entry_months(user_id: int, kind: str | None = None, query: str | None = None) -> list[str]:
+    """Every month that has something written in it, oldest first.
+
+    The book turns a day at a time, and a day at the edge of a month has a
+    neighbour in the month next door. Without knowing which months hold
+    writing the book could only stop at the month's edge and wait to be
+    told where to go next — and the months between two entries can be
+    empty, so stepping one along blindly would land on a blank spread.
+    """
+    sql = "SELECT DISTINCT substr(entry_date, 1, 7) AS month FROM sanctuary_entries WHERE user_id = ?"
+    params: list = [int(user_id)]
+    if kind:
+        sql += " AND kind = ?"
+        params.append(kind)
+    if query:
+        sql += " AND (title LIKE ? OR body LIKE ? OR music LIKE ?)"
+        needle = f"%{query}%"
+        params.extend([needle, needle, needle])
+    sql += " ORDER BY month"
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(sql, params)
+        return [row[0] for row in await cursor.fetchall() if row[0]]
+
+
 async def get_entry(user_id: int, entry_id: int) -> dict | None:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row

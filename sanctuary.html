@@ -463,10 +463,45 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
 .book-leaf.recto{border-radius:6px 26px 26px 6px;border-left:0;transform-origin:left center;
   background-position:0 0,100% 0;
   box-shadow:var(--glass-cast),inset -1px 1px 0 var(--glass-edge)}
-/* Turning: the leaf on the side he is moving away from swings up off the
-   gutter, and the new day is already beneath it. */
-.book.turning-back .verso{transform:rotateY(52deg);opacity:0}
-.book.turning-forward .recto{transform:rotateY(-52deg);opacity:0}
+/* ── turning a leaf ──
+   Not a fade, and not a swing that stops halfway and swaps what it says:
+   an actual leaf, lifted off the spread and carried the whole way over on
+   its hinge, with its own back on the other side. The new spread is already
+   lying underneath before the leaf starts to move, so what he sees is paper
+   being turned rather than a panel being redrawn.
+
+   The leaf is a copy, made at the moment of the turn and thrown away at the
+   end of it; the book beneath it never moves. */
+/* The turning leaf stays inside the book. A page swung on a hinge is
+   projected towards the reader as it rises, and unpenned it grew taller
+   than the spread and swept up over the card above — a leaf leaving the
+   notebook altogether. The stage is the spread's own footprint, and the
+   leaf turns within it. A longer throw keeps the swelling gentle enough
+   that the edge is almost never reached. */
+.leaf-stage{position:absolute;z-index:6;overflow:hidden;pointer-events:none;
+  perspective:3400px;perspective-origin:50% 50%}
+.leaf-flip{position:absolute;transform-style:preserve-3d;pointer-events:none;
+  will-change:transform}
+.leaf-flip .leaf-face{position:absolute;inset:0;height:auto;backface-visibility:hidden;
+  transition:none;animation:none;margin:0}
+/* The back of a right-hand leaf is a left-hand page, and the other way
+   round — so each face wears the shape of the side it will land on. */
+.leaf-flip .leaf-face.back{transform:rotateY(180deg)}
+/* Paper is not evenly lit as it lifts: the edge nearest the reader catches
+   the light and the hinge falls into the fold's shadow. */
+.leaf-flip .leaf-face::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  pointer-events:none;opacity:0;transition:opacity .62s ease}
+.leaf-flip.away .leaf-face::after{opacity:1}
+.leaf-flip.forward .leaf-face.front::after{
+  background:linear-gradient(100deg,rgba(4,10,18,.44),rgba(4,10,18,0) 62%)}
+.leaf-flip.forward .leaf-face.back::after{
+  background:linear-gradient(260deg,rgba(4,10,18,.30),rgba(4,10,18,0) 58%)}
+.leaf-flip.back-turn .leaf-face.front::after{
+  background:linear-gradient(260deg,rgba(4,10,18,.44),rgba(4,10,18,0) 62%)}
+.leaf-flip.back-turn .leaf-face.back::after{
+  background:linear-gradient(100deg,rgba(4,10,18,.30),rgba(4,10,18,0) 58%)}
+/* The page it is being lifted off darkens under it, then comes back up. */
+.book.turning .book-spread .book-leaf{filter:brightness(.86);transition:filter .62s ease}
 .page-turn{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
   width:44px;height:44px;border-radius:50%;cursor:pointer;font-size:1.4rem;line-height:1;
   border:1px solid var(--glass-rim);background:var(--card);color:var(--muted);
@@ -1095,6 +1130,9 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 /* ── dates: our own calendar, never the browser's ─────────── */
 .cal-native{display:none!important}
 .cal-face{display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;font-weight:600}
+/* "September 2024" is the longest a month gets, and it wrapped onto a
+   second line inside the field — a two-storey box among one-storey ones. */
+.cal-face .cal-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cal-face:hover{border-color:var(--moss)}
 .cal-face .cal-ico{margin-left:auto;flex:none;opacity:.55}
 .cal-face:hover .cal-ico{opacity:1;color:var(--moss)}
@@ -1516,7 +1554,7 @@ html[data-theme="dark"]{color-scheme:dark}
     </div>
 
     <div class="filters">
-      <input class="field" type="month" id="f-month" style="max-width:170px">
+      <input class="field" type="month" id="f-month" style="max-width:196px">
       <select class="field" id="f-kind" style="max-width:170px"><option value="">Everything</option></select>
       <input class="field" id="f-q" placeholder="Search words…" style="flex:1;min-width:140px">
       <!-- Nothing can reach into the iPhone's Journal; the phone can hand
@@ -2283,7 +2321,11 @@ const S = {
   finMonth: monthKey(isoToday()),
   jMonth: monthKey(isoToday()),
   jKind: "", jQuery: "",
+  jMonths: [],   /* the months that hold writing, so the book can cross out of one */
   dPage: null,   /* the book opens at the last spread written */
+  dWant: null,   /* where the next repaginate should land: a date, "first" or "last" */
+  deckOpen: false,   /* while pictures are open, the arrows are theirs */
+  turnQueued: 0,   /* a page-turn that arrived while one was still in the air */
   composerKind: "note",
   composerPhotos: [],
   entries: [], moods: {}, daily: null,
@@ -2360,15 +2402,28 @@ async function refreshJournal(){
   if (S.jMonth) params.set("month", S.jMonth);
   if (S.jKind) params.set("kind", S.jKind);
   if (S.jQuery) params.set("q", S.jQuery);
-  const [j, m, all] = await Promise.all([
+  const filters = new URLSearchParams();
+  if (S.jKind) filters.set("kind", S.jKind);
+  if (S.jQuery) filters.set("q", S.jQuery);
+  /* Unless something asked to be taken somewhere, a refresh keeps his
+     place. Tending one entry used to throw the book back to the newest
+     day, which is not where he was reading. */
+  if (S.dWant == null){
+    const here = (S.dLeaves || [])[(S.dPage || 0) * _leavesShown()];
+    if (here) S.dWant = {date: here.date};
+  }
+  const [j, m, all, mn] = await Promise.all([
     api("/api/sanctuary/journal?" + params),
     api("/api/sanctuary/moods?month=" + (S.jMonth || monthKey(isoToday()))),
     api("/api/sanctuary/journal?kind=achievement"),
+    api("/api/sanctuary/journal/months?" + filters).catch(() => ({months: []})),
   ]);
-  S.entries = j.entries; S.moods = m.moods;
+  S.entries = j.entries; S.moods = m.moods; S.jMonths = mn.months || [];
   renderGarden(); renderAchievements(all.entries); paintMood();
-  /* a new month or filter re-paginates the book; it re-opens at the last spread */
-  S.dPage = null;
+  /* Where the re-paginated book should open. Turning into a month arrives
+     at the edge he crossed — forward onto its first day, back onto its
+     last — and anything else opens at the newest, which is what a diary
+     does when you pick it up. */
   renderBook();
 }
 function kindLabel(k){ const f = KINDS.find(([key]) => key === k); return f ? f[1] : k; }
@@ -2513,6 +2568,14 @@ function renderBook(){
   });
   S.dLeaves = leaves;
   const spreads = Math.ceil(leaves.length / per);
+  /* A wanted landing outranks whatever page the book was on: a day named
+     by date (so a day survives being re-read), or the end he arrived at. */
+  const want = S.dWant; S.dWant = null;
+  if (want && want.date){
+    const found = leaves.findIndex((leaf) => leaf.date === want.date);
+    S.dPage = found < 0 ? spreads - 1 : Math.floor(found / per);
+  } else if (want === "first") S.dPage = 0;
+  else if (want === "last") S.dPage = spreads - 1;
   if (S.dPage == null || S.dPage > spreads - 1) S.dPage = spreads - 1;
   if (S.dPage < 0) S.dPage = 0;
   const at = S.dPage * per;
@@ -2524,21 +2587,109 @@ function renderBook(){
     ? `${says(leaves[at])} · ${says(leaves[at + 1])}`
     : says(leaves[at]);
   $("d-where").textContent = `${shown} — spread ${S.dPage + 1} of ${spreads}`;
-  $("d-older").disabled = S.dPage === 0;
-  $("d-newer").disabled = S.dPage === spreads - 1;
+  /* Stopping only where the writing does: at the month's edge there is
+     another month to turn into, so the arrow stays live. */
+  $("d-older").disabled = S.dPage === 0 && !monthBeside(-1);
+  $("d-newer").disabled = S.dPage === spreads - 1 && !monthBeside(1);
+}
+/* The month next door, in the direction he is turning — the nearest one
+   that actually holds writing, since the months between two entries can be
+   empty and stepping one along would land on a blank spread. */
+function monthBeside(delta){
+  const known = S.jMonths || [];
+  const here = S.jMonth || monthKey(isoToday());
+  if (delta > 0) return known.find((m) => m > here) || null;
+  let found = null;
+  known.forEach((m) => { if (m < here) found = m; });
+  return found;
+}
+/* A book does not stop at the end of a month; the next day is simply on the
+   next leaf. Turning past the last day of a month carries into the first
+   day of the next one, and turning back off the first day lands on the last
+   day of the one before. */
+const TURN_MS = 620;
+/* The leaf that is being turned: a copy of the page he is leaving, lifted
+   off the spread and carried over on its hinge, with its own back on the
+   other side. The book underneath is redrawn first, so the destination is
+   already lying there — this is the paper coming off it, not a transition
+   between two drawings. */
+function flipLeaf(delta, frontHtml, backHtml){
+  const book = $("book");
+  const leaf = $(delta > 0 ? "page-right" : "page-left");
+  const box = leaf.getBoundingClientRect();
+  const spread = $("book-spread").getBoundingClientRect();
+  const frame = book.getBoundingClientRect();
+  /* The stage is the spread itself: the leaf turns over the book and never
+     off it. */
+  const stage = document.createElement("div");
+  stage.className = "leaf-stage";
+  stage.style.left = (spread.left - frame.left) + "px";
+  stage.style.top = (spread.top - frame.top) + "px";
+  stage.style.width = spread.width + "px";
+  stage.style.height = spread.height + "px";
+  const flip = document.createElement("div");
+  flip.className = "leaf-flip " + (delta > 0 ? "forward" : "back-turn");
+  flip.style.left = (box.left - spread.left) + "px";
+  flip.style.top = (box.top - spread.top) + "px";
+  flip.style.width = box.width + "px";
+  flip.style.height = box.height + "px";
+  /* The hinge is the spine: a right-hand leaf turns about its left edge. */
+  flip.style.transformOrigin = delta > 0 ? "left center" : "right center";
+  flip.style.transform = "rotateY(0deg)";
+  flip.style.transition = `transform ${TURN_MS}ms cubic-bezier(.34,.03,.24,1)`;
+  const side = (which) => delta > 0
+    ? (which === "front" ? "recto" : "verso")
+    : (which === "front" ? "verso" : "recto");
+  flip.innerHTML =
+    `<div class="leaf-face front book-leaf ${side("front")}">${frontHtml}</div>` +
+    `<div class="leaf-face back book-leaf ${side("back")}">${backHtml}</div>`;
+  stage.appendChild(flip);
+  book.appendChild(stage);
+  void flip.offsetHeight;          /* the flat state has to be seen before it is left */
+  flip.classList.add("away");
+  flip.style.transform = `rotateY(${delta > 0 ? -180 : 180}deg)`;
+  setTimeout(() => stage.remove(), TURN_MS + 40);
 }
 function turnPage(delta){
-  const spreads = Math.ceil(((S.dLeaves || []).length || 1) / _leavesShown());
-  const next = (S.dPage == null ? spreads - 1 : S.dPage) + delta;
-  if (next < 0 || next > spreads - 1) return;
+  if (S.deckOpen) return;          /* the arrows belong to the pictures */
   const book = $("book");
-  const away = delta > 0 ? "turning-forward" : "turning-back";
-  book.classList.add(away);
-  setTimeout(() => {
-    S.dPage = next;
-    renderBook();
-    book.classList.remove(away);
-  }, 320);
+  /* One leaf at a time — but a reader who presses twice quickly means both,
+     so the second is held and turned once the first is down. */
+  if (book.classList.contains("turning")){ S.turnQueued = delta; return; }
+  const per = _leavesShown();
+  const spreads = Math.ceil(((S.dLeaves || []).length || 1) / per);
+  const next = (S.dPage == null ? spreads - 1 : S.dPage) + delta;
+  const crossing = next < 0 || next > spreads - 1;
+  const beside = crossing ? monthBeside(delta) : null;
+  if (crossing && !beside) return;  /* the first day written, or the last */
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* What is on the leaf now, before the book beneath it is redrawn. */
+  const frontHtml = $(delta > 0 ? "page-right" : "page-left").innerHTML;
+  const settle = () => {
+    book.classList.remove("turning");
+    /* A press that arrived mid-turn is honoured once this one is down. */
+    if (S.turnQueued){ const q = S.turnQueued; S.turnQueued = 0; turnPage(q); }
+  };
+  const lift = () => {
+    if (still) return settle();
+    /* The back of the leaf is the page that lands where it is going. A turn
+       into another month cannot know that yet — the underside of paper is
+       what a leaf shows while the next month is still being fetched. */
+    const landing = $(delta > 0 ? "page-left" : "page-right").innerHTML;
+    flipLeaf(delta, frontHtml, crossing ? BLANK_LEAF : landing);
+    setTimeout(settle, TURN_MS);
+  };
+  book.classList.add("turning");
+  if (crossing){
+    S.jMonth = beside;
+    $("f-month").value = beside;
+    S.dWant = delta > 0 ? "first" : "last";
+    refreshJournal().catch(() => {}).then(lift, lift);
+    return;
+  }
+  S.dPage = next;
+  renderBook();
+  lift();
 }
 /* Why a row carries the category it does. The first rule whose word appears
    in the narration wins — his own before the built-in ones — and if that
@@ -2899,6 +3050,7 @@ async function saveEntry(){
   S.composerPhotos = []; renderComposerPhotos();
   toast("Kept. 🌿");
   S.jMonth = monthKey(body.entry_date); $("f-month").value = S.jMonth;
+  S.dWant = {date: body.entry_date};   /* the book opens on what he just wrote */
   refreshJournal();
 }
 function editEntry(id){
@@ -2914,14 +3066,17 @@ function editEntry(id){
     <button class="btn" id="e-save">Save</button></div>`);
   wrap.querySelector("#e-cancel").onclick = () => wrap.remove();
   wrap.querySelector("#e-save").onclick = async () => {
+    const tendedTo = wrap.querySelector("#e-date").value;
     await api("/api/sanctuary/journal/" + id, {method: "PUT", body: {
-      entry_date: wrap.querySelector("#e-date").value,
+      entry_date: tendedTo,
       kind: wrap.querySelector("#e-kind").value,
       title: wrap.querySelector("#e-title").value,
       body: wrap.querySelector("#e-body").value,
       music: wrap.querySelector("#e-music").value,
     }});
-    wrap.remove(); toast("Tended. 🌿"); refreshJournal();
+    wrap.remove(); toast("Tended. 🌿");
+    S.dWant = {date: tendedTo};   /* stay on the day, even if it moved */
+    refreshJournal();
   };
 }
 /* ═══════════ finance ═══════════ */
@@ -4208,6 +4363,11 @@ function openDeck(deck){
     <div class="deck-where"></div>` : ""}
     <button class="deck-shut" aria-label="Close">✕</button>`;
   document.body.appendChild(view);
+  /* While the pictures are open the arrow keys and the thumb belong to
+     them. Without this the book turned underneath at the same time, and
+     riffling a day's photographs walked it to the end of the month — so
+     closing them never gave back the day he had opened. */
+  S.deckOpen = true;
   const prints = [...view.querySelectorAll(".stage-print")];
   let at = 0;
 
@@ -4263,6 +4423,7 @@ function openDeck(deck){
 
   const go = (step) => { at = (at + step + shots.length) % shots.length; lay(true); };
   const shut = () => {
+    S.deckOpen = false;
     view.classList.remove("open");
     prints.forEach((print) => {
       const box = print.getBoundingClientRect();
@@ -4274,6 +4435,8 @@ function openDeck(deck){
     document.removeEventListener("keydown", onKey);
   };
   function onKey(e){
+    if (!["Escape", "ArrowRight", "ArrowLeft"].includes(e.key)) return;
+    e.stopPropagation();
     if (e.key === "Escape") shut();
     if (e.key === "ArrowRight") go(1);
     if (e.key === "ArrowLeft") go(-1);
@@ -4350,11 +4513,17 @@ $("aj-file").addEventListener("change", async (e) => {
     refreshJournal();
   } catch (err) { toast(err.message || "They would not come over"); }
 });
-$("f-month").addEventListener("change", () => { S.jMonth = $("f-month").value; refreshJournal(); });
-$("f-kind").addEventListener("change", () => { S.jKind = $("f-kind").value; refreshJournal(); });
+$("f-month").addEventListener("change", () => {
+  S.jMonth = $("f-month").value; S.dWant = "first"; refreshJournal();
+});
+$("f-kind").addEventListener("change", () => {
+  S.jKind = $("f-kind").value; S.dWant = "last"; refreshJournal();
+});
 let qTimer = null;
 $("f-q").addEventListener("input", () => { clearTimeout(qTimer);
-  qTimer = setTimeout(() => { S.jQuery = $("f-q").value.trim(); refreshJournal(); }, 350); });
+  qTimer = setTimeout(() => {
+    S.jQuery = $("f-q").value.trim(); S.dWant = "last"; refreshJournal();
+  }, 350); });
 /* ── turning the diary's pages ── */
 document.addEventListener("click", (e) => {
   const pg = e.target.closest("[data-vpage]");
@@ -4400,6 +4569,7 @@ $("book").addEventListener("touchend", (e) => {
   const dy = e.changedTouches[0].clientY - _swipeY;
   _swipeX = null;
   /* scrolling down the page is not a page turn */
+  if (S.deckOpen) return;
   if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) turnPage(dx < 0 ? 1 : -1);
 }, {passive: true});
 $("m-label").onclick = () => monthJump();
