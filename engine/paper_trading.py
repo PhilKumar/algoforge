@@ -42,6 +42,51 @@ from engine.backtest import (
     inspect_condition_group,
 )
 from engine.execution_profiles import resolve_execution_costs
+
+try:
+    from cascade_costs import calculate_nifty_option_round_costs
+except Exception:  # pragma: no cover - the app always has it
+    calculate_nifty_option_round_costs = None
+
+
+def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, option_type) -> float:
+    """Brokerage, STT, exchange fees, GST and stamp duty on one round trip.
+
+    Neither of these engines charged a rupee of this until 2026-09-01: paper
+    reported a gross number and live reported the same, so every figure on the
+    console -- including the one being read to decide whether to go live --
+    was better than the account would ever be. The cascade strategies have
+    charged this all along, through the same schedule.
+
+    Options only. The model is NSE's option schedule (STT on the SELL side of
+    the premium, and so on); charging it to a cash equity leg would invent a
+    different wrong number, so an equity leg is charged nothing here and says
+    so rather than pretending.
+    """
+    if str(option_type or "").upper() not in ("CE", "PE"):
+        return 0.0
+    if calculate_nifty_option_round_costs is None:
+        return 0.0
+    try:
+        buy, sell = (entry_premium, exit_premium)
+        lots = max(1, int(lots or 1))
+        return round(
+            float(
+                calculate_nifty_option_round_costs(
+                    buy_price=float(buy),
+                    sell_price=float(sell),
+                    quantity=int(quantity),
+                    lots_bought=lots,
+                    lots_sold=lots,
+                ).total
+            ),
+            2,
+        )
+    except Exception:
+        # A cost model that cannot answer must not silently report zero cost.
+        return 0.0
+
+
 from engine.indicators import (
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -493,6 +538,18 @@ class PaperTradingEngine:
             f"exit slip {self._exit_slippage_bps:g}bps, capital check "
             f"{'ON' if self._enforce_capital else 'OFF'}",
         )
+        # A CUSTOM PROFILE OF ZEROS IS FREE TRADING, and it does not announce
+        # itself: PE_NoTarget ran seven trades at spread 0 / slip 0 and its
+        # +Rs 13,975 was read as if the market had charged for them. Zero cost
+        # is a legitimate thing to ask for -- but it must be visible in the
+        # log the P&L is read beside, not buried in a saved profile.
+        if not (self._spread_bps or self._entry_slippage_bps or self._exit_slippage_bps):
+            self.log_event(
+                "warning",
+                "⚠ ZERO execution costs: no spread and no slippage are being charged, so this "
+                "P&L is better than the account would be. Switch the profile to Auto for the "
+                "instrument's measured numbers.",
+            )
 
         self.log_event("info", f"Strategy configured: {strategy.get('run_name', 'Unnamed')}")
         self.log_event("info", f"Product: {self._product_type(strategy)}")
@@ -2377,9 +2434,23 @@ class PaperTradingEngine:
         direction = 1 if position["transaction_type"] == "BUY" else -1
         qty = self._position_quantity(position)
         ep = position["entry_premium"]
-        pnl = round((adjusted_exit_premium - ep) * direction * qty, 2)
+        gross = round((adjusted_exit_premium - ep) * direction * qty, 2)
+        # WHAT THE ROUND TRIP COSTS. Slippage was already modelled above; this
+        # is the statutory half -- brokerage, STT, exchange, GST, stamp -- and
+        # neither engine charged a rupee of it before 2026-09-01. A paper
+        # number without it is not the number the account would have shown.
+        charges = statutory_round_charges(
+            entry_premium=ep,
+            exit_premium=adjusted_exit_premium,
+            quantity=qty,
+            lots=position.get("lots", 1),
+            option_type=position.get("option_type"),
+        )
+        pnl = round(gross - charges, 2)
 
         position["exit_premium"] = adjusted_exit_premium
+        position["gross_pnl"] = gross
+        position["charges"] = charges
         position["pnl"] = pnl
         self.daily_pnl += pnl
         self._arm_profit_cooldown()

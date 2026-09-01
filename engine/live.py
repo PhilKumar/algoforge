@@ -42,6 +42,51 @@ from engine.backtest import (
     inspect_condition_group,
 )
 from engine.execution_profiles import resolve_execution_costs
+
+try:
+    from cascade_costs import calculate_nifty_option_round_costs
+except Exception:  # pragma: no cover - the app always has it
+    calculate_nifty_option_round_costs = None
+
+
+def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, option_type) -> float:
+    """Brokerage, STT, exchange fees, GST and stamp duty on one round trip.
+
+    Neither of these engines charged a rupee of this until 2026-09-01: paper
+    reported a gross number and live reported the same, so every figure on the
+    console -- including the one being read to decide whether to go live --
+    was better than the account would ever be. The cascade strategies have
+    charged this all along, through the same schedule.
+
+    Options only. The model is NSE's option schedule (STT on the SELL side of
+    the premium, and so on); charging it to a cash equity leg would invent a
+    different wrong number, so an equity leg is charged nothing here and says
+    so rather than pretending.
+    """
+    if str(option_type or "").upper() not in ("CE", "PE"):
+        return 0.0
+    if calculate_nifty_option_round_costs is None:
+        return 0.0
+    try:
+        buy, sell = (entry_premium, exit_premium)
+        lots = max(1, int(lots or 1))
+        return round(
+            float(
+                calculate_nifty_option_round_costs(
+                    buy_price=float(buy),
+                    sell_price=float(sell),
+                    quantity=int(quantity),
+                    lots_bought=lots,
+                    lots_sold=lots,
+                ).total
+            ),
+            2,
+        )
+    except Exception:
+        # A cost model that cannot answer must not silently report zero cost.
+        return 0.0
+
+
 from engine.indicators import (
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -2891,7 +2936,21 @@ class LiveEngine:
         closed_trade.pop("_force_exit_reason", None)
 
         direction = 1 if pos["transaction_type"] == "BUY" else -1
-        pnl = round((exit_premium - pos["entry_premium"]) * direction * quantity, 2)
+        gross = round((exit_premium - pos["entry_premium"]) * direction * quantity, 2)
+        # The same statutory schedule paper now charges, so the two books can
+        # be compared at all. Live crosses the spread on top of this: its exits
+        # go out as MARKET orders, which is the cost paper models as exit
+        # slippage rather than one it can avoid.
+        charges = statutory_round_charges(
+            entry_premium=pos["entry_premium"],
+            exit_premium=exit_premium,
+            quantity=quantity,
+            lots=closed_trade.get("lots", 1),
+            option_type=pos.get("option_type"),
+        )
+        pnl = round(gross - charges, 2)
+        closed_trade["gross_pnl"] = gross
+        closed_trade["charges"] = charges
         closed_trade["pnl"] = pnl
         self.daily_pnl += pnl
         self._arm_profit_cooldown()
