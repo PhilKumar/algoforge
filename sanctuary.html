@@ -546,6 +546,9 @@ html[data-theme="dark"] .book-gutter{box-shadow:0 0 22px 6px rgba(0,0,0,.4)}
 .page-blank{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
   padding:0 44px;text-align:center;color:var(--muted);
   font-family:var(--hand);font-size:1.7rem;line-height:1.5}
+/* Which way the writing is, from a month that has none. */
+.page-blank-turn{margin-top:16px;font-family:inherit;font-size:1rem;
+  font-weight:600;color:var(--soft);letter-spacing:.01em}
 .page-actions{display:flex;gap:6px}
 /* A phone holds one leaf at a time — a spread would be unreadable. */
 @media (max-width:780px){
@@ -2545,12 +2548,22 @@ function renderBook(){
   const days = diaryDays();
   const per = _leavesShown();
   if (!days.length){
+    /* A month he has not written in is still a month in the book, and the
+       writing is a turn away on one side or the other. Shutting both arrows
+       here stranded him: the journal opens on today's month, today's month
+       is usually empty, and the way out was disabled before anything was
+       asked about the months either side of it. */
+    const back = monthBeside(-1), on = monthBeside(1);
     $("page-left").innerHTML = `<div class="page-blank">Nothing written for this view yet.
-      Leave something above and the book opens here. 🌱</div>`;
+      Leave something above and the book opens here. 🌱${back || on
+        ? `<div class="page-blank-turn">${back ? `Turn back for ${niceMonth(back)}` : ""}${back && on ? " · " : ""}${on ? `turn on for ${niceMonth(on)}` : ""}</div>`
+        : ""}</div>`;
     $("page-right").innerHTML = `<div class="page-blank"></div>`;
-    $("d-where").textContent = "";
-    $("d-older").disabled = $("d-newer").disabled = true;
+    $("d-where").textContent = niceMonth(S.jMonth || monthKey(isoToday())) + " — nothing written";
+    $("d-older").disabled = !back;
+    $("d-newer").disabled = !on;
     S.dLeaves = [];
+    S.dPage = 0;
     return;
   }
   /* Hidden behind the Finances tab a leaf has no width, so nothing can be

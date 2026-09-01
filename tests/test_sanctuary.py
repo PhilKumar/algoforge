@@ -1911,6 +1911,20 @@ class TheBookTurnsLikePaperTests(unittest.TestCase):
     def test_it_arrives_at_the_edge_it_crossed(self):
         self.assertIn('S.dWant = delta > 0 ? "first" : "last";', self.page)
 
+    def test_a_month_he_has_not_written_in_is_not_a_dead_end(self):
+        # The journal opens on today's month, and today's month is usually
+        # empty. Both arrows were shut off before anything was asked about
+        # the months either side, so opening the book stranded him on a
+        # blank page with no way out but the month picker.
+        self.assertIn('$("d-older").disabled = !back;', self.page)
+        self.assertIn('$("d-newer").disabled = !on;', self.page)
+        self.assertNotIn('$("d-older").disabled = $("d-newer").disabled = true;', self.page)
+
+    def test_a_blank_month_says_which_way_the_writing_is(self):
+        self.assertIn("const back = monthBeside(-1), on = monthBeside(1);", self.page)
+        self.assertIn("Turn back for ", self.page)
+        self.assertIn("turn on for ", self.page)
+
     def test_the_arrow_stays_live_while_a_month_beside_it_holds_writing(self):
         self.assertIn('$("d-older").disabled = S.dPage === 0 && !monthBeside(-1);', self.page)
         self.assertIn('$("d-newer").disabled = S.dPage === spreads - 1 && !monthBeside(1);', self.page)
