@@ -117,6 +117,36 @@ def describe(body: object) -> str:
     return "\n".join(lines)
 
 
+def first_price(payload) -> float:
+    """Dig the first last_price out of a market-feed payload.
+
+    Dhan nests these by SEGMENT and then by security id --
+    {"IDX_I": {"13": {"last_price": 24500}}} -- so reading one level down finds
+    a dict where a number was expected and reports no price at all. The app
+    walks the same payload recursively; the super-order probe hit this first
+    and was fixed the same way in 0d4a40c.
+    """
+    if isinstance(payload, dict):
+        for key in ("last_price", "ltp", "LTP"):
+            if key in payload:
+                try:
+                    value = float(payload[key])
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    return value
+        for value in payload.values():
+            found = first_price(value)
+            if found:
+                return found
+    elif isinstance(payload, list):
+        for value in payload:
+            found = first_price(value)
+            if found:
+                return found
+    return 0.0
+
+
 def pick_contract(broker: DhanClient, *, itm_steps: int = 2) -> dict:
     """Everything READ from what Dhan is listing now, never assumed."""
     expiries = [e for e in ScripMaster.get_expiries("NIFTY") if str(e) >= date.today().isoformat()]
@@ -128,18 +158,10 @@ def pick_contract(broker: DhanClient, *, itm_steps: int = 2) -> dict:
     except Exception as exc:
         raise SystemExit(
             f"Could not read the NIFTY spot: {exc}\n\n"
-            "This is almost always the token, not the probe. Only ONE Dhan session is\n"
-            "active at a time -- stop PhilForge locally (ports 8000/8001), refresh the\n"
-            "token, and run this again. Nothing was sent."
+            "Almost always the token, not the probe: only ONE Dhan session is active at\n"
+            "a time. Nothing was sent."
         ) from exc
-    spot = 0.0
-    for value in (quote or {}).values():
-        try:
-            spot = float(value if not isinstance(value, dict) else value.get("last_price") or 0)
-        except (TypeError, ValueError):
-            spot = 0.0
-        if spot:
-            break
+    spot = first_price(quote)
     if not spot:
         raise SystemExit("Could not read the NIFTY spot; refusing to choose a strike blind.")
     step = 50.0
@@ -193,13 +215,13 @@ def main() -> int:
 
     say("CONTRACT", contract)
     premium = 0.0
-    for value in (broker.get_ltp([contract["security_id"]], "NSE_FNO") or {}).values():
-        try:
-            premium = float(value if not isinstance(value, dict) else value.get("last_price") or 0)
-        except (TypeError, ValueError):
-            premium = 0.0
-        if premium:
-            break
+    premium = first_price(broker.get_ltp([contract["security_id"]], "NSE_FNO") or {})
+    if premium <= 0:
+        raise SystemExit(
+            f"No quote for NIFTY {contract['strike']}CE {contract['expiry']}.\n"
+            "Nothing is quoted outside market hours, and a strike this far out can be\n"
+            "untraded even in session -- try fewer --itm-steps. Nothing was sent."
+        )
     trigger = round(max(0.05, premium * (1 - args.sl_pct / 100)), 2)
     say(
         "WHAT THIS WILL DO",
