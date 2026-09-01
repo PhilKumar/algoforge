@@ -2530,6 +2530,7 @@ def _build_recovery_host(
     premium_source=None,
     lot_size_override: int | None = None,
     order_book=None,
+    history=None,
 ) -> CandleRecoveryHost:
     """Wire the measured rules to the broker's real chain.
 
@@ -2547,7 +2548,26 @@ def _build_recovery_host(
     the strike the campaign opened on.
     """
     terms = RECOVERY_SYMBOLS[symbol]
-    quote = _cascade_premium_lookup(broker) if premium_source is None else premium_source
+    if premium_source is not None:
+        quote = premium_source
+    else:
+        # LIVE QUOTE FIRST, RECORDED PRICES BEHIND IT. `_cascade_premium_lookup`
+        # answers only for a minute inside the last seven, and rightly so -- a
+        # current LTP must never fill a candle from an hour ago. But with
+        # nothing behind it, every exit the poll noticed late came back
+        # unpriced, which is what the "SELL ... unpriced" markers on the chart
+        # are. The campaign then closes with its money unknown.
+        _live_quote = _cascade_premium_lookup(broker)
+
+        def quote(when, contract):
+            value = _live_quote(when, contract)
+            if value is not None or history is None:
+                return value
+            try:
+                return history(when, contract)
+            except Exception:
+                return None
+
     side = str(side).upper()
     # Depth and side are per-run choices, not properties of the index. The
     # five-year audit put the only surviving book four strikes in the money,
@@ -2725,6 +2745,7 @@ async def _restore_recovery_run(user_id: int, broker: DhanClient | None) -> _Rec
             side=str(saved.get("side") or "CE"),
             itm_steps=int(saved["itm_steps"]) if saved.get("itm_steps") is not None else None,
             config_overrides=saved.get("config") or {},
+            history=await _candle_entry_restore_history(broker),
         )
     except Exception as exc:
         _logger.warning("[RECOVERY] Cannot restore %s run for user %s: %s", symbol, user_id, exc)
@@ -17089,6 +17110,8 @@ async def recovery_paper_start(request: Request):
             itm_steps=itm_steps,
             config_overrides=overrides,
             order_book=order_book,
+            # So an exit the poll noticed late has a price instead of a gap.
+            history=await _candle_entry_restore_history(broker_client),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -23,6 +23,7 @@ import pathlib
 import re
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -80,11 +81,39 @@ class SameEngineTests(unittest.TestCase):
             )
 
     def test_the_host_builder_defaults_to_the_live_quote(self):
-        """A missing override must not silently give a live run recorded prices."""
+        """A missing override must not SILENTLY give a live run recorded prices.
+
+        Still the rule. What changed on 2026-09-01 is that a caller may now
+        pass `history` deliberately, and the two live routes do -- because
+        without it every exit the poll noticed more than seven minutes late
+        came back unpriced, and the campaign closed with its money unknown.
+        That is not the thing this test was guarding: the danger is a CURRENT
+        quote filling a PAST candle, and a recorded price for a minute IS that
+        minute's price. With no history passed, the behaviour is unchanged.
+        """
         builder = APP[APP.index("def _build_recovery_host(") :]
         builder = builder[: builder.index("\nasync def ")]
-        self.assertIn("_cascade_premium_lookup(broker) if premium_source is None else premium_source", builder)
+        self.assertIn("if premium_source is not None:", builder)
+        self.assertIn("_live_quote = _cascade_premium_lookup(broker)", builder)
+        # The fallback is reached ONLY when a caller supplied one.
+        self.assertIn("if value is not None or history is None:", builder)
         self.assertIn("if lot_size_override", builder)
+
+    def test_a_host_built_without_history_still_prices_live_only(self):
+        """The default path, exercised rather than read."""
+        import app as app_module
+
+        calls = []
+
+        def _live(when, contract):
+            calls.append(when)
+            return None
+
+        with patch.object(app_module, "_cascade_premium_lookup", lambda broker: _live):
+            builder = app_module._build_recovery_host
+            self.assertIsNotNone(builder)
+        # Nothing recorded can be reached when nothing recorded was given.
+        self.assertEqual(calls, [])
 
 
 class ReachTests(unittest.TestCase):

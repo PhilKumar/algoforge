@@ -97,6 +97,16 @@ class AdminDeleteUserTests(unittest.IsolatedAsyncioTestCase):
             TEST_DB.unlink()
         if TEST_USER_DATA.exists():
             shutil.rmtree(TEST_USER_DATA)
+        # PUT THE PROCESS SCRATCH DIRECTORY BACK. app.py points
+        # `tempfile.tempdir` at <USER_DATA_ROOT>/.scratch at import, to keep
+        # spooled uploads off the server's RAM-backed /tmp. This test aims
+        # USER_DATA_ROOT at its own directory and then deletes it -- which
+        # takes the whole process's temp directory with it. Every later test
+        # that writes a temp file then dies with FileNotFoundError on
+        # .scratch/..., and a full-suite run collapsed with 112 failures and
+        # 67 errors while each file passed alone.
+        TEST_USER_DATA.mkdir(parents=True, exist_ok=True)
+        (TEST_USER_DATA / ".scratch").mkdir(exist_ok=True)
         app_module.config.DB_PATH = str(TEST_DB)
         app_module.config.USER_DATA_ROOT = str(TEST_USER_DATA)
         app_module._USER_DATA_ROOT = str(TEST_USER_DATA)

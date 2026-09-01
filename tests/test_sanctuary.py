@@ -1983,10 +1983,27 @@ class TheBookTurnsLikePaperTests(unittest.TestCase):
         self.assertIn('stage.style.width = spread.width + "px";', self.page)
         self.assertIn('stage.style.height = spread.height + "px";', self.page)
 
+    def test_the_leaf_is_driven_by_a_clock_and_not_by_frames(self):
+        # Asked for frames while the page was busy, the browser gave twenty
+        # a second and the last landed late: a leaf meant to be gone in
+        # under half a second lay across the writing for very nearly one,
+        # and a day had to be read through yesterday.
+        self.assertIn("ticking = setInterval(step, 16);", self.page)
+        self.assertIn("const t = Math.min(1, (performance.now() - begun) / TURN_MS);", self.page)
+        self.assertNotIn("requestAnimationFrame(step)", self.page)
+
     def test_a_leaf_is_never_left_standing_over_the_book(self):
-        # The animation runs on frames, and frames stop entirely in a tab
-        # nobody is looking at — so the sweeping-up is on a timer too.
-        self.assertIn("setTimeout(() => stage.remove(), TURN_MS + 400);", self.page)
+        # Once, and only once, however it ends.
+        self.assertIn("if (done) return;\n    done = true;\n    clearInterval(ticking);", self.page)
+        self.assertIn("setTimeout(finish, TURN_MS + 260);", self.page)
+
+    def test_the_turn_is_short_enough_to_read_through(self):
+        # Long enough to read as paper, short enough not to be in the way.
+        import re
+
+        ms = int(re.search(r"const TURN_MS = (\d+);", self.page).group(1))
+        self.assertLessEqual(ms, 480, "a page he is reading past should not linger")
+        self.assertGreaterEqual(ms, 260, "faster than this and it is a cut, not a turn")
 
     def test_the_destination_is_already_lying_underneath(self):
         # The book is redrawn first; what turns over it is the paper coming

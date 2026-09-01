@@ -2603,7 +2603,7 @@ function monthBeside(delta){
    next leaf. Turning past the last day of a month carries into the first
    day of the next one, and turning back off the first day lands on the last
    day of the one before. */
-const TURN_MS = 700;
+const TURN_MS = 420;
 /* ── the curl ──
    A leaf does not pivot like a door. It peels: the free edge lifts first
    and the paper wraps itself around a cylinder that travels across the page
@@ -2709,17 +2709,33 @@ function curlLeaf(delta, frontHtml, backHtml){
   const from = W, to = -(Math.PI * R + sw);
   stage._place = place;   /* so the shape of the roll can be measured, not just watched */
   place(from);
+
+  /* Frames are not what drives this. Asked for frames while the page was
+     busy, the browser gave twenty a second and the last of them landed
+     late — so a leaf meant to be gone in under half a second lay across the
+     writing for very nearly one, and reading a day meant reading it through
+     yesterday. A clock drives it instead, and the shape is worked out from
+     the time elapsed rather than from the count of ticks, so a slow machine
+     turns the same leaf in the same half second and puts it down on time. */
   const begun = performance.now();
   const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-  const step = (now) => {
-    const t = Math.min(1, (now - begun) / TURN_MS);
-    place(from + (to - from) * ease(t));
-    if (t < 1) requestAnimationFrame(step); else stage.remove();
+  let ticking = 0, done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearInterval(ticking);
+    stage.remove();
   };
-  requestAnimationFrame(step);
-  /* rAF never runs in a tab nobody is looking at, so the stage is swept up
-     on a timer as well; a leaf left standing would cover the book. */
-  setTimeout(() => stage.remove(), TURN_MS + 400);
+  const step = () => {
+    if (done) return;
+    const t = Math.min(1, (performance.now() - begun) / TURN_MS);
+    place(from + (to - from) * ease(t));
+    if (t >= 1) finish();
+  };
+  ticking = setInterval(step, 16);
+  /* And a last resort, in case even the clock is stopped: nothing may be
+     left lying over the book. */
+  setTimeout(finish, TURN_MS + 260);
 }
 function turnPage(delta){
   if (S.deckOpen) return;          /* the arrows belong to the pictures */
