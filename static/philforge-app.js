@@ -3091,7 +3091,7 @@ async function _refreshPaperLedger(strategy) {
           + ` data-fx-buy-mode="${escapeHtml(String(params.buy_mode || 'levels'))}"`
           + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
       }
-      if ((strategy === 'candle_entry' || strategy === 'gap_carry') && row.has_chart) {
+      if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend') && row.has_chart) {
         return `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
           + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
           + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`;

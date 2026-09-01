@@ -11820,6 +11820,35 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
         payload["frozen"] = True
         return payload
 
+    if key == "supertrend":
+        # ONE TRADE, REDRAWN. Supertrend archives the trade itself rather than
+        # an engine, so there is nothing to revive -- but the chart builder
+        # only ever needed a config, the candles and the trade, and all three
+        # are here. Without this branch the row fell through to the ladder
+        # path, which cannot read a trade row, and the console simply showed
+        # a dash where the chart button belongs.
+        raw_config = (row.get("payload") or {}).get("config") or {}
+        try:
+            config = _supertrend_mod.SupertrendConfig(
+                timeframe=str(raw_config.get("timeframe") or "1h"),
+                atr_period=int(raw_config.get("atr_period") or 10),
+                multiplier=float(raw_config.get("multiplier") or 1.5),
+                side=str(raw_config.get("side") or "CE"),
+            )
+        except Exception:
+            config = _supertrend_mod.SupertrendConfig()
+        wanted = _supertrend_timeframe(timeframe or config.timeframe)
+        try:
+            rows = await _supertrend_load_candles(adapter, wanted, days=_SUPERTREND_CHART_DAYS)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {wanted} candles: {exc}") from exc
+        if not rows:
+            raise HTTPException(status_code=503, detail=f"No closed NIFTY {wanted} candles to draw.")
+        payload = _supertrend_chart_payload(config, rows, trades=[snapshot])
+        payload["net_pnl"] = row.get("net_pnl")
+        payload["frozen"] = True
+        return payload
+
     if key != "candle_entry":
         # Fib Boundary redraws through its own chart route, which recomputes
         # geometry from the candle stream and so reproduces a past mother
@@ -14358,10 +14387,13 @@ async def _save_supertrend_open_state(user_id: int, *, force: bool = False) -> N
     )
     runtime = _supertrend_engines.get(int(user_id))
     if runtime is not None:
-        await _archive_supertrend_trades(int(user_id), runtime.engine.get_status())
+        # `get_status()` carries no config -- only `to_dict()` does -- so the
+        # chart's config is handed over explicitly rather than read out of a
+        # status that never had it.
+        await _archive_supertrend_trades(int(user_id), runtime.engine.get_status(), runtime.engine.config.as_dict())
 
 
-async def _archive_supertrend_trades(user_id: int, status: Mapping[str, Any]) -> None:
+async def _archive_supertrend_trades(user_id: int, status: Mapping[str, Any], config: Mapping | None = None) -> None:
     """Write settled trades into the shared paper ledger, once each.
 
     Keyed by the entry stamp, so the 20-second save loop cannot rewrite a
@@ -14397,8 +14429,17 @@ async def _archive_supertrend_trades(user_id: int, status: Mapping[str, Any]) ->
                     "gross_pnl": float(row.get("gross") or 0.0),
                     "costs_total": float(row.get("charges") or 0.0),
                     "net_pnl": float(row.get("net") or 0.0),
-                    "source": "paper",
-                    "payload": json.dumps({"engine": row}, default=str),
+                    # "live", NOT "paper". The ledger's `source` says whether a
+                    # row was CAPTURED as it happened or REBUILT afterwards from
+                    # recorded prices -- and the console paints anything that is
+                    # not "live" with an orange "rebuilt" badge. These campaigns
+                    # were captured live; writing "paper" here labelled every
+                    # one of them a reconstruction it never was.
+                    "source": "live",
+                    # The config goes with the trade so the closed campaign can
+                    # be drawn again on its own candles, the way the other
+                    # strategies' frozen charts are.
+                    "payload": json.dumps({"engine": row, "config": dict(config or {})}, default=str),
                 },
             )
             _paper_ledger_written.add(token)
