@@ -409,8 +409,8 @@ def sizing_section(rows: list[dict], b: dict) -> str:
 def side_block(b: dict, name_en: str, name_ta: str, anchor: str) -> str:
     return f"""
 {kpis(b, f"{name_en} &mdash; at a glance", f"{name_ta} &mdash; ஒரே பார்வையில்")}
-{curve_section(b, f"{name_en} &mdash; equity curve", f"{name_ta} &mdash; equity வளைவு", f"curve-{anchor}")}
-{heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரி")}
+{curve_section(b, f"{name_en} &mdash; cumulative curve", f"{name_ta} &mdash; ஒட்டுமொத்த வளைவு", f"curve-{anchor}")}
+{heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரியாக")}
 <section>
   <div class="shead"><h2>{t(f"{name_en} &mdash; by year, by weekday, by depth, by exit", f"{name_ta} &mdash; ஆண்டு, கிழமை, ஆழம், வெளியேற்றம்")}</h2></div>
   <div class="tblwrap"><table>
@@ -690,7 +690,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </section>
 
 <section>
-  <div class="shead"><h2>{t("What was NOT chosen, and why", "தேர்வு செய்யப்படாதவை, ஏன்")}</h2></div>
+  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
   <p>{
     t(
         "On the same 22-month walk: puts lose (above); a mother picked at fixed clock times instead of the box high loses on every chart, with or without a fall filter; 1m loses badly (278 one-minute bars is a day and a half, so the box high is just yesterday's high); 15m and 1H produce 3 to 15 campaigns in two years &mdash; too few to mean anything; a target further back than a quarter loses its robustness at once and its drawdown grows thirty-fold; a time stop of 1 to 5 days only turns winners into losses (the slowest campaigns pay the most); a stop loss on the premium did not help; weekly expiry is worse than monthly everywhere. Around the chosen setting the result holds at 278&ndash;350 bars and the bottom fifth to quarter, and falls off at the 30% line and at 200 bars &mdash; it is a hill, not a plateau, and that is stated rather than hidden. This sheet is only the configuration that is switched on.",

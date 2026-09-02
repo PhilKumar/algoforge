@@ -506,8 +506,8 @@ def side_block(b: dict, side: str, index: str = "NIFTY") -> str:
     name_ta = f"{index} கால் புத்தகம் (CE)" if side == "CE" else f"{index} புட் புத்தகம் (PE)"
     return f"""
 {kpis(b, f"{name_en} &mdash; at a glance", f"{name_ta} &mdash; ஒரே பார்வையில்")}
-{curve_section(b, f"{name_en} &mdash; equity curve", f"{name_ta} &mdash; equity வளைவு", f"curve-{index.lower()}-{side.lower()}")}
-{heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரி")}
+{curve_section(b, f"{name_en} &mdash; cumulative curve", f"{name_ta} &mdash; ஒட்டுமொத்த வளைவு", f"curve-{index.lower()}-{side.lower()}")}
+{heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரியாக")}
 <section>
   <div class="shead"><h2>{t(f"{name_en} &mdash; by year, by weekday, by exit", f"{name_ta} &mdash; ஆண்டு, கிழமை, வெளியேற்றம்")}</h2></div>
   <div class="tblwrap"><table>
@@ -649,7 +649,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
         "NIFTY + SENSEX கால் புத்தகங்கள் சேர்த்து &mdash; ஒரே பார்வையில்",
     )
 }
-{curve_section(ALL, "Both indices &mdash; equity curve", "இரு குறியீடுகள் &mdash; equity வளைவு", "curve-all")}
+{curve_section(ALL, "Both indices &mdash; cumulative curve", "இரு குறியீடுகள் &mdash; ஒட்டுமொத்த வளைவு", "curve-all")}
 
 {side_block(CE, "CE", "NIFTY")}
 {side_block(SX, "CE", "SENSEX")}
@@ -754,7 +754,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </section>
 
 <section>
-  <div class="shead"><h2>{t("What was NOT chosen, and why", "தேர்வு செய்யப்படாதவை, ஏன்")}</h2></div>
+  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
   <p>{
     t(
         "On the same 23-month walk: puts lose (see the note above); a fixed target loses; holding a deep basket one more day loses more on every chart and both sides; carrying to expiry with no stop loses about a lakh a quarter on the call book alone (67 campaigns ended at expiry, averaging &minus;&#8377;42,868 each); 15m and 1m mothers do not beat 5m; Partner (where two meet) with a trailing exit is also green on calls but smaller. Those numbers live on the replay report; this sheet is only the configuration that is switched on.",

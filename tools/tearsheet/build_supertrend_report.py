@@ -522,9 +522,9 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </div>
 
-{kpis(TRAIL, "The call book &mdash; at a glance", "கால் புத்தகம் &mdash; ஒரே பார்வையில்")}
-{curve_section(TRAIL, "Equity curve", "Equity வளைவு", "curve-supertrend")}
-{heat(TRAIL, "Month by month", "மாதவாரி")}
+{kpis(TRAIL, "The programme at a glance", "ஒரே பார்வையில்")}
+{curve_section(TRAIL, "Cumulative curve", "ஒட்டுமொத்த வளைவு", "curve-supertrend")}
+{heat(TRAIL, "Month by month", "மாதவாரியாக")}
 
 <section>
   <div class="shead"><h2>{t("By year, by weekday, by hold, by exit", "ஆண்டு, கிழமை, காலம், வெளியேற்றம்")}</h2></div>
@@ -647,7 +647,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </section>
 
 <section>
-  <div class="shead"><h2>{t("What was NOT chosen, and why", "தேர்வு செய்யப்படாதவை, ஏன்")}</h2></div>
+  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
   <p>{
     t(
         "On the same five-year walk: <strong>intraday square-off loses at all 70 settings</strong> &mdash; the overnight gaps are the profit, and a daily exit forfeits every one while paying a fresh round trip; <strong>1-minute loses &#8377;10&ndash;66 lakh</strong> at every multiplier (it loses on raw index points before any option exists), 3m and 5m lose on priced trades everywhere; off the 1H&times;1&ndash;2 / 30m&times;1.5&ndash;2 ridge the multipliers go red fast; <strong>every confirmation filter made it worse</strong> &mdash; RSI 50&ndash;70 at every threshold, ADX (its 25&ndash;30 band is the worst bucket), and a higher-timeframe agreement gate that looked worth +&#8377;4.9 lakh until the in-progress bar's lookahead was removed, after which it was worth &minus;&#8377;11 thousand; <strong>every stop loss and tight trail lost money and RAISED drawdown</strong> (30&ndash;150 points, all five timeframes &mdash; a stopped trade re-enters the same still-bullish trend and pays again); a fixed target at the 189-point average run is nearly the worst possible target; buying in-the-money strikes cut the net almost in half &mdash; the roll already does theta's job; and the nearest weekly expiry put a third of all entries within a day of death, every such bucket negative. This sheet is only the configuration that survived.",

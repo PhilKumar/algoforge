@@ -244,7 +244,7 @@ def kpis(b: dict) -> str:
     m5 = "—" if b["minus_best5"] is None else r(b["minus_best5"])
     return f"""
 <section id="glance">
-  <div class="shead"><h2>{t("The overnight book — at a glance", "இரவு புத்தகம் — ஒரு பார்வையில்")}</h2></div>
+  <div class="shead"><h2>{t("The programme at a glance", "ஒரே பார்வையில்")}</h2></div>
   <div class="kpis">
     <div class="kpi"><div class="kpi-l">{t("Net profit", "நிகர லாபம்")}</div>
       <div class="kpi-v {cls(b["net"])}">{r(b["net"])}</div>
@@ -292,7 +292,7 @@ def curve_section(b: dict) -> str:
     line, area, dd, zero, hi, lo = curve_svg(b["curve"])
     return f"""
 <section id="curve-gapcarry">
-  <div class="shead"><div><h2>{t("Equity curve", "மூலதன வளைவு")}</h2>
+  <div class="shead"><div><h2>{t("Cumulative curve", "ஒட்டுமொத்த வளைவு")}</h2>
     <p>{t("Cumulative net after charges, one point per night, in the order they were taken. Shading marks every stretch spent below the previous high.", "கட்டணங்களுக்குப் பின் திரட்டு நிகர, ஒரு இரவுக்கு ஒரு புள்ளி, எடுத்த வரிசையில். நிழல் = முந்தைய உச்சத்துக்குக் கீழே.")}</p></div></div>
   <div class="panel">
     <div class="chart">
@@ -332,7 +332,7 @@ def heat(b: dict) -> str:
         body += f"<tr><th scope='row'>{y}</th>{cells}<td class='{cls(tot)}'><strong>{r(tot)}</strong></td></tr>"
     return f"""
 <section id="months">
-  <div class="shead"><div><h2>{t("Month by month", "மாதவாரி")}</h2>
+  <div class="shead"><div><h2>{t("Month by month", "மாதவாரியாக")}</h2>
     <p>{t("Net after charges by the month the candle was read, thousands of rupees. Colour is the size relative to the largest month. A month the rule never fired in is a dot.", "Candle படித்த மாதவாரி நிகர, ஆயிரங்களில். நிறம் = பெரிய மாதத்துடன் ஒப்பீடு. விதி செயல்படாத மாதம் ஒரு புள்ளி.")}</p></div></div>
   <div class="tblwrap"><table class="heat">
     <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th>{head}<th scope="col">{t("Total", "மொத்தம்")}</th></tr></thead>
@@ -561,7 +561,7 @@ def honesty(b: dict) -> str:
     )
     return f"""
 <section id="honesty">
-  <div class="shead"><h2>{t("What was NOT chosen, and what is not measured", "தேர்ந்தெடுக்கப்படாதவை, அளக்கப்படாதவை")}</h2></div>
+  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
   <p><strong>{b["floored"]} {t("of", "இல்")} {b["trades"]} {t("exits are floored at intrinsic value", "வெளியேற்றங்கள் உள்ளார்ந்த மதிப்பில்")}</strong>
   ({r(b["floored_net"])} {t("of the net", "நிகரத்தில்")}). {t("Those are contracts that gapped far enough to leave what the archives carry — which happens precisely when the night went well, so the floor UNDERSTATES them. A floor is not a price, and they are counted apart everywhere they appear.", "இவை archive வரம்பை விட்டு வெளியேறிய contract-கள் — இரவு நன்றாக சென்றபோதுதான் இது நடக்கும், எனவே தளம் அவற்றைக் குறைத்தே காட்டுகிறது.")}</p>
   <p><strong>{t("The top three nights are", "மேல் மூன்று இரவுகள்")} {r(sum(top3))}</strong>, {sum(top3) / b["net"] * 100:.0f}% {t("of the net; without them the book still makes", "நிகரத்தில். அவை இல்லாமலும் புத்தகம் ஈட்டுவது")} {r(b["net"] - sum(top3))}.</p>
