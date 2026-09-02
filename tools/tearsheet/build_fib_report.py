@@ -509,11 +509,14 @@ def side_block(b: dict, side: str, index: str = "NIFTY") -> str:
 {curve_section(b, f"{name_en} &mdash; cumulative curve", f"{name_ta} &mdash; ஒட்டுமொத்த வளைவு", f"curve-{index.lower()}-{side.lower()}")}
 {heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரியாக")}
 <section>
-  <div class="shead"><h2>{t(f"{name_en} &mdash; by year, by weekday, by exit", f"{name_ta} &mdash; ஆண்டு, கிழமை, வெளியேற்றம்")}</h2></div>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; year by year", f"{name_ta} &mdash; ஆண்டுவாரியாக")}</h2></div>
   <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th><th scope="col">{t("Trades", "டிரேடுகள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு டிரேடுக்கு")}</th></tr></thead>
     <tbody>{yearly(b)}</tbody></table></div>
-  <div class="tblwrap" style="margin-top:12px"><table>
+</section>
+<section>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; which day of the week pays", f"{name_ta} &mdash; வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div>
+  <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Weekday", "கிழமை")}</th><th scope="col">{t("Trades", "டிரேடுகள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு டிரேடுக்கு")}</th></tr></thead>
     <tbody>{dow(b)}</tbody></table></div>
   <div class="tblwrap" style="margin-top:12px"><table>
@@ -645,8 +648,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {
     kpis(
         ALL,
-        "NIFTY + SENSEX call books together &mdash; at a glance",
-        "NIFTY + SENSEX கால் புத்தகங்கள் சேர்த்து &mdash; ஒரே பார்வையில்",
+        "The programme at a glance",
+        "ஒரே பார்வையில்",
     )
 }
 {curve_section(ALL, "Both indices &mdash; cumulative curve", "இரு குறியீடுகள் &mdash; ஒட்டுமொத்த வளைவு", "curve-all")}
@@ -673,7 +676,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 
 <section>
   <div class="shead"><div><h2>{
-    t("Capital at work &mdash; what one campaign costs", "பயன்பாட்டில் மூலதனம் &mdash; ஒரு campaign-இன் செலவு")
+    t("How much capital this needs", "இதற்கு எவ்வளவு மூலதனம் தேவை")
 }</h2>
     <p>{
     t(

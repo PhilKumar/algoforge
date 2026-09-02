@@ -362,24 +362,28 @@ def cuts(b: dict) -> str:
     thu = b["by_dow"].get(3, {"net": 0.0, "trades": 0})
     share = (fri["net"] / b["net"] * 100) if b["net"] else 0
     return f"""
-<section id="cuts">
-  <div class="shead"><div><h2>{t("By year, by weekday, by side, by RSI", "ஆண்டு, வாரநாள், பக்கம், RSI வாரியாக")}</h2>
+<section id="years">
+  <div class="shead"><div><h2>{t("Year by year", "ஆண்டுவாரியாக")}</h2>
     <p>{
         t(
-            "The same book cut four ways. Nothing here is a separate run — every night appears once in each table.",
-            "அதே புத்தகம் நான்கு வழிகளில். இங்கு தனி ரன் இல்லை — ஒவ்வொரு இரவும் ஒவ்வொரு அட்டவணையிலும் ஒரு முறை.",
+            "The same book cut several ways, starting with the year. Nothing here is a separate run — every night appears once in each table.",
+            "அதே புத்தகம் பல வழிகளில், ஆண்டில் தொடங்கி. இங்கு தனி ரன் இல்லை — ஒவ்வொரு இரவும் ஒவ்வொரு அட்டவணையிலும் ஒரு முறை.",
         )
     }</p></div></div>
+  <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_year"], lambda k: str(k))}</tbody></table></div>
+</section>
+
+<section id="cuts">
+  <div class="shead"><div><h2>{t("Which day of the week pays", "வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div></div>
   <div class="split">
-    <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_year"], lambda k: str(k))}</tbody></table></div>
     <div class="tblwrap"><table>{head}<tbody>{
         _rows_of(b["by_dow"], lambda k: t(DOW[k], DOW_TA[k]))
     }</tbody></table></div>
-  </div>
-  <div class="split">
     <div class="tblwrap"><table>{head}<tbody>{
         _rows_of(b["by_side"], lambda k: "Call (CE)" if k == "CE" else "Put (PE)")
     }</tbody></table></div>
+  </div>
+  <div class="split">
     <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_rsi"], lambda k: k)}</tbody></table></div>
   </div>
   <p class="note note-warn"><strong>{t("Friday alone is", "வெள்ளி மட்டும்")} {share:.0f}% {

@@ -526,14 +526,18 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {curve_section(TRAIL, "Cumulative curve", "ஒட்டுமொத்த வளைவு", "curve-supertrend")}
 {heat(TRAIL, "Month by month", "மாதவாரியாக")}
 
-<section>
-  <div class="shead"><h2>{t("By year, by weekday, by hold, by exit", "ஆண்டு, கிழமை, காலம், வெளியேற்றம்")}</h2></div>
+<section id="years">
+  <div class="shead"><h2>{t("Year by year", "ஆண்டுவாரியாக")}</h2></div>
   <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th><th scope="col">{t("Trades", "Trades")}</th><th scope="col">{
     t("Win rate", "வெற்றி %")
 }</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு trade-க்கு")}</th></tr></thead>
     <tbody>{rows_of(TRAIL["by_year"], lambda k: k)}</tbody></table></div>
-  <div class="tblwrap" style="margin-top:12px"><table>
+</section>
+
+<section>
+  <div class="shead"><h2>{t("Which day of the week pays", "வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div>
+  <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Entry weekday", "நுழைவு கிழமை")}</th><th scope="col">{
     t("Trades", "Trades")
 }</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{

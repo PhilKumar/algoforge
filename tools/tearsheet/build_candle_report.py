@@ -408,15 +408,18 @@ def sizing_section(rows: list[dict], b: dict) -> str:
 
 def side_block(b: dict, name_en: str, name_ta: str, anchor: str) -> str:
     return f"""
-{kpis(b, f"{name_en} &mdash; at a glance", f"{name_ta} &mdash; ஒரே பார்வையில்")}
+{kpis(b, "The programme at a glance", "ஒரே பார்வையில்")}
 {curve_section(b, f"{name_en} &mdash; cumulative curve", f"{name_ta} &mdash; ஒட்டுமொத்த வளைவு", f"curve-{anchor}")}
 {heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரியாக")}
 <section>
-  <div class="shead"><h2>{t(f"{name_en} &mdash; by year, by weekday, by depth, by exit", f"{name_ta} &mdash; ஆண்டு, கிழமை, ஆழம், வெளியேற்றம்")}</h2></div>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; year by year", f"{name_ta} &mdash; ஆண்டுவாரியாக")}</h2></div>
   <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th><th scope="col">{t("Campaigns", "Campaign-கள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per campaign", "ஒரு campaign-க்கு")}</th></tr></thead>
     <tbody>{rows_of(b["by_year"], lambda k: k)}</tbody></table></div>
-  <div class="tblwrap" style="margin-top:12px"><table>
+</section>
+<section>
+  <div class="shead"><h2>{t(f"{name_en} &mdash; which day of the week pays", f"{name_ta} &mdash; வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div>
+  <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Mother's weekday", "Mother கிழமை")}</th><th scope="col">{t("Campaigns", "Campaign-கள்")}</th><th scope="col">{t("Win rate", "வெற்றி %")}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per campaign", "ஒரு campaign-க்கு")}</th></tr></thead>
     <tbody>{rows_of(b["by_dow"], lambda k: t(k, DOW_TA[DOW.index(k)]))}</tbody></table></div>
   <div class="tblwrap" style="margin-top:12px"><table>
