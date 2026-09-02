@@ -3001,6 +3001,9 @@ async function openArchivedFibChart(event, el) {
     timestamp: mother,
     baseTf: node.getAttribute('data-fx-tf') || '1m',
     buyMode: node.getAttribute('data-fx-buy-mode') || 'levels',
+    // The day it ENDED. Without this the chart runs to today, so every closed
+    // campaign shared the same right-hand edge and they all looked alike.
+    closedAt: node.getAttribute('data-fx-closed') || '',
     isCampaign: true,
   };
   await loadFibBoundaryChart();
@@ -3113,6 +3116,7 @@ async function _refreshPaperLedger(strategy) {
           + ` data-fx-side="${escapeHtml(String(params.side || 'CE'))}"`
           + ` data-fx-tf="${escapeHtml(String(params.timeframe || '1m'))}"`
           + ` data-fx-buy-mode="${escapeHtml(String(params.buy_mode || 'levels'))}"`
+          + ` data-fx-closed="${escapeHtml(String(row.closed_at || ''))}"`
           + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
       }
       if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend') && row.has_chart) {
@@ -6701,6 +6705,9 @@ async function loadFibBoundaryChart(_event, button) {
     const mode = campaign?.buy_mode || _fibxChartCtx?.buyMode || _fibBuyMode();
     _fibxChartCtx.buyMode = mode;
     const query = new URLSearchParams({ mother_timestamp: timestamp, symbol, side, timeframe, base_timeframe: baseTf, buy_mode: mode });
+    // Only a finished campaign carries one; a live panel wants today's edge.
+    const closedAt = ctx?.closedAt || campaign?.closed_at || '';
+    if (closedAt) query.set('closed_at', String(closedAt));
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));

@@ -15562,6 +15562,7 @@ async def fib_boundary_paper_chart(
     timeframe: str = "1m",
     base_timeframe: str = "",
     buy_mode: str = "levels",
+    closed_at: str = "",
 ):
     """The ladder's own window: every drawn fib, every level, on real candles.
 
@@ -15617,11 +15618,26 @@ async def fib_boundary_paper_chart(
         raise HTTPException(status_code=400, detail=f"Connect a Dhan account to load the {terms.symbol} chart.")
     adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
 
+    # WHERE THE CHART STOPS. A finished campaign is drawn to the day it ENDED,
+    # not to today. Running every archived chart to now() meant a mother from
+    # 26 Aug drew eight days of candles, a mother from 1 Sep drew two, and all
+    # of them ended at the same right-hand edge -- so six different campaigns
+    # produced six charts that looked like the same messy chart (Phil,
+    # 2026-09-02: "not at all getting frozen right at the trade").
+    #
+    # The live and idle panels send no closed_at and still run to today, which
+    # is what a campaign still open should show.
+    last_day = now.date()
+    if closed_at:
+        try:
+            ended = _parse_cascade_mother_timestamp(closed_at).date()
+            last_day = max(mother.date(), min(last_day, ended))
+        except (ValueError, HTTPException):
+            pass  # an unreadable stamp falls back to today rather than 400ing a chart
+
     async def _load(resolution: str):
         try:
-            return await adapter.async_get_candles(
-                terms.symbol, resolution, from_date=mother.date(), to_date=now.date()
-            )
+            return await adapter.async_get_candles(terms.symbol, resolution, from_date=mother.date(), to_date=last_day)
         except Exception as exc:
             raise HTTPException(
                 status_code=503, detail=f"Unable to load {terms.symbol} {resolution} candles: {exc}"
