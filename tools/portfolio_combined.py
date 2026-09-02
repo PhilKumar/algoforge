@@ -37,8 +37,22 @@ at its real timestamp, so the only overlap it counts is the real one: Gap
 Carry's 15:10 entry against whatever intraday leg is still running, and its
 09:20 exit against the next morning's entries.
 
-WHAT IT WILL NOT DO. It will not tell you what to trade or how much to risk.
-It reports what these three books did on the days they ran.
+WHAT IT WILL NOT DO, AND MUST NOT BE MADE TO DO. This is Phil's own planning
+tool. It publishes nothing. It does NOT feed the tearsheets, and the capital
+and ROI figures on those sheets are deliberately computed a different way --
+per-day commitments rather than the minute-level sweep here -- because each
+strategy is funded on its own terms and a broker does not release margin the
+instant a leg closes (Phil, 2026-09-02: "Tearsheet is not going to change...
+Every strategy is different and will have their own capital and calculations..
+Don't mess with that").
+
+If a later session is tempted to "fix" rebuild_data.py's peak_day_premium to
+match this file: don't. The difference is 59% on the published sheet and it
+runs in the strategy's favour, which is exactly the direction that needs a
+decision rather than a refactor. It was put to Phil and he declined.
+
+It will also not tell you what to trade or how much to risk. It reports what
+these three books did on the days they ran.
 """
 
 from __future__ import annotations
