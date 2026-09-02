@@ -368,11 +368,15 @@ test('tearsheet controls, contents rail, coloured heading pill, and all three or
   await page.goto('/app#assets/tearsheet');
   await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
 
+  // The dark-theme half of each sheet's accent, and the SAME pair the document
+  // paints itself with (tools/tearsheet/build_report.py, recolour()). If one
+  // moves without the other, the pill stops being a promise about what opens.
   const pillColours: Record<string, string> = {
-    options: 'rgb(196, 181, 253)',
-    fib: 'rgb(56, 189, 248)',
-    candle: 'rgb(147, 197, 253)',
-    gapcarry: 'rgb(251, 191, 36)',
+    options: 'rgb(167, 139, 250)', // violet #a78bfa
+    fib: 'rgb(34, 211, 238)', // cyan   #22d3ee
+    candle: 'rgb(163, 230, 53)', // lime   #a3e635
+    gapcarry: 'rgb(251, 191, 36)', // amber  #fbbf24
+    supertrend: 'rgb(251, 113, 133)', // rose   #fb7185
   };
   for (const [doc, colour] of Object.entries(pillColours)) {
     const pill = page.locator(`.pf-tearsheet-doc[data-doc="${doc}"]`);
@@ -380,6 +384,14 @@ test('tearsheet controls, contents rail, coloured heading pill, and all three or
     await expect(pill).toHaveClass(/is-active/);
     await expect(pill).toHaveCSS('color', colour);
   }
+
+  // AND THEY MUST ALL DIFFER, which is the assertion that would have caught the
+  // real bug. Before 2026-09-02 `options` and `supertrend` were the identical
+  // light value and `fib`/`candle` were two blues a shade apart -- five sheets
+  // wearing three colours. Pinning each value on its own never noticed: every
+  // individual assertion passed, and `supertrend` was not even in this list.
+  const distinct = new Set(Object.values(pillColours));
+  expect(distinct.size).toBe(Object.keys(pillColours).length);
 
   await page.locator('.pf-tearsheet-doc[data-doc="gapcarry"]').click();
   const frame = page.frameLocator('#assets-tearsheet-frame');
