@@ -28,11 +28,14 @@ WHAT IS BEING COMBINED
     Gap Carry comes from tools/gapcarry_offline/runs/, the book its own
     tearsheet is built from.
 
-CAPITAL IS HELD, NOT SPENT. PE and CE are intraday: their premium is committed
-and released the same session. Gap Carry is an overnight carry -- it buys at
-15:10 and sells at 09:20 the NEXT session -- so its capital spans two dates and
-overlaps whatever PE and CE do the following morning. This walks that overlap
-day by day rather than adding three peaks that never happened together.
+CAPITAL IS MEASURED AT THE MINUTE, NOT THE DAY. PE and CE are intraday and
+mostly SHORT: 95% of PE trades and 84% of CE trades are closed before 15:10,
+which is the minute Gap Carry enters. Summing a day's premium therefore bills
+the same rupees twice for positions that never coexisted -- it overstated the
+live-size peak by Rs 34,194, 35%. The sweep here opens and closes each position
+at its real timestamp, so the only overlap it counts is the real one: Gap
+Carry's 15:10 entry against whatever intraday leg is still running, and its
+09:20 exit against the next morning's entries.
 
 WHAT IT WILL NOT DO. It will not tell you what to trade or how much to risk.
 It reports what these three books did on the days they ran.
@@ -45,7 +48,8 @@ import csv
 import os
 import sys
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -56,6 +60,10 @@ import rebuild_data as rb  # noqa: E402
 from cascade_costs import calculate_nifty_option_round_costs  # noqa: E402
 
 GAP_CARRY = os.path.join(ROOT, "tools", "gapcarry_offline", "runs", "NIFTY_5m_rsi70_atm4.csv")
+# Gap Carry's clock, from engine/gap_carry.py: read the chart at 15:10, sell
+# into the next session's 09:20. The capital is committed between the two.
+ENTRY_TIME = dtime(15, 10)
+EXIT_TIME = dtime(9, 20)
 
 
 def load_gap_carry(priced_only: bool, lots: int) -> list:
@@ -85,8 +93,8 @@ def load_gap_carry(priced_only: bool, lots: int) -> list:
             {
                 "book": "Gap Carry",
                 "date": exit_,  # P&L lands when the position is sold
-                "held_from": entry,
-                "held_to": exit_,
+                "open_at": datetime.combine(entry, ENTRY_TIME),
+                "close_at": datetime.combine(exit_, EXIT_TIME),
                 "net": round(gross - charges, 2),
                 "capital": round(buy * qty, 2),
                 "estimated": estimated,
@@ -110,13 +118,17 @@ def load_pe_ce(pe_lots: int, ce_lots: int) -> list:
     for trades, label, lots in ((pe, "PE", pe_lots), (ce, "CE", ce_lots)):
         sized = trades if int(lots) == rb.LOTS else rb.resize(trades, int(lots))
         for t in sized:
-            day = date.fromisoformat(t["date"])
+            # The REAL window the premium is committed for, not the whole day.
+            # It matters: 95% of PE trades and 84% of CE trades are already
+            # closed by 15:10, so treating them as day-long double-counts them
+            # against a Gap Carry position that only opens once they are gone.
+            opened = datetime.fromisoformat(t["entry_time"])
             out.append(
                 {
                     "book": label,
-                    "date": day,
-                    "held_from": day,  # intraday: committed and released same session
-                    "held_to": day,
+                    "date": opened.date(),
+                    "open_at": opened,
+                    "close_at": opened + timedelta(minutes=int(t["hold_min"])),
                     "net": float(t["net"]),
                     "capital": float(t["premium"]),
                     "estimated": False,
@@ -125,15 +137,58 @@ def load_pe_ce(pe_lots: int, ce_lots: int) -> list:
     return out
 
 
-def capital_by_day(trades: list) -> dict:
-    """How much was tied up on each date, counting an overnight carry on BOTH."""
-    held = defaultdict(float)
+def peak_capital(trades: list) -> tuple:
+    """The most that was ever committed AT ONE MOMENT, and when.
+
+    A sweep of open/close events, not a per-day sum. Bucketing by day charged
+    the account for positions that never coexisted: 95% of PE trades and 84% of
+    CE trades close before 15:10, and Gap Carry does not enter until 15:10, so
+    a day-sum billed the same rupees twice. At the live size it overstated the
+    peak by Rs 34,194 -- 35% (Phil, 2026-09-02: "if we close the CE PE trade at
+    15:10 and starting GC, the capital used for these will be less correct?").
+
+    The real overlap is the one it now finds: Gap Carry's 15:10 entry against
+    whichever intraday leg is still open at that minute, and its 09:20 exit
+    against the next morning's entries.
+    """
+    events = []
     for t in trades:
-        day = t["held_from"]
-        while day <= t["held_to"]:
-            held[day] += t["capital"]
+        events.append((t["open_at"], t["capital"]))
+        events.append((t["close_at"], -t["capital"]))
+    events.sort(key=lambda e: e[0])
+    run = peak = 0.0
+    at = None
+    for when, delta in events:
+        run += delta
+        if run > peak:
+            peak, at = run, when
+    return peak, at
+
+
+def capital_by_day(trades: list) -> dict:
+    """Peak committed within each date -- the same sweep, per session."""
+    per_day = defaultdict(list)
+    for t in trades:
+        per_day[t["open_at"].date()].append((t["open_at"], t["capital"]))
+        per_day[t["close_at"].date()].append((t["close_at"], -t["capital"]))
+        # A carry spans the night: it is held all through any day between.
+        day = t["open_at"].date() + timedelta(days=1)
+        while day < t["close_at"].date():
+            per_day[day].append((datetime.combine(day, ENTRY_TIME), 0.0))
             day += timedelta(days=1)
-    return dict(held)
+    out = {}
+    for day, evs in per_day.items():
+        run = hi = 0.0
+        # Carries already open at the start of this day.
+        for t in trades:
+            if t["open_at"].date() < day <= t["close_at"].date():
+                run += t["capital"]
+        hi = run
+        for _when, delta in sorted(evs, key=lambda e: e[0]):
+            run += delta
+            hi = max(hi, run)
+        out[day] = hi
+    return out
 
 
 def drawdown(daily: list) -> tuple:
@@ -215,6 +270,7 @@ def main(argv=None) -> int:
         counts[t["book"]] += 1
     daily = sorted(by_day.items())
     held = capital_by_day(trades)
+    peak_capital_value, peak_moment = peak_capital(trades)
 
     total = sum(t["net"] for t in trades)
     first, last = daily[0][0], daily[-1][0]
@@ -229,12 +285,11 @@ def main(argv=None) -> int:
 
     dd, dd_from, dd_to = drawdown(daily)
     (loss_run, loss_end), (win_run, win_end) = streaks(months)
-    peak_capital = max(held.values())
-    peak_day = max(held, key=held.get)
+
     # What the account must carry: the most it ever had at work, plus the
     # deepest hole it ever dug. Both can happen at once, and a book that funds
     # only the first is margin-called by the second.
-    floor = peak_capital + abs(dd)
+    floor = peak_capital_value + abs(dd)
 
     print("=" * 74)
     print("  GAP CARRY + PE + CE, RUN TOGETHER")
@@ -253,7 +308,7 @@ def main(argv=None) -> int:
     print(f"  {'TOTAL':<10} {len(trades):>4} trades   {money(total):>16}")
 
     print("\nCAPITAL")
-    print(f"  Most ever at work on one day   {money(peak_capital)}   (on {peak_day})")
+    print(f"  Most ever at work at one moment {money(peak_capital_value)}   ({peak_moment})")
     print(f"  Deepest drawdown               {money(dd)}   ({dd_from} -> {dd_to})")
     print(f"  So the account must carry      {money(floor)}   (peak at work + deepest hole)")
     print(f"  With a 30% cushion             {money(floor * 1.3)}")
