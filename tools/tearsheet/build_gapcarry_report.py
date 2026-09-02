@@ -372,7 +372,7 @@ def cuts(b: dict) -> str:
     }</p></div></div>
   <div class="tblwrap"><table>{head}<tbody>{_rows_of(b["by_year"], lambda k: str(k))}</tbody></table></div>
 </section>
-
+<!--CUT-->
 <section id="cuts">
   <div class="shead"><div><h2>{t("Which day of the week pays", "வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div></div>
   <div class="split">
@@ -715,16 +715,17 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </div>
 
 {kpis(b)}
+{charges(b)}
+{every_night(b)}
 {curve_section(b)}
+{cuts(b).split("<!--CUT-->")[0]}
 {heat(b)}
-{cuts(b)}
+{sizing_section(b)}
+{honesty(b)}
+{cuts(b).split("<!--CUT-->")[1]}
 {ten(b)}
 {capital(b)}
 {lots(b)}
-{sizing_section(b)}
-{charges(b)}
-{honesty(b)}
-{every_night(b)}
 
 </article>
 </div>

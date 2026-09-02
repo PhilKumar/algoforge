@@ -523,9 +523,38 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </div>
 
 {kpis(TRAIL, "The programme at a glance", "ஒரே பார்வையில்")}
+<section>
+  <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
+    <p>{
+    t(
+        "Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; dated correctly through the Oct-2024 STT change &mdash; plus 0.15% adverse slippage on every fill.",
+        "மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; அக்-2024 STT மாற்றத்துடன் தேதி சரியாக &mdash; கூடுதலாக ஒவ்வொரு fill-க்கும் 0.15% எதிர்மறை slippage.",
+    )
+}</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Gross", "மொத்தம்")}</th><th scope="col">{
+    t("Charges", "கட்டணம்")
+}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
+    t("Charges per trade", "trade-க்கு கட்டணம்")
+}</th></tr></thead>
+    <tbody>
+      <tr class="trow-total"><th scope="row">NIFTY CE &middot; {t("trail", "trail")}</th><td class="{
+    cls(TRAIL["gross"])
+}">{r(TRAIL["gross"])}</td><td class="neg">{r(-TRAIL["costs"])}</td><td class="{cls(TRAIL["net"])}"><strong>{
+    r(TRAIL["net"])
+}</strong></td><td>{r(TRAIL["costs"] / TRAIL["trades"])}</td></tr>
+    </tbody></table></div>
+</section>
+{
+    HELPERS["daily_ledger"](
+        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]),
+        t,
+        t_attr,
+        r,
+        cls,
+    )
+}
 {curve_section(TRAIL, "Cumulative curve", "ஒட்டுமொத்த வளைவு", "curve-supertrend")}
-{heat(TRAIL, "Month by month", "மாதவாரியாக")}
-
 <section id="years">
   <div class="shead"><h2>{t("Year by year", "ஆண்டுவாரியாக")}</h2></div>
   <div class="tblwrap"><table>
@@ -534,7 +563,17 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{t("Per trade", "ஒரு trade-க்கு")}</th></tr></thead>
     <tbody>{rows_of(TRAIL["by_year"], lambda k: k)}</tbody></table></div>
 </section>
-
+{heat(TRAIL, "Month by month", "மாதவாரியாக")}
+{sizing_section(TRAIL_ROWS)}
+<section>
+  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
+  <p>{
+    t(
+        "On the same five-year walk: <strong>intraday square-off loses at all 70 settings</strong> &mdash; the overnight gaps are the profit, and a daily exit forfeits every one while paying a fresh round trip; <strong>1-minute loses &#8377;10&ndash;66 lakh</strong> at every multiplier (it loses on raw index points before any option exists), 3m and 5m lose on priced trades everywhere; off the 1H&times;1&ndash;2 / 30m&times;1.5&ndash;2 ridge the multipliers go red fast; <strong>every confirmation filter made it worse</strong> &mdash; RSI 50&ndash;70 at every threshold, ADX (its 25&ndash;30 band is the worst bucket), and a higher-timeframe agreement gate that looked worth +&#8377;4.9 lakh until the in-progress bar's lookahead was removed, after which it was worth &minus;&#8377;11 thousand; <strong>every stop loss and tight trail lost money and RAISED drawdown</strong> (30&ndash;150 points, all five timeframes &mdash; a stopped trade re-enters the same still-bullish trend and pays again); a fixed target at the 189-point average run is nearly the worst possible target; buying in-the-money strikes cut the net almost in half &mdash; the roll already does theta's job; and the nearest weekly expiry put a third of all entries within a day of death, every such bucket negative. This sheet is only the configuration that survived.",
+        "அதே ஐந்தாண்டு நடையில்: <strong>நாள்தோறும் square off எல்லா 70 அமைப்புகளிலும் நஷ்டம்</strong> &mdash; லாபம் இரவு gap-களில்; தினசரி வெளியேற்றம் அவற்றை இழந்து புதிய கட்டணமும் கட்டுகிறது; <strong>1-நிமிடம் ஒவ்வொரு multiplier-இலும் &#8377;10&ndash;66 லட்சம் நஷ்டம்</strong> (option வருமுன் index புள்ளிகளிலேயே நஷ்டம்), 3m, 5m priced trades-இல் எங்கும் நஷ்டம்; 1H&times;1&ndash;2 / 30m&times;1.5&ndash;2 முகட்டைத் தாண்டினால் விரைவில் சிவப்பு; <strong>ஒவ்வொரு உறுதிப்படுத்தும் filter-உம் மோசமாக்கியது</strong> &mdash; RSI 50&ndash;70 ஒவ்வொரு நிலையிலும், ADX (25&ndash;30 பட்டை மோசமானது), உயர்-timeframe ஒப்புதல் +&#8377;4.9 லட்சம் போலத் தோன்றி, முடியாத bar-இன் lookahead நீக்கியதும் &minus;&#8377;11 ஆயிரம்; <strong>ஒவ்வொரு stop loss-உம் இறுக்கமான trail-உம் நஷ்டம், இறக்கத்தை உயர்த்தின</strong> (30&ndash;150 புள்ளி, ஐந்து timeframe &mdash; stop ஆன trade அதே bullish trend-இல் மறுநுழைந்து மறுகட்டணம்); 189-புள்ளி சராசரி ஓட்டத்தில் வைத்த fixed இலக்கு கிட்டத்தட்ட மோசமானது; ITM strikes நிகரை பாதியாக்கின &mdash; theta-வின் வேலையை roll ஏற்கனவே செய்கிறது; அருகிலுள்ள weekly expiry நுழைவுகளில் மூன்றில் ஒன்றை மரணத்துக்கு ஒரு நாளுக்குள் வைத்தது, அந்தப் பிரிவுகள் அனைத்தும் எதிர்மறை. இந்த அறிக்கை தப்பிப் பிழைத்த அமைப்பு மட்டுமே.",
+    )
+}</p>
+</section>
 <section>
   <div class="shead"><h2>{t("Which day of the week pays", "வாரத்தின் எந்த நாள் லாபம் தருகிறது")}</h2></div>
   <div class="tblwrap"><table>
@@ -562,7 +601,6 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</th><th scope="col">{t("Share", "பங்கு")}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
     <tbody>{reasons(TRAIL)}</tbody></table></div>
 </section>
-
 <section>
   <div class="shead"><h2>{t("Best ten, worst ten", "சிறந்த பத்து, மோசமான பத்து")}</h2></div>
   <div class="two-up">
@@ -582,6 +620,9 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
       <tbody>{ten(TRAIL["worst10"])}</tbody></table></div>
   </div>
 </section>
+
+
+
 
 <section>
   <div class="shead"><div><h2>{
@@ -625,50 +666,9 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </div>
 
-{sizing_section(TRAIL_ROWS)}
 
-<section>
-  <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
-    <p>{
-    t(
-        "Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; dated correctly through the Oct-2024 STT change &mdash; plus 0.15% adverse slippage on every fill.",
-        "மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; அக்-2024 STT மாற்றத்துடன் தேதி சரியாக &mdash; கூடுதலாக ஒவ்வொரு fill-க்கும் 0.15% எதிர்மறை slippage.",
-    )
-}</p></div></div>
-  <div class="tblwrap"><table>
-    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Gross", "மொத்தம்")}</th><th scope="col">{
-    t("Charges", "கட்டணம்")
-}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
-    t("Charges per trade", "trade-க்கு கட்டணம்")
-}</th></tr></thead>
-    <tbody>
-      <tr class="trow-total"><th scope="row">NIFTY CE &middot; {t("trail", "trail")}</th><td class="{
-    cls(TRAIL["gross"])
-}">{r(TRAIL["gross"])}</td><td class="neg">{r(-TRAIL["costs"])}</td><td class="{cls(TRAIL["net"])}"><strong>{
-    r(TRAIL["net"])
-}</strong></td><td>{r(TRAIL["costs"] / TRAIL["trades"])}</td></tr>
-    </tbody></table></div>
-</section>
 
-<section>
-  <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
-  <p>{
-    t(
-        "On the same five-year walk: <strong>intraday square-off loses at all 70 settings</strong> &mdash; the overnight gaps are the profit, and a daily exit forfeits every one while paying a fresh round trip; <strong>1-minute loses &#8377;10&ndash;66 lakh</strong> at every multiplier (it loses on raw index points before any option exists), 3m and 5m lose on priced trades everywhere; off the 1H&times;1&ndash;2 / 30m&times;1.5&ndash;2 ridge the multipliers go red fast; <strong>every confirmation filter made it worse</strong> &mdash; RSI 50&ndash;70 at every threshold, ADX (its 25&ndash;30 band is the worst bucket), and a higher-timeframe agreement gate that looked worth +&#8377;4.9 lakh until the in-progress bar's lookahead was removed, after which it was worth &minus;&#8377;11 thousand; <strong>every stop loss and tight trail lost money and RAISED drawdown</strong> (30&ndash;150 points, all five timeframes &mdash; a stopped trade re-enters the same still-bullish trend and pays again); a fixed target at the 189-point average run is nearly the worst possible target; buying in-the-money strikes cut the net almost in half &mdash; the roll already does theta's job; and the nearest weekly expiry put a third of all entries within a day of death, every such bucket negative. This sheet is only the configuration that survived.",
-        "அதே ஐந்தாண்டு நடையில்: <strong>நாள்தோறும் square off எல்லா 70 அமைப்புகளிலும் நஷ்டம்</strong> &mdash; லாபம் இரவு gap-களில்; தினசரி வெளியேற்றம் அவற்றை இழந்து புதிய கட்டணமும் கட்டுகிறது; <strong>1-நிமிடம் ஒவ்வொரு multiplier-இலும் &#8377;10&ndash;66 லட்சம் நஷ்டம்</strong> (option வருமுன் index புள்ளிகளிலேயே நஷ்டம்), 3m, 5m priced trades-இல் எங்கும் நஷ்டம்; 1H&times;1&ndash;2 / 30m&times;1.5&ndash;2 முகட்டைத் தாண்டினால் விரைவில் சிவப்பு; <strong>ஒவ்வொரு உறுதிப்படுத்தும் filter-உம் மோசமாக்கியது</strong> &mdash; RSI 50&ndash;70 ஒவ்வொரு நிலையிலும், ADX (25&ndash;30 பட்டை மோசமானது), உயர்-timeframe ஒப்புதல் +&#8377;4.9 லட்சம் போலத் தோன்றி, முடியாத bar-இன் lookahead நீக்கியதும் &minus;&#8377;11 ஆயிரம்; <strong>ஒவ்வொரு stop loss-உம் இறுக்கமான trail-உம் நஷ்டம், இறக்கத்தை உயர்த்தின</strong> (30&ndash;150 புள்ளி, ஐந்து timeframe &mdash; stop ஆன trade அதே bullish trend-இல் மறுநுழைந்து மறுகட்டணம்); 189-புள்ளி சராசரி ஓட்டத்தில் வைத்த fixed இலக்கு கிட்டத்தட்ட மோசமானது; ITM strikes நிகரை பாதியாக்கின &mdash; theta-வின் வேலையை roll ஏற்கனவே செய்கிறது; அருகிலுள்ள weekly expiry நுழைவுகளில் மூன்றில் ஒன்றை மரணத்துக்கு ஒரு நாளுக்குள் வைத்தது, அந்தப் பிரிவுகள் அனைத்தும் எதிர்மறை. இந்த அறிக்கை தப்பிப் பிழைத்த அமைப்பு மட்டுமே.",
-    )
-}</p>
-</section>
 
-{
-    HELPERS["daily_ledger"](
-        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]),
-        t,
-        t_attr,
-        r,
-        cls,
-    )
-}
 
 </article>
 </div>
