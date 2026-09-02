@@ -176,6 +176,35 @@ def daily_series(rows, date_of, net_of):
     return out
 
 
+def method_and_limits(t, steps, running=None):
+    """The three sections every sheet in this family ends with.
+
+    Method, what is running today, and what the document is not. The last was
+    the same paragraph on all five and is kept here rather than copied four
+    times -- a disclaimer that drifts between documents is worse than none.
+    `steps` is [(english, tamil)] describing how THAT book was produced, which
+    is the only part that differs.
+    """
+    items = "".join(f"<li>{t(en, ta)}</li>" for en, ta in steps)
+    today = ""
+    if running:
+        today = f"""
+<section>
+  <div class="shead"><div><h2>{t("What is running today", "இன்று இயங்குவது என்ன")}</h2></div></div>
+  <div class="panel"><p>{t(running[0], running[1])}</p></div>
+</section>
+"""
+    return f"""{today}
+<section>
+  <div class="shead"><div><h2>{t("Method", "முறை")}</h2></div></div>
+  <div class="panel"><ol class="method">{items}</ol></div>
+  <div class="note note-warn" style="margin-top:14px">
+    <h2 class="note-h">{t("What this document is not", "இந்த ஆவணம் எது அல்ல")}</h2>
+    <p>{t("It is a backtest. It assumes every signal was filled at the recorded premium, with no rejection, no partial fill and no slippage beyond the modelled costs. Live execution adds all three. Past behaviour of an index, its lot size and its expiry calendar is not a commitment that any of them stay put &mdash; and this record already contains two such changes. Nothing here is investment advice or an offer to manage money.", "இது ஒரு பேக்டெஸ்ட். ஒவ்வொரு சிக்னலும் பதிவான பிரீமியத்தில் நிறைவேறியதாக, நிராகரிப்பு இல்லாமல், பகுதி நிறைவேற்றம் இல்லாமல், கணக்கிட்ட கட்டணங்களுக்கு மேல் ஸ்லிப்பேஜ் இல்லாமல் கருதுகிறது. லைவ் செயல்பாடு இந்த மூன்றையும் சேர்க்கிறது. ஒரு குறியீட்டின் கடந்தகால நடத்தை, அதன் லாட் அளவு, எக்ஸ்பயரி நாட்காட்டி ஆகியவை அப்படியே நீடிக்கும் என்பதற்கு உத்தரவாதம் இல்லை &mdash; இந்தப் பதிவிலேயே அத்தகைய இரண்டு மாற்றங்கள் உள்ளன. இங்குள்ள எதுவும் முதலீட்டு ஆலோசனை அல்ல, பணத்தை நிர்வகிக்கும் சலுகையும் அல்ல.")}</p>
+  </div>
+</section>"""
+
+
 # ── equity curve as an SVG path ──────────────────────────────────────
 def curve_svg(points, w=1040, h=260, pad=1):
     ys = [p[1] for p in points]

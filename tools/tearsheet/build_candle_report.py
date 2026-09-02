@@ -49,7 +49,17 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
+    for name in (
+        "r",
+        "lakh",
+        "cls",
+        "curve_svg",
+        "spark",
+        "recolour",
+        "daily_ledger",
+        "daily_series",
+        "method_and_limits",
+    ):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -409,6 +419,7 @@ def sizing_section(rows: list[dict], b: dict) -> str:
 def side_block(b: dict, name_en: str, name_ta: str, anchor: str) -> str:
     return f"""
 {kpis(b, "The programme at a glance", "ஒரே பார்வையில்")}
+<!--SPINE-->
 {curve_section(b, f"{name_en} &mdash; cumulative curve", f"{name_ta} &mdash; ஒட்டுமொத்த வளைவு", f"curve-{anchor}")}
 {heat(b, f"{name_en} &mdash; month by month", f"{name_ta} &mdash; மாதவாரியாக")}
 <section>
@@ -563,7 +574,54 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
         "NIFTY call book &mdash; &frac14; target, 30% trail (the rule the page runs)",
         "NIFTY கால் புத்தகம் &mdash; &frac14; இலக்கு, 30% trail (பக்கம் இயக்கும் விதி)",
         "trail",
+    ).split("<!--SPINE-->")[0]
+}
+<section>
+  <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
+    <p>{
+    t(
+        "Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; the same schedule the paper engine books.",
+        "மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; paper engine பதியும் அதே அட்டவணை.",
     )
+}</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Gross", "மொத்தம்")}</th><th scope="col">{
+    t("Charges", "கட்டணம்")
+}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
+    t("Charges per campaign", "campaign-க்கு கட்டணம்")
+}</th></tr></thead>
+    <tbody>
+      <tr class="trow-total"><th scope="row">NIFTY CE &middot; {t("trail", "trail")}</th><td class="{
+    cls(TRAIL["gross"])
+}">{r(TRAIL["gross"])}</td><td class="neg">{r(-TRAIL["costs"])}</td><td class="{cls(TRAIL["net"])}"><strong>{
+    r(TRAIL["net"])
+}</strong></td><td>{r(TRAIL["costs"] / TRAIL["trades"]) if TRAIL["trades"] else "—"}</td></tr>
+      <tr><th scope="row">NIFTY CE &middot; {t("fixed", "fixed")}</th><td class="{cls(FIXED["gross"])}">{
+    r(FIXED["gross"])
+}</td><td class="neg">{r(-FIXED["costs"])}</td><td class="{cls(FIXED["net"])}"><strong>{
+    r(FIXED["net"])
+}</strong></td><td>{r(FIXED["costs"] / FIXED["trades"]) if FIXED["trades"] else "—"}</td></tr>
+    </tbody></table></div>
+</section>
+{
+    HELPERS["daily_ledger"](
+        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["mother"], lambda x: x["net"]),
+        t,
+        t_attr,
+        r,
+        cls,
+        noun_en="campaigns",
+        noun_ta="Campaign-கள்",
+    )
+}
+
+{
+    side_block(
+        TRAIL,
+        "NIFTY call book &mdash; &frac14; target, 30% trail (the rule the page runs)",
+        "NIFTY கால் புத்தகம் &mdash; &frac14; இலக்கு, 30% trail (பக்கம் இயக்கும் விதி)",
+        "trail",
+    ).split("<!--SPINE-->")[1]
 }
 
 <section>
@@ -664,33 +722,6 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     </tbody></table></div>
 </section>
 
-<section>
-  <div class="shead"><div><h2>{t("Charges, in full", "கட்டணங்கள், முழுமையாக")}</h2>
-    <p>{
-    t(
-        "Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; the same schedule the paper engine books.",
-        "மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; paper engine பதியும் அதே அட்டவணை.",
-    )
-}</p></div></div>
-  <div class="tblwrap"><table>
-    <thead><tr><th scope="col">{t("Book", "புத்தகம்")}</th><th scope="col">{t("Gross", "மொத்தம்")}</th><th scope="col">{
-    t("Charges", "கட்டணம்")
-}</th><th scope="col">{t("Net", "நிகர")}</th><th scope="col">{
-    t("Charges per campaign", "campaign-க்கு கட்டணம்")
-}</th></tr></thead>
-    <tbody>
-      <tr class="trow-total"><th scope="row">NIFTY CE &middot; {t("trail", "trail")}</th><td class="{
-    cls(TRAIL["gross"])
-}">{r(TRAIL["gross"])}</td><td class="neg">{r(-TRAIL["costs"])}</td><td class="{cls(TRAIL["net"])}"><strong>{
-    r(TRAIL["net"])
-}</strong></td><td>{r(TRAIL["costs"] / TRAIL["trades"]) if TRAIL["trades"] else "—"}</td></tr>
-      <tr><th scope="row">NIFTY CE &middot; {t("fixed", "fixed")}</th><td class="{cls(FIXED["gross"])}">{
-    r(FIXED["gross"])
-}</td><td class="neg">{r(-FIXED["costs"])}</td><td class="{cls(FIXED["net"])}"><strong>{
-    r(FIXED["net"])
-}</strong></td><td>{r(FIXED["costs"] / FIXED["trades"]) if FIXED["trades"] else "—"}</td></tr>
-    </tbody></table></div>
-</section>
 
 <section>
   <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
@@ -702,18 +733,19 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </section>
 
+
 {
-    HELPERS["daily_ledger"](
-        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["mother"], lambda x: x["net"]),
+    HELPERS["method_and_limits"](
         t,
-        t_attr,
-        r,
-        cls,
-        noun_en="campaigns",
-        noun_ta="Campaign-கள்",
+        [
+            ('The mother is the 5-minute bar that makes a 278-bar high, taken blind: it is whichever bar qualifies, never one picked by hand.', 'Mother என்பது 278-bar உயர்வை உருவாக்கும் 5-நிமிட bar; கையால் தேர்ந்தெடுக்கப்படுவதில்லை.'),
+            ("Buying happens only in the bottom quarter of that box, on two red closes stepping down and then a buy-stop on the first red's close. At most four buys a round.", 'அந்த box-இன் கீழ் கால்பங்கில் மட்டுமே வாங்கல்; இரு சிவப்பு இறக்கம், பின் முதல் சிவப்பின் close-இல் buy-stop. ஒரு round-க்கு அதிகபட்சம் நான்கு.'),
+            ('Premiums are recorded minutes from the local archive, zero broker calls. A campaign that cannot be priced is left OUT of the book rather than valued at a guess.', 'பிரீமியங்கள் உள்ளூர் காப்பகத்தின் பதிவான நிமிடங்கள்; broker அழைப்பு இல்லை. விலை தர முடியாத campaign ஊகத்தில் மதிப்பிடாமல் புத்தகத்திற்கு வெளியே விடப்படுகிறது.'),
+            ("Charges are the full statutory schedule per round, and the lot is the one in force on the contract's own expiry &mdash; 25, then 75, then 65.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல்; lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது &mdash; 25, பின் 75, பின் 65.'),
+        ],
+        running=('Candle Entry runs on its own tab behind a live gate that is still shut. This document is the recorded book; nothing here has traded real money.', 'Candle Entry அதன் சொந்த tab-இல், இன்னும் மூடிய நேரடி gate-இன் பின்னால். இந்த ஆவணம் பதிவான புத்தகம்; இதில் எதுவும் உண்மையான பணத்தில் வர்த்தகம் ஆகவில்லை.'),
     )
 }
-
 </article>
 </div>
 {READER_JS}

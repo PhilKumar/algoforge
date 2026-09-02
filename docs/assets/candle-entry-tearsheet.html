@@ -499,6 +499,46 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
   </div>
 </section>
 
+<section>
+  <div class="shead"><div><h2><span class="tr"><i lang="en">Charges, in full</i><i lang="ta">கட்டணங்கள், முழுமையாக</i></span></h2>
+    <p><span class="tr"><i lang="en">Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; the same schedule the paper engine books.</i><i lang="ta">மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; paper engine பதியும் அதே அட்டவணை.</i></span></p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col"><span class="tr"><i lang="en">Book</i><i lang="ta">புத்தகம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Gross</i><i lang="ta">மொத்தம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Charges</i><i lang="ta">கட்டணம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Net</i><i lang="ta">நிகர</i></span></th><th scope="col"><span class="tr"><i lang="en">Charges per campaign</i><i lang="ta">campaign-க்கு கட்டணம்</i></span></th></tr></thead>
+    <tbody>
+      <tr class="trow-total"><th scope="row">NIFTY CE &middot; <span class="tr"><i lang="en">trail</i><i lang="ta">trail</i></span></th><td class="pos">₹2,29,622</td><td class="neg">-₹6,317</td><td class="pos"><strong>₹2,23,305</strong></td><td>₹186</td></tr>
+      <tr><th scope="row">NIFTY CE &middot; <span class="tr"><i lang="en">fixed</i><i lang="ta">fixed</i></span></th><td class="pos">₹2,24,359</td><td class="neg">-₹6,073</td><td class="pos"><strong>₹2,18,286</strong></td><td>₹184</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="ledger">
+  <div class="shead"><div><h2><span class="tr"><i lang="en">Daily P&amp;L ledger</i><i lang="ta">தினசரி லாப-நஷ்ட பதிவேடு</i></span></h2>
+    <p><span class="tr"><i lang="en">Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole 34 rows.</i><i lang="ta">பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது 34 வரிகளையும் உருட்டிப் பார்க்கலாம்.</i></span></p></div></div>
+  <div class="ledger-controls" id="ledger-years">
+    <button type="button" data-year="all" aria-pressed="true"><span class="tr"><i lang="en">All</i><i lang="ta">அனைத்தும்</i></span></button>
+    <button type="button" data-year="2024" aria-pressed="false">2024</button><button type="button" data-year="2025" aria-pressed="false">2025</button><button type="button" data-year="2026" aria-pressed="false">2026</button>
+  </div>
+  <div class="ledger-scroll" id="ledger-body" tabindex="0" role="region"
+       aria-label="Daily profit and loss ledger" data-l10n-attr="aria-label" data-l10n-en="Daily profit and loss ledger" data-l10n-ta="தினசரி லாப நஷ்ட பதிவு" data-total="34">
+    <table id="ledger-table" data-total="34">
+      <thead><tr>
+        <th scope="col"><span class="tr"><i lang="en">Date</i><i lang="ta">தேதி</i></span></th>
+        <th scope="col"><span class="tr"><i lang="en">Campaigns</i><i lang="ta">Campaign-கள்</i></span></th>
+        <th scope="col"><span class="tr"><i lang="en">Day net</i><i lang="ta">நாளின் நிகரம்</i></span></th>
+        <th scope="col"><span class="tr"><i lang="en">Running total</i><i lang="ta">ஓடும் மொத்தம்</i></span></th>
+      </tr></thead>
+      <tbody><tr data-year="2024"><th scope="row">2024-10-30</th><td>1</td><td class="neg">-₹7,453</td><td>-₹7,453</td></tr><tr data-year="2024"><th scope="row">2024-11-06</th><td>1</td><td class="pos">₹890</td><td>-₹6,563</td></tr><tr data-year="2024"><th scope="row">2024-12-27</th><td>1</td><td class="pos">₹2,996</td><td>-₹3,567</td></tr><tr data-year="2025"><th scope="row">2025-01-02</th><td>1</td><td class="pos">₹280</td><td>-₹3,287</td></tr><tr data-year="2025"><th scope="row">2025-01-21</th><td>1</td><td class="pos">₹4,532</td><td>₹1,244</td></tr><tr data-year="2025"><th scope="row">2025-01-30</th><td>1</td><td class="pos">₹755</td><td>₹2,000</td></tr><tr data-year="2025"><th scope="row">2025-03-06</th><td>1</td><td class="pos">₹57</td><td>₹2,057</td></tr><tr data-year="2025"><th scope="row">2025-03-18</th><td>1</td><td class="pos">₹14,889</td><td>₹16,945</td></tr><tr data-year="2025"><th scope="row">2025-05-02</th><td>1</td><td class="pos">₹85,046</td><td>₹1,01,992</td></tr><tr data-year="2025"><th scope="row">2025-05-15</th><td>1</td><td class="neg">-₹63</td><td>₹1,01,928</td></tr><tr data-year="2025"><th scope="row">2025-05-26</th><td>1</td><td class="neg">-₹897</td><td>₹1,01,031</td></tr><tr data-year="2025"><th scope="row">2025-06-05</th><td>1</td><td class="pos">₹223</td><td>₹1,01,254</td></tr><tr data-year="2025"><th scope="row">2025-06-20</th><td>1</td><td class="pos">₹612</td><td>₹1,01,866</td></tr><tr data-year="2025"><th scope="row">2025-07-31</th><td>1</td><td class="pos">₹3,881</td><td>₹1,05,747</td></tr><tr data-year="2025"><th scope="row">2025-08-12</th><td>1</td><td class="pos">₹1,537</td><td>₹1,07,283</td></tr><tr data-year="2025"><th scope="row">2025-09-04</th><td>1</td><td class="pos">₹3,982</td><td>₹1,11,265</td></tr><tr data-year="2025"><th scope="row">2025-09-10</th><td>1</td><td class="neg">-₹500</td><td>₹1,10,765</td></tr><tr data-year="2025"><th scope="row">2025-10-29</th><td>1</td><td class="pos">₹2,099</td><td>₹1,12,864</td></tr><tr data-year="2025"><th scope="row">2025-11-26</th><td>1</td><td class="neg">-₹6,833</td><td>₹1,06,031</td></tr><tr data-year="2025"><th scope="row">2025-12-05</th><td>1</td><td class="pos">₹3,280</td><td>₹1,09,311</td></tr><tr data-year="2025"><th scope="row">2025-12-12</th><td>1</td><td class="pos">₹7,043</td><td>₹1,16,354</td></tr><tr data-year="2025"><th scope="row">2025-12-19</th><td>1</td><td class="pos">₹173</td><td>₹1,16,528</td></tr><tr data-year="2025"><th scope="row">2025-12-31</th><td>1</td><td class="pos">₹424</td><td>₹1,16,952</td></tr><tr data-year="2026"><th scope="row">2026-01-29</th><td>1</td><td class="neg">-₹2,353</td><td>₹1,14,599</td></tr><tr data-year="2026"><th scope="row">2026-02-03</th><td>1</td><td class="pos">₹13,474</td><td>₹1,28,072</td></tr><tr data-year="2026"><th scope="row">2026-02-18</th><td>1</td><td class="pos">₹17,320</td><td>₹1,45,393</td></tr><tr data-year="2026"><th scope="row">2026-03-18</th><td>1</td><td class="pos">₹12,888</td><td>₹1,58,280</td></tr><tr data-year="2026"><th scope="row">2026-03-25</th><td>1</td><td class="pos">₹14,582</td><td>₹1,72,862</td></tr><tr data-year="2026"><th scope="row">2026-04-29</th><td>1</td><td class="pos">₹16,061</td><td>₹1,88,923</td></tr><tr data-year="2026"><th scope="row">2026-05-06</th><td>1</td><td class="pos">₹5,455</td><td>₹1,94,378</td></tr><tr data-year="2026"><th scope="row">2026-05-21</th><td>1</td><td class="pos">₹1,036</td><td>₹1,95,415</td></tr><tr data-year="2026"><th scope="row">2026-07-02</th><td>1</td><td class="pos">₹13,402</td><td>₹2,08,817</td></tr><tr data-year="2026"><th scope="row">2026-07-17</th><td>1</td><td class="pos">₹11,566</td><td>₹2,20,383</td></tr><tr data-year="2026"><th scope="row">2026-07-30</th><td>1</td><td class="pos">₹2,922</td><td>₹2,23,305</td></tr></tbody>
+    </table>
+  </div>
+  <div class="ledger-foot">
+    <span><span id="ledger-count">34</span> <span class="tr"><i lang="en">days shown</i><i lang="ta">நாட்கள் காட்டப்படுகின்றன</i></span></span>
+    <span><span class="tr"><i lang="en">green</i><i lang="ta">பச்சை</i></span> 28 &middot; <span class="tr"><i lang="en">red</i><i lang="ta">சிவப்பு</i></span> 6</span>
+    <span><span class="tr"><i lang="en">average</i><i lang="ta">சராசரி</i></span> ₹6,568</span>
+    <span style="margin-left:auto"><span class="tr"><i lang="en">best</i><i lang="ta">சிறந்தது</i></span> ₹85,046 &middot; <span class="tr"><i lang="en">worst</i><i lang="ta">மோசமானது</i></span> -₹7,453</span>
+  </div>
+</section>
+
+
+
 <section id="curve-trail">
   <div class="shead"><div><h2><span class="tr"><i lang="en">NIFTY call book &mdash; &frac14; target, 30% trail (the rule the page runs) &mdash; cumulative curve</i><i lang="ta">NIFTY கால் புத்தகம் &mdash; &frac14; இலக்கு, 30% trail (பக்கம் இயக்கும் விதி) &mdash; ஒட்டுமொத்த வளைவு</i></span></h2>
     <p><span class="tr"><i lang="en">Cumulative net after charges, one point per campaign, in the order the mothers fired. Shading marks every stretch spent below the previous high.</i><i lang="ta">கட்டணங்களுக்குப் பின் திரட்டு நிகர, ஒரு campaign-க்கு ஒரு புள்ளி, mother-கள் வந்த வரிசையில். நிழல் = முந்தைய உச்சத்துக்குக் கீழே.</i></span></p></div></div>
@@ -608,16 +648,6 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     </tbody></table></div>
 </section>
 
-<section>
-  <div class="shead"><div><h2><span class="tr"><i lang="en">Charges, in full</i><i lang="ta">கட்டணங்கள், முழுமையாக</i></span></h2>
-    <p><span class="tr"><i lang="en">Every rupee between the gross result and the account, per leg: brokerage, STT, exchange charges, SEBI fee, GST, stamp duty &mdash; the same schedule the paper engine books.</i><i lang="ta">மொத்த முடிவுக்கும் கணக்குக்கும் இடையிலான ஒவ்வொரு ரூபாயும், leg-க்கு: புரோக்கரேஜ், STT, exchange, SEBI, GST, stamp &mdash; paper engine பதியும் அதே அட்டவணை.</i></span></p></div></div>
-  <div class="tblwrap"><table>
-    <thead><tr><th scope="col"><span class="tr"><i lang="en">Book</i><i lang="ta">புத்தகம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Gross</i><i lang="ta">மொத்தம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Charges</i><i lang="ta">கட்டணம்</i></span></th><th scope="col"><span class="tr"><i lang="en">Net</i><i lang="ta">நிகர</i></span></th><th scope="col"><span class="tr"><i lang="en">Charges per campaign</i><i lang="ta">campaign-க்கு கட்டணம்</i></span></th></tr></thead>
-    <tbody>
-      <tr class="trow-total"><th scope="row">NIFTY CE &middot; <span class="tr"><i lang="en">trail</i><i lang="ta">trail</i></span></th><td class="pos">₹2,29,622</td><td class="neg">-₹6,317</td><td class="pos"><strong>₹2,23,305</strong></td><td>₹186</td></tr>
-      <tr><th scope="row">NIFTY CE &middot; <span class="tr"><i lang="en">fixed</i><i lang="ta">fixed</i></span></th><td class="pos">₹2,24,359</td><td class="neg">-₹6,073</td><td class="pos"><strong>₹2,18,286</strong></td><td>₹184</td></tr>
-    </tbody></table></div>
-</section>
 
 <section>
   <div class="shead"><h2><span class="tr"><i lang="en">Risk register</i><i lang="ta">ரிஸ்க் பதிவேடு</i></span></h2></div>
@@ -625,33 +655,20 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </section>
 
 
-<section id="ledger">
-  <div class="shead"><div><h2><span class="tr"><i lang="en">Daily P&amp;L ledger</i><i lang="ta">தினசரி லாப-நஷ்ட பதிவேடு</i></span></h2>
-    <p><span class="tr"><i lang="en">Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole 34 rows.</i><i lang="ta">பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது 34 வரிகளையும் உருட்டிப் பார்க்கலாம்.</i></span></p></div></div>
-  <div class="ledger-controls" id="ledger-years">
-    <button type="button" data-year="all" aria-pressed="true"><span class="tr"><i lang="en">All</i><i lang="ta">அனைத்தும்</i></span></button>
-    <button type="button" data-year="2024" aria-pressed="false">2024</button><button type="button" data-year="2025" aria-pressed="false">2025</button><button type="button" data-year="2026" aria-pressed="false">2026</button>
-  </div>
-  <div class="ledger-scroll" id="ledger-body" tabindex="0" role="region"
-       aria-label="Daily profit and loss ledger" data-l10n-attr="aria-label" data-l10n-en="Daily profit and loss ledger" data-l10n-ta="தினசரி லாப நஷ்ட பதிவு" data-total="34">
-    <table id="ledger-table" data-total="34">
-      <thead><tr>
-        <th scope="col"><span class="tr"><i lang="en">Date</i><i lang="ta">தேதி</i></span></th>
-        <th scope="col"><span class="tr"><i lang="en">Campaigns</i><i lang="ta">Campaign-கள்</i></span></th>
-        <th scope="col"><span class="tr"><i lang="en">Day net</i><i lang="ta">நாளின் நிகரம்</i></span></th>
-        <th scope="col"><span class="tr"><i lang="en">Running total</i><i lang="ta">ஓடும் மொத்தம்</i></span></th>
-      </tr></thead>
-      <tbody><tr data-year="2024"><th scope="row">2024-10-30</th><td>1</td><td class="neg">-₹7,453</td><td>-₹7,453</td></tr><tr data-year="2024"><th scope="row">2024-11-06</th><td>1</td><td class="pos">₹890</td><td>-₹6,563</td></tr><tr data-year="2024"><th scope="row">2024-12-27</th><td>1</td><td class="pos">₹2,996</td><td>-₹3,567</td></tr><tr data-year="2025"><th scope="row">2025-01-02</th><td>1</td><td class="pos">₹280</td><td>-₹3,287</td></tr><tr data-year="2025"><th scope="row">2025-01-21</th><td>1</td><td class="pos">₹4,532</td><td>₹1,244</td></tr><tr data-year="2025"><th scope="row">2025-01-30</th><td>1</td><td class="pos">₹755</td><td>₹2,000</td></tr><tr data-year="2025"><th scope="row">2025-03-06</th><td>1</td><td class="pos">₹57</td><td>₹2,057</td></tr><tr data-year="2025"><th scope="row">2025-03-18</th><td>1</td><td class="pos">₹14,889</td><td>₹16,945</td></tr><tr data-year="2025"><th scope="row">2025-05-02</th><td>1</td><td class="pos">₹85,046</td><td>₹1,01,992</td></tr><tr data-year="2025"><th scope="row">2025-05-15</th><td>1</td><td class="neg">-₹63</td><td>₹1,01,928</td></tr><tr data-year="2025"><th scope="row">2025-05-26</th><td>1</td><td class="neg">-₹897</td><td>₹1,01,031</td></tr><tr data-year="2025"><th scope="row">2025-06-05</th><td>1</td><td class="pos">₹223</td><td>₹1,01,254</td></tr><tr data-year="2025"><th scope="row">2025-06-20</th><td>1</td><td class="pos">₹612</td><td>₹1,01,866</td></tr><tr data-year="2025"><th scope="row">2025-07-31</th><td>1</td><td class="pos">₹3,881</td><td>₹1,05,747</td></tr><tr data-year="2025"><th scope="row">2025-08-12</th><td>1</td><td class="pos">₹1,537</td><td>₹1,07,283</td></tr><tr data-year="2025"><th scope="row">2025-09-04</th><td>1</td><td class="pos">₹3,982</td><td>₹1,11,265</td></tr><tr data-year="2025"><th scope="row">2025-09-10</th><td>1</td><td class="neg">-₹500</td><td>₹1,10,765</td></tr><tr data-year="2025"><th scope="row">2025-10-29</th><td>1</td><td class="pos">₹2,099</td><td>₹1,12,864</td></tr><tr data-year="2025"><th scope="row">2025-11-26</th><td>1</td><td class="neg">-₹6,833</td><td>₹1,06,031</td></tr><tr data-year="2025"><th scope="row">2025-12-05</th><td>1</td><td class="pos">₹3,280</td><td>₹1,09,311</td></tr><tr data-year="2025"><th scope="row">2025-12-12</th><td>1</td><td class="pos">₹7,043</td><td>₹1,16,354</td></tr><tr data-year="2025"><th scope="row">2025-12-19</th><td>1</td><td class="pos">₹173</td><td>₹1,16,528</td></tr><tr data-year="2025"><th scope="row">2025-12-31</th><td>1</td><td class="pos">₹424</td><td>₹1,16,952</td></tr><tr data-year="2026"><th scope="row">2026-01-29</th><td>1</td><td class="neg">-₹2,353</td><td>₹1,14,599</td></tr><tr data-year="2026"><th scope="row">2026-02-03</th><td>1</td><td class="pos">₹13,474</td><td>₹1,28,072</td></tr><tr data-year="2026"><th scope="row">2026-02-18</th><td>1</td><td class="pos">₹17,320</td><td>₹1,45,393</td></tr><tr data-year="2026"><th scope="row">2026-03-18</th><td>1</td><td class="pos">₹12,888</td><td>₹1,58,280</td></tr><tr data-year="2026"><th scope="row">2026-03-25</th><td>1</td><td class="pos">₹14,582</td><td>₹1,72,862</td></tr><tr data-year="2026"><th scope="row">2026-04-29</th><td>1</td><td class="pos">₹16,061</td><td>₹1,88,923</td></tr><tr data-year="2026"><th scope="row">2026-05-06</th><td>1</td><td class="pos">₹5,455</td><td>₹1,94,378</td></tr><tr data-year="2026"><th scope="row">2026-05-21</th><td>1</td><td class="pos">₹1,036</td><td>₹1,95,415</td></tr><tr data-year="2026"><th scope="row">2026-07-02</th><td>1</td><td class="pos">₹13,402</td><td>₹2,08,817</td></tr><tr data-year="2026"><th scope="row">2026-07-17</th><td>1</td><td class="pos">₹11,566</td><td>₹2,20,383</td></tr><tr data-year="2026"><th scope="row">2026-07-30</th><td>1</td><td class="pos">₹2,922</td><td>₹2,23,305</td></tr></tbody>
-    </table>
-  </div>
-  <div class="ledger-foot">
-    <span><span id="ledger-count">34</span> <span class="tr"><i lang="en">days shown</i><i lang="ta">நாட்கள் காட்டப்படுகின்றன</i></span></span>
-    <span><span class="tr"><i lang="en">green</i><i lang="ta">பச்சை</i></span> 28 &middot; <span class="tr"><i lang="en">red</i><i lang="ta">சிவப்பு</i></span> 6</span>
-    <span><span class="tr"><i lang="en">average</i><i lang="ta">சராசரி</i></span> ₹6,568</span>
-    <span style="margin-left:auto"><span class="tr"><i lang="en">best</i><i lang="ta">சிறந்தது</i></span> ₹85,046 &middot; <span class="tr"><i lang="en">worst</i><i lang="ta">மோசமானது</i></span> -₹7,453</span>
-  </div>
+
+<section>
+  <div class="shead"><div><h2><span class="tr"><i lang="en">What is running today</i><i lang="ta">இன்று இயங்குவது என்ன</i></span></h2></div></div>
+  <div class="panel"><p><span class="tr"><i lang="en">Candle Entry runs on its own tab behind a live gate that is still shut. This document is the recorded book; nothing here has traded real money.</i><i lang="ta">Candle Entry அதன் சொந்த tab-இல், இன்னும் மூடிய நேரடி gate-இன் பின்னால். இந்த ஆவணம் பதிவான புத்தகம்; இதில் எதுவும் உண்மையான பணத்தில் வர்த்தகம் ஆகவில்லை.</i></span></p></div>
 </section>
 
+<section>
+  <div class="shead"><div><h2><span class="tr"><i lang="en">Method</i><i lang="ta">முறை</i></span></h2></div></div>
+  <div class="panel"><ol class="method"><li><span class="tr"><i lang="en">The mother is the 5-minute bar that makes a 278-bar high, taken blind: it is whichever bar qualifies, never one picked by hand.</i><i lang="ta">Mother என்பது 278-bar உயர்வை உருவாக்கும் 5-நிமிட bar; கையால் தேர்ந்தெடுக்கப்படுவதில்லை.</i></span></li><li><span class="tr"><i lang="en">Buying happens only in the bottom quarter of that box, on two red closes stepping down and then a buy-stop on the first red's close. At most four buys a round.</i><i lang="ta">அந்த box-இன் கீழ் கால்பங்கில் மட்டுமே வாங்கல்; இரு சிவப்பு இறக்கம், பின் முதல் சிவப்பின் close-இல் buy-stop. ஒரு round-க்கு அதிகபட்சம் நான்கு.</i></span></li><li><span class="tr"><i lang="en">Premiums are recorded minutes from the local archive, zero broker calls. A campaign that cannot be priced is left OUT of the book rather than valued at a guess.</i><i lang="ta">பிரீமியங்கள் உள்ளூர் காப்பகத்தின் பதிவான நிமிடங்கள்; broker அழைப்பு இல்லை. விலை தர முடியாத campaign ஊகத்தில் மதிப்பிடாமல் புத்தகத்திற்கு வெளியே விடப்படுகிறது.</i></span></li><li><span class="tr"><i lang="en">Charges are the full statutory schedule per round, and the lot is the one in force on the contract's own expiry &mdash; 25, then 75, then 65.</i><i lang="ta">கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல்; lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது &mdash; 25, பின் 75, பின் 65.</i></span></li></ol></div>
+  <div class="note note-warn" style="margin-top:14px">
+    <h2 class="note-h"><span class="tr"><i lang="en">What this document is not</i><i lang="ta">இந்த ஆவணம் எது அல்ல</i></span></h2>
+    <p><span class="tr"><i lang="en">It is a backtest. It assumes every signal was filled at the recorded premium, with no rejection, no partial fill and no slippage beyond the modelled costs. Live execution adds all three. Past behaviour of an index, its lot size and its expiry calendar is not a commitment that any of them stay put &mdash; and this record already contains two such changes. Nothing here is investment advice or an offer to manage money.</i><i lang="ta">இது ஒரு பேக்டெஸ்ட். ஒவ்வொரு சிக்னலும் பதிவான பிரீமியத்தில் நிறைவேறியதாக, நிராகரிப்பு இல்லாமல், பகுதி நிறைவேற்றம் இல்லாமல், கணக்கிட்ட கட்டணங்களுக்கு மேல் ஸ்லிப்பேஜ் இல்லாமல் கருதுகிறது. லைவ் செயல்பாடு இந்த மூன்றையும் சேர்க்கிறது. ஒரு குறியீட்டின் கடந்தகால நடத்தை, அதன் லாட் அளவு, எக்ஸ்பயரி நாட்காட்டி ஆகியவை அப்படியே நீடிக்கும் என்பதற்கு உத்தரவாதம் இல்லை &mdash; இந்தப் பதிவிலேயே அத்தகைய இரண்டு மாற்றங்கள் உள்ளன. இங்குள்ள எதுவும் முதலீட்டு ஆலோசனை அல்ல, பணத்தை நிர்வகிக்கும் சலுகையும் அல்ல.</i></span></p>
+  </div>
+</section>
 </article>
 </div>
 <script>

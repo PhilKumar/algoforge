@@ -48,7 +48,17 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
+    for name in (
+        "r",
+        "lakh",
+        "cls",
+        "curve_svg",
+        "spark",
+        "recolour",
+        "daily_ledger",
+        "daily_series",
+        "method_and_limits",
+    ):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -670,6 +680,18 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 
 
 
+{
+    HELPERS["method_and_limits"](
+        t,
+        [
+            ('A 1-hour supertrend flip is the only signal. When it turns up the book buys a call; there is nothing else on the chart.', '1-மணி நேர supertrend திருப்பம் மட்டுமே signal. மேல்நோக்கித் திரும்பும்போது call வாங்கப்படுகிறது; chart-இல் வேறெதுவும் இல்லை.'),
+            ('The position is held until the trend flips back, rolling the strike when price runs six strikes away, and squared off at expiry if the flip has not come.', 'போக்கு திரும்பும் வரை நிலை வைக்கப்படுகிறது; விலை ஆறு strike விலகினால் strike உருட்டப்படுகிறது; திருப்பம் வராவிட்டால் expiry-இல் முடிக்கப்படுகிறது.'),
+            ('Every premium is a recorded minute from the Dhan expired-options archive. Twelve exits it cannot quote are valued at intrinsic and reported separately, because they carry real weight in the total.', 'ஒவ்வொரு பிரீமியமும் Dhan காப்பகத்தின் பதிவான நிமிடம். அது தர முடியாத பன்னிரண்டு வெளியேற்றங்கள் intrinsic-இல் மதிப்பிடப்பட்டு தனியாகச் சொல்லப்படுகின்றன.'),
+            ("Charges are the full statutory schedule per round, and the lot is the one in force on the contract's own expiry &mdash; 75, then 25, then 65.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல்; lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது &mdash; 75, பின் 25, பின் 65.'),
+        ],
+        running=('Supertrend runs on its own tab behind a live gate that is still shut. This document is the recorded book; nothing here has traded real money.', 'Supertrend அதன் சொந்த tab-இல், இன்னும் மூடிய நேரடி gate-இன் பின்னால். இந்த ஆவணம் பதிவான புத்தகம்; இதில் எதுவும் உண்மையான பணத்தில் வர்த்தகம் ஆகவில்லை.'),
+    )
+}
 </article>
 </div>
 {READER_JS}

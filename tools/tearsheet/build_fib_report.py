@@ -82,7 +82,17 @@ def _borrow():
     helpers = {}
     # r(), lakh(), cls(), curve_svg(), spark(): the exact functions the
     # five-year sheet formats and draws with.
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
+    for name in (
+        "r",
+        "lakh",
+        "cls",
+        "curve_svg",
+        "spark",
+        "recolour",
+        "daily_ledger",
+        "daily_series",
+        "method_and_limits",
+    ):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -778,6 +788,18 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </section>
 
+{
+    HELPERS["method_and_limits"](
+        t,
+        [
+            ('Seven blind mother times a session &mdash; 09:15, 09:30, 10:15, 11:15, 12:15, 13:15, 14:15 &mdash; never a mother picked by hand.', 'ஒரு அமர்வுக்கு ஏழு blind mother நேரங்கள் &mdash; 09:15, 09:30, 10:15, 11:15, 12:15, 13:15, 14:15 &mdash; கையால் தேர்ந்தெடுக்கப்பட்டது அல்ல.'),
+            ("Every level of every drawn fib is a rung. A touch collects, the two-red turn buys one lot of the ATM&minus;2 call, and the campaign is out by 15:15 on the mother's own day.", 'வரையப்பட்ட ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung. touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 call-இல் ஒரு lot வாங்கும், mother-இன் அன்றே 15:15-க்கு வெளியே.'),
+            ('At most four buys a round, a Rs 75,000 ladder cap, and the nearest expiry at least four days out. Both indices are priced from their own recorded option minutes.', 'ஒரு round-க்கு அதிகபட்சம் நான்கு வாங்கல், &#8377;75,000 ladder வரம்பு, குறைந்தது நான்கு நாள் expiry. இரு குறியீடுகளும் அவற்றின் சொந்த பதிவான option நிமிடங்களில் விலை.'),
+            ("Charges are the full statutory schedule per round. NIFTY's lot ran 25 &rarr; 75 &rarr; 65 and SENSEX's 10 &rarr; 20, each read from the contract's own expiry.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல். NIFTY lot 25 &rarr; 75 &rarr; 65, SENSEX 10 &rarr; 20 &mdash; ஒவ்வொன்றும் contract-இன் expiry-இல் இருந்து.'),
+        ],
+        running=('Fib Boundary is the one strategy with live order code, behind its own gate. This document is the recorded book, not the live one; the Cascade tab is where a running campaign appears.', 'Fib Boundary மட்டுமே நேரடி order குறியீடு கொண்டது, அதன் சொந்த gate-இன் பின்னால். இந்த ஆவணம் பதிவான புத்தகம்; இயங்கும் campaign Cascade tab-இல் தெரியும்.'),
+    )
+}
 </article>
 </div>
 {READER_JS}

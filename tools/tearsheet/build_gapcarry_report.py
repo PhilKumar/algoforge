@@ -48,7 +48,17 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers: dict = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
+    for name in (
+        "r",
+        "lakh",
+        "cls",
+        "curve_svg",
+        "spark",
+        "recolour",
+        "daily_ledger",
+        "daily_series",
+        "method_and_limits",
+    ):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -705,7 +715,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 <article class="document-body" id="document-body">
 
 <div class="note">
-  <p class="note-h">{t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")}</p>
+  <h2 class="note-h">{t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")}</h2>
   <p>{
         t(
             "This is a REPLAY, not a record. Nothing here was traded with money. It is the same rule the Gap Carry tab runs, walked forward over recorded option premiums, and it reproduces through the engine the tab uses to the rupee — which is the only reason a sheet may quote it. Two things about it are unsettled and are stated plainly below rather than buried: Friday carries far more of the book than one weekday should, and RSI 70 is the best cell in a band rather than a plateau.",
@@ -727,6 +737,18 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {capital(b)}
 {lots(b)}
 
+{
+    HELPERS["method_and_limits"](
+        t,
+        [
+            ('Read the last closed candle at 15:10 and take the close, the EMA20 and the RSI(14). Nothing else on the chart is used.', '15:10-க்கு கடைசி மூடிய candle-இல் close, EMA20, RSI(14) மட்டும் படிக்கப்படுகிறது. chart-இல் வேறெதுவும் பயன்படுத்தப்படவில்லை.'),
+            ('Buy one in-the-money contract four strikes deep, hold it overnight, and sell at 09:20 the next session. The exits are clock times, not levels.', 'நான்கு strike உள்ளே உள்ள ஒரு contract வாங்கி, இரவு முழுவதும் வைத்து, அடுத்த நாள் 09:20-க்கு விற்கப்படுகிறது. வெளியேற்றம் கடிகார நேரம், level அல்ல.'),
+            ('Every premium is a recorded minute from the Dhan archive, with Upstox asked when Dhan has lost the strike. An exit neither can quote is valued at intrinsic and counted separately.', 'ஒவ்வொரு பிரீமியமும் Dhan காப்பகத்தின் பதிவான நிமிடம்; Dhan strike-ஐ இழந்தால் Upstox கேட்கப்படுகிறது. இரண்டுமே தர முடியாத வெளியேற்றம் intrinsic-இல் மதிப்பிடப்பட்டு தனியாக எண்ணப்படுகிறது.'),
+            ("Charges are the full statutory schedule per round &mdash; brokerage, STT, exchange, GST, SEBI and stamp &mdash; and the lot is the one in force on the contract's own expiry.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல் &mdash; brokerage, STT, exchange, GST, SEBI, stamp. lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது.'),
+        ],
+        running=("Gap Carry runs on its own tab with a live gate of its own. This document is the recorded book behind it, not the live one; the tab is where today's position appears.", 'Gap Carry அதன் சொந்த tab-இல் இயங்குகிறது. இந்த ஆவணம் அதன் பின்னால் உள்ள பதிவான புத்தகம், நேரடியானது அல்ல; இன்றைய நிலை tab-இல் தெரியும்.'),
+    )
+}
 </article>
 </div>
 </main>
