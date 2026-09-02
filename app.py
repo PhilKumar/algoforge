@@ -15574,6 +15574,7 @@ async def fib_boundary_paper_chart(
     base_timeframe: str = "",
     buy_mode: str = "levels",
     closed_at: str = "",
+    campaign_id: int = 0,
 ):
     """The ladder's own window: every drawn fib, every level, on real candles.
 
@@ -15722,10 +15723,43 @@ async def fib_boundary_paper_chart(
         if newest
         else None
     )
+    # THE TRADE ITSELF, not just the geometry it was drawn on. This route
+    # recomputes fibs and levels from the candle stream, which is why a past
+    # mother reproduces exactly -- but geometry is not a trade, and a finished
+    # campaign drawn without its buys and sells shows a reader everything
+    # except what happened (Phil, 2026-09-02: "Where is the buy and sell
+    # marks"). The renderer has drawn `entries` and `exits` all along; nothing
+    # was ever sending them.
+    #
+    # Marked at the INDEX level, never the premium: these candles are NIFTY,
+    # so a mark at the option's price would sit somewhere off the chart.
+    entries: list[dict] = []
+    exits: list[dict] = []
+    if campaign_id:
+        stored = await _db_mod.get_paper_campaign(_request_user_id(request), int(campaign_id))
+        if stored and str(stored.get("strategy")) == "fib_boundary":
+            payload = stored.get("payload") or {}
+            seen_fills = list(payload.get("fills") or [])
+            for rnd in payload.get("rounds") or []:
+                seen_fills += list(rnd.get("fills") or [])
+                if rnd.get("exit_timestamp") and rnd.get("exit_index") is not None:
+                    exits.append(
+                        {
+                            "t": rnd["exit_timestamp"],
+                            "price": float(rnd["exit_index"]),
+                            "pnl": rnd.get("net_pnl"),
+                        }
+                    )
+            for fill in seen_fills:
+                if fill.get("timestamp") and fill.get("index_price") is not None:
+                    entries.append({"t": fill["timestamp"], "price": float(fill["index_price"])})
+
     return {
         "status": "ok",
         "symbol": terms.symbol,
         "timeframe": timeframe,
+        "entries": entries,
+        "exits": exits,
         # Which timeframe every price on this chart was actually read from. The
         # client says so in the header, because a 1H ladder drawn over 5m
         # candles is the right picture only while you know that is what it is.

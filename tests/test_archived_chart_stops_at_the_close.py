@@ -56,6 +56,39 @@ class TheRouteHonoursTheClose(unittest.TestCase):
         self.assertIn("last_day = now.date()", self._route())
 
 
+class TheArchivedChartDrawsItsOwnTrade(unittest.TestCase):
+    """A closed campaign's buys and sells, not the running campaign's.
+
+    `_fibBoundaryCanvasPayload` builds its marks from `campaign`, which is
+    `_lastFibBoundaryStatus[symbol]` -- the campaign running NOW. So an
+    archived chart drew today's live fills onto a trade from last week, and on
+    a day the current mother has bought nothing it drew no marks at all. Every
+    closed chart came out with no buy and no sell on it.
+    """
+
+    def test_the_route_can_return_the_stored_campaigns_marks(self):
+        route = APP[APP.index('@app.get("/api/fib-boundary/paper/chart")') :][:11000]
+        self.assertIn("campaign_id: int = 0", route)
+        self.assertIn('"entries": entries', route)
+        self.assertIn('"exits": exits', route)
+
+    def test_marks_are_the_index_level_not_the_premium(self):
+        """These candles are NIFTY; a mark at the option's price is off-chart."""
+        route = APP[APP.index('@app.get("/api/fib-boundary/paper/chart")') :][:11000]
+        self.assertIn('fill["index_price"]', route)
+        self.assertIn('rnd["exit_index"]', route)
+
+    def test_the_stored_marks_win_over_the_running_campaigns(self):
+        self.assertIn("const archivedEntries = Array.isArray(payload?.entries)", APP_JS)
+        self.assertIn("archivedEntries && archivedEntries.length", APP_JS)
+        self.assertIn("archivedExits && archivedExits.length", APP_JS)
+
+    def test_the_row_and_handler_carry_the_campaign_id(self):
+        self.assertIn("data-fx-id=", APP_JS)
+        self.assertIn("campaignId: node.getAttribute('data-fx-id')", APP_JS)
+        self.assertIn("query.set('campaign_id', String(ctx.campaignId))", APP_JS)
+
+
 class TheFrontEndSendsIt(unittest.TestCase):
     def test_the_row_hands_over_its_closing_time(self):
         self.assertIn("data-fx-closed=", APP_JS)

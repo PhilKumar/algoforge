@@ -3004,6 +3004,7 @@ async function openArchivedFibChart(event, el) {
     // The day it ENDED. Without this the chart runs to today, so every closed
     // campaign shared the same right-hand edge and they all looked alike.
     closedAt: node.getAttribute('data-fx-closed') || '',
+    campaignId: node.getAttribute('data-fx-id') || '',
     isCampaign: true,
   };
   await loadFibBoundaryChart();
@@ -3117,6 +3118,7 @@ async function _refreshPaperLedger(strategy) {
           + ` data-fx-tf="${escapeHtml(String(params.timeframe || '1m'))}"`
           + ` data-fx-buy-mode="${escapeHtml(String(params.buy_mode || 'levels'))}"`
           + ` data-fx-closed="${escapeHtml(String(row.closed_at || ''))}"`
+          + ` data-fx-id="${escapeHtml(String(row.id || ''))}"`
           + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
       }
       if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend') && row.has_chart) {
@@ -6226,8 +6228,17 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   const drawable = [...byPrice.values()];
 
   // One white buy mark per fill, every round included.
-  const entries = allFills
-    .map(fill => ({ t: epoch(fill.timestamp), price: price(fill.index_price) }))
+  // AN ARCHIVED CAMPAIGN BRINGS ITS OWN BUYS. `campaign` here is the RUNNING
+  // one -- _lastFibBoundaryStatus[symbol] -- so a closed campaign's chart was
+  // drawn with today's live fills, which on a day the current mother has not
+  // bought is no fills at all. Every archived chart came out with no buy and
+  // no sell on it (Phil, 2026-09-02: "Where is the buy and sell marks").
+  // The route now ships the stored campaign's own marks; they win when present.
+  const archivedEntries = Array.isArray(payload?.entries) ? payload.entries : null;
+  const archivedExits = Array.isArray(payload?.exits) ? payload.exits : null;
+  const entries = (archivedEntries && archivedEntries.length
+    ? archivedEntries.map(mark => ({ t: epoch(mark.t), price: price(mark.price) }))
+    : allFills.map(fill => ({ t: epoch(fill.timestamp), price: price(fill.index_price) })))
     .filter(row => row.t !== null && row.price !== null);
 
   // ONE MARK PER ROUND. The campaign no longer ends at its first target -- a
@@ -6237,9 +6248,11 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // still has an exit_timestamp (15:15, or the mother breaking), and drawing
   // "SELL 24,627.95 +₹0" there put a sale on a chart with no buy (Phil,
   // 2026-08-18: "Why it is only showing sell? The buy is not there").
-  const exits = (campaign.rounds || [])
-    .filter(round => Array.isArray(round.fills) ? round.fills.length > 0 : true)
-    .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: Number(round.net_pnl) || 0 }))
+  const exits = (archivedExits && archivedExits.length
+    ? archivedExits.map(mark => ({ t: epoch(mark.t), price: price(mark.price), pnl: Number(mark.pnl) || 0 }))
+    : (campaign.rounds || [])
+        .filter(round => Array.isArray(round.fills) ? round.fills.length > 0 : true)
+        .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: Number(round.net_pnl) || 0 })))
     .filter(row => row.t !== null && row.price !== null);
   if (!exits.length && campaign.exit_timestamp && campaign.exit_index != null && allFills.length) {
     const at = epoch(campaign.exit_timestamp), p = price(campaign.exit_index);
@@ -6708,6 +6721,9 @@ async function loadFibBoundaryChart(_event, button) {
     // Only a finished campaign carries one; a live panel wants today's edge.
     const closedAt = ctx?.closedAt || campaign?.closed_at || '';
     if (closedAt) query.set('closed_at', String(closedAt));
+    // Which stored campaign's buys and sells to draw. Without it the chart
+    // borrows the RUNNING campaign's fills, which belong to a different trade.
+    if (ctx?.campaignId) query.set('campaign_id', String(ctx.campaignId));
     const response = await fetch(`/api/fib-boundary/paper/chart?${query.toString()}`, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, `Chart failed (${response.status})`));
