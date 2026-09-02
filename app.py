@@ -1851,7 +1851,18 @@ async def _save_specialized_cascade_state(
 # So a campaign is written to its own table the moment it reads terminal. This
 # hangs off the SAVE path, not the auto loop, because the auto loop's logging
 # was already guarded behind conditions that silently never fired.
-_PAPER_TERMINAL_STATES = {"CLOSED", "EXPIRED", "KILLED", "ABANDONED", "RECOVERED"}
+# AND IT MUST AGREE WITH THE ENGINE. This set was written by hand and left out
+# MOTHER_BROKEN, which engine/fib_touch_ladder.py has called terminal since it
+# was written (TERMINAL_STATUSES, line 144). So every Fib Boundary campaign
+# that ended because its mother broke was silently dropped from the ledger --
+# including ones that had BOUGHT. On 2026-09-02 the 10:30 mother took one buy
+# and made Rs 649.98, and it is nowhere in paper_campaigns: no row, no chart,
+# no record that it happened (Phil: "The trade taken today was also not in the
+# chart marked").
+#
+# Derived from the engine's own list now, plus the two states the ledger knows
+# about and the engine does not, so the two cannot drift apart again.
+_PAPER_TERMINAL_STATES = set(_FIB_TOUCH_TERMINAL_STATUSES) | {"ABANDONED", "RECOVERED"}
 
 # WRITTEN ONCE, NOT ON EVERY POLL. The save path runs every few seconds and a
 # campaign that has ended stays ended, so an unguarded archive opened a database
