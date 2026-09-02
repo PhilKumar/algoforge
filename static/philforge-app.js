@@ -21051,15 +21051,28 @@ async function loadRecoveryChart(_event, el) {
     if (title) title.textContent = `High Entry · ${String(data.side || 'CE')} · ${String(data.timeframe).toUpperCase()} chart`;
     if (meta) meta.textContent = `Mother ${_recTime(data.mother_timestamp)} IST · ${String(data.campaign_status || '').toUpperCase()}`;
     const strip = byId('oc-high-chart-strip');
-    if (strip && typeof pfChartStrip === 'function') {
+    // ONCE, like every other chart on the site. `pfChartStrip` builds a fresh
+    // div and APPENDS it -- it never clears the host -- so calling it on each
+    // load stacked a toolbar per load: open, timeframe click, refresh, and the
+    // strip was four rows deep (Phil, 2026-09-02). High Entry was the only
+    // caller missing the `childElementCount` guard the other eight have.
+    //
+    // Keyed on the stages as well, because closing this overlay only HIDES it:
+    // the next campaign reuses the same host, and a bare emptiness check would
+    // leave the previous campaign's timeframes sitting there.
+    const stripStages = Array.isArray(data.stages) ? data.stages : [];
+    const stripKey = stripStages.join(',');
+    if (strip && typeof pfChartStrip === 'function' && (!strip.childElementCount || strip.dataset.stripKey !== stripKey)) {
+      strip.innerHTML = '';
+      strip.dataset.stripKey = stripKey;
       pfChartStrip(strip, {
-        timeframes: data.stages || [],
+        timeframes: stripStages,
         active: data.timeframe,
         onTimeframe: tf => { _recoveryChartTf = tf; loadRecoveryChart(); },
         onRefresh: () => loadRecoveryChart(),
         // No onClose here: this dialog has its own ✕ in the markup, which is
-      // there even when the chart fails and the strip is never drawn. Passing
-      // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
+        // there even when the chart fails and the strip is never drawn. Passing
+        // one made the strip inject a second (Phil, 2026-08-27: "Why two X").
       });
     }
     // pfBenchDrawChart is THE renderer -- the same one the Test Bench, Candle
