@@ -510,6 +510,29 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     </tbody></table></div>
 </section>
 
+<section>
+  <div class="shead">
+    <div><h2><span class="tr"><i lang="en">Daily income across the whole cycle</i><i lang="ta">முழு சுழற்சியின் தினசரி வருமானம்</i></span></h2>
+    <p><span class="tr"><i lang="en">Every one of the 34 campaigns in the record. Bars are that day's net income; the line is the running total. Hover any day for its figure.</i><i lang="ta">பதிவில் உள்ள 34 Campaign-கள் அனைத்தும். கம்பிகள் அந்நாளின் நிகர வருமானம்; கோடு ஓடும் மொத்தம். எந்த நாளின் மீதும் சுட்டியை வையுங்கள்.</i></span></p></div>
+  </div>
+  <div class="panel">
+    <div class="canvas-wrap">
+      <canvas id="cycle" role="img"
+        aria-label="Daily profit bars and cumulative net profit for all 34 campaigns from 2024-10-30 to 2026-07-30, ending at ₹2,23,305"></canvas>
+      <div class="tip" id="cycle-tip" role="status"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--curve)"></i><span class="tr"><i lang="en">cumulative net</i><i lang="ta">ஒட்டுமொத்த நிகரம்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--pos-fill),.55)"></i><span class="tr"><i lang="en">profitable day</i><i lang="ta">லாப நாள்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--neg-fill),.55)"></i><span class="tr"><i lang="en">losing day</i><i lang="ta">நஷ்ட நாள்</i></span></span>
+      <span style="margin-left:auto"><span class="tr"><i lang="en">hover or drag for any single day</i><i lang="ta">ஒரு நாளைப் பார்க்க நகர்த்துங்கள்</i></span></span>
+    </div>
+    <div class="axis"><span>34 <span class="tr"><i lang="en">campaigns</i><i lang="ta">Campaign-கள்</i></span></span>
+      <span>28 <span class="tr"><i lang="en">green</i><i lang="ta">பச்சை</i></span> (82%)</span>
+      <span><span class="tr"><i lang="en">average day</i><i lang="ta">சராசரி நாள்</i></span> ₹6,568 &middot; <span class="tr"><i lang="en">best</i><i lang="ta">சிறந்தது</i></span> ₹85,046 &middot; <span class="tr"><i lang="en">worst</i><i lang="ta">மோசமானது</i></span> -₹7,453</span></div>
+  </div>
+</section>
+
 <section id="ledger">
   <div class="shead"><div><h2><span class="tr"><i lang="en">Daily P&amp;L ledger</i><i lang="ta">தினசரி லாப-நஷ்ட பதிவேடு</i></span></h2>
     <p><span class="tr"><i lang="en">Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole 34 rows.</i><i lang="ta">பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது 34 வரிகளையும் உருட்டிப் பார்க்கலாம்.</i></span></p></div></div>
@@ -671,6 +694,137 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </section>
 </article>
 </div>
+<script>
+(function () {
+  var DATA = [["2024-10-30",-7453.41,-7453.41,1],["2024-11-06",890.02,-6563.39,1],["2024-12-27",2996.39,-3567.0,1],["2025-01-02",279.55,-3287.45,1],["2025-01-21",4531.89,1244.44,1],["2025-01-30",755.38,1999.82,1],["2025-03-06",56.7,2056.52,1],["2025-03-18",14888.6,16945.12,1],["2025-05-02",85046.49,101991.61,1],["2025-05-15",-63.38,101928.23,1],["2025-05-26",-896.89,101031.34,1],["2025-06-05",222.66,101254.0,1],["2025-06-20",611.68,101865.68,1],["2025-07-31",3880.88,105746.56,1],["2025-08-12",1536.89,107283.45,1],["2025-09-04",3981.53,111264.98,1],["2025-09-10",-499.65,110765.33,1],["2025-10-29",2098.85,112864.18,1],["2025-11-26",-6832.94,106031.24,1],["2025-12-05",3280.08,109311.32,1],["2025-12-12",7043.11,116354.43,1],["2025-12-19",173.24,116527.67,1],["2025-12-31",423.9,116951.57,1],["2026-01-29",-2352.91,114598.66,1],["2026-02-03",13473.55,128072.21,1],["2026-02-18",17320.47,145392.68,1],["2026-03-18",12887.78,158280.46,1],["2026-03-25",14581.56,172862.02,1],["2026-04-29",16061.39,188923.41,1],["2026-05-06",5455.0,194378.41,1],["2026-05-21",1036.24,195414.65,1],["2026-07-02",13402.21,208816.86,1],["2026-07-17",11566.3,220383.16,1],["2026-07-30",2921.63,223304.79,1]];
+  var cv = document.getElementById('cycle'), tip = document.getElementById('cycle-tip');
+  if (!cv) return;
+  var box = cv.parentNode, hover = -1, geom = null;
+
+  function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function rupee(v) {
+    var s = Math.abs(Math.round(v)).toString(), o = '';
+    if (s.length > 3) {
+      var h = s.slice(0, -3), t = s.slice(-3), p = [];
+      while (h.length > 2) { p.unshift(h.slice(-2)); h = h.slice(0, -2); }
+      if (h) p.unshift(h);
+      o = p.join(',') + ',' + t;
+    } else o = s;
+    return (v < 0 ? '-' : '') + '\\u20B9' + o;
+  }
+
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = box.clientWidth, h = 340;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.height = h + 'px';
+    var g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    var padL = 66, padR = 14, padT = 14, padB = 108;
+    var iw = w - padL - padR, ih = h - padT - padB;
+    var cums = DATA.map(function (d) { return d[2]; });
+    var days = DATA.map(function (d) { return d[1]; });
+    var cMin = Math.min(0, Math.min.apply(null, cums)), cMax = Math.max.apply(null, cums);
+    var dMax = Math.max.apply(null, days.map(Math.abs));
+    var line = tok('--curve'), muted = tok('--muted'), grid = tok('--line');
+    var pos = tok('--pos-fill'), neg = tok('--neg-fill');
+
+    var X = function (i) { return padL + i / (DATA.length - 1) * iw; };
+    var Y = function (v) { return padT + (cMax - v) / ((cMax - cMin) || 1) * ih; };
+
+    // grid + rupee axis
+    g.font = '10px ui-monospace, Menlo, monospace';
+    g.textAlign = 'right'; g.textBaseline = 'middle';
+    var steps = 5;
+    for (var s = 0; s <= steps; s++) {
+      var v = cMin + (cMax - cMin) * s / steps, y = Y(v);
+      g.strokeStyle = grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(padL, y + 0.5); g.lineTo(w - padR, y + 0.5); g.stroke();
+      g.fillStyle = muted;
+      g.fillText(Math.round(v / 1000) + 'k', padL - 8, y);
+    }
+
+    // daily bars, hugging the zero line of their own half-height band
+    var bw = Math.max(1, iw / DATA.length * 0.7);
+    var barH = 38, barZero = h - 46;
+    g.strokeStyle = grid; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(padL, barZero + 0.5); g.lineTo(w - padR, barZero + 0.5); g.stroke();
+    for (var i = 0; i < DATA.length; i++) {
+      var p = DATA[i][1];
+      if (!p) continue;
+      var hgt = Math.abs(p) / (dMax || 1) * barH;
+      g.fillStyle = 'rgba(' + (p > 0 ? pos : neg) + ',' + (i === hover ? 0.95 : 0.45) + ')';
+      g.fillRect(X(i) - bw / 2, p > 0 ? barZero - hgt : barZero, bw, hgt);
+    }
+    g.fillStyle = muted; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.fillText('day', padL - 8, barZero);
+
+    // cumulative line
+    g.beginPath();
+    for (var j = 0; j < DATA.length; j++) {
+      var x = X(j), y = Y(DATA[j][2]);
+      j ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.strokeStyle = line; g.lineWidth = 1.8; g.lineJoin = 'round'; g.stroke();
+
+    // year ticks
+    g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = muted;
+    var seen = {};
+    for (var k = 0; k < DATA.length; k++) {
+      var yr = DATA[k][0].slice(0, 4);
+      if (seen[yr]) continue;
+      seen[yr] = 1;
+      g.strokeStyle = grid;
+      g.beginPath(); g.moveTo(X(k) + 0.5, padT); g.lineTo(X(k) + 0.5, h - padB); g.stroke();
+      g.fillText(yr, X(k), h - padB + 6);
+    }
+
+    if (hover >= 0) {
+      g.strokeStyle = muted; g.lineWidth = 1; g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(X(hover) + 0.5, padT); g.lineTo(X(hover) + 0.5, h - padB); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = line;
+      g.beginPath(); g.arc(X(hover), Y(DATA[hover][2]), 3.5, 0, 6.284); g.fill();
+    }
+    geom = { padL: padL, iw: iw, X: X, Y: Y };
+  }
+
+  function at(ev) {
+    var rect = cv.getBoundingClientRect();
+    var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+    var i = Math.round((x - geom.padL) / geom.iw * (DATA.length - 1));
+    return Math.max(0, Math.min(DATA.length - 1, i));
+  }
+  function show(ev) {
+    hover = at(ev); draw();
+    var d = DATA[hover];
+    tip.innerHTML = '<b>' + d[0] + '</b>' +
+      'day ' + rupee(d[1]) + '  &middot; ' + d[3] + ' trade' + (d[3] > 1 ? 's' : '') + '<br>' +
+      'cumulative ' + rupee(d[2]);
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(box.clientWidth - 20, Math.max(70, geom.X(hover))) + 'px';
+    tip.style.top = (geom.Y(d[2]) - 12) + 'px';
+  }
+  function hide() { hover = -1; tip.style.opacity = 0; draw(); }
+
+  cv.addEventListener('mousemove', show);
+  cv.addEventListener('mouseleave', hide);
+  cv.addEventListener('touchstart', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchmove', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchend', hide);
+  window.addEventListener('resize', draw);
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(draw);
+  }
+  new MutationObserver(draw).observe(document.documentElement,
+    { attributes: true, attributeFilter: ['data-theme'] });
+  draw();
+})();
+</script>
+
 <script>
 /* The blueprint reader's behaviours, on this document's own markup: a contents
    rail built from the section headings, scroll-spy, section search and the

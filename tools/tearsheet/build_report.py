@@ -205,6 +205,51 @@ def method_and_limits(t, steps, running=None):
 </section>"""
 
 
+def cycle_section(series, t, r, noun_en="trading days", noun_ta="வர்த்தக நாட்கள்"):
+    """The daily-income canvas: a bar a day, a line for the running total.
+
+    The last section of the five-year sheet the siblings did not have, and the
+    only one that was a build rather than a rename -- its drawing code lives in
+    CHART_JS, which they did not borrow. They do now, and it guards on the
+    canvas existing (`if (!cv) return`), so borrowing it costs a sheet nothing
+    if it ever drops the section.
+
+    `series` is the same [date, day_net, running, n] the ledger takes, so a
+    book that can draw one can draw the other.
+    """
+    days = len(series)
+    green = sum(1 for d in series if d[1] > 0)
+    avg = (sum(d[1] for d in series) / days) if days else 0.0
+    best = max(series, key=lambda d: d[1]) if series else ("", 0)
+    worst = min(series, key=lambda d: d[1]) if series else ("", 0)
+    first = series[0][0] if series else ""
+    last = series[-1][0] if series else ""
+    total = series[-1][2] if series else 0
+    return f"""
+<section>
+  <div class="shead">
+    <div><h2>{t("Daily income across the whole cycle", "முழு சுழற்சியின் தினசரி வருமானம்")}</h2>
+    <p>{t(f"Every one of the {days} {noun_en} in the record. Bars are that day's net income; the line is the running total. Hover any day for its figure.", f"பதிவில் உள்ள {days} {noun_ta} அனைத்தும். கம்பிகள் அந்நாளின் நிகர வருமானம்; கோடு ஓடும் மொத்தம். எந்த நாளின் மீதும் சுட்டியை வையுங்கள்.")}</p></div>
+  </div>
+  <div class="panel">
+    <div class="canvas-wrap">
+      <canvas id="cycle" role="img"
+        aria-label="Daily profit bars and cumulative net profit for all {days} {noun_en} from {first} to {last}, ending at {r(total)}"></canvas>
+      <div class="tip" id="cycle-tip" role="status"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--curve)"></i>{t("cumulative net", "ஒட்டுமொத்த நிகரம்")}</span>
+      <span><i class="bar" style="background:rgba(var(--pos-fill),.55)"></i>{t("profitable day", "லாப நாள்")}</span>
+      <span><i class="bar" style="background:rgba(var(--neg-fill),.55)"></i>{t("losing day", "நஷ்ட நாள்")}</span>
+      <span style="margin-left:auto">{t("hover or drag for any single day", "ஒரு நாளைப் பார்க்க நகர்த்துங்கள்")}</span>
+    </div>
+    <div class="axis"><span>{days} {t(noun_en, noun_ta)}</span>
+      <span>{green} {t("green", "பச்சை")} ({100 * green / days if days else 0:.0f}%)</span>
+      <span>{t("average day", "சராசரி நாள்")} {r(avg)} &middot; {t("best", "சிறந்தது")} {r(best[1])} &middot; {t("worst", "மோசமானது")} {r(worst[1])}</span></div>
+  </div>
+</section>"""
+
+
 # ── equity curve as an SVG path ──────────────────────────────────────
 def curve_svg(points, w=1040, h=260, pad=1):
     ys = [p[1] for p in points]

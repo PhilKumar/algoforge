@@ -727,6 +727,29 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </section>
 
 
+<section>
+  <div class="shead">
+    <div><h2><span class="tr"><i lang="en">Daily income across the whole cycle</i><i lang="ta">முழு சுழற்சியின் தினசரி வருமானம்</i></span></h2>
+    <p><span class="tr"><i lang="en">Every one of the 210 campaigns in the record. Bars are that day's net income; the line is the running total. Hover any day for its figure.</i><i lang="ta">பதிவில் உள்ள 210 Campaign-கள் அனைத்தும். கம்பிகள் அந்நாளின் நிகர வருமானம்; கோடு ஓடும் மொத்தம். எந்த நாளின் மீதும் சுட்டியை வையுங்கள்.</i></span></p></div>
+  </div>
+  <div class="panel">
+    <div class="canvas-wrap">
+      <canvas id="cycle" role="img"
+        aria-label="Daily profit bars and cumulative net profit for all 210 campaigns from 2024-10-03 to 2026-08-17, ending at ₹2,11,721"></canvas>
+      <div class="tip" id="cycle-tip" role="status"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--curve)"></i><span class="tr"><i lang="en">cumulative net</i><i lang="ta">ஒட்டுமொத்த நிகரம்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--pos-fill),.55)"></i><span class="tr"><i lang="en">profitable day</i><i lang="ta">லாப நாள்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--neg-fill),.55)"></i><span class="tr"><i lang="en">losing day</i><i lang="ta">நஷ்ட நாள்</i></span></span>
+      <span style="margin-left:auto"><span class="tr"><i lang="en">hover or drag for any single day</i><i lang="ta">ஒரு நாளைப் பார்க்க நகர்த்துங்கள்</i></span></span>
+    </div>
+    <div class="axis"><span>210 <span class="tr"><i lang="en">campaigns</i><i lang="ta">Campaign-கள்</i></span></span>
+      <span>131 <span class="tr"><i lang="en">green</i><i lang="ta">பச்சை</i></span> (62%)</span>
+      <span><span class="tr"><i lang="en">average day</i><i lang="ta">சராசரி நாள்</i></span> ₹1,008 &middot; <span class="tr"><i lang="en">best</i><i lang="ta">சிறந்தது</i></span> ₹60,012 &middot; <span class="tr"><i lang="en">worst</i><i lang="ta">மோசமானது</i></span> -₹51,815</span></div>
+  </div>
+</section>
+
 <section id="ledger">
   <div class="shead"><div><h2><span class="tr"><i lang="en">Daily P&amp;L ledger</i><i lang="ta">தினசரி லாப-நஷ்ட பதிவேடு</i></span></h2>
     <p><span class="tr"><i lang="en">Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole 210 rows.</i><i lang="ta">பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது 210 வரிகளையும் உருட்டிப் பார்க்கலாம்.</i></span></p></div></div>
@@ -775,6 +798,137 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </section>
 </article>
 </div>
+<script>
+(function () {
+  var DATA = [["2024-10-03",-3987.84,-3987.84,2],["2024-10-04",359.4,-3628.44,1],["2024-10-07",-3093.52,-6721.96,2],["2024-10-08",-2129.2,-8851.16,2],["2024-10-10",-379.07,-9230.23,1],["2024-10-11",930.1,-8300.13,2],["2024-10-15",-3309.02,-11609.15,1],["2024-10-16",4636.59,-6972.56,1],["2024-10-17",415.62,-6556.94,1],["2024-10-22",-1900.27,-8457.21,1],["2024-10-25",917.75,-7539.46,1],["2024-10-28",1857.18,-5682.28,1],["2024-10-31",-680.42,-6362.7,1],["2024-11-04",6421.42,58.72,2],["2024-11-07",-96.64,-37.92,1],["2024-11-11",1874.16,1836.24,2],["2024-11-12",-4689.97,-2853.73,2],["2024-11-13",-2498.62,-5352.35,2],["2024-11-19",-1513.34,-6865.69,1],["2024-11-25",5881.88,-983.81,2],["2024-11-26",1336.73,352.92,1],["2024-11-28",2186.13,2539.05,1],["2024-12-05",17314.02,19853.07,2],["2024-12-09",772.74,20625.81,1],["2024-12-10",1562.5,22188.31,1],["2024-12-13",39339.23,61527.54,2],["2024-12-16",900.47,62428.01,1],["2024-12-17",-8103.4,54324.61,1],["2024-12-20",-12743.26,41581.35,1],["2024-12-27",-246.73,41334.62,2],["2024-12-30",-4559.88,36774.74,2],["2025-01-01",-201.8,36572.94,1],["2025-01-03",2311.66,38884.6,2],["2025-01-06",-1128.23,37756.37,1],["2025-01-08",4806.96,42563.33,2],["2025-01-09",2589.35,45152.68,2],["2025-01-10",3688.99,48841.67,3],["2025-01-13",-3123.77,45717.9,2],["2025-01-14",1850.44,47568.34,2],["2025-01-16",2850.07,50418.41,2],["2025-01-21",29573.49,79991.9,2],["2025-01-24",-152.71,79839.19,1],["2025-01-30",4616.72,84455.91,2],["2025-02-05",283.48,84739.39,2],["2025-02-06",1171.98,85911.37,2],["2025-02-07",3767.49,89678.86,1],["2025-02-10",628.34,90307.2,2],["2025-02-11",-14766.73,75540.47,2],["2025-02-13",-1980.47,73560.0,1],["2025-02-14",11691.06,85251.06,2],["2025-02-19",3026.06,88277.12,2],["2025-02-24",1218.03,89495.15,1],["2025-02-28",-4006.34,85488.81,2],["2025-03-03",776.18,86264.99,1],["2025-03-04",-43.03,86221.96,1],["2025-03-10",-998.66,85223.3,2],["2025-03-12",4060.19,89283.49,2],["2025-03-17",5142.0,94425.49,2],["2025-03-25",494.89,94920.38,1],["2025-04-04",-918.86,94001.52,2],["2025-04-08",6761.15,100762.67,2],["2025-04-11",10344.17,111106.84,2],["2025-04-23",29663.72,140770.56,2],["2025-04-24",559.07,141329.63,1],["2025-04-25",13074.59,154404.22,2],["2025-05-02",-5406.24,148997.98,2],["2025-05-06",444.46,149442.44,1],["2025-05-08",1634.1,151076.54,2],["2025-05-09",-117.15,150959.39,1],["2025-05-14",1772.69,152732.08,1],["2025-05-19",-2861.99,149870.09,2],["2025-05-20",-21005.23,128864.86,2],["2025-05-22",1634.07,130498.93,1],["2025-05-27",3429.62,133928.55,1],["2025-05-29",7984.27,141912.82,2],["2025-05-30",1492.78,143405.6,1],["2025-06-05",2309.58,145715.18,2],["2025-06-11",718.21,146433.39,1],["2025-06-12",-2696.2,143737.19,1],["2025-06-17",706.18,144443.37,1],["2025-06-18",2929.7,147373.07,2],["2025-06-19",2352.16,149725.23,1],["2025-06-26",378.2,150103.43,1],["2025-06-30",555.84,150659.27,2],["2025-07-02",-7540.32,143118.95,1],["2025-07-04",10000.32,153119.27,2],["2025-07-07",-111.52,153007.75,2],["2025-07-09",564.82,153572.57,1],["2025-07-10",-4123.77,149448.8,2],["2025-07-15",756.23,150205.03,1],["2025-07-17",1278.66,151483.69,2],["2025-07-18",768.63,152252.32,2],["2025-07-21",51.14,152303.46,2],["2025-07-22",2353.68,154657.14,1],["2025-07-24",-10685.71,143971.43,2],["2025-07-25",133.24,144104.67,2],["2025-07-31",-153.74,143950.93,1],["2025-08-01",734.51,144685.44,2],["2025-08-06",-869.13,143816.31,2],["2025-08-08",-3535.73,140280.58,2],["2025-08-12",-925.22,139355.36,2],["2025-08-18",2240.0,141595.36,1],["2025-08-19",1693.7,143289.06,1],["2025-08-22",1998.21,145287.27,2],["2025-08-29",6778.2,152065.47,2],["2025-09-02",-4760.52,147304.95,2],["2025-09-04",-9021.2,138283.75,2],["2025-09-05",6731.06,145014.81,2],["2025-09-10",2986.87,148001.68,2],["2025-09-18",7071.89,155073.57,2],["2025-09-22",-3399.55,151674.02,1],["2025-09-25",-4717.85,146956.17,1],["2025-09-26",-4598.8,142357.37,2],["2025-09-29",1398.69,143756.06,1],["2025-10-07",441.71,144197.77,1],["2025-10-08",10034.96,154232.73,2],["2025-10-09",4535.11,158767.84,1],["2025-10-14",-14899.91,143867.93,1],["2025-10-24",5930.04,149797.97,2],["2025-10-27",677.73,150475.7,1],["2025-10-28",3828.42,154304.12,1],["2025-10-30",699.42,155003.54,1],["2025-10-31",-184.83,154818.71,1],["2025-11-04",-8104.03,146714.68,2],["2025-11-18",3770.26,150484.94,2],["2025-11-21",1240.17,151725.11,2],["2025-11-24",-396.6,151328.51,1],["2025-11-27",4916.44,156244.95,2],["2025-11-28",1422.59,157667.54,2],["2025-12-01",-55.58,157611.96,2],["2025-12-02",1477.46,159089.42,2],["2025-12-04",2118.72,161208.14,2],["2025-12-08",-15227.41,145980.73,2],["2025-12-10",3599.5,149580.23,2],["2025-12-11",4649.33,154229.56,1],["2025-12-15",2667.94,156897.5,2],["2025-12-16",-451.01,156446.49,1],["2025-12-18",5539.3,161985.79,2],["2025-12-19",420.51,162406.3,1],["2025-12-24",-5841.87,156564.43,2],["2025-12-26",334.05,156898.48,2],["2025-12-29",-5261.52,151636.96,2],["2026-01-05",-2178.68,149458.28,2],["2026-01-06",1492.32,150950.6,2],["2026-01-08",-18297.95,132652.65,2],["2026-01-09",-2840.58,129812.07,2],["2026-01-12",8811.89,138623.96,1],["2026-01-16",1349.45,139973.41,1],["2026-01-19",-182.76,139790.65,1],["2026-01-20",-15267.9,124522.75,2],["2026-01-21",51875.2,176397.95,2],["2026-01-23",-8075.92,168322.03,2],["2026-01-28",14655.57,182977.6,2],["2026-01-30",2563.91,185541.51,1],["2026-02-01",-23221.53,162319.98,2],["2026-02-05",-1164.69,161155.29,2],["2026-02-12",1771.56,162926.85,2],["2026-02-18",-132.36,162794.49,1],["2026-02-19",-51815.05,110979.44,2],["2026-02-23",8605.05,119584.49,2],["2026-02-24",5763.31,125347.8,2],["2026-02-25",-4305.85,121041.95,2],["2026-02-27",2831.03,123872.98,2],["2026-03-02",12129.78,136002.76,1],["2026-03-05",5012.12,141014.88,2],["2026-03-06",-463.92,140550.96,2],["2026-03-11",-18556.37,121994.59,1],["2026-03-12",2197.14,124191.73,2],["2026-03-13",3561.64,127753.37,1],["2026-03-16",9934.22,137687.59,2],["2026-03-19",-20219.03,117468.56,2],["2026-03-23",6577.67,124046.23,2],["2026-03-24",5526.65,129572.88,2],["2026-03-27",-20439.15,109133.73,2],["2026-03-30",-10508.37,98625.36,2],["2026-04-16",1394.34,100019.7,2],["2026-04-20",4569.78,104589.48,1],["2026-04-24",4658.46,109247.94,2],["2026-04-28",683.77,109931.71,2],["2026-05-05",5681.12,115612.83,1],["2026-05-06",60012.0,175624.83,2],["2026-05-08",2796.66,178421.49,1],["2026-05-12",-24315.65,154105.84,2],["2026-05-13",9688.71,163794.55,2],["2026-05-21",1008.99,164803.54,2],["2026-05-22",-2467.41,162336.13,1],["2026-05-29",-16367.78,145968.35,2],["2026-06-01",-8026.7,137941.65,2],["2026-06-03",15954.1,153895.75,2],["2026-06-04",9925.55,163821.3,2],["2026-06-05",3510.66,167331.96,2],["2026-06-09",2429.38,169761.34,2],["2026-06-10",-7476.66,162284.68,1],["2026-06-15",1459.4,163744.08,2],["2026-06-19",2193.2,165937.28,1],["2026-06-23",-13.32,165923.96,1],["2026-06-25",-374.44,165549.52,1],["2026-06-29",-275.7,165273.82,2],["2026-07-07",208.17,165481.99,2],["2026-07-15",-1837.52,163644.47,1],["2026-07-21",-242.04,163402.43,2],["2026-07-22",2134.31,165536.74,2],["2026-07-23",4281.11,169817.85,2],["2026-08-04",-4174.35,165643.5,2],["2026-08-05",10183.7,175827.2,2],["2026-08-07",3598.26,179425.46,2],["2026-08-10",1803.93,181229.39,2],["2026-08-11",673.72,181903.11,1],["2026-08-12",19899.79,201802.9,2],["2026-08-17",9918.25,211721.15,2]];
+  var cv = document.getElementById('cycle'), tip = document.getElementById('cycle-tip');
+  if (!cv) return;
+  var box = cv.parentNode, hover = -1, geom = null;
+
+  function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function rupee(v) {
+    var s = Math.abs(Math.round(v)).toString(), o = '';
+    if (s.length > 3) {
+      var h = s.slice(0, -3), t = s.slice(-3), p = [];
+      while (h.length > 2) { p.unshift(h.slice(-2)); h = h.slice(0, -2); }
+      if (h) p.unshift(h);
+      o = p.join(',') + ',' + t;
+    } else o = s;
+    return (v < 0 ? '-' : '') + '\\u20B9' + o;
+  }
+
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = box.clientWidth, h = 340;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.height = h + 'px';
+    var g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    var padL = 66, padR = 14, padT = 14, padB = 108;
+    var iw = w - padL - padR, ih = h - padT - padB;
+    var cums = DATA.map(function (d) { return d[2]; });
+    var days = DATA.map(function (d) { return d[1]; });
+    var cMin = Math.min(0, Math.min.apply(null, cums)), cMax = Math.max.apply(null, cums);
+    var dMax = Math.max.apply(null, days.map(Math.abs));
+    var line = tok('--curve'), muted = tok('--muted'), grid = tok('--line');
+    var pos = tok('--pos-fill'), neg = tok('--neg-fill');
+
+    var X = function (i) { return padL + i / (DATA.length - 1) * iw; };
+    var Y = function (v) { return padT + (cMax - v) / ((cMax - cMin) || 1) * ih; };
+
+    // grid + rupee axis
+    g.font = '10px ui-monospace, Menlo, monospace';
+    g.textAlign = 'right'; g.textBaseline = 'middle';
+    var steps = 5;
+    for (var s = 0; s <= steps; s++) {
+      var v = cMin + (cMax - cMin) * s / steps, y = Y(v);
+      g.strokeStyle = grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(padL, y + 0.5); g.lineTo(w - padR, y + 0.5); g.stroke();
+      g.fillStyle = muted;
+      g.fillText(Math.round(v / 1000) + 'k', padL - 8, y);
+    }
+
+    // daily bars, hugging the zero line of their own half-height band
+    var bw = Math.max(1, iw / DATA.length * 0.7);
+    var barH = 38, barZero = h - 46;
+    g.strokeStyle = grid; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(padL, barZero + 0.5); g.lineTo(w - padR, barZero + 0.5); g.stroke();
+    for (var i = 0; i < DATA.length; i++) {
+      var p = DATA[i][1];
+      if (!p) continue;
+      var hgt = Math.abs(p) / (dMax || 1) * barH;
+      g.fillStyle = 'rgba(' + (p > 0 ? pos : neg) + ',' + (i === hover ? 0.95 : 0.45) + ')';
+      g.fillRect(X(i) - bw / 2, p > 0 ? barZero - hgt : barZero, bw, hgt);
+    }
+    g.fillStyle = muted; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.fillText('day', padL - 8, barZero);
+
+    // cumulative line
+    g.beginPath();
+    for (var j = 0; j < DATA.length; j++) {
+      var x = X(j), y = Y(DATA[j][2]);
+      j ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.strokeStyle = line; g.lineWidth = 1.8; g.lineJoin = 'round'; g.stroke();
+
+    // year ticks
+    g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = muted;
+    var seen = {};
+    for (var k = 0; k < DATA.length; k++) {
+      var yr = DATA[k][0].slice(0, 4);
+      if (seen[yr]) continue;
+      seen[yr] = 1;
+      g.strokeStyle = grid;
+      g.beginPath(); g.moveTo(X(k) + 0.5, padT); g.lineTo(X(k) + 0.5, h - padB); g.stroke();
+      g.fillText(yr, X(k), h - padB + 6);
+    }
+
+    if (hover >= 0) {
+      g.strokeStyle = muted; g.lineWidth = 1; g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(X(hover) + 0.5, padT); g.lineTo(X(hover) + 0.5, h - padB); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = line;
+      g.beginPath(); g.arc(X(hover), Y(DATA[hover][2]), 3.5, 0, 6.284); g.fill();
+    }
+    geom = { padL: padL, iw: iw, X: X, Y: Y };
+  }
+
+  function at(ev) {
+    var rect = cv.getBoundingClientRect();
+    var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+    var i = Math.round((x - geom.padL) / geom.iw * (DATA.length - 1));
+    return Math.max(0, Math.min(DATA.length - 1, i));
+  }
+  function show(ev) {
+    hover = at(ev); draw();
+    var d = DATA[hover];
+    tip.innerHTML = '<b>' + d[0] + '</b>' +
+      'day ' + rupee(d[1]) + '  &middot; ' + d[3] + ' trade' + (d[3] > 1 ? 's' : '') + '<br>' +
+      'cumulative ' + rupee(d[2]);
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(box.clientWidth - 20, Math.max(70, geom.X(hover))) + 'px';
+    tip.style.top = (geom.Y(d[2]) - 12) + 'px';
+  }
+  function hide() { hover = -1; tip.style.opacity = 0; draw(); }
+
+  cv.addEventListener('mousemove', show);
+  cv.addEventListener('mouseleave', hide);
+  cv.addEventListener('touchstart', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchmove', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchend', hide);
+  window.addEventListener('resize', draw);
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(draw);
+  }
+  new MutationObserver(draw).observe(document.documentElement,
+    { attributes: true, attributeFilter: ['data-theme'] });
+  draw();
+})();
+</script>
+
 <script>
 /* The blueprint reader's behaviours, on this document's own markup: a contents
    rail built from the section headings, scroll-spy, section search and the

@@ -518,6 +518,29 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </section>
 
 
+<section>
+  <div class="shead">
+    <div><h2><span class="tr"><i lang="en">Daily income across the whole cycle</i><i lang="ta">முழு சுழற்சியின் தினசரி வருமானம்</i></span></h2>
+    <p><span class="tr"><i lang="en">Every one of the 179 nights in the record. Bars are that day's net income; the line is the running total. Hover any day for its figure.</i><i lang="ta">பதிவில் உள்ள 179 இரவுகள் அனைத்தும். கம்பிகள் அந்நாளின் நிகர வருமானம்; கோடு ஓடும் மொத்தம். எந்த நாளின் மீதும் சுட்டியை வையுங்கள்.</i></span></p></div>
+  </div>
+  <div class="panel">
+    <div class="canvas-wrap">
+      <canvas id="cycle" role="img"
+        aria-label="Daily profit bars and cumulative net profit for all 179 nights from 2021-01-06 to 2026-07-10, ending at ₹2,15,052"></canvas>
+      <div class="tip" id="cycle-tip" role="status"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--curve)"></i><span class="tr"><i lang="en">cumulative net</i><i lang="ta">ஒட்டுமொத்த நிகரம்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--pos-fill),.55)"></i><span class="tr"><i lang="en">profitable day</i><i lang="ta">லாப நாள்</i></span></span>
+      <span><i class="bar" style="background:rgba(var(--neg-fill),.55)"></i><span class="tr"><i lang="en">losing day</i><i lang="ta">நஷ்ட நாள்</i></span></span>
+      <span style="margin-left:auto"><span class="tr"><i lang="en">hover or drag for any single day</i><i lang="ta">ஒரு நாளைப் பார்க்க நகர்த்துங்கள்</i></span></span>
+    </div>
+    <div class="axis"><span>179 <span class="tr"><i lang="en">nights</i><i lang="ta">இரவுகள்</i></span></span>
+      <span>101 <span class="tr"><i lang="en">green</i><i lang="ta">பச்சை</i></span> (56%)</span>
+      <span><span class="tr"><i lang="en">average day</i><i lang="ta">சராசரி நாள்</i></span> ₹1,201 &middot; <span class="tr"><i lang="en">best</i><i lang="ta">சிறந்தது</i></span> ₹45,131 &middot; <span class="tr"><i lang="en">worst</i><i lang="ta">மோசமானது</i></span> -₹14,649</span></div>
+  </div>
+</section>
+
 <section id="ledger">
   <div class="shead"><div><h2><span class="tr"><i lang="en">Daily P&amp;L ledger</i><i lang="ta">தினசரி லாப-நஷ்ட பதிவேடு</i></span></h2>
     <p><span class="tr"><i lang="en">Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole 179 rows.</i><i lang="ta">பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது 179 வரிகளையும் உருட்டிப் பார்க்கலாம்.</i></span></p></div></div>
@@ -692,6 +715,137 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
 </article>
 </div>
 </main>
+<script>
+(function () {
+  var DATA = [["2021-01-06",1034.25,1034.25,1],["2021-01-11",3229.4,4263.65,1],["2021-01-27",4677.15,8940.8,1],["2021-02-01",-3437.72,5503.08,1],["2021-02-02",17342.58,22845.66,1],["2021-03-03",9305.77,32151.43,1],["2021-03-04",-10447.53,21703.9,1],["2021-03-10",6806.72,28510.62,1],["2021-03-18",-7951.14,20559.48,1],["2021-04-15",2350.5,22909.98,1],["2021-05-03",8665.86,31575.84,1],["2021-05-18",10991.06,42566.9,1],["2021-05-24",1641.36,44208.26,1],["2021-06-03",5313.76,49522.02,1],["2021-07-01",197.49,49719.51,1],["2021-07-07",2544.47,52263.98,1],["2021-08-02",-3819.69,48444.29,1],["2021-08-04",4256.95,52701.24,1],["2021-08-18",2923.73,55624.97,1],["2021-08-31",1620.9,57245.87,1],["2021-09-01",410.99,57656.86,1],["2021-09-22",719.51,58376.37,1],["2021-09-29",-4078.9,54297.47,1],["2021-10-06",599.92,54897.39,1],["2021-10-20",816.15,55713.54,1],["2021-11-18",-656.97,55056.57,1],["2021-11-25",-25.74,55030.83,1],["2021-12-01",-6547.34,48483.49,1],["2021-12-07",-4710.76,43772.73,1],["2021-12-13",4415.93,48188.66,1],["2022-01-05",1118.76,49307.42,1],["2022-01-19",2622.18,51929.6,1],["2022-01-31",-6140.34,45789.26,1],["2022-02-15",-4360.75,41428.51,1],["2022-02-16",1346.42,42774.93,1],["2022-02-24",18349.33,61124.26,1],["2022-03-09",75.58,61199.84,1],["2022-03-15",-719.04,60480.8,1],["2022-03-17",8849.12,69329.92,1],["2022-03-23",2906.39,72236.31,1],["2022-04-04",6493.29,78729.6,1],["2022-04-20",-3522.26,75207.34,1],["2022-04-27",-4606.63,70600.71,1],["2022-05-02",3929.71,74530.42,1],["2022-05-11",-1117.75,73412.67,1],["2022-05-16",-244.77,73167.9,1],["2022-05-23",-512.33,72655.57,1],["2022-05-24",-552.34,72103.23,1],["2022-06-01",-1565.33,70537.9,1],["2022-06-06",443.61,70981.51,1],["2022-07-04",-1478.36,69503.15,1],["2022-07-05",2623.91,72127.06,1],["2022-07-18",4727.36,76854.42,1],["2022-07-28",5092.59,81947.01,1],["2022-08-01",886.7,82833.71,1],["2022-08-04",3484.39,86318.1,1],["2022-09-01",-9432.85,76885.25,1],["2022-09-21",1350.59,78235.84,1],["2022-09-29",-6126.81,72109.03,1],["2022-10-12",70.97,72180.0,1],["2022-10-17",1551.1,73731.1,1],["2022-11-01",3609.68,77340.78,1],["2022-11-07",3008.54,80349.32,1],["2022-11-09",2177.94,82527.26,1],["2022-11-16",-1104.83,81422.43,1],["2022-11-21",-5497.97,75924.46,1],["2022-11-23",2457.27,78381.73,1],["2022-12-01",6254.23,84635.96,1],["2022-12-20",-5449.29,79186.67,1],["2022-12-21",3078.88,82265.55,1],["2023-01-18",892.73,83158.28,1],["2023-02-06",-3138.09,80020.19,1],["2023-02-16",3609.32,83629.51,1],["2023-03-09",389.88,84019.39,1],["2023-03-16",2170.51,86189.9,1],["2023-03-21",2451.79,88641.69,1],["2023-04-05",1849.54,90491.23,1],["2023-04-25",-944.66,89546.57,1],["2023-04-27",-457.88,89088.69,1],["2023-05-02",3461.08,92549.77,1],["2023-05-16",458.11,93007.88,1],["2023-05-17",1000.08,94007.96,1],["2023-05-22",-170.35,93837.61,1],["2023-05-29",5063.6,98901.21,1],["2023-06-07",2469.69,101370.9,1],["2023-06-08",489.99,101860.89,1],["2023-06-21",-470.78,101390.11,1],["2023-06-28",2119.15,103509.26,1],["2023-07-03",3618.07,107127.33,1],["2023-07-13",-4008.68,103118.65,1],["2023-07-17",1369.04,104487.69,1],["2023-07-18",2922.88,107410.57,1],["2023-07-20",-1546.0,105864.57,1],["2023-08-10",-3419.64,102444.93,1],["2023-08-14",5779.84,108224.77,1],["2023-08-31",-1086.25,107138.52,1],["2023-09-07",-2134.39,105004.13,1],["2023-09-12",3250.84,108254.97,1],["2023-09-25",1378.27,109633.24,1],["2023-10-03",4335.51,113968.75,1],["2023-10-05",3776.21,117744.96,1],["2023-10-25",-3639.46,114105.5,1],["2023-11-07",-1804.95,112300.55,1],["2023-11-29",3065.78,115366.33,1],["2023-11-30",-389.26,114977.07,1],["2023-12-05",1081.43,116058.5,1],["2023-12-06",3773.03,119831.53,1],["2023-12-11",172.27,120003.8,1],["2023-12-14",7520.23,127524.03,1],["2023-12-18",-2668.29,124855.74,1],["2023-12-21",5943.69,130799.43,1],["2023-12-28",1850.85,132650.28,1],["2024-01-10",717.37,133367.65,1],["2024-01-25",-2216.81,131150.84,1],["2024-01-31",-223.65,130927.19,1],["2024-03-07",-1069.43,129857.76,1],["2024-04-03",-4118.13,125739.63,1],["2024-04-23",1439.18,127178.81,1],["2024-04-30",281.08,127459.89,1],["2024-05-02",-278.99,127180.9,1],["2024-05-28",-468.82,126712.08,1],["2024-06-26",-605.58,126106.5,1],["2024-07-08",-1070.57,125035.93,1],["2024-07-29",1463.56,126499.49,1],["2024-07-31",-529.9,125969.59,1],["2024-08-19",567.28,126536.87,1],["2024-08-29",250.15,126787.02,1],["2024-09-10",457.68,127244.7,1],["2024-09-26",1333.98,128578.68,1],["2024-10-23",-433.25,128145.43,1],["2024-10-24",-374.06,127771.37,1],["2024-10-30",-2179.75,125591.62,1],["2024-11-13",1149.25,126740.87,1],["2024-11-21",3663.86,130404.73,1],["2024-12-23",-3560.15,126844.58,1],["2025-02-27",-704.3,126140.28,1],["2025-03-19",2761.69,128901.97,1],["2025-04-08",10791.83,139693.8,1],["2025-04-24",-2687.38,137006.42,1],["2025-06-23",-10175.98,126830.44,1],["2025-07-07",-2169.35,124661.09,1],["2025-07-09",-3040.21,121620.88,1],["2025-07-24",-1856.55,119764.33,1],["2025-08-04",-5327.27,114437.06,1],["2025-08-11",-253.58,114183.48,1],["2025-08-12",-1380.32,112803.16,1],["2025-08-19",-378.08,112425.08,1],["2025-08-28",10428.16,122853.24,1],["2025-09-01",-6503.48,116349.76,1],["2025-09-04",9434.18,125783.94,1],["2025-09-26",4933.67,130717.61,1],["2025-10-24",2618.94,133336.55,1],["2025-11-11",4265.18,137601.73,1],["2025-11-17",837.5,138439.23,1],["2025-11-25",1928.35,140367.58,1],["2026-02-02",3108.55,143476.13,1],["2026-02-03",45130.79,188606.92,1],["2026-02-09",8115.49,196722.41,1],["2026-02-17",-6825.74,189896.67,1],["2026-02-19",-0.65,189896.02,1],["2026-02-20",-276.05,189619.97,1],["2026-03-02",16934.16,206554.13,1],["2026-03-09",35932.94,242487.07,1],["2026-03-10",-80.2,242406.87,1],["2026-03-17",-6331.48,236075.39,1],["2026-03-20",-11109.56,224965.83,1],["2026-03-30",12942.78,237908.61,1],["2026-04-06",-6241.8,231666.81,1],["2026-04-07",-14649.04,217017.77,1],["2026-04-20",-2442.46,214575.31,1],["2026-05-07",-4424.72,210150.59,1],["2026-05-12",5593.78,215744.37,1],["2026-05-26",-2397.63,213346.74,1],["2026-06-01",-1315.04,212031.7,1],["2026-06-11",5253.37,217285.07,1],["2026-06-15",15891.62,233176.69,1],["2026-06-19",-7571.1,225605.59,1],["2026-06-29",-708.08,224897.51,1],["2026-07-10",-9845.98,215051.53,1]];
+  var cv = document.getElementById('cycle'), tip = document.getElementById('cycle-tip');
+  if (!cv) return;
+  var box = cv.parentNode, hover = -1, geom = null;
+
+  function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function rupee(v) {
+    var s = Math.abs(Math.round(v)).toString(), o = '';
+    if (s.length > 3) {
+      var h = s.slice(0, -3), t = s.slice(-3), p = [];
+      while (h.length > 2) { p.unshift(h.slice(-2)); h = h.slice(0, -2); }
+      if (h) p.unshift(h);
+      o = p.join(',') + ',' + t;
+    } else o = s;
+    return (v < 0 ? '-' : '') + '\\u20B9' + o;
+  }
+
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = box.clientWidth, h = 340;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.height = h + 'px';
+    var g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    var padL = 66, padR = 14, padT = 14, padB = 108;
+    var iw = w - padL - padR, ih = h - padT - padB;
+    var cums = DATA.map(function (d) { return d[2]; });
+    var days = DATA.map(function (d) { return d[1]; });
+    var cMin = Math.min(0, Math.min.apply(null, cums)), cMax = Math.max.apply(null, cums);
+    var dMax = Math.max.apply(null, days.map(Math.abs));
+    var line = tok('--curve'), muted = tok('--muted'), grid = tok('--line');
+    var pos = tok('--pos-fill'), neg = tok('--neg-fill');
+
+    var X = function (i) { return padL + i / (DATA.length - 1) * iw; };
+    var Y = function (v) { return padT + (cMax - v) / ((cMax - cMin) || 1) * ih; };
+
+    // grid + rupee axis
+    g.font = '10px ui-monospace, Menlo, monospace';
+    g.textAlign = 'right'; g.textBaseline = 'middle';
+    var steps = 5;
+    for (var s = 0; s <= steps; s++) {
+      var v = cMin + (cMax - cMin) * s / steps, y = Y(v);
+      g.strokeStyle = grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(padL, y + 0.5); g.lineTo(w - padR, y + 0.5); g.stroke();
+      g.fillStyle = muted;
+      g.fillText(Math.round(v / 1000) + 'k', padL - 8, y);
+    }
+
+    // daily bars, hugging the zero line of their own half-height band
+    var bw = Math.max(1, iw / DATA.length * 0.7);
+    var barH = 38, barZero = h - 46;
+    g.strokeStyle = grid; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(padL, barZero + 0.5); g.lineTo(w - padR, barZero + 0.5); g.stroke();
+    for (var i = 0; i < DATA.length; i++) {
+      var p = DATA[i][1];
+      if (!p) continue;
+      var hgt = Math.abs(p) / (dMax || 1) * barH;
+      g.fillStyle = 'rgba(' + (p > 0 ? pos : neg) + ',' + (i === hover ? 0.95 : 0.45) + ')';
+      g.fillRect(X(i) - bw / 2, p > 0 ? barZero - hgt : barZero, bw, hgt);
+    }
+    g.fillStyle = muted; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.fillText('day', padL - 8, barZero);
+
+    // cumulative line
+    g.beginPath();
+    for (var j = 0; j < DATA.length; j++) {
+      var x = X(j), y = Y(DATA[j][2]);
+      j ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.strokeStyle = line; g.lineWidth = 1.8; g.lineJoin = 'round'; g.stroke();
+
+    // year ticks
+    g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = muted;
+    var seen = {};
+    for (var k = 0; k < DATA.length; k++) {
+      var yr = DATA[k][0].slice(0, 4);
+      if (seen[yr]) continue;
+      seen[yr] = 1;
+      g.strokeStyle = grid;
+      g.beginPath(); g.moveTo(X(k) + 0.5, padT); g.lineTo(X(k) + 0.5, h - padB); g.stroke();
+      g.fillText(yr, X(k), h - padB + 6);
+    }
+
+    if (hover >= 0) {
+      g.strokeStyle = muted; g.lineWidth = 1; g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(X(hover) + 0.5, padT); g.lineTo(X(hover) + 0.5, h - padB); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = line;
+      g.beginPath(); g.arc(X(hover), Y(DATA[hover][2]), 3.5, 0, 6.284); g.fill();
+    }
+    geom = { padL: padL, iw: iw, X: X, Y: Y };
+  }
+
+  function at(ev) {
+    var rect = cv.getBoundingClientRect();
+    var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+    var i = Math.round((x - geom.padL) / geom.iw * (DATA.length - 1));
+    return Math.max(0, Math.min(DATA.length - 1, i));
+  }
+  function show(ev) {
+    hover = at(ev); draw();
+    var d = DATA[hover];
+    tip.innerHTML = '<b>' + d[0] + '</b>' +
+      'day ' + rupee(d[1]) + '  &middot; ' + d[3] + ' trade' + (d[3] > 1 ? 's' : '') + '<br>' +
+      'cumulative ' + rupee(d[2]);
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(box.clientWidth - 20, Math.max(70, geom.X(hover))) + 'px';
+    tip.style.top = (geom.Y(d[2]) - 12) + 'px';
+  }
+  function hide() { hover = -1; tip.style.opacity = 0; draw(); }
+
+  cv.addEventListener('mousemove', show);
+  cv.addEventListener('mouseleave', hide);
+  cv.addEventListener('touchstart', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchmove', function (e) { show(e); }, { passive: true });
+  cv.addEventListener('touchend', hide);
+  window.addEventListener('resize', draw);
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(draw);
+  }
+  new MutationObserver(draw).observe(document.documentElement,
+    { attributes: true, attributeFilter: ['data-theme'] });
+  draw();
+})();
+</script>
+
 <script>
 /* The blueprint reader's behaviours, on this document's own markup: a contents
    rail built from the section headings, scroll-spy, section search and the

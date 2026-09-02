@@ -58,6 +58,7 @@ def _borrow():
         "daily_ledger",
         "daily_series",
         "method_and_limits",
+        "cycle_section",
     ):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
@@ -71,10 +72,16 @@ def _borrow():
     reader = re.search(r'^READER_JS = """\n(.*?)^"""', src, re.S | re.M)
     if not reader:
         raise SystemExit("build_report.py has no READER_JS to borrow")
-    return helpers, css, reader.group(1)
+    # The daily-income canvas. It is an IIFE that guards on its own
+    # element (`if (!cv) return`), so a sheet that borrows it and does
+    # not draw the section pays nothing for it.
+    chart = re.search(r'^CHART_JS = """\n(.*?)^"""', src, re.S | re.M)
+    if not chart:
+        raise SystemExit("build_report.py has no CHART_JS to borrow")
+    return helpers, css, reader.group(1), chart.group(1)
 
 
-HELPERS, STYLE, READER_JS = _borrow()
+HELPERS, STYLE, READER_JS, CHART_JS_SRC = _borrow()
 # This sheet's own hue. The pill that opens it in the Assets tab bar
 # carries the same pair (philforge-app.css, --tearsheet-pill), so the
 # colour of the pill is a promise about what the document looks like.
@@ -556,6 +563,15 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     </tbody></table></div>
 </section>
 {
+    HELPERS["cycle_section"](
+        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]),
+        t,
+        r,
+        noun_en="trading days",
+        noun_ta="வர்த்தக நாட்கள்",
+    )
+}
+{
     HELPERS["daily_ledger"](
         HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]),
         t,
@@ -694,6 +710,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }
 </article>
 </div>
+{CHART_JS_SRC.replace("__SERIES__", json.dumps(HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]), separators=(",", ":")))}
 {READER_JS}
 {LANG_JS}
 """
