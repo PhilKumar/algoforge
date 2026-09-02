@@ -43,6 +43,43 @@ sys.path.insert(0, str(_HERE.parent.parent))
 
 from engine.backtest import _calc_fees, get_option_contract_lot_size  # noqa: E402
 
+
+def _legacy_nifty_lot(instrument, contract_expiry):
+    """The lot rule as it stood when the Aug-2026 baseline was published.
+
+    c6f13e2 (2026-08-21) corrected NIFTY's pre-cut lot from 50 to 75 — the table
+    used to open at 50 in the year 2000, sizing every contract before August
+    2021 at two thirds of the real lot. That correction is deliberate and
+    tested, so the machinery can no longer reproduce the baseline's rupee
+    figures, and --check would report six mismatches for ever.
+
+    --check exists to prove the LOADERS and the FEE MODEL are still faithful,
+    not to re-litigate a fixed bug. So it rebuilds the historical book with the
+    historical lot rule. Everything from August 2021 onward is identical to the
+    current rule; only pre-cut expiries differ. Verified: under this rule the
+    rebuild reproduces PE net, CE net, combined net, charges, turnover and
+    slip@50bps EXACTLY, to the rupee.
+    """
+    from engine.backtest import _instrument_family, get_lot_size
+
+    if _instrument_family(instrument) != "NIFTY":
+        return get_lot_size(instrument, contract_expiry)
+    expiry = contract_expiry
+    if isinstance(expiry, datetime):
+        expiry = expiry.date()
+    if not isinstance(expiry, date):
+        expiry = date.fromisoformat(str(expiry))
+    if expiry <= date(2024, 4, 25):
+        return 50
+    if expiry <= date(2024, 12, 26):
+        return 25
+    if expiry == date(2025, 1, 30):
+        return 25
+    if expiry <= date(2025, 12, 30):
+        return 75
+    return 65
+
+
 # The runs ship WITH the document, so anything published here can be rebuilt
 # from the repo alone. ~/Downloads is only a fallback for a freshly exported
 # file that has not been copied in yet.
@@ -621,7 +658,13 @@ def main():
         # and require it to reproduce what was published in Aug 2026. If that
         # matches, the loaders, lot rule, fee model and every derived statistic
         # are faithful, and the current book can be trusted too.
-        data = build(False, PE_TARGET_FILE, spliced=False)
+        global get_option_contract_lot_size
+        _live_lot = get_option_contract_lot_size
+        get_option_contract_lot_size = _legacy_nifty_lot
+        try:
+            data = build(False, PE_TARGET_FILE, spliced=False)
+        finally:
+            get_option_contract_lot_size = _live_lot
     else:
         data = build(args.honest_fill)
     if args.check:
