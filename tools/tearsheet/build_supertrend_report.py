@@ -512,7 +512,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 
 <div class="note note-warn">
   <h2 class="note-h">{
-    t("The edge has faded, and this sheet says so", "விளிம்பு மங்கியுள்ளது; இந்த அறிக்கை அதைச் சொல்கிறது")
+    t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")
 }</h2>
   <p>{
     t(
@@ -661,7 +661,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </section>
 
 <section>
-  <div class="shead"><div><h2>{t("Every trade, in order", "ஒவ்வொரு trade-உம், வரிசையில்")}</h2>
+  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
     <p>{
     t(
         "The whole book: entry, contract, exit and how it ended, both premiums, the quantity, the net. A roll appears as two rows &mdash; the banked leg and the fresh one &mdash; because that is two real round trips. An exit marked <em>(intrinsic)</em> is one of the 12 the archive cannot quote, valued at bare intrinsic.",

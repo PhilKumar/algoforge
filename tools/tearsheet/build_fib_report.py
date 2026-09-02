@@ -630,7 +630,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 <article class="document-body" id="document-body">
 
 <div class="note">
-  <h2 class="note-h">{t("Read this first", "முதலில் இதைப் படியுங்கள்")}</h2>
+  <h2 class="note-h">{t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")}</h2>
   <p>{
     t(
         "These campaigns fired at seven fixed clock times every session &mdash; not on candles a trader would choose &mdash; and are counted <strong>one at a time per index</strong>, exactly as the page runs: a clock-time mother that fires while an earlier campaign is still open is not taken. Most blind mothers never trade at all (price closes back above the mother before a buy). What the table measures is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> mothers earn is what the paper run is for.",

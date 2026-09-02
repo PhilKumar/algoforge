@@ -594,7 +594,7 @@ def every_night(b: dict) -> str:
     )
     return f"""
 <section id="ledger" data-total="{b["trades"]}">
-  <div class="shead"><div><h2>{t("Every night, in order", "ஒவ்வொரு இரவும், வரிசையில்")}</h2>
+  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
     <p>{t("The whole book — every candle that qualified, the contract it bought, the RSI that fired it, the index gap it caught, and what the account actually kept.", "முழு புத்தகம் — தகுதி பெற்ற ஒவ்வொரு candle, வாங்கிய contract, தூண்டிய RSI, பிடித்த index gap, கணக்கில் மிஞ்சியது.")}</p></div></div>
   <div class="ledger-controls" id="ledger-years">
     <button type="button" data-year="all" aria-pressed="true">{t("All", "அனைத்தும்")}</button>
@@ -704,7 +704,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 <article class="document-body" id="document-body">
 
 <div class="note">
-  <p class="note-h">{t("Read this first", "இதை முதலில் படியுங்கள்")}</p>
+  <p class="note-h">{t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")}</p>
   <p>{
         t(
             "This is a REPLAY, not a record. Nothing here was traded with money. It is the same rule the Gap Carry tab runs, walked forward over recorded option premiums, and it reproduces through the engine the tab uses to the rupee — which is the only reason a sheet may quote it. Two things about it are unsettled and are stated plainly below rather than buried: Friday carries far more of the book than one weekday should, and RSI 70 is the best cell in a band rather than a plateau.",

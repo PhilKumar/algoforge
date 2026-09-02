@@ -542,7 +542,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 <article class="document-body" id="document-body">
 
 <div class="note">
-  <h2 class="note-h">{t("Read this first", "முதலில் இதைப் படியுங்கள்")}</h2>
+  <h2 class="note-h">{t("The finding that matters most", "மிக முக்கியமான கண்டுபிடிப்பு")}</h2>
   <p>{
     t(
         "Every mother here is the high of the last 278 bars on the 5-minute chart &mdash; the rule picks it, not a trader &mdash; and campaigns are counted <strong>one at a time</strong>, exactly as the auto mother runs: a new box high that fires while a campaign is open is not taken, and a mother is never traded twice &mdash; whatever a campaign paid, the next one waits for a new high. A rung is <strong>never bought at or above the mother's own high</strong> &mdash; the target is measured back toward that high, so such a buy would be past its target on arrival &mdash; and a rung whose strike has no recorded price is re-struck <strong>at the money</strong>, then the lines either side of it, so a quiet minute does not blank a campaign's money. A campaign that never saw its two reds never traded and is not in the book (counted above). What the tables measure is the <strong>rule</strong>, on the exact code the paper run executes, walked candle by candle in time order with real recorded premiums. Whether <em>your</em> campaigns earn is what the paper run is for.",
@@ -703,7 +703,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 </section>
 
 <section>
-  <div class="shead"><div><h2>{t("Every campaign, in order", "ஒவ்வொரு campaign-உம், வரிசையில்")}</h2>
+  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
     <p>{
     t(
         "The whole call book, trail exit: every buy with its index level, premium and quantity, and how it ended. This is the table the page's Backtest button reproduces one mother at a time.",
