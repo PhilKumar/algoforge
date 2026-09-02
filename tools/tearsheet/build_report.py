@@ -104,6 +104,78 @@ def recolour(css, doc):
     return out
 
 
+def daily_ledger(series, t, t_attr, r, cls, noun_en="trades", noun_ta="டிரேடுகள்"):
+    """The five-year sheet's compact ledger: ONE ROW PER DAY, not per trade.
+
+    Phil, 2026-09-02: "I don't want that long list of day trades but cutshort
+    like the one in Options". The siblings each carried the whole book instead
+    -- every night with its contract, RSI, strike and gap -- which is a
+    different document from a ledger. Four columns, a year filter, and a
+    running balance is what the template means by one.
+
+    `series` is [date, day_net, running_total, n_trades] per trading day, which
+    is what every book can produce whatever its rows look like underneath.
+    """
+    days = len(series)
+    green = sum(1 for d in series if d[1] > 0)
+    years = sorted({str(d[0])[:4] for d in series})
+    btns = "".join(f'<button type="button" data-year="{y}" aria-pressed="false">{y}</button>' for y in years)
+    rows = "".join(
+        f'<tr data-year="{str(d[0])[:4]}">'
+        f'<th scope="row">{d[0]}</th>'
+        f"<td>{d[3]}</td>"
+        f'<td class="{cls(d[1])}">{r(d[1])}</td>'
+        f"<td>{r(d[2])}</td></tr>"
+        for d in series
+    )
+    best = max(series, key=lambda d: d[1]) if series else ("", 0, 0, 0)
+    worst = min(series, key=lambda d: d[1]) if series else ("", 0, 0, 0)
+    avg = (sum(d[1] for d in series) / days) if days else 0.0
+    return f"""
+<section id="ledger">
+  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
+    <p>{t(f"Every trading day in the record, with the running balance beside it. Filter by year, or scroll the whole {days} rows.", f"பதிவில் உள்ள ஒவ்வொரு வர்த்தக நாளும், அதனுடன் ஓடும் இருப்பும். ஆண்டு வாரியாக வடிகட்டலாம், அல்லது {days} வரிகளையும் உருட்டிப் பார்க்கலாம்.")}</p></div></div>
+  <div class="ledger-controls" id="ledger-years">
+    <button type="button" data-year="all" aria-pressed="true">{t("All", "அனைத்தும்")}</button>
+    {btns}
+  </div>
+  <div class="ledger-scroll" id="ledger-body" tabindex="0" role="region"
+       {t_attr("aria-label", "Daily profit and loss ledger", "தினசரி லாப நஷ்ட பதிவு")} data-total="{days}">
+    <table id="ledger-table" data-total="{days}">
+      <thead><tr>
+        <th scope="col">{t("Date", "தேதி")}</th>
+        <th scope="col">{t(noun_en.capitalize(), noun_ta)}</th>
+        <th scope="col">{t("Day net", "நாளின் நிகரம்")}</th>
+        <th scope="col">{t("Running total", "ஓடும் மொத்தம்")}</th>
+      </tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+  </div>
+  <div class="ledger-foot">
+    <span><span id="ledger-count">{days}</span> {t("days shown", "நாட்கள் காட்டப்படுகின்றன")}</span>
+    <span>{t("green", "பச்சை")} {green} &middot; {t("red", "சிவப்பு")} {days - green}</span>
+    <span>{t("average", "சராசரி")} {r(avg)}</span>
+    <span style="margin-left:auto">{t("best", "சிறந்தது")} {r(best[1])} &middot; {t("worst", "மோசமானது")} {r(worst[1])}</span>
+  </div>
+</section>"""
+
+
+def daily_series(rows, date_of, net_of):
+    """Fold any book's rows into [date, day_net, running, n] per trading day."""
+    from collections import defaultdict
+
+    by_day = defaultdict(lambda: [0.0, 0])
+    for row in rows:
+        d = str(date_of(row))[:10]
+        by_day[d][0] += float(net_of(row) or 0.0)
+        by_day[d][1] += 1
+    out, run = [], 0.0
+    for d in sorted(by_day):
+        run += by_day[d][0]
+        out.append([d, round(by_day[d][0], 2), round(run, 2), by_day[d][1]])
+    return out
+
+
 # ── equity curve as an SVG path ──────────────────────────────────────
 def curve_svg(points, w=1040, h=260, pad=1):
     ys = [p[1] for p in points]

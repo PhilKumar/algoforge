@@ -29,7 +29,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import sizing  # noqa: E402
-from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
+from i18n import LANG_CSS, LANG_JS, t, t_attr  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
@@ -49,7 +49,7 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour"):
+    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -702,22 +702,17 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </section>
 
-<section>
-  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
-    <p>{
-    t(
-        "The whole call book, trail exit: every buy with its index level, premium and quantity, and how it ended. This is the table the page's Backtest button reproduces one mother at a time.",
-        "முழு கால் புத்தகம், trail வெளியேற்றம்: ஒவ்வொரு வாங்கலும் index, premium, அளவுடன், முடிவுடன். பக்கத்தின் Backtest button ஒரு mother-க்கு இதையே தரும்.",
+{
+    HELPERS["daily_ledger"](
+        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["mother"], lambda x: x["net"]),
+        t,
+        t_attr,
+        r,
+        cls,
+        noun_en="campaigns",
+        noun_ta="Campaign-கள்",
     )
-}</p></div></div>
-  <div class="tblwrap"><table>
-    <thead><tr><th scope="col">{t("Mother", "Mother")}</th><th scope="col">{
-    t("Contract", "ஒப்பந்தம்")
-}</th><th scope="col">{t("Buys", "வாங்கல்கள்")}</th><th scope="col">{t("Exit", "வெளியேற்றம்")}</th><th scope="col">{
-    t("Deployed", "பயன்பாடு")
-}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
-    <tbody>{every_campaign(TRAIL["rows"])}</tbody></table></div>
-</section>
+}
 
 </article>
 </div>

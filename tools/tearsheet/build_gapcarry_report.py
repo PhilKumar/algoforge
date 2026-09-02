@@ -31,7 +31,7 @@ from datetime import date
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import sizing  # noqa: E402
-from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
+from i18n import LANG_CSS, LANG_JS, t, t_attr  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
@@ -48,7 +48,7 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers: dict = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour"):
+    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -593,16 +593,17 @@ def every_night(b: dict) -> str:
         f"<th scope='col'>{t('Net', 'நிகர')}</th></tr></thead>"
     )
     return f"""
-<section id="ledger" data-total="{b["trades"]}">
-  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
-    <p>{t("The whole book — every candle that qualified, the contract it bought, the RSI that fired it, the index gap it caught, and what the account actually kept.", "முழு புத்தகம் — தகுதி பெற்ற ஒவ்வொரு candle, வாங்கிய contract, தூண்டிய RSI, பிடித்த index gap, கணக்கில் மிஞ்சியது.")}</p></div></div>
-  <div class="ledger-controls" id="ledger-years">
-    <button type="button" data-year="all" aria-pressed="true">{t("All", "அனைத்தும்")}</button>
-    {years_btns}
-  </div>
-  <div class="tblwrap"><table id="ledger-table" data-total="{b["trades"]}">{head}<tbody>{_night_rows(b["rows"])}</tbody></table></div>
-  <p class="note"><span id="ledger-count">{b["trades"]}</span> {t("nights shown", "இரவுகள் காட்டப்படுகின்றன")}</p>
-</section>"""
+{
+        HELPERS["daily_ledger"](
+            HELPERS["daily_series"](b["rows"], lambda x: x["exit_session"] or x["session"], lambda x: x["net"]),
+            t,
+            t_attr,
+            r,
+            cls,
+            noun_en="nights",
+            noun_ta="இரவுகள்",
+        )
+    }"""
 
 
 # ── the page ──────────────────────────────────────────────────────────

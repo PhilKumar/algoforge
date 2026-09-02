@@ -51,7 +51,7 @@ from collections import defaultdict
 from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
+from i18n import LANG_CSS, LANG_JS, t, t_attr  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
@@ -82,7 +82,7 @@ def _borrow():
     helpers = {}
     # r(), lakh(), cls(), curve_svg(), spark(): the exact functions the
     # five-year sheet formats and draws with.
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour"):
+    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -755,6 +755,18 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</td></tr>
     </tbody></table></div>
 </section>
+
+{
+    HELPERS["daily_ledger"](
+        HELPERS["daily_series"](CE["rows"] + SX["rows"], lambda x: x["mother"], lambda x: x["net"]),
+        t,
+        t_attr,
+        r,
+        cls,
+        noun_en="campaigns",
+        noun_ta="Campaign-கள்",
+    )
+}
 
 <section>
   <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>

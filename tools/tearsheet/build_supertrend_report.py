@@ -31,7 +31,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import sizing  # noqa: E402
-from i18n import LANG_CSS, LANG_JS, t  # noqa: E402
+from i18n import LANG_CSS, LANG_JS, t, t_attr  # noqa: E402
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
@@ -48,7 +48,7 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour"):
+    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour", "daily_ledger", "daily_series"):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -660,22 +660,15 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
 </section>
 
-<section>
-  <div class="shead"><div><h2>{t("Daily P&amp;L ledger", "தினசரி லாப-நஷ்ட பதிவேடு")}</h2>
-    <p>{
-    t(
-        "The whole book: entry, contract, exit and how it ended, both premiums, the quantity, the net. A roll appears as two rows &mdash; the banked leg and the fresh one &mdash; because that is two real round trips. An exit marked <em>(intrinsic)</em> is one of the 12 the archive cannot quote, valued at bare intrinsic.",
-        "முழு புத்தகம்: நுழைவு, ஒப்பந்தம், வெளியேற்றம், முடிவு, இரு premium-கள், அளவு, நிகர. Roll இரண்டு வரிசைகளாகத் தெரியும் &mdash; பதிவான leg-உம் புதியதும் &mdash; அவை இரண்டு உண்மையான round trips. <em>(intrinsic)</em> என்றால் archive விலை தர முடியாத 12-இல் ஒன்று.",
+{
+    HELPERS["daily_ledger"](
+        HELPERS["daily_series"](TRAIL["rows"], lambda x: x["date"], lambda x: x["net"]),
+        t,
+        t_attr,
+        r,
+        cls,
     )
-}</p></div></div>
-  <div class="tblwrap"><table>
-    <thead><tr><th scope="col">{t("Entry", "நுழைவு")}</th><th scope="col">{
-    t("Contract", "ஒப்பந்தம்")
-}</th><th scope="col">{t("Exit", "வெளியேற்றம்")}</th><th scope="col">{t("Ended by", "முடிவு")}</th><th scope="col">{
-    t("Premium", "Premium")
-}</th><th scope="col">{t("Qty", "அளவு")}</th><th scope="col">{t("Net", "நிகர")}</th></tr></thead>
-    <tbody>{every_trade(TRAIL["rows"])}</tbody></table></div>
-</section>
+}
 
 </article>
 </div>
