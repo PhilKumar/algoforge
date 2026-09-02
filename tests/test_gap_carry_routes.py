@@ -103,19 +103,37 @@ class LiveGateTests(unittest.TestCase):
     def test_paper_is_allowed(self):
         self.assertEqual(app_module._gap_carry_trade_mode("paper"), "paper")
 
-    def test_live_is_refused_with_the_reason(self):
+    def test_live_is_refused_with_the_reason_when_its_tag_is_not_open(self):
         """Gap Carry has a live path since 2026-08-30, so the reason changed:
         it is built and closed, not missing. The refusal rides on the SHARED
-        executor's own gate and never on the fib ladder's flag."""
+        executor's own per-strategy switch and never on the fib ladder's flag.
+
+        PF_GAP_CARRY was let out on 2026-09-01, so the closed case is pinned
+        by emptying the open set rather than by the gate simply being shut.
+        The property under test is unchanged: however open the fib ladder is,
+        it is not what decides this.
+        """
+        from unittest.mock import patch
+
+        import engine.options_live_executor as executor_module
+
         original = app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED
         app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = True
         try:
-            with self.assertRaises(HTTPException) as ctx:
-                app_module._gap_carry_trade_mode("live")
+            with patch.object(executor_module, "OPTIONS_LIVE_OPEN_TAGS", frozenset()):
+                with self.assertRaises(HTTPException) as ctx:
+                    app_module._gap_carry_trade_mode("live")
             self.assertEqual(ctx.exception.status_code, 503)
             self.assertIn("built but disabled", str(ctx.exception.detail))
         finally:
             app_module._FIB_TOUCH_LIVE_EXECUTION_ENABLED = original
+
+    def test_live_is_accepted_because_gap_carry_is_the_open_strategy(self):
+        """2026-09-01: PF_GAP_CARRY is the one tag in the open set, and this
+        is the assertion that says so out loud. It is real money -- if this
+        ever fails, the door closed, and nobody should discover that from a
+        campaign that quietly traded paper."""
+        self.assertEqual(app_module._gap_carry_trade_mode("live"), "live")
 
     def test_the_gate_opens_only_when_the_shared_executor_is_enabled(self):
         original = app_module._OPTIONS_LIVE_EXECUTION_ENABLED

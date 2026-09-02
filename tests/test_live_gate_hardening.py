@@ -69,22 +69,64 @@ class TradeModeNeverRidesOnAnotherStrategysFlag(unittest.TestCase):
         )
 
     def test_the_fib_flag_alone_opens_none_of_them(self):
-        for helper in self._helpers():
-            with self.subTest(helper=helper.__name__):
-                self.assertEqual(helper("paper"), "paper")
-                with self.assertRaises(HTTPException) as caught:
-                    helper("live")
-                self.assertEqual(caught.exception.status_code, 503)
-                self.assertIn("built but disabled", caught.exception.detail)
-                with self.assertRaises(HTTPException) as caught:
-                    helper("margin")
-                self.assertEqual(caught.exception.status_code, 400)
+        # The open set is emptied for the length of this test. Since
+        # 2026-09-01 PF_GAP_CARRY is out, and without this the fib flag would
+        # appear to open Gap Carry when in fact its own switch already had.
+        from unittest.mock import patch
+
+        import engine.options_live_executor as executor_module
+
+        with patch.object(executor_module, "OPTIONS_LIVE_OPEN_TAGS", frozenset()):
+            for helper in self._helpers():
+                with self.subTest(helper=helper.__name__):
+                    self.assertEqual(helper("paper"), "paper")
+                    with self.assertRaises(HTTPException) as caught:
+                        helper("live")
+                    self.assertEqual(caught.exception.status_code, 503)
+                    self.assertIn("built but disabled", caught.exception.detail)
+                    with self.assertRaises(HTTPException) as caught:
+                        helper("margin")
+                    self.assertEqual(caught.exception.status_code, 400)
 
     def test_their_own_gate_is_what_opens_them(self):
         app_module._OPTIONS_LIVE_EXECUTION_ENABLED = True
         for helper in self._helpers():
             with self.subTest(helper=helper.__name__):
                 self.assertEqual(helper("live"), "live")
+
+    def test_the_open_set_lets_one_strategy_out_and_not_its_neighbours(self):
+        """THE POINT OF THE PER-STRATEGY SWITCH, and the reason the master
+        flag stays False.
+
+        Gap Carry was opened alone on 2026-09-01. The master would have
+        opened Candle Entry, Supertrend and High Entry in the same stroke --
+        Supertrend's exit pricing having been fixed that same day and never
+        once observed working. This is the test that fails if the narrow door
+        is ever widened by accident.
+        """
+        from unittest.mock import patch
+
+        import engine.options_live_executor as executor_module
+
+        with patch.object(executor_module, "OPTIONS_LIVE_OPEN_TAGS", frozenset({"PF_GAP_CARRY"})):
+            self.assertEqual(app_module._gap_carry_trade_mode("live"), "live")
+            for helper in (app_module._candle_entry_trade_mode, app_module._supertrend_trade_mode):
+                with self.subTest(helper=helper.__name__):
+                    with self.assertRaises(HTTPException) as caught:
+                        helper("live")
+                    self.assertEqual(caught.exception.status_code, 503)
+
+    def test_the_executor_refuses_a_strategy_that_was_never_opened(self):
+        """The route guard is not the only door. A campaign restored after a
+        restart rebuilds its executor without passing a route at all, so the
+        refusal has to hold at the executor too -- per tag, not per master.
+        """
+        from engine.options_live_executor import live_execution_open
+
+        self.assertTrue(live_execution_open("PF_GAP_CARRY"))
+        for tag in ("PF_HIGH_ENTRY", "PF_CANDLE_ENTRY", "PF_SUPERTREND", "PF", ""):
+            with self.subTest(tag=tag):
+                self.assertFalse(live_execution_open(tag))
 
 
 class _RecordingBroker:

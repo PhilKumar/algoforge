@@ -22,11 +22,36 @@ import time
 from datetime import date, datetime
 from typing import Any, Optional
 
-# THE ONE SWITCH. Every real order in this module goes through
-# `_availability_guard`, and it refuses while this is False. Like Fib
-# Boundary's own flag it is a module constant and not a config value or an
-# environment variable, so nothing can drift it open at runtime.
+# THE MASTER SWITCH, and it opens ALL FOUR strategies at once -- which is why
+# it stays False and is no longer what anything is opened with. Every real
+# order still goes through `_availability_guard`, but that asks
+# `live_execution_open(tag)` below, not this directly. Like Fib Boundary's own
+# flag it is a module constant and not a config value or an environment
+# variable, so nothing can drift it open at runtime.
 OPTIONS_LIVE_EXECUTION_ENABLED = False
+
+# THE SWITCH ACTUALLY USED: one strategy at a time, keyed on the tag each
+# engine already passes -- PF_GAP_CARRY, PF_HIGH_ENTRY, PF_CANDLE_ENTRY,
+# PF_SUPERTREND. A strategy can be let out on its own evidence without lending
+# its permission to the three beside it, and an order whose tag is not named
+# here is refused exactly as if nothing were open.
+#
+# PF_GAP_CARRY opened 2026-09-01: it settles a position every session at
+# 09:20, so it is the one strategy that produces a real fill and a real exit
+# daily -- which is the evidence the other three still owe.
+OPTIONS_LIVE_OPEN_TAGS: frozenset[str] = frozenset({"PF_GAP_CARRY"})
+
+
+def live_execution_open(tag: str) -> bool:
+    """Is real money allowed for the engine carrying this tag?
+
+    Asked through a function and never captured into a local, so a caller
+    holding an import-time copy of the master cannot answer stale.
+    """
+    if OPTIONS_LIVE_EXECUTION_ENABLED:
+        return True
+    return str(tag or "").strip().upper() in OPTIONS_LIVE_OPEN_TAGS
+
 
 # A PLACEHOLDER TARGET, because Dhan will not take a Super Order without one.
 # The first version of this sent targetPrice 0 -- at entry there is no honest
@@ -132,7 +157,7 @@ class OptionsLiveExecutor:
     # ── guards ──────────────────────────────────────────────────────────────
 
     def _availability_guard(self) -> None:
-        if not OPTIONS_LIVE_EXECUTION_ENABLED:
+        if not live_execution_open(self.tag):
             raise ExecutionRefused(
                 "Live execution for this strategy is built but disabled until its fills, partial fills "
                 "and restart reconciliation are proven against Dhan. Use Paper or Backtest."

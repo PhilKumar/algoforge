@@ -159,7 +159,7 @@ from engine.indicators import infer_execution_timeframe, normalize_strategy_indi
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.options_live_executor import OPTIONS_LIVE_EXECUTION_ENABLED as _OPTIONS_LIVE_EXECUTION_ENABLED
-from engine.options_live_executor import build_executor, reconcile_live_orders
+from engine.options_live_executor import build_executor, live_execution_open, reconcile_live_orders
 from engine.paper_trading import PaperTradingEngine
 from engine.strategy_contract import validate_strategy_contract
 from engine.strike_utils import round_half_up
@@ -13121,11 +13121,13 @@ def _gap_carry_trade_mode(value: str) -> str:
     mode = str(value or "paper").strip().lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
-    if mode == "live" and not _OPTIONS_LIVE_EXECUTION_ENABLED:
-        # Gap Carry has a live path now -- the shared executor, a stop inside
-        # the entry, and a close that refuses to book a position it could not
-        # actually sell. What it has not had is a single real order, so the
-        # gate stays shut until that is proven.
+    if mode == "live" and not (_OPTIONS_LIVE_EXECUTION_ENABLED or live_execution_open("PF_GAP_CARRY")):
+        # OPENED 2026-09-01, so this branch is now the unreachable one in
+        # normal running -- it survives for the day the tag comes back out of
+        # OPTIONS_LIVE_OPEN_TAGS. The gate is asked per strategy on purpose:
+        # `_OPTIONS_LIVE_EXECUTION_ENABLED` would have opened High Entry,
+        # Candle Entry and Supertrend alongside it, and none of those three
+        # has yet put through a single real order.
         raise HTTPException(
             status_code=503,
             detail=(
