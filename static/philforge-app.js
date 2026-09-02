@@ -1571,16 +1571,28 @@ function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'F
 function _assetsTearsheetUrl() {
   return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;
 }
+// WHICH PILL LOOKS ACTIVE MUST BE THE ONE THAT IS. The classes were only ever
+// set by a click, while the remembered document came out of local state on
+// load -- so after a refresh the strip still showed `options` lit (it is
+// hard-coded is-active in strategy.html) while `_assetsTearsheetDoc` was
+// whatever you last read. The document and the title were right; only the
+// strip lied. And because pickAssetsTearsheet returns early when the clicked
+// doc is already the current one, clicking the sheet you were actually on did
+// NOTHING -- the page looked dead (Phil, 2026-09-02: "I cannot click on this
+// page when I refresh").
+function _syncTearsheetPills(doc) {
+  document.querySelectorAll('.pf-tearsheet-doc').forEach((btn) => {
+    const on = btn.dataset.doc === doc;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
 function pickAssetsTearsheet(_event, button) {
   const doc = button && button.dataset ? button.dataset.doc : 'options';
   if (!doc || doc === _assetsTearsheetDoc) return;
   _assetsTearsheetDoc = doc;
   _setLocalState(PF_VIEW_STATE.assetsTearsheet, doc);
-  document.querySelectorAll('.pf-tearsheet-doc').forEach(btn => {
-    const on = btn.dataset.doc === doc;
-    btn.classList.toggle('is-active', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
+  _syncTearsheetPills(doc);
   const title = document.getElementById('architecture-view-title');
   if (title) title.textContent = _assetsTearsheetTitle(doc);
   const frame = document.getElementById('assets-tearsheet-frame');
@@ -1600,11 +1612,7 @@ function _openStrategyTearsheet(event, doc, hash) {
   });
   _assetsTearsheetDoc = doc;
   _setLocalState(PF_VIEW_STATE.assetsTearsheet, doc);
-  document.querySelectorAll('.pf-tearsheet-doc').forEach((btn) => {
-    const on = btn.dataset.doc === doc;
-    btn.classList.toggle('is-active', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
+  _syncTearsheetPills(doc);
   openArchitectureView('tearsheet');
   // After the view opens, because initArchitecturePage sets a src of its own
   // the first time the tab is used — and that one carries no section hash.
@@ -1736,6 +1744,8 @@ function initArchitecturePage(requestedView = null) {
   }
 
   if (isTearsheet) {
+    // On a refresh this is the ONLY thing that lights the right pill.
+    _syncTearsheetPills(_assetsTearsheetDoc);
     const frame = document.getElementById('assets-tearsheet-frame');
     // Deferred until the tab is opened: it is a 320 KB document nobody has
     // asked for while they are reading the atlas.

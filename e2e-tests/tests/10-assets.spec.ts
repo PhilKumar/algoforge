@@ -393,6 +393,24 @@ test('tearsheet controls, contents rail, coloured heading pill, and all three or
   const distinct = new Set(Object.values(pillColours));
   expect(distinct.size).toBe(Object.keys(pillColours).length);
 
+  // A REFRESH MUST LIGHT THE PILL YOU ARE ACTUALLY READING. The classes were
+  // set only by a click, while the remembered sheet came out of local state on
+  // load, so a reload left `options` lit (it is hard-coded is-active in
+  // strategy.html) over somebody else's document. Worse, pickAssetsTearsheet
+  // returns early when the clicked doc is already current -- so clicking the
+  // sheet you were on did nothing at all and the strip looked dead
+  // (Phil, 2026-09-02: "I cannot click on this page when I refresh").
+  await page.locator('.pf-tearsheet-doc[data-doc="supertrend"]').click();
+  await expect(page.frameLocator('#assets-tearsheet-frame').locator('h1')).toContainText('Supertrend');
+  await page.reload();
+  await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
+  await expect(page.locator('.pf-tearsheet-doc[data-doc="supertrend"]')).toHaveClass(/is-active/);
+  await expect(page.locator('.pf-tearsheet-doc[data-doc="options"]')).not.toHaveClass(/is-active/);
+  // And the strip still works after that reload -- another sheet is one click.
+  await page.locator('.pf-tearsheet-doc[data-doc="fib"]').click();
+  await expect(page.locator('.pf-tearsheet-doc[data-doc="fib"]')).toHaveClass(/is-active/);
+  await expect(page.frameLocator('#assets-tearsheet-frame').locator('h1')).toContainText('Fib Boundary');
+
   await page.locator('.pf-tearsheet-doc[data-doc="gapcarry"]').click();
   const frame = page.frameLocator('#assets-tearsheet-frame');
   await expect(frame.locator('h1')).toContainText('Gap Carry');
