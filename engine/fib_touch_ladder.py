@@ -1416,6 +1416,12 @@ class FibTouchLadder:
         self.gross_pnl: Optional[float] = None
         self.costs_total: Optional[float] = None
         self.net_pnl: Optional[float] = None
+        # Legs whose exit price was COMPUTED from the index instead of read off
+        # a print, counted for the round being settled. A note in `data_gaps`
+        # said so already, but only in prose, so no report could separate the
+        # money that rests on a recorded price from the money that rests on an
+        # assumption -- and on Gap Carry that split turned out to be 54/46.
+        self._floored_this_exit = 0
         self._exit_premiums: list[Optional[float]] = []
         # Legs already settled at their OWN expiry, with the price each got. A
         # basket holds several expiries -- every rung re-resolves its contract,
@@ -2495,9 +2501,19 @@ class FibTouchLadder:
         for fill in self.fills:
             price = self.premium_lookup(bar.timestamp, fill.strike, fill.expiry, self.side)
             if price is None:
-                # A deep ITM leg goes quiet exactly when it is worth most.  Its
-                # intrinsic value against the index is a floor nobody disputes
-                # and it UNDERSTATES the exit rather than inventing a price.
+                # A deep ITM leg goes quiet exactly when it is worth most, so
+                # its intrinsic value against the index is used rather than
+                # dropping the exit.
+                #
+                # THIS IS AN ESTIMATE, NOT A FLOOR, and the comment here used
+                # to claim otherwise -- that intrinsic "understates the exit".
+                # It does not always: a deep in-the-money option is illiquid
+                # and trades BELOW intrinsic often enough to matter. Measured
+                # on Gap Carry, 2026-02-02: the intrinsic estimate said 952.25
+                # while the contract was actually printing at 896.80, so the
+                # estimate invented about Rs 3,600 of profit on one trade.
+                # Counted, therefore, so a report can show the book with and
+                # without the trades that depend on it.
                 intrinsic = (
                     max(float(bar.close) - fill.strike, 0.0)
                     if self.side == "CE"
@@ -2505,9 +2521,10 @@ class FibTouchLadder:
                 )
                 if intrinsic > 0:
                     price = intrinsic
+                    self._floored_this_exit += 1
                     self.data_gaps.append(
-                        f"L{fill.level} exit priced at intrinsic Rs {intrinsic:,.2f} "
-                        f"(no print at {bar.timestamp.isoformat()}); understates profit"
+                        f"L{fill.level} exit ESTIMATED at intrinsic Rs {intrinsic:,.2f} "
+                        f"(no print at {bar.timestamp.isoformat()}); may over- or understate"
                     )
             prices.append(price)
         try:
@@ -2735,6 +2752,12 @@ class FibTouchLadder:
                 "exit_reason": self.exit_reason,
                 "rung_keys": [fill.rung_key for fill, _ in pairs],
                 "deployed_inr": round(sum(fill.premium * fill.quantity for fill, _ in pairs), 2),
+                # Whether every leg of this round sold at a price that was
+                # actually printed. False means at least one exit was computed
+                # from the index, so this round's P&L is an estimate and a
+                # report must be able to set it aside.
+                "exit_priced": self._floored_this_exit == 0,
+                "floored_legs": self._floored_this_exit,
                 # The legs themselves, with what each one sold for. `fills` is
                 # cleared when the mother parks, so without this the console
                 # loses every buy the moment the round it belongs to banks --
@@ -2742,6 +2765,9 @@ class FibTouchLadder:
                 "fills": [{**fill.as_dict(), "exit_premium": round(float(price), 2)} for fill, price in pairs],
             }
         )
+        # Cleared per round, not per campaign: a mother that banks twice must
+        # not carry the first round's estimate into the second's honesty.
+        self._floored_this_exit = 0
         # Campaign P&L is every round it banked, not just the last one.
         self.gross_pnl = round(sum(row["gross_pnl"] for row in self.rounds), 2)
         self.costs_total = round(sum(row["costs_total"] for row in self.rounds), 2)

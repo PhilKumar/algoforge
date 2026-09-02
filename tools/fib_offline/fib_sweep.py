@@ -115,6 +115,12 @@ while d <= end:
                 "gross": round(sum(float(r.get("gross_pnl") or 0) for r in rounds), 2),
                 "costs": round(sum(float(r.get("costs_total") or 0) for r in rounds), 2),
                 "net": round(net, 2),
+                # The same net, counting only rounds where every leg sold at a
+                # price that was actually printed. The gap between these two is
+                # the part of the result resting on an index-derived estimate
+                # rather than on a trade that happened.
+                "priced_net": round(sum(float(r.get("net_pnl") or 0) for r in rounds if r.get("exit_priced")), 2),
+                "floored_rounds": sum(1 for r in rounds if not r.get("exit_priced")),
                 "gaps": len(gaps),
                 "deployed": round(sum(float(r.get("deployed_inr") or 0) for r in rounds), 2),
             }
