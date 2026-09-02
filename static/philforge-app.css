@@ -3679,16 +3679,23 @@
     box-shadow: inset 0 0 0 1px var(--tearsheet-pill, var(--border-hi)),
                 0 0 12px color-mix(in srgb, var(--tearsheet-pill, var(--border-hi)) 18%, transparent);
   }
-  .pf-tearsheet-doc[data-doc="options"] { --tearsheet-pill: #c4b5fd; }
-  .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #38bdf8; }
-  .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #93c5fd; }
+  /* FIVE SHEETS, FIVE HUES, and they must be telling apart at a glance. They
+     were not: options and supertrend both read #6d28d9 in light, and fib and
+     candle were two blues a shade apart -- five documents wearing three
+     colours, two pairs identical (Phil, 2026-09-02).
+     Each pair here is the SAME pair the document paints itself with
+     (tools/tearsheet/build_report.py, recolour()), so the pill is a promise
+     about what opens: violet, cyan, lime, amber, rose. */
+  .pf-tearsheet-doc[data-doc="options"] { --tearsheet-pill: #a78bfa; }
+  .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #22d3ee; }
+  .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #a3e635; }
   .pf-tearsheet-doc[data-doc="gapcarry"] { --tearsheet-pill: #fbbf24; }
-  .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #a78bfa; }
-  html[data-theme="light"] .pf-tearsheet-doc[data-doc="options"] { --tearsheet-pill: #6d28d9; }
-  html[data-theme="light"] .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #0369a1; }
-  html[data-theme="light"] .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #1d4ed8; }
-  html[data-theme="light"] .pf-tearsheet-doc[data-doc="gapcarry"] { --tearsheet-pill: #b45309; }
-  html[data-theme="light"] .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #6d28d9; }
+  .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #fb7185; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="options"] { --tearsheet-pill: #6d4bd8; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="fib"] { --tearsheet-pill: #0e7490; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="candle"] { --tearsheet-pill: #3f6212; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="gapcarry"] { --tearsheet-pill: #92400e; }
+  html[data-theme="light"] .pf-tearsheet-doc[data-doc="supertrend"] { --tearsheet-pill: #be123c; }
   #assets-tearsheet-frame {
     display: block;
     width: 100%;

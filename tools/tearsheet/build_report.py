@@ -58,6 +58,52 @@ def cls(n):
     return "pos" if n > 0 else ("neg" if n < 0 else "flat")
 
 
+def recolour(css, doc):
+    """Repaint a borrowed stylesheet in one of the five sheets' own hues.
+
+    THE FIVE ARE A SET, and they were not distinct: `options` and `supertrend`
+    carried the identical light pill (#6d28d9) while `fib` and `candle` were
+    two blues a shade apart, so five documents wore three colours and two
+    pairs were indistinguishable (Phil, 2026-09-02).
+
+    Everything a reader sees tinted already resolves through `--accent`: the
+    selected language button (i18n.py), the `.note` explanation panel and its
+    soft fill, links, the hero rings, the section rule. So one substitution
+    here moves the whole document, and the matching pill in the Assets tab bar
+    (philforge-app.css, `--tearsheet-pill`) is set to the SAME pair -- which is
+    the point: the pill's colour is a promise about what opens.
+
+    CONTRAST IS MEASURED AGAINST THE CHIP, NOT THE CARD, because the accent's
+    worst light ground is the accent-tinted risk chip (--accent-soft over the
+    card) and not the card itself. Every light value below clears 4.5:1 there:
+    violet 4.93, cyan 4.62, lime 6.02, amber 6.01, rose 5.25. Re-measure
+    against the chip if one is ever changed.
+
+    The table lives INSIDE the function on purpose: the siblings borrow this
+    by extracting the `def` and exec'ing it on its own, so a module-level
+    constant beside it would not travel and every sibling would raise.
+    """
+    accents = {
+        "options": ("#6d4bd8", "#a78bfa"),  # violet — the parent document
+        "fib": ("#0e7490", "#22d3ee"),  # cyan
+        "candle": ("#3f6212", "#a3e635"),  # lime
+        "gapcarry": ("#92400e", "#fbbf24"),  # amber — it was already amber
+        "supertrend": ("#be123c", "#fb7185"),  # rose
+    }
+    light, dark = accents[doc]
+    out = css
+    for old, new in ((accents["options"][0], light), (accents["options"][1], dark)):
+        if old == new:
+            continue
+        rgb = ",".join(str(int(new[i : i + 2], 16)) for i in (1, 3, 5))
+        old_rgb = ",".join(str(int(old[i : i + 2], 16)) for i in (1, 3, 5))
+        out = out.replace(f"--accent:{old}", f"--accent:{new}")
+        out = out.replace(f"--accent-rgb:{old_rgb}", f"--accent-rgb:{rgb}")
+        # Catches --accent-soft, and any literal the accent already tints.
+        out = out.replace(f"rgba({old_rgb},", f"rgba({rgb},")
+    return out
+
+
 # ── equity curve as an SVG path ──────────────────────────────────────
 def curve_svg(points, w=1040, h=260, pad=1):
     ys = [p[1] for p in points]

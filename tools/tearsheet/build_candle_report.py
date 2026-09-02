@@ -49,7 +49,7 @@ DOW_TA = ["திங்", "செவ்", "புத", "வியா", "வெ�
 def _borrow():
     src = (_HERE / "build_report.py").read_text()
     helpers = {}
-    for name in ("r", "lakh", "cls", "curve_svg", "spark"):
+    for name in ("r", "lakh", "cls", "curve_svg", "spark", "recolour"):
         m = re.search(rf"^def {name}\(.*?(?=^def |^# ──|^[A-Za-z_][A-Za-z_0-9, ]* = )", src, re.S | re.M)
         if not m:
             raise SystemExit(f"build_report.py no longer defines {name}()")
@@ -69,6 +69,10 @@ def _borrow():
 
 
 HELPERS, STYLE, READER_JS = _borrow()
+# This sheet's own hue. The pill that opens it in the Assets tab bar
+# carries the same pair (philforge-app.css, --tearsheet-pill), so the
+# colour of the pill is a promise about what the document looks like.
+STYLE = HELPERS["recolour"](STYLE, "candle")
 r, lakh, cls, curve_svg, spark = (HELPERS[k] for k in ("r", "lakh", "cls", "curve_svg", "spark"))
 
 
