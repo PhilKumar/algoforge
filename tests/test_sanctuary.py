@@ -1239,6 +1239,125 @@ class PageStampTests(unittest.TestCase):
         self.assertIn("checkPageVersion", page)
 
 
+class RulesReadWordsNotReferencesTests(unittest.TestCase):
+    """A rule may read the narration's words. It may not read its machine.
+
+    Every narration below is his own shape with the figures and references
+    invented. A bank line ends in a reference number and a long hexadecimal
+    trace, and a rule of two or three letters finds itself in there every
+    single time — "dd" lived inside a trace, so the chemist and the chicken
+    shop were both filed as school fees, and correcting either row by hand
+    never held because the rule was still there and still reading the trace.
+    """
+
+    def filed(self, note, taught=None):
+        import sanctuary_statements as st
+
+        return st.categorise(note, taught or [])
+
+    CHEMIST = "UPI/APOLLO PHA/apollopharmacy/PAYMENT FO/YES BANK L/661002306628/YCDDC4D55C94D9241BA8571B646B7B1"
+    CHICKEN = "UPI/MADHEENA C/vyapar.1747424/chicken/HDFC BANK/661018315283/YCD1E4923ACB2474B1FB6AF2CA33CAE7DDB"
+
+    def test_a_short_rule_does_not_reach_into_a_reference(self):
+        taught = [{"match": "dd", "category": "Alpha school"}]
+        self.assertEqual(self.filed(self.CHEMIST, taught), "Health")
+        self.assertEqual(self.filed(self.CHICKEN, taught), "Groceries")
+
+    def test_but_a_rule_still_reads_a_name_written_straight_through(self):
+        # "pharmacy" sits in the middle of "apollopharmacy" and must be found:
+        # the test is not where a word begins, it is what the match landed in.
+        self.assertEqual(self.filed("UPI/SOMEONE/apollopharmacy/xx/BANK/1/ABC123"), "Health")
+
+    def test_a_rule_may_name_the_start_of_a_reference_on_purpose(self):
+        # He has taught rules that ARE references. Those still hold.
+        taught = [{"match": "moblt0310083269", "category": "Amma Account"}]
+        self.assertEqual(self.filed("MMT/IMPS/moblt0310083269/something", taught), "Amma Account")
+
+    def test_letters_and_digits_together_are_machine_writing(self):
+        taught = [{"match": "ips", "category": "McRennett"}]
+        self.assertEqual(self.filed("UPI/731610769535/YCDIPS9F2A1/x", taught), "Uncategorised")
+
+    def test_plain_letters_are_words_wherever_the_match_lands(self):
+        taught = [{"match": "chick", "category": "Poultry"}]
+        self.assertEqual(self.filed("UPI/SOMEONE/thechickenplace/x", taught), "Poultry")
+
+
+class TheRuleThatKnowsMostWinsTests(unittest.TestCase):
+    """Which rule takes a row when more than one fits. Figures invented."""
+
+    def filed(self, note, taught=None):
+        import sanctuary_statements as st
+
+        return st.categorise(note, taught or [])
+
+    def test_the_rule_that_recognised_more_of_the_line_wins(self):
+        # Taught first used to mean taught wins, however little it knew:
+        # "philip" filed his own transfers as a broking account because it
+        # had been taught before "philip ranjith".
+        taught = [
+            {"match": "philip", "category": "Kotak Neo"},
+            {"match": "philip ranjith", "category": "Self transfer"},
+        ]
+        self.assertEqual(self.filed("INF/308164322648/PHILIP RANJITH KUMAR", taught), "Self transfer")
+
+    def test_order_taught_does_not_decide_it(self):
+        both = [
+            {"match": "philip ranjith", "category": "Self transfer"},
+            {"match": "philip", "category": "Kotak Neo"},
+        ]
+        self.assertEqual(self.filed("INF/308164322648/PHILIP RANJITH KUMAR", both), "Self transfer")
+
+    def test_a_rule_he_taught_outranks_anything_built_in(self):
+        # He is correcting this page. A correction a built-in rule can
+        # overturn is not a correction — however much more the built-in knew.
+        taught = [{"match": "decs dr", "category": "CanFin Loan Repayment"}]
+        self.assertEqual(self.filed("DECS DR/6631286928/TP CAN FIN", taught), "CanFin Loan Repayment")
+
+    def test_two_rules_about_different_things_keep_the_order_he_chose(self):
+        # A Jio bill that went over CRED is still a Jio bill. Neither rule
+        # spells out the other, so nothing here decides for him.
+        taught = [
+            {"match": "jiofiber", "category": "Mobile & Internet"},
+            {"match": "paid via cred", "category": "Credit card bill"},
+        ]
+        note = "UPI/327794801694/Paid via CRED/jiofiber-paytm@/Paytm Payme/1/ABC"
+        self.assertEqual(self.filed(note, taught), "Mobile & Internet")
+        self.assertEqual(self.filed(note, list(reversed(taught))), "Credit card bill")
+
+    def test_the_longest_built_in_wins_among_built_ins(self):
+        # A statement truncates the payee to ten characters, so Apple Media
+        # Services arrives as "APPLE MEDI" and was read as a chemist.
+        note = "UPI/APPLE MEDI/appleservices./Mandate Re/HDFC BANK/103973029527/HDF11C82D725F1F49279"
+        self.assertEqual(self.filed(note), "Subscriptions")
+
+
+class UndoingTheOldReadingTests(unittest.TestCase):
+    """Which already-filed rows may be moved when the rulebook is mended.
+
+    A row still sitting under exactly what the broken reading said is a row
+    a rule put there. A row under anything else is one he filed himself.
+    """
+
+    def old_said(self, note, category, taught=None):
+        import sanctuary_statements as st
+
+        return st.filed_by_the_old_reading(note, category, taught or [])
+
+    CHEMIST = "UPI/APOLLO PHA/apollopharmacy/PAY/YES BANK L/661002306628/YCDDC4D55C94D9241BA8571B646B7B1"
+
+    def test_a_row_the_broken_rule_filed_is_recognised(self):
+        taught = [{"match": "dd", "category": "Alpha school"}]
+        self.assertTrue(self.old_said(self.CHEMIST, "Alpha school", taught))
+
+    def test_a_row_he_moved_himself_is_left_alone(self):
+        taught = [{"match": "dd", "category": "Alpha school"}]
+        self.assertFalse(self.old_said(self.CHEMIST, "Medical", taught))
+        self.assertFalse(self.old_said(self.CHEMIST, "Health", taught))
+
+    def test_a_row_no_rule_ever_claimed_counts_as_unsorted(self):
+        self.assertTrue(self.old_said("QQQ/zzz/nothing here", "Uncategorised", []))
+
+
 class WideNetTests(unittest.TestCase):
     """A rule is a substring, not a name. "shop" sits inside every UPI line
     that mentions one, so a rule taught from one bag of flour can hold a

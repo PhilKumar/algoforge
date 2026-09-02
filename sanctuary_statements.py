@@ -179,6 +179,10 @@ DEFAULT_RULES = [
     {"match": "lunch", "category": "Eating out"},
     {"match": "dinner", "category": "Eating out"},
     {"match": "medicine", "category": "Health"},
+    # A statement truncates the payee to ten characters, so Apple Media
+    # Services arrives as "APPLE MEDI" and read as a chemist — on a refund
+    # coming IN, at that. Apple's own handle is longer and so outranks it.
+    {"match": "appleservices", "category": "Subscriptions"},
     {"match": "apple medi", "category": "Health"},
     {"match": "saloon", "category": "Personal care"},
     {"match": "salon", "category": "Personal care"},
@@ -255,12 +259,96 @@ def payee_key(note: str) -> str:
     return text.lower()[:40]
 
 
-def categorise(note: str, user_rules: list[dict] | None = None) -> str:
+def _found_in_writing(text: str, at: int, length: int) -> bool:
+    """Whether a match landed in the narration's words, not in its machine.
+
+    A bank narration ends in machine writing — the reference number and a
+    long hexadecimal trace — and a rule looking for a couple of letters
+    finds them in there every time. "dd" lived inside
+    YCDDC4D55C94D9241BA8571B646B7B184CA, so the chemist and the chicken
+    shop were both filed as school fees, and correcting either row by hand
+    never held, because the rule was still there and still reading the
+    trace.
+
+    A payee's name is written straight through — "apollopharmacy" — and a
+    rule must still find the chemist inside it. So the test is not where a
+    word begins but what kind of thing the match landed in: anywhere in a
+    run of plain letters, but in a run that mixes letters with digits only
+    where that run begins. Nothing in a trace begins where the rule does.
+    """
+    start, end = at, at + length
+    while start > 0 and text[start - 1].isalnum():
+        start -= 1
+    while end < len(text) and text[end].isalnum():
+        end += 1
+    if start == at:
+        return True  # it begins the run: always fair
+    return not any(ch.isdigit() for ch in text[start:end])
+
+
+def _rule_claim(text: str, match: str) -> int:
+    """Where this rule takes hold in the narration, or -1 if it does not."""
+    at = text.find(match)
+    while at != -1:
+        if _found_in_writing(text, at, len(match)):
+            return at
+        at = text.find(match, at + 1)
+    return -1
+
+
+def filed_by_the_old_reading(note: str, category: str, user_rules: list[dict] | None = None) -> bool:
+    """Whether this row's category is one the broken matcher would have given.
+
+    Kept only so the damage it did can be undone. It read a rule as a bare
+    substring anywhere in the line, machine writing included, and took the
+    first rule that fitted rather than the one that fitted best — so "dd"
+    found itself inside a transaction's hexadecimal trace and filed the
+    chemist and the chicken shop as school fees.
+
+    A row still sitting under exactly what that reading said is a row a
+    rule put there. A row sitting under anything else is one he filed
+    himself, and nothing may move it.
+    """
     text = (note or "").lower()
     for rule in list(user_rules or []) + DEFAULT_RULES:
         match = str(rule.get("match") or "").lower().strip()
         if match and match in text:
-            return str(rule.get("category") or UNCATEGORISED)[:60]
+            return str(rule.get("category") or UNCATEGORISED)[:60] == category
+    return category == UNCATEGORISED
+
+
+def categorise(note: str, user_rules: list[dict] | None = None) -> str:
+    """Which category a narration belongs to, and whose rule says so.
+
+    A rule he taught outranks anything built in — he is correcting this
+    page, and a correction a built-in rule can overturn is not a correction.
+
+    Within a rank, the order he taught them stands, with one exception: a
+    rule that spells out another in full replaces it. "philip" filed his own
+    transfers as a broking account for eight years purely because it was
+    taught before "philip ranjith", and "ips" — which is sitting inside
+    "phillipshin" — took a hundred and thirty more. Where neither rule
+    spells out the other they are about different things, and the order he
+    chose is the answer: a Jio bill that went over CRED is still a Jio bill,
+    and nothing here may decide otherwise on his behalf.
+    """
+    text = (note or "").lower()
+    if not text:
+        return UNCATEGORISED
+    for tier in (list(user_rules or []), DEFAULT_RULES):
+        best_match, best = "", None
+        for rule in tier:
+            match = str(rule.get("match") or "").lower().strip()
+            if not match:
+                continue
+            if best is not None and match not in best_match and best_match not in match:
+                continue  # about different things; his order stands
+            if len(match) <= len(best_match):
+                continue
+            if _rule_claim(text, match) != -1:
+                best_match, best = match, rule
+        if best is not None:
+            return str(best.get("category") or UNCATEGORISED)[:60]
     return UNCATEGORISED
 
 

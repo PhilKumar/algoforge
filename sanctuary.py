@@ -2202,6 +2202,25 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
             continue
         await sanctuary_db.set_ledger_category(user_id, row["id"], category)
         moved[category] = moved.get(category, 0) + 1
+    # ── undoing what a misreading rulebook filed ──
+    # A rule used to be read as a bare substring anywhere in the line,
+    # machine writing included, and the first rule that fitted took the row
+    # rather than the one that fitted best. So "dd", found inside a
+    # transaction's hexadecimal trace, filed the chemist and the chicken
+    # shop as school fees, and "philip" filed his own transfers as a broking
+    # account because it had been taught before "philip ranjith".
+    #
+    # A row still sitting under exactly what that reading said is a row a
+    # rule put there, and it moves. A row sitting under anything else is one
+    # he filed by hand, and it does not.
+    for row in await sanctuary_db.every_filed_row(user_id):
+        now = sanctuary_statements.categorise(row["note"], user_rules)
+        if now == row["category"] or now == sanctuary_statements.UNCATEGORISED:
+            continue
+        if not sanctuary_statements.filed_by_the_old_reading(row["note"], row["category"], user_rules):
+            continue
+        await sanctuary_db.set_ledger_category(user_id, row["id"], now)
+        moved[now] = moved.get(now, 0) + 1
     for correction in _RECATEGORISE:
         for row in await sanctuary_db.ledger_rows_in_categories(user_id, list(correction["from"])):
             moving = _recategorised(row["note"], row["category"])

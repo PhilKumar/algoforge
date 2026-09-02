@@ -509,6 +509,25 @@ async def uncategorised_ledger(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def every_filed_row(user_id: int) -> list[dict]:
+    """Every row that already carries a category.
+
+    For the one pass that has to look at all of them: when the rulebook
+    itself was misreading, the rows that need moving are the ones already
+    sitting under its wrong answers, and nothing narrower can find them.
+    """
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT id, entry_date, amount, note, source, category FROM sanctuary_ledger
+               WHERE user_id = ? AND category != 'Uncategorised'
+                 AND note IS NOT NULL AND note != ''
+               ORDER BY entry_date DESC""",
+            (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
 async def ledger_rows_in_categories(user_id: int, categories: list[str], since: str = "") -> list[dict]:
     """Every row currently filed under one of these categories.
 
