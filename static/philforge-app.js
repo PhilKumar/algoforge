@@ -2964,8 +2964,22 @@ const _PAPER_LEDGER_UI = {
   gap_carry: { wrap: 'oc-gap-closed', body: 'oc-gap-closed-rows', count: 'oc-gap-closed-count' },
 };
 
-function _paperLedgerMoney(value) {
-  if (value === null || value === undefined) return 'unpriced';
+// WHY A ROW SAYS "unpriced", AND WHEN IT MUST NOT. A null net has two very
+// different causes and the ledger read them as one:
+//
+//   the campaign BOUGHT and an exit could not be priced  -> unpriced, and the
+//        number really is missing; that is worth the alarm.
+//   the campaign never bought at all                     -> there is nothing
+//        to price. Zero buys, zero deployed, no contract. Its P&L is not
+//        missing, it is nil.
+//
+// Phil, 2026-09-02: a Fib Boundary row with 0 buys and Rs 0.00 deployed read
+// "unpriced", which says the machinery failed on a session where it simply
+// never found a trade to take.
+function _paperLedgerMoney(value, buys) {
+  if (value === null || value === undefined) {
+    return Number(buys || 0) > 0 ? 'unpriced' : 'no trade';
+  }
   return _candleEntrySigned(Number(value));
 }
 
@@ -3115,7 +3129,7 @@ async function _refreshPaperLedger(strategy) {
       + `<td>${escapeHtml(String(row.buys ?? 0))}</td>`
       + `<td>${row.deployed_inr == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(row.deployed_inr)))}</td>`
       + `<td class="ocp-muted">${escapeHtml(String(row.exit_reason || row.status || '—'))}</td>`
-      + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net))}</td>`
+      + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net, row.buys))}</td>`
       + `<td>${chartCell}</td>`
       + `</tr>`;
   }).join('');
