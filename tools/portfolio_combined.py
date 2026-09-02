@@ -6,9 +6,18 @@ Those are different questions. Three books that each drew down Rs 1 lakh in the
 same week need more than one lakh; three that drew down in different years need
 much less than the sum. Only a combined day-by-day walk can say which.
 
-    python3 tools/portfolio_combined.py
-    python3 tools/portfolio_combined.py --priced-only     # drop estimated exits
+    python3 tools/portfolio_combined.py                       # as published
+    python3 tools/portfolio_combined.py --pe-lots 2 --ce-lots 2 --gc-lots 1
+    python3 tools/portfolio_combined.py --lots 1              # all three at one lot
+    python3 tools/portfolio_combined.py --priced-only         # drop estimated exits
     python3 tools/portfolio_combined.py --csv /tmp/combined.csv
+
+THE THREE ARE NOT PUBLISHED AT THE SAME SIZE, which is the first thing to get
+wrong here. PE and CE are 4 lots (rebuild_data.LOTS); Gap Carry is 1. Summed as
+published, the total describes a portfolio nobody would trade, so the size is
+printed in the header of every run and can be set per book. Re-sizing
+recomputes charges rather than scaling them -- brokerage is flat per order, so
+a book scaled by multiplying its net flatters every size above one lot.
 
 WHAT IS BEING COMBINED
     PE and CE come through rebuild_data.py's own loaders and splice, so they are
@@ -44,14 +53,20 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "tearsheet"))
 
 import rebuild_data as rb  # noqa: E402
 
+from cascade_costs import calculate_nifty_option_round_costs  # noqa: E402
+
 GAP_CARRY = os.path.join(ROOT, "tools", "gapcarry_offline", "runs", "NIFTY_5m_rsi70_atm4.csv")
 
 
-def load_gap_carry(priced_only: bool) -> list:
+def load_gap_carry(priced_only: bool, lots: int) -> list:
     """The overnight book, with the dates its capital is actually tied up.
 
     `held_from`/`held_to` are the entry session and the exit session, because
     the position exists across that night. An intraday book has them equal.
+
+    Re-sized from the published ONE lot, recomputing charges rather than
+    multiplying them: brokerage is flat per order, so it does not scale, and a
+    book scaled by multiplying its net would flatter every size above one lot.
     """
     out = []
     if not os.path.exists(GAP_CARRY):
@@ -62,22 +77,29 @@ def load_gap_carry(priced_only: bool) -> list:
             continue
         entry = date.fromisoformat(row["session"])
         exit_ = date.fromisoformat(row["exit_session"]) if row.get("exit_session") else entry
+        buy, sell = float(row["entry_premium"]), float(row["exit_premium"])
+        qty = int(row["lot"]) * int(lots)
+        gross = (sell - buy) * qty
+        charges = float(calculate_nifty_option_round_costs(buy_price=buy, sell_price=sell, quantity=qty).total)
         out.append(
             {
                 "book": "Gap Carry",
                 "date": exit_,  # P&L lands when the position is sold
                 "held_from": entry,
                 "held_to": exit_,
-                "net": float(row["net"]),
-                "capital": float(row["capital"]),
+                "net": round(gross - charges, 2),
+                "capital": round(buy * qty, 2),
                 "estimated": estimated,
             }
         )
     return out
 
 
-def load_pe_ce() -> list:
-    """PE and CE exactly as the five-year sheet publishes them."""
+def load_pe_ce(pe_lots: int, ce_lots: int) -> list:
+    """PE and CE exactly as the five-year sheet publishes them, at any size.
+
+    `rb.resize` recomputes fees for the new quantity for the same reason.
+    """
     pe = rb.splice(
         rb.load_external(rb.src(rb.PE_FILE), "PE", False), rb.load_engine_run(rb.src(rb.PE_ENGINE_FILE), "PE")
     )
@@ -85,8 +107,9 @@ def load_pe_ce() -> list:
         rb.load_external(rb.src(rb.CE_FILE), "CE", False), rb.load_engine_run(rb.src(rb.CE_ENGINE_FILE), "CE")
     )
     out = []
-    for trades, label in ((pe, "PE"), (ce, "CE")):
-        for t in trades:
+    for trades, label, lots in ((pe, "PE", pe_lots), (ce, "CE", ce_lots)):
+        sized = trades if int(lots) == rb.LOTS else rb.resize(trades, int(lots))
+        for t in sized:
             day = date.fromisoformat(t["date"])
             out.append(
                 {
@@ -162,10 +185,23 @@ def money(x: float) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--priced-only", action="store_true", help="drop Gap Carry exits priced from the index")
+    # THE THREE BOOKS ARE NOT PUBLISHED AT THE SAME SIZE. PE and CE are 4 lots
+    # (rebuild_data.LOTS); Gap Carry is 1. Summing them as published answers a
+    # question nobody asked, so the size is named here and printed in the
+    # header -- and `--lots N` puts all three on the same footing.
+    ap.add_argument("--lots", type=int, default=0, help="one size for all three (overrides the three below)")
+    ap.add_argument("--pe-lots", type=int, default=rb.LOTS, help="default 4, the published size")
+    ap.add_argument("--ce-lots", type=int, default=rb.LOTS, help="default 4, the published size")
+    ap.add_argument("--gc-lots", type=int, default=1, help="default 1, the published size")
     ap.add_argument("--csv", default="", help="write the day-by-day series here")
     args = ap.parse_args(argv)
+    if args.lots:
+        args.pe_lots = args.ce_lots = args.gc_lots = int(args.lots)
+    for name, n in (("--pe-lots", args.pe_lots), ("--ce-lots", args.ce_lots), ("--gc-lots", args.gc_lots)):
+        if n < 1:
+            raise SystemExit(f"{name} must be at least 1")
 
-    trades = load_pe_ce() + load_gap_carry(args.priced_only)
+    trades = load_pe_ce(args.pe_lots, args.ce_lots) + load_gap_carry(args.priced_only, args.gc_lots)
     if not trades:
         raise SystemExit("no trades loaded")
     trades.sort(key=lambda t: t["date"])
@@ -203,6 +239,7 @@ def main(argv=None) -> int:
     print("=" * 74)
     print("  GAP CARRY + PE + CE, RUN TOGETHER")
     print(f"  {first} -> {last}   ({years:.1f} years, {len(daily)} trading days)")
+    print(f"  Size: PE {args.pe_lots} lot(s), CE {args.ce_lots} lot(s), Gap Carry {args.gc_lots} lot(s)")
     if args.priced_only:
         print("  Gap Carry exits priced from the index are EXCLUDED")
     print("=" * 74)
