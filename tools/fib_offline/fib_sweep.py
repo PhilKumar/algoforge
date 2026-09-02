@@ -16,6 +16,19 @@ from engine.fib_touch_ladder import HALVING_LEVELS, FibTouchConfig, FibTouchLadd
 
 LEVELS = tuple(int(x) for x in os.environ["LEVELS"].split(",")) if os.environ.get("LEVELS") else HALVING_LEVELS
 
+# THE EXIT AND THE DEPTH, which this script could not say before. The published
+# tearsheet is "Target = Trailing (1 span), at most 4 buys a round", but
+# FibTouchConfig defaults trailing_stop to False -- so a plain run of this file
+# reproduced a DIFFERENT book from the one on the Assets page, quietly. The
+# sweep CSVs that made that page were temporary files and are gone, so there
+# was nothing left that could rebuild it.
+#
+#   TRAIL=1 MAX_BUYS=4   the published NIFTY/SENSEX call configuration
+#   TRAIL=0              fixed target, which is what SENSEX_PE_fixed was
+TRAIL = os.environ.get("TRAIL", "1") not in ("0", "", "false", "no")
+TRAIL_SPAN = float(os.environ.get("TRAIL_SPAN", "1.0"))
+MAX_BUYS_ENV = int(os.environ.get("MAX_BUYS", "4"))
+
 tf = sys.argv[1]
 side = sys.argv[2]
 buy_mode = sys.argv[3]
@@ -69,6 +82,9 @@ while d <= end:
             buy_mode=buy_mode,
             intraday_close=intraday,
             levels=LEVELS,
+            trailing_stop=TRAIL,
+            trail_span_multiple=TRAIL_SPAN,
+            max_buys=MAX_BUYS_ENV,
         )
         eng = FibTouchLadder(cfg, premium_lookup=premium, expiry_source=expiry_source)
         hz = mother.date() + timedelta(days=10)

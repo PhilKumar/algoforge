@@ -13,6 +13,29 @@ session, real recorded premiums, lot 25 / 75 / 65 by date. Nothing here is
 typed by hand.
 
     python3 tools/tearsheet/build_fib_report.py [CE.csv PE.csv]
+
+REGENERATING THE SWEEPS. They used to be written to $TMPDIR and were gone by
+the time anyone needed them again, which left this sheet unbuildable -- it
+could not even be recoloured with its siblings on 2026-09-02. Four commands,
+about three minutes, and they reproduce the published book EXACTLY
+(CE 174 / Rs 92,658.35, ALL 343 / Rs 2,11,721.15):
+
+    T=09:15,09:30,10:15,11:15,12:15,13:15,14:15
+    D=tools/fib_offline/runs/v4 && mkdir -p $D
+    SYMBOL=NIFTY  TRAIL=1 MAX_BUYS=4 python3 tools/fib_offline/fib_sweep.py \
+        5m CE levels intraday 2024-10-03 2026-08-17 $T $D/NIFTY_CE_trail_max4.csv
+    SYMBOL=NIFTY  TRAIL=1 MAX_BUYS=0 python3 tools/fib_offline/fib_sweep.py \
+        5m PE levels intraday 2024-10-03 2026-08-17 $T $D/NIFTY_PE_trail_max0.csv
+    SYMBOL=SENSEX TRAIL=1 MAX_BUYS=4 python3 tools/fib_offline/fib_sweep.py \
+        5m CE levels intraday 2024-10-03 2026-08-17 $T $D/SENSEX_CE_trail_max4.csv
+    SYMBOL=SENSEX TRAIL=0 MAX_BUYS=0 python3 tools/fib_offline/fib_sweep.py \
+        5m PE levels intraday 2024-10-03 2026-08-17 $T $D/SENSEX_PE_fixed_max0.csv
+    FIB_SWEEP_DIR=tools/fib_offline/runs python3 tools/tearsheet/build_fib_report.py
+
+TRAIL and MAX_BUYS did not exist as knobs before that date, so a plain run of
+fib_sweep.py silently produced a DIFFERENT book from the published one --
+FibTouchConfig defaults trailing_stop to False. That is why they are named
+here rather than left to a default.
 """
 
 from __future__ import annotations
