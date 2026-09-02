@@ -33,6 +33,9 @@ import config
 # ══════════════════════════════════════════════════════════════
 _token_refresh_lock = threading.Lock()
 _last_token_refresh: dict[str, float] = {}
+# When a failure was last reported to Telegram, so a token that cannot
+# refresh buzzes once an hour instead of once a poll.
+_last_token_alert: float = 0.0
 
 
 def _is_invalid_token_response(resp) -> bool:
@@ -59,10 +62,39 @@ def _is_invalid_token_response(resp) -> bool:
         return False
 
 
+def _is_rate_limited(detail: str) -> bool:
+    """Dhan's own "one token every two minutes", which is not a failure.
+
+    Two code paths ask for a token on startup -- app.py's bootstrap and this
+    module's refresh -- and they raced 76ms apart on 2026-09-02. The first
+    succeeded; the second got this refusal and reported "FAILED, manual
+    intervention may be needed" for a token that had just been minted.
+    """
+    return "once every 2 minutes" in str(detail or "").lower()
+
+
 def _notify_token_event(success: bool, detail: str = "") -> None:
-    """Fire-and-forget sync Telegram notification for token refresh events."""
+    """Fire-and-forget sync Telegram notification for token refresh events.
+
+    A SUCCESSFUL refresh says nothing now. It is the system healing itself and
+    needs no one; Phil was getting a message for every one of those on top of a
+    message for every failure ("token expired and token renewed... Annoying").
+    Only something a person has to act on is worth a phone buzzing.
+    """
+    if success:
+        return
     if not config.TELEGRAM_ALERTS_ENABLED:
         return
+    if _is_rate_limited(detail):
+        return
+    # One failure message an hour. A token that genuinely cannot refresh fails
+    # on every poll, and sixty buzzes say nothing the first one did not.
+    global _last_token_alert
+    with _token_refresh_lock:
+        now = _time.time()
+        if now - _last_token_alert < 3600.0:
+            return
+        _last_token_alert = now
     try:
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -81,8 +113,13 @@ def _notify_token_event(success: bool, detail: str = "") -> None:
         pass
 
 
-def _reserve_refresh_slot(refresh_key: str, *, force: bool = False, cooldown_sec: float = 30.0) -> bool:
-    """Guard token refresh attempts with a per-key cooldown."""
+def _reserve_refresh_slot(refresh_key: str, *, force: bool = False, cooldown_sec: float = 150.0) -> bool:
+    """Guard token refresh attempts with a per-key cooldown.
+
+    150s, not 30s: Dhan itself only mints one token every two minutes, so a
+    30-second cooldown let this ask again inside the vendor's own window and
+    collect a refusal it then reported as a failure.
+    """
     global _last_token_refresh
     with _token_refresh_lock:
         now = _time.time()
@@ -106,8 +143,17 @@ def _try_refresh_token(*, force: bool = False) -> bool:
             _dhan_log.info("[DHAN] ✅ Token auto-refreshed after invalid token error")
             _notify_token_event(True)
             return True
-        _dhan_log.warning("[DHAN] Token refresh failed — auto_generate_token returned None")
-        _notify_token_event(False, "auto_generate_token returned None")
+        # WHY it failed decides whether anyone needs telling, so the reason is
+        # carried rather than flattened to "returned None" -- that string was
+        # what made Dhan's own rate limit look like a broken token.
+        import token_manager as _tm
+
+        reason = getattr(_tm, "LAST_ERROR", "") or "auto_generate_token returned None"
+        if _is_rate_limited(reason):
+            _dhan_log.info("[DHAN] Token was refreshed moments ago by another path; nothing to do")
+            return True
+        _dhan_log.warning(f"[DHAN] Token refresh failed — {reason}")
+        _notify_token_event(False, reason)
         return False
     except Exception as e:
         _dhan_log.error(f"[DHAN] Token refresh error: {e}")

@@ -91,6 +91,10 @@ def renew_access_token(client_id: str, current_token: str) -> dict:
         return {"success": False, "error": f"HTTP {resp.status_code}"}
 
 
+# The last failure reason, for a caller deciding whether to alarm anyone.
+LAST_ERROR: str = ""
+
+
 def auto_generate_token() -> str | None:
     """
     Main entry point: generate a fresh token using TOTP.
@@ -124,6 +128,10 @@ def auto_generate_token() -> str | None:
         _update_env_token(new_token)
         return new_token
     else:
+        # Recorded so broker/dhan.py can tell a real failure from Dhan's own
+        # "once every 2 minutes", which is not one.
+        global LAST_ERROR
+        LAST_ERROR = str(result.get("error") or "")
         log.error(f"[TokenManager] Failed to generate token: {result.get('error')}")
         return None
 
