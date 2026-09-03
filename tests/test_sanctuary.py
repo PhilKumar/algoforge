@@ -1361,6 +1361,60 @@ class WhatIsActuallyInTheAccountTests(unittest.TestCase):
     def test_a_figure_no_account_could_hold_is_refused(self):
         self.assertIsNone(self.keep(10**12))
 
+    def test_a_statement_offered_again_is_sent_whole(self):
+        # The browser used to strip out every row already posted, so on a
+        # re-import it sent nothing at all and the balances the first
+        # reading threw away could never be recovered.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        self.assertIn("const rows = pv.rows;", page)
+        self.assertNotIn("const rows = pv.rows.filter((r) => !r.posted);", page)
+
+    def test_offering_the_statement_again_fills_the_balances_in(self):
+        """The whole point, proved against a real table. Figures invented."""
+        import asyncio
+        import importlib
+        import os
+        import tempfile
+
+        db_fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = path
+        try:
+            import config
+            import db as core_db
+
+            importlib.reload(config)
+            core_db.config = config
+            core_db._initialized = False
+            core_db._init_db_sync()
+            import sanctuary_db
+
+            sanctuary_db.config = config
+
+            first = [
+                {"entry_date": "2026-09-01", "amount": 100.0, "note": "a", "ref_id": "stmt:1", "source": "statement"},
+                {"entry_date": "2026-09-02", "amount": 200.0, "note": "b", "ref_id": "stmt:2", "source": "statement"},
+            ]
+            self.assertEqual(asyncio.run(sanctuary_db.add_ledger_many(1, first)), 2)
+            self.assertIsNone(asyncio.run(sanctuary_db.balance_last_known(1))["balance"])
+
+            # the same statement offered again, this time carrying balances
+            again = [dict(r, balance=b) for r, b in zip(first, (9000.0, 8800.0))]
+            self.assertEqual(asyncio.run(sanctuary_db.add_ledger_many(1, again)), 0, "nothing new")
+            self.assertEqual(asyncio.run(sanctuary_db.backfill_balances(1, again)), 2)
+            known = asyncio.run(sanctuary_db.balance_last_known(1))
+            self.assertEqual((known["balance"], known["as_of"]), (8800.0, "2026-09-02"))
+
+            # and it never overwrites one already known
+            asyncio.run(sanctuary_db.backfill_balances(1, [dict(again[1], balance=1.0)]))
+            self.assertEqual(asyncio.run(sanctuary_db.balance_last_known(1))["balance"], 8800.0)
+        finally:
+            os.unlink(path)
+
     def test_the_ledger_keeps_a_column_for_it(self):
         import os.path
 

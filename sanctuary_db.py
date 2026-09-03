@@ -266,11 +266,6 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
         return 0
     existing = await existing_ledger_refs(user_id, [r["ref_id"] for r in rows if r.get("ref_id")])
     fresh = [r for r in rows if r.get("ref_id") and r["ref_id"] not in existing]
-    # A statement offered again adds nothing — that is the point — but it may
-    # be carrying something the first reading threw away. The running balance
-    # was thrown away for years, and without this there would be no way ever
-    # to get it back: every row is already posted, so nothing would be read.
-    await backfill_balances(user_id, [r for r in rows if r.get("ref_id") in existing])
     if not fresh:
         return 0
     now = _now_iso()

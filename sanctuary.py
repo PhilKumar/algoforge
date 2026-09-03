@@ -2129,6 +2129,11 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
             }
         )
     added = await sanctuary_db.add_ledger_many(user_id, cleaned)
+    # A statement offered again adds nothing — that is the point — but it may
+    # be carrying the running balance the first reading threw away, and this
+    # is the only moment it can be recovered: every row is already posted, so
+    # nothing else would ever read them.
+    filled = await sanctuary_db.backfill_balances(user_id, cleaned)
     account = re.sub(r"\D", "", str(payload.get("account") or ""))
     if added and 9 <= len(account) <= 18:
         await _remember_account_number(user_id, account, str(payload.get("bank") or ""))
@@ -2140,7 +2145,7 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
             kind = str(entry.get("kind") or "Linked account")[:80]
             if 9 <= len(number) <= 18 and number != account:
                 await _remember_account_number(user_id, number, kind)
-    return {"added": added, "skipped": len(cleaned) - added}
+    return {"added": added, "skipped": len(cleaned) - added, "filled": filled}
 
 
 async def _remember_account_number(user_id: int, account: str, bank: str) -> None:

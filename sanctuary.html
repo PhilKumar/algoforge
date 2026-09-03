@@ -4800,15 +4800,22 @@ document.addEventListener("click", async (e) => {
   if (imp) {
     const pv = stmtState.previews[Number(imp.dataset.stmtImport)];
     imp.disabled = true; imp.textContent = "Importing…";
-    const rows = pv.rows.filter((r) => !r.posted);
-    let added = 0;
+    // Rows already posted are sent as well. They add nothing — the server
+    // knows them by their reference and passes over them — but they may be
+    // carrying a running balance that the first reading threw away, and
+    // offering the statement again is the only moment it can be recovered.
+    const rows = pv.rows;
+    let added = 0, filled = 0;
     for (let at = 0; at < rows.length; at += 800) {
       const r = await api("/api/sanctuary/statements/commit", {method: "POST",
         body: {rows: rows.slice(at, at + 800), account: pv.account || "",
           linked_accounts: pv.linked_accounts || []}});
-      added += r.added;
+      added += r.added; filled += r.filled || 0;
     }
-    toast(added + " entries took their places. 🌿");
+    toast(added
+      ? `${added} entries took their places${filled ? `, and ${filled} balances filled in` : ""}. 🌿`
+      : filled ? `Nothing new — but ${filled} running balances filled in. 🌿`
+      : "Every row of that was already here. 🌿");
     pv.already_posted += added; pv.new_count = 0; pv.rows.forEach((r) => r.posted = true);
     renderStmtPreviews(); refreshFinance(); loadStmtReview();
     return;
