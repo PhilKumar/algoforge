@@ -1363,6 +1363,53 @@ class AClaimIsAnsweredByTheBankTests(unittest.TestCase):
         self.assertEqual(sum(1 for c in out["claims"] if c["awaiting"]), 1)
 
 
+class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):
+    """What the loan card puts in front of him.
+
+    Every value in that grid is one clipped line — right for a figure, wrong
+    for a sentence. A sentence put in one of those slots came out as "Its
+    sweeps begin 7 Dec 2024, after the account was already run…", beside a
+    balance reading "—" and a highlighted button offering to upload a
+    schedule, which an overdraft can never have.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_the_fields_hold_values_short_enough_to_be_read(self):
+        self.assertIn("<span>Balance</span>", self.page)
+        self.assertIn("<b>Revolving</b>", self.page)
+        self.assertIn("<b>No schedule</b>", self.page)
+        self.assertIn("<span>Sweeps seen</span>", self.page)
+        self.assertNotIn("<b>Revolving — no fixed EMI</b>", self.page)
+
+    def test_a_balance_says_what_it_is_rather_than_a_dash(self):
+        self.assertIn('l.drawn_amount ? inr(l.drawn_amount) : l.od_by_sweeps ? "Clear" : "Not stated"', self.page)
+
+    def test_an_explanation_gets_its_own_line_and_wraps(self):
+        self.assertIn(".loan-said{", self.page)
+        self.assertIn('<p class="loan-said">', self.page)
+        self.assertNotIn("<span>Not known here</span>", self.page)
+
+    def test_a_revolving_debt_is_never_offered_a_schedule(self):
+        # It has none and can have none; the question was whether it had a
+        # figure typed in, so clearing the figure started offering one.
+        self.assertIn("function revolving(l){", self.page)
+        self.assertIn(
+            "return !l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored || l.od_by_sweeps);",
+            self.page,
+        )
+        self.assertIn('${revolving(l) ? `<button class="btn small" data-odset="${l.id}">', self.page)
+
+    def test_the_balance_can_be_set_from_the_card_itself(self):
+        self.assertIn("data-odset", self.page)
+        self.assertIn('const odset = t.closest("[data-odset]");', self.page)
+        self.assertIn('odOwedForm({owed: loan.drawn_amount || 0, account: loan.account_no || ""});', self.page)
+
+
 class FromTheFileToTheTileTests(unittest.TestCase):
     """The whole chain in one test: a statement in, a balance on the tile.
 

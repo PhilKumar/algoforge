@@ -1068,6 +1068,12 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
 .loan-grid .lf{display:flex;flex-direction:column;gap:3px;min-width:0}
 .loan-grid .lf span{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--soft)}
 .loan-grid .lf b{font-size:.92rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* A sentence is not a field. The values above are one clipped line each,
+   which is right for a figure and wrong for an explanation — an explanation
+   put in one of those slots came out as "Its sweeps begin 7 Dec 2024, after
+   the account was already run…". It gets its own line, and wraps. */
+.loan-said{margin:10px 0 0;font-size:.85rem;line-height:1.5;color:var(--muted);
+  padding:8px 11px;border-radius:10px;background:var(--card-2);border:1px solid var(--line-soft)}
 .loan-progress{height:4px;border-radius:3px;background:var(--card-2);overflow:hidden}
 .loan-progress i{display:block;height:100%;border-radius:3px;background:var(--moss)}
 .loan-acct{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;
@@ -2967,7 +2973,7 @@ function odOwedForm(od){
     const owed = Number(wrap.querySelector("#odf-owed").value || 0);
     try {
       await api("/api/sanctuary/od/owed", {method: "PUT", body: {owed, account: od.account || ""}});
-      wrap.remove(); refreshFinance(); loadLoans();
+      wrap.remove(); refreshFinance(); loadLoans(); loadNotes();
       toast(owed ? "Kept — it counts with the other debts now. 🏛️" : "Cleared.");
     } catch (err) { toast(err.message || "That did not take"); }
   };
@@ -3618,16 +3624,19 @@ function loanCard(l){
         ${!l.active ? `<span class="badge closed">CLOSED · repaid in full</span>` : l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
 
-      ${!l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored) ? `<div class="loan-grid">
-        <div class="lf"><span>Drawn</span><b class="num" style="color:${l.drawn_amount ? "var(--danger)" : "var(--moss)"}">${l.od_unanchored && !l.od_by_sweeps ? "—" : (l.drawn_amount ? inr(l.drawn_amount) : "clear")}</b></div>
-        <div class="lf"><span>Type</span><b>Revolving — no fixed EMI</b></div>
-        <div class="lf"><span>Repayment</span><b>${esc(l.note || "as money allows")}</b></div>
-        ${l.od_by_sweeps ? `<div class="lf" style="grid-column:1/-1"><span>Where that comes from</span>
-          <b>its own ${l.od_sweeps} sweeps, ${l.od_from ? niceDate(l.od_from) : ""} to ${l.od_to ? niceDate(l.od_to) : ""}</b></div>` : ""}
-        ${l.od_unanchored && !l.od_by_sweeps ? `<div class="lf" style="grid-column:1/-1"><span>Not known here</span>
-          <b>Its sweeps begin ${l.od_from ? niceDate(l.od_from) : "mid-life"}, after the account was already running, so they cannot
-          say where it stands — only the bank can. Tell it below and every sweep after today carries it forward.</b></div>` : ""}
-      </div>` : `<div class="loan-grid">
+      ${revolving(l) ? `<div class="loan-grid">
+        <div class="lf"><span>Balance</span><b class="num" style="color:${l.drawn_amount ? "var(--danger)" : "var(--moss)"}">${
+          l.drawn_amount ? inr(l.drawn_amount) : l.od_by_sweeps ? "Clear" : "Not stated"}</b></div>
+        <div class="lf"><span>Type</span><b>Revolving</b></div>
+        <div class="lf"><span>Repayment</span><b>No schedule</b></div>
+        ${l.od_sweeps ? `<div class="lf"><span>Sweeps seen</span><b class="num">${l.od_sweeps}</b></div>
+        <div class="lf"><span>From</span><b>${l.od_from ? niceDate(l.od_from) : "—"}</b></div>
+        <div class="lf"><span>To</span><b>${l.od_to ? niceDate(l.od_to) : "—"}</b></div>` : ""}
+      </div>
+      ${l.od_by_sweeps ? `<p class="loan-said">Worked out from its own sweeps, which cover the whole life of the account.</p>` : ""}
+      ${l.od_unanchored && !l.od_by_sweeps ? `<p class="loan-said">The sweeps here begin ${l.od_from ? niceDate(l.od_from) : "part-way through"},
+        after the account was already running, so they cannot say where it stands. Only the bank can — tell it below,
+        and every sweep after that carries it forward on its own.</p>` : ""}` : `<div class="loan-grid">
         <div class="lf"><span>EMI</span><b class="num">${inr(l.emi_amount)}</b></div>
         <div class="lf"><span>Due day</span><b class="num">${l.due_day}</b></div>
         <div class="lf"><span>Next due</span><b>${l.next_due ? niceDate(l.next_due) : "—"}</b></div>
@@ -3653,7 +3662,8 @@ function loanCard(l){
 
       <div class="btns">
         ${l.overdue_count ? `<button class="btn small" data-settle="${l.id}">✓ ${l.overdue_count} already paid</button>` : ""}
-        ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? "" : `<button class="btn small" data-lup="${l.id}">Upload schedule</button>
+        ${revolving(l) ? `<button class="btn small" data-odset="${l.id}">${l.drawn_amount ? "Change the balance" : "Set the balance"}</button>`
+          : `<button class="btn small" data-lup="${l.id}">Upload schedule</button>
         ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}`}
         <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
         ${l.active ? `<button class="btn subtle small" data-lclose="${l.id}" title="Repaid in full — keep the card, quiet it down">Mark closed</button>`
@@ -3663,6 +3673,13 @@ function loanCard(l){
     </div>`;
 }
 
+/* A revolving debt — an overdraft, a card — has no schedule and no
+   instalment. Asking whether it has a DRAWN FIGURE was the wrong question:
+   the moment his overdraft's balance was cleared it started being offered
+   "Upload schedule" and "Build one", which an overdraft can never have. */
+function revolving(l){
+  return !l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored || l.od_by_sweeps);
+}
 function loanForm(loan){
   const wrap = modal(`<h4>${loan ? "Tend this loan" : "A new loan"}</h4>
     <label>Name</label><input class="field" id="lf-name" value="${esc(loan?.name || "")}" placeholder="HDFC Personal Loan">
@@ -4334,6 +4351,14 @@ document.addEventListener("click", async (e) => {
   const acctCopy = t.closest("[data-acct-copy]");
   if (acctCopy){
     toast(await copyText(acctCopy.dataset.acctCopy) ? "Number copied." : "Could not reach the clipboard.");
+    return;
+  }
+  const odset = t.closest("[data-odset]");
+  if (odset) {
+    // The one place the bank's own figure can be given, reachable from the
+    // card itself rather than only from the panel over in Finances.
+    const loan = S.loans.find((l) => l.id === Number(odset.dataset.odset)) || {};
+    odOwedForm({owed: loan.drawn_amount || 0, account: loan.account_no || ""});
     return;
   }
   const lup = t.closest("[data-lup]");
