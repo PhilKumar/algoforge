@@ -2286,6 +2286,19 @@ _RETIRED_RULES = (
         "category": "AxisBank Creditcard",
         "why": "it matched the bank printed in every UPI line, not the payee",
     },
+    # Paying CRED settles a credit card. Both of these filed those payments
+    # as a loan, and he has no loan with CRED — every one of the rows they
+    # held is a card being paid off.
+    {
+        "match": "cred club",
+        "category": "CRED Loan",
+        "why": "paying CRED settles a card; it is not a loan he holds",
+    },
+    {
+        "match": "credclub",
+        "category": "CRED Loan",
+        "why": "paying CRED settles a card; it is not a loan he holds",
+    },
 )
 
 
@@ -2352,9 +2365,16 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     # A row still sitting under exactly what that reading said is a row a
     # rule put there, and it moves. A row sitting under anything else is one
     # he filed by hand, and it does not.
+    # A row is normally never un-filed: landing back in the pile is worse
+    # than an imperfect label. But a row filed by a rule that has just been
+    # retired has no label — it has a lie — and the pile is exactly where it
+    # belongs, because that is where he can teach it what it really is.
+    voided = {str(gone["category"]) for gone in _RETIRED_RULES}
     for row in await sanctuary_db.every_filed_row(user_id):
         now = sanctuary_statements.categorise(row["note"], user_rules)
-        if now == row["category"] or now == sanctuary_statements.UNCATEGORISED:
+        if now == row["category"]:
+            continue
+        if now == sanctuary_statements.UNCATEGORISED and row["category"] not in voided:
             continue
         if not sanctuary_statements.filed_by_the_old_reading(row["note"], row["category"], user_rules):
             continue

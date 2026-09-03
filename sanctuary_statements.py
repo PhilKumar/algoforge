@@ -96,6 +96,9 @@ DEFAULT_RULES = [
     # so those rows fell through to whichever rule caught the rail.
     {"match": "cred.wallet@", "category": "Credit card bill"},
     {"match": "payment on cred", "category": "Credit card bill"},
+    # CRED's own handles, whichever bank it happens to collect through.
+    {"match": "credclub@", "category": "Credit card bill"},
+    {"match": "cred club", "category": "Credit card bill"},
     {"match": "netflix", "category": "Subscriptions"},
     {"match": "spotify", "category": "Subscriptions"},
     {"match": "hotstar", "category": "Subscriptions"},

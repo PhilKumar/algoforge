@@ -1669,13 +1669,42 @@ class ARuleTaughtFromTheRailTests(unittest.TestCase):
             self.filed(note, [{"match": "axis bank", "category": "AxisBank Creditcard"}]), "AxisBank Creditcard"
         )
 
-    def test_the_retired_rule_is_named_with_its_reason(self):
+    def test_every_retired_rule_is_named_with_its_reason(self):
         import sanctuary
 
         gone = {r["match"]: r for r in sanctuary._RETIRED_RULES}
-        self.assertIn("axis bank", gone)
         self.assertEqual(gone["axis bank"]["category"], "AxisBank Creditcard")
-        self.assertTrue(gone["axis bank"]["why"])
+        # Paying CRED settles a card. He holds no loan with them.
+        self.assertEqual(gone["cred club"]["category"], "CRED Loan")
+        self.assertEqual(gone["credclub"]["category"], "CRED Loan")
+        for rule in sanctuary._RETIRED_RULES:
+            self.assertTrue(rule["why"], rule["match"])
+
+    def test_a_retired_rules_categories_may_be_emptied_back_to_the_pile(self):
+        # Normally a row is never un-filed — the pile is worse than an
+        # imperfect label. But a row filed by a rule that has just been
+        # retired does not have a label, it has a lie.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn('voided = {str(gone["category"]) for gone in _RETIRED_RULES}', code)
+        self.assertIn(
+            'if now == sanctuary_statements.UNCATEGORISED and row["category"] not in voided:',
+            code,
+        )
+
+    def test_every_shape_of_paying_cred_reads_the_same_way(self):
+        # Two rows of the same kind landing in two categories is what sent
+        # him looking in the first place.
+        for note in (
+            "UPI/CRED WALLE/cred.wallet@ax/payment on/AXIS BANK/6610183/ACD8",
+            "UPI/CRED Club/cred.club@axis/payment on/AXIS BANK/6610183/ACD7",
+            "UPI/305037500186/cred/credclub@icici/ICICI Bank/MNOZ54dz",
+            "UPI/419/payment on CRED/somewhere@else/HDFC BANK/1/ABC",
+        ):
+            self.assertEqual(self.filed(note), "Credit card bill", note[:38])
 
     def test_only_that_exact_rule_is_retired(self):
         # A rule of the same words pointing somewhere else is his own and
