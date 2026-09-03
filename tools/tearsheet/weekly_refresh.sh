@@ -46,10 +46,45 @@ python3 -m pytest tests/test_published_figures_match_data.py -q
 python3 tools/tearsheet/update_landing.py --check
 
 step "What changed"
-git -C "$REPO" status --short -- \
+# Both generated files carry a "generated: <today>" stamp, so a run on a day when
+# the book did not move still rewrites two files with nothing but a new date in
+# them. Left alone that would hand Phil a date-only commit every single week, and
+# since a push auto-deploys PhilForge, a weekly restart of a live trading app for
+# no reason at all. So: if a generated file differs ONLY by its date stamp, put
+# it back and say nothing changed. Any real difference is left exactly as it is.
+DATED="tools/tearsheet/report_data.json docs/assets/backtest-tearsheet-5yr.html"
+for f in $DATED; do
+  if ! git -C "$REPO" diff --quiet -- "$f"; then
+    # Every grep here can legitimately match nothing, and under `set -o
+    # pipefail` a grep that matches nothing fails the whole pipeline and, with
+    # `set -e`, silently kills the script -- which is exactly what it did the
+    # first time. Each grep is guarded so "no matches" means zero, not death.
+    substantive=$(git -C "$REPO" diff -U0 -- "$f" \
+      | { grep -E '^[+-]' || true; } \
+      | { grep -Ev '^(\+\+\+|---)' || true; } \
+      | { grep -Ev 'generated' || true; } \
+      | wc -l | tr -d ' ')
+    if [ "$substantive" = "0" ]; then
+      git -C "$REPO" checkout -- "$f"
+      echo "  $f — date stamp only, reverted"
+    fi
+  fi
+done
+
+CHANGED=$(git -C "$REPO" status --porcelain -- \
   tools/tearsheet/report_data.json \
   docs/assets/backtest-tearsheet-5yr.html \
   static/landing/forge.html \
-  static/landing/dojima.js || true
+  static/landing/dojima.js)
+
+if [ -z "$CHANGED" ]; then
+  echo
+  echo "NO CHANGE — every published surface already matches the book. Nothing to commit."
+  exit 0
+fi
+
+echo "$CHANGED"
 echo
-echo "Nothing has been committed or pushed. Review, then commit these four paths."
+echo "THE BOOK MOVED. Nothing has been committed or pushed."
+echo "Review, then commit exactly these paths:"
+echo "  git commit -- tools/tearsheet/report_data.json docs/assets/backtest-tearsheet-5yr.html static/landing/forge.html static/landing/dojima.js"
