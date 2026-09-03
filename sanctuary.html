@@ -3264,16 +3264,13 @@ function renderFinance(){
     <div class="tile card"><div class="lbl">In the bank</div>
       <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
       <div class="sub">${f.bank_balance == null
-        ? "no statement has printed one yet — import one and it fills in"
+        ? `no statement figure yet · <span class="edit" id="od-held-edit">sweep account</span>`
         : f.bank_in_od
-        ? `${inr(f.bank_current)} in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account${
-            f.bank_od_limit ? ` · it lends up to ${inr(f.bank_od_limit)}, not counted here` : ""}`
-        : `the statement's own figure, ${niceDate(f.bank_as_of)}${f.bank_after ? ` · ${f.bank_after} since` : ""}`}
-        · <span class="edit" id="od-held-edit">${f.bank_in_od ? "change the sweep account" : "money in the sweep account?"}</span>
-        ${f.salary ? ` · pay ${inr(f.salary)}` : ""} · <span class="edit" id="salary-edit">${f.salary ? "change pay" : "set pay"}</span></div></div>
+        ? `${inr(f.bank_current)} account + ${inr(f.bank_in_od)} sweep · <span class="edit" id="od-held-edit">edit</span>`
+        : `${niceDate(f.bank_as_of)} · <span class="edit" id="od-held-edit">money in the sweep account?</span>`}</div></div>
     <div class="tile card"><div class="lbl">To spend this month</div>
       <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
-      <div class="sub">${niceMonth(f.carried_from)}'s pay, which is what ${niceMonth(f.month)} lives on</div></div>
+      <div class="sub">${niceMonth(f.carried_from)}'s pay · <span class="edit" id="salary-edit">${f.salary ? "change" : "set"}</span></div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
