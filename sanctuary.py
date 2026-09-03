@@ -77,7 +77,6 @@ OD_LOAN_NAME = "Sweep overdraft"
 
 DEFAULT_CATEGORIES = [
     {"name": "Milk", "emoji": "🥛", "kind": "expense", "quick": True},
-    {"name": "Autorickshaw", "emoji": "🛺", "kind": "expense", "quick": True},
     {"name": "EB Bill", "emoji": "⚡", "kind": "expense", "quick": True},
     {"name": "Groceries", "emoji": "🧺", "kind": "expense", "quick": True},
     # Anything eaten, wherever it was eaten. Three names for it had grown —
@@ -100,9 +99,6 @@ DEFAULT_CATEGORIES = [
     {"name": OD_CATEGORY, "emoji": "🏛️", "kind": "debt", "quick": False},
     {"name": "NPS", "emoji": "🌳", "kind": "saving", "quick": False},
     {"name": "PF", "emoji": "🌳", "kind": "saving", "quick": False},
-    {"name": "MF SIP", "emoji": "🌿", "kind": "saving", "quick": False},
-    {"name": "RD / FD", "emoji": "🏦", "kind": "saving", "quick": False},
-    {"name": "Gold", "emoji": "🪙", "kind": "saving", "quick": False},
 ]
 
 
@@ -2402,6 +2398,36 @@ _RENAMED_CATEGORIES = {
 }
 
 
+# Names that have never held a row and that nothing files into. Listed by
+# name rather than found by a rule, because a rule would come round again
+# every time he sorted and take away a category he had just made for
+# something he has not spent on yet.
+#
+# NPS is deliberately not here. It is empty too, but three built-in rules
+# file into it, and a category a rule files into while the dropdown does not
+# offer it leaves him a row he cannot correct by hand.
+_RETIRED_CATEGORIES = (
+    "AxisBank Creditcard",  # a card he has never held
+    "Autorickshaw",  # Auto & Cab has held all fifty of them
+    "MF SIP",
+    "RD / FD",
+    "Gold",
+)
+
+
+async def _empty_and_unspoken_for(user_id: int, name: str, rules: list[dict]) -> bool:
+    """Whether this category holds nothing and nothing points at it.
+
+    Asked at the moment of removal rather than assumed from the list above:
+    if he has started using one since, it stays.
+    """
+    if any(str(r.get("category") or "") == name for r in rules):
+        return False
+    if any(r["category"] == name for r in sanctuary_statements.DEFAULT_RULES):
+        return False
+    return not await sanctuary_db.ledger_rows_in_categories(user_id, [name])
+
+
 def _recategorised(note: str, category: str) -> str:
     """Where an already-filed row belongs now, or "" to leave it alone."""
     lowered = (note or "").lower()
@@ -2525,40 +2551,56 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
                 continue
             await sanctuary_db.set_ledger_category(user_id, row["id"], moving)
             moved[moving] = moved.get(moving, 0) + 1
-    if moved:
-        categories = await _get_categories(user_id)
-        # A retired name must leave the list as well, or it goes on being
-        # offered in the dropdown that files rows into it.
-        gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}
-        categories = [c for c in categories if str(c.get("name") or "") not in gone]
-        have = {c["name"] for c in categories}
-        # Money put ASIDE is a saving, so it leaves 'spent'; money that
-        # merely arrives is neither — it is filed for the record.
-        savings = {"Investments"}
-        emoji = {
-            "Interest": "🪙",
-            "Refund": "↩️",
-            "Personal care": "💇",
-            "Home repairs": "🔧",
-            "Groceries": "🧺",
-            "Eating out": "🍽️",
-            "Health": "💊",
-            "Credit card bill": "💳",
-            "Self transfer": "🔁",
-            "Salary": "🌾",
-            "Investments": "📈",
-        }
-        for name in sorted(moved):
-            if name not in have and len(categories) < 100:
-                categories.append(
-                    {
-                        "name": name,
-                        "emoji": emoji.get(name, "🏷️"),
-                        "kind": "saving" if name in savings else "expense",
-                        "quick": False,
-                    }
-                )
-        await sanctuary_db.set_json_state(user_id, "categories", categories)
+    # Tidied whether or not rows moved: the gathering happens once, and a
+    # later sort that finds nothing to move must still be able to take away a
+    # name that has since fallen empty.
+    categories = await _get_categories(user_id)
+    # A retired name must leave the list as well, or it goes on being
+    # offered in the dropdown that files rows into it.
+    gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}
+    for name in _RETIRED_CATEGORIES:
+        if await _empty_and_unspoken_for(user_id, name, user_rules):
+            gone.add(name)
+    categories = [c for c in categories if str(c.get("name") or "") not in gone]
+    have = {c["name"] for c in categories}
+    # Money put ASIDE is a saving, so it leaves 'spent'; money that
+    # merely arrives is neither — it is filed for the record.
+    savings = {"Investments"}
+    emoji = {
+        "Interest": "🪙",
+        "Refund": "↩️",
+        "Personal care": "💇",
+        "Home repairs": "🔧",
+        "Groceries": "🧺",
+        "Eating out": "🍽️",
+        "Health": "💊",
+        "Credit card bill": "💳",
+        "Self transfer": "🔁",
+        "Salary": "🌾",
+        "Investments": "📈",
+    }
+    # Every category that HOLDS something must be one he can also pick by
+    # hand. Eleven were not — Cash withdrawal, Shopping, Fuel, Tithe, Home
+    # loan and the rest — holding eight hundred rows between them that he
+    # could see and could not correct, because the dropdown had never heard
+    # of them. Categories a rule could one day file into but never has are
+    # deliberately not added: an empty name he has never used is clutter, and
+    # the moment a row does land in one, this same pass makes it pickable.
+    holding = await sanctuary_db.categories_in_use(user_id)
+    for name in sorted(moved) + sorted(holding - set(moved)):
+        if not name or name in gone or name == sanctuary_statements.UNCATEGORISED:
+            continue
+        if name not in have and len(categories) < 100:
+            categories.append(
+                {
+                    "name": name,
+                    "emoji": emoji.get(name, "🏷️"),
+                    "kind": "saving" if name in savings else "expense",
+                    "quick": False,
+                }
+            )
+            have.add(name)
+    await sanctuary_db.set_json_state(user_id, "categories", categories)
     return {"moved": sum(moved.values()), "by_category": moved}
 
 

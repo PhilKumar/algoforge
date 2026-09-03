@@ -1484,6 +1484,58 @@ class OneNameForOneThingTests(unittest.TestCase):
         self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
 
 
+class ANameThatHoldsNothingTests(unittest.TestCase):
+    """Which categories are worth keeping in the list he files from."""
+
+    def retired(self):
+        import sanctuary
+
+        return sanctuary._RETIRED_CATEGORIES
+
+    def test_the_empty_and_unspoken_for_are_named_one_by_one(self):
+        # Named rather than found by a rule: a rule would come round again on
+        # every sort and take away a category he had just made for something
+        # he has not spent on yet.
+        self.assertIn("AxisBank Creditcard", self.retired())
+        self.assertIn("Autorickshaw", self.retired())
+
+    def test_a_name_a_rule_files_into_is_never_taken_away(self):
+        # NPS holds nothing, but three built-in rules file into it, and a
+        # category a rule files into while the dropdown does not offer it
+        # leaves him a row he cannot correct by hand.
+        self.assertNotIn("NPS", self.retired())
+
+    def test_it_asks_again_before_removing_rather_than_trusting_the_list(self):
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn("async def _empty_and_unspoken_for(", code)
+        self.assertIn("if await _empty_and_unspoken_for(user_id, name, user_rules):", code)
+
+    def test_a_category_holding_rows_is_always_pickable_by_hand(self):
+        # Eleven of them were not — Cash withdrawal, Shopping, Fuel, Tithe,
+        # Home loan — eight hundred rows he could see and could not correct.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn("holding = await sanctuary_db.categories_in_use(user_id)", code)
+        self.assertIn("for name in sorted(moved) + sorted(holding - set(moved)):", code)
+
+    def test_a_name_nothing_has_ever_used_is_not_added_on_his_behalf(self):
+        # A rule that could one day file into Dividend does not earn Dividend
+        # a place in the list today.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertNotIn('wanted |= {rule["category"] for rule in sanctuary_statements.DEFAULT_RULES}', code)
+
+
 class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
     """A sweep-linked overdraft is an account, not an abstraction.
 

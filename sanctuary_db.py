@@ -592,6 +592,16 @@ async def credits_since(user_id: int, since: str) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def categories_in_use(user_id: int) -> set[str]:
+    """Every category name that actually holds a row."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT DISTINCT category FROM sanctuary_ledger WHERE user_id = ?",
+            (int(user_id),),
+        )
+        return {row[0] for row in await cursor.fetchall() if row[0]}
+
+
 async def every_filed_row(user_id: int) -> list[dict]:
     """Every row that already carries a category.
 
