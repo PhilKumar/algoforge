@@ -20751,6 +20751,11 @@ function _recNum(v, dp) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
 }
 
+// The sign is a U+2212 MINUS, which line-breaking treats as a break
+// opportunity -- so a narrow money column splits "−₹725" and drops the amount
+// onto its own row (Phil, 2026-09-03). `.ocp-table td` sets `white-space:nowrap`
+// for every table that uses the site's class; an INLINE-styled table must set
+// it on the money cell itself.
 function _recInr(v) {
   const n = Number(v);
   if (v === null || v === undefined || !isFinite(n)) return '—';
@@ -20993,7 +20998,7 @@ function _recoveryTrades(rows) {
       <td style="padding:4px 8px;text-align:right;">${t.entry_premium === null || t.entry_premium === undefined ? '—' : _recNum(t.entry_premium, 2)}</td>
       <td style="padding:4px 8px;text-align:right;">${t.exit_premium === null || t.exit_premium === undefined ? '—' : _recNum(t.exit_premium, 2)}</td>
       <td style="padding:4px 8px;">${t.exit_reason || (t.open ? 'holding' : '—')}</td>
-      <td style="padding:4px 8px;text-align:right;">${net}</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap;">${net}</td>
     </tr>`;
   }).join('');
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font:11px 'JetBrains Mono',monospace;">
