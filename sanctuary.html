@@ -3616,14 +3616,15 @@ function loanCard(l){
         ${!l.active ? `<span class="badge closed">CLOSED · repaid in full</span>` : l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
 
-      ${!l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_in_credit) ? `<div class="loan-grid">
-        ${l.od_in_credit
-          ? `<div class="lf"><span>Standing</span><b class="num" style="color:var(--moss)">${inr(l.od_in_credit)} in credit</b></div>`
-          : `<div class="lf"><span>Drawn</span><b class="num" style="color:var(--danger)">${inr(l.drawn_amount)}</b></div>`}
+      ${!l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored) ? `<div class="loan-grid">
+        <div class="lf"><span>Drawn</span><b class="num" style="color:${l.drawn_amount ? "var(--danger)" : "var(--moss)"}">${l.od_unanchored && !l.od_by_sweeps ? "—" : (l.drawn_amount ? inr(l.drawn_amount) : "clear")}</b></div>
         <div class="lf"><span>Type</span><b>Revolving — no fixed EMI</b></div>
         <div class="lf"><span>Repayment</span><b>${esc(l.note || "as money allows")}</b></div>
         ${l.od_by_sweeps ? `<div class="lf" style="grid-column:1/-1"><span>Where that comes from</span>
-          <b>${l.od_sweeps} sweeps, ${l.od_from ? niceDate(l.od_from) : ""} to ${l.od_to ? niceDate(l.od_to) : ""}</b></div>` : ""}
+          <b>its own ${l.od_sweeps} sweeps, ${l.od_from ? niceDate(l.od_from) : ""} to ${l.od_to ? niceDate(l.od_to) : ""}</b></div>` : ""}
+        ${l.od_unanchored && !l.od_by_sweeps ? `<div class="lf" style="grid-column:1/-1"><span>Not known here</span>
+          <b>Its sweeps begin ${l.od_from ? niceDate(l.od_from) : "mid-life"}, after the account was already running, so they cannot
+          say where it stands — only the bank can. Tell it below and every sweep after today carries it forward.</b></div>` : ""}
       </div>` : `<div class="loan-grid">
         <div class="lf"><span>EMI</span><b class="num">${inr(l.emi_amount)}</b></div>
         <div class="lf"><span>Due day</span><b class="num">${l.due_day}</b></div>

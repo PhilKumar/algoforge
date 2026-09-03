@@ -1641,31 +1641,32 @@ def _a_balance(value) -> float | None:
 
 
 def _od_standing(od_rows: list[dict]) -> dict:
-    """Where the overdraft stands by its own sweeps, first to last.
+    """What the sweeps say about the overdraft, and whether they can say it.
 
-    A sweep-linked overdraft has no schedule and no instalments: it is one
-    account, swept into when the current account is in surplus and swept
-    out of when it is short. Add up both directions over the whole ledger
-    and the account's position falls out of it — and where more has gone in
-    than has come out, the debt is not merely repaid, there is money
-    sitting in it.
+    An overdraft's floor is zero. It is drawn by some amount or it is clear;
+    it never holds money, and any reckoning that produces a credit is a
+    reckoning that has lost something.
 
-    His card said three lakh nineteen thousand drawn for months. That
-    figure had been typed once, before this page recorded the day a stated
-    balance was true, so nothing could carry it forward and every sweep
-    since was ignored. The sweeps themselves said he was sixty thousand to
-    the good.
+    Adding both directions up over his ledger produced exactly that — sixty
+    thousand "in credit" — and the ledger says why itself: the very first
+    sweep it holds is a REPAYMENT, and the running total is under water from
+    that row onward. The account was alive before these rows begin, so its
+    opening balance is missing and no arithmetic here can invent it. Where
+    the running total never goes below zero the sweeps do tell the whole
+    story and the net is the balance; where it dips, only the bank knows,
+    which is what this page said before it started guessing.
     """
-    drawn = sum(r["amount"] for r in od_rows if r.get("source") == "statement-in")
-    repaid = sum(r["amount"] for r in od_rows if r.get("source") != "statement-in")
+    running, lowest = 0.0, 0.0
+    for row in sorted(od_rows, key=lambda r: (str(r.get("entry_date") or ""), r.get("id") or 0)):
+        running += row["amount"] if row.get("source") == "statement-in" else -row["amount"]
+        lowest = min(lowest, running)
     dates = sorted(str(r.get("entry_date") or "") for r in od_rows if r.get("entry_date"))
-    net = round(drawn - repaid, 2)
+    knowable = bool(od_rows) and lowest > -0.005
     return {
-        "drawn": round(drawn, 2),
-        "repaid": round(repaid, 2),
-        "net": net,
-        "owing": round(max(net, 0.0), 2),
-        "in_credit": round(max(-net, 0.0), 2),
+        "net": round(running, 2),
+        "lowest": round(lowest, 2),
+        "knowable": knowable,
+        "owing": round(max(running, 0.0), 2) if knowable else None,
         "sweeps": len(od_rows),
         "from": dates[0] if dates else "",
         "to": dates[-1] if dates else "",
@@ -1912,8 +1913,19 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         # and never dated. His said three lakh nineteen thousand still drawn
         # while the sweeps had it sixty thousand to the good, and that phantom
         # was sitting inside every "still to go" on the page.
+        # The overdraft answers to its sweeps where they tell the whole
+        # story. Where they begin mid-life they cannot, and a figure typed
+        # once with no day attached is not today's balance either — so it is
+        # counted as a debt of unknown size rather than as a number.
         if loan is od_card and not str(loan.get("stated_on") or "") and od_standing["sweeps"]:
-            loan = dict(loan) | {"drawn_amount": od_standing["owing"], "active": 1 if od_standing["owing"] else 0}
+            if od_standing["knowable"]:
+                loan = dict(loan) | {
+                    "drawn_amount": od_standing["owing"],
+                    "active": 1 if od_standing["owing"] else 0,
+                }
+            elif float(loan.get("drawn_amount") or 0) > 0:
+                unknown += 1
+                continue
         if not loan.get("active"):
             continue
         emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
@@ -2616,13 +2628,16 @@ async def loans_list(user: dict = Depends(_unlocked_user)):
         loan["next_due"] = min((e["due_date"] for e in overdue), default="") or upcoming
         loan["outstanding"] = principal_owed(emis)
         if od_rows and loan is od_card and not str(loan.get("stated_on") or ""):
-            loan["drawn_amount"] = standing["owing"]
-            loan["od_in_credit"] = standing["in_credit"]
-            loan["od_by_sweeps"] = True
+            # A figure typed with no day attached cannot be carried forward,
+            # so it is not today's balance however true it once was.
+            loan["od_unanchored"] = True
             loan["od_sweeps"] = standing["sweeps"]
             loan["od_from"] = standing["from"]
             loan["od_to"] = standing["to"]
-            loan["active"] = 1 if standing["owing"] else 0
+            if standing["knowable"]:
+                loan["drawn_amount"] = standing["owing"]
+                loan["od_by_sweeps"] = True
+                loan["active"] = 1 if standing["owing"] else 0
     return {"loans": loans}
 
 

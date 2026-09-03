@@ -1239,14 +1239,13 @@ class PageStampTests(unittest.TestCase):
         self.assertIn("checkPageVersion", page)
 
 
-class TheOverdraftStandsWhereItsSweepsSayTests(unittest.TestCase):
-    """A sweep-linked overdraft has no schedule — only an account swept into
-    and out of. Every figure invented.
+class AnOverdraftNeverHoldsMoneyTests(unittest.TestCase):
+    """An overdraft's floor is zero. Every figure invented.
 
-    His card read three lakh nineteen thousand drawn for months. That figure
-    had been typed once, before this page recorded the day a stated balance
-    was true, so nothing could carry it forward and every sweep since was
-    ignored. The sweeps said he was to the good.
+    Adding both directions of the sweeps up produced sixty thousand "in
+    credit", which is not a thing an overdraft can be. The ledger says why
+    itself: the first sweep it holds is a REPAYMENT, so the account was
+    alive before these rows begin and its opening balance is missing.
     """
 
     def standing(self, rows):
@@ -1257,23 +1256,36 @@ class TheOverdraftStandsWhereItsSweepsSayTests(unittest.TestCase):
     def sweep(self, day, amount, out_of_the_od):
         return {"entry_date": day, "amount": amount, "source": "statement-in" if out_of_the_od else "statement"}
 
-    def test_more_swept_back_than_drawn_is_money_sitting_in_it(self):
-        s = self.standing([self.sweep("2025-01-02", 100000.0, True), self.sweep("2025-02-02", 160000.0, False)])
-        self.assertEqual(s["in_credit"], 60000.0)
-        self.assertEqual(s["owing"], 0.0)
-
-    def test_more_drawn_than_swept_back_is_a_debt(self):
-        s = self.standing([self.sweep("2025-01-02", 160000.0, True), self.sweep("2025-02-02", 100000.0, False)])
+    def test_a_whole_life_of_sweeps_can_say_where_it_stands(self):
+        s = self.standing([self.sweep("2025-01-02", 100000.0, True), self.sweep("2025-02-02", 40000.0, False)])
+        self.assertTrue(s["knowable"])
         self.assertEqual(s["owing"], 60000.0)
-        self.assertEqual(s["in_credit"], 0.0)
 
-    def test_it_names_the_span_the_answer_rests_on(self):
-        s = self.standing([self.sweep("2024-12-07", 10.0, True), self.sweep("2026-09-01", 10.0, False)])
-        self.assertEqual((s["from"], s["to"], s["sweeps"]), ("2024-12-07", "2026-09-01", 2))
+    def test_repaid_in_full_is_clear_and_never_a_credit(self):
+        s = self.standing([self.sweep("2025-01-02", 100000.0, True), self.sweep("2025-02-02", 100000.0, False)])
+        self.assertTrue(s["knowable"])
+        self.assertEqual(s["owing"], 0.0)
+        self.assertNotIn("in_credit", s)
+
+    def test_sweeps_that_begin_mid_life_cannot_say_anything(self):
+        # Repaying before ever drawing means the drawing happened earlier,
+        # somewhere this ledger has never seen.
+        s = self.standing([self.sweep("2024-12-07", 13538.82, False), self.sweep("2024-12-11", 1199.86, True)])
+        self.assertFalse(s["knowable"])
+        self.assertIsNone(s["owing"])
+
+    def test_dipping_under_water_at_any_point_disqualifies_the_whole_run(self):
+        rows = [
+            self.sweep("2025-01-02", 100.0, True),
+            self.sweep("2025-01-03", 500.0, False),
+            self.sweep("2025-01-04", 900.0, True),
+        ]
+        self.assertFalse(self.standing(rows)["knowable"])
 
     def test_an_overdraft_with_no_sweeps_says_nothing(self):
         s = self.standing([])
-        self.assertEqual((s["owing"], s["in_credit"], s["sweeps"]), (0, 0, 0))
+        self.assertFalse(s["knowable"])
+        self.assertEqual(s["sweeps"], 0)
 
 
 class AClaimIsAnsweredByTheBankTests(unittest.TestCase):
