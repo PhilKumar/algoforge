@@ -2444,6 +2444,13 @@ _RENAMED_CATEGORIES = {
 # right. What was wrong was only the rule that filled it: "axis bank" matched
 # the beneficiary bank printed in every UPI line, so a haircut, a dress and a
 # dinner were filed as card payments. The rule goes; the card stays.
+# Money put ASIDE is not money spent. Investments was marked an expense, so
+# sixty-four thousand handed to a broker in September read as spending and
+# the Saved tile read nought — this page already treats it as a saving when
+# it creates the category itself, and only the older stored one disagreed.
+_SAVING_CATEGORIES = ("Investments",)
+
+
 _RETIRED_CATEGORIES = (
     "Autorickshaw",  # Auto & Cab has held all fifty of them
     "MF SIP",
@@ -2599,6 +2606,9 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
         if await _empty_and_unspoken_for(user_id, name, user_rules):
             gone.add(name)
     categories = [c for c in categories if str(c.get("name") or "") not in gone]
+    for c in categories:
+        if str(c.get("name") or "") in _SAVING_CATEGORIES:
+            c["kind"] = "saving"
     have = {c["name"] for c in categories}
     # Money put ASIDE is a saving, so it leaves 'spent'; money that
     # merely arrives is neither — it is filed for the record.

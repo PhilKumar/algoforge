@@ -1484,6 +1484,22 @@ class OneNameForOneThingTests(unittest.TestCase):
         self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
 
 
+class MoneyPutAsideIsNotSpentTests(unittest.TestCase):
+    def test_investments_counts_as_a_saving(self):
+        import sanctuary
+
+        self.assertIn("Investments", sanctuary._SAVING_CATEGORIES)
+
+    def test_the_kind_is_corrected_on_the_stored_list(self):
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn('if str(c.get("name") or "") in _SAVING_CATEGORIES:', code)
+        self.assertIn('c["kind"] = "saving"', code)
+
+
 class OneBillTwoCardsTests(unittest.TestCase):
     """He holds two cards and one bucket was holding both. Figures invented.
 
@@ -1690,9 +1706,7 @@ class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
             page = handle.read()
-        self.assertIn(
-            "in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account", page
-        )
+        self.assertIn("${inr(f.bank_current)} account + ${inr(f.bank_in_od)} sweep", page)
         self.assertIn("function odHeldForm()", page)
 
 
