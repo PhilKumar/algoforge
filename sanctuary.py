@@ -2406,8 +2406,13 @@ _RENAMED_CATEGORIES = {
 # NPS is deliberately not here. It is empty too, but three built-in rules
 # file into it, and a category a rule files into while the dropdown does not
 # offer it leaves him a row he cannot correct by hand.
+# AxisBank Creditcard is deliberately NOT here. It read as a card he had never
+# held and I nearly took it away on that reading — but Axis took over Citi's
+# cards in India, so his Citi card became an Axis one and the name is exactly
+# right. What was wrong was only the rule that filled it: "axis bank" matched
+# the beneficiary bank printed in every UPI line, so a haircut, a dress and a
+# dinner were filed as card payments. The rule goes; the card stays.
 _RETIRED_CATEGORIES = (
-    "AxisBank Creditcard",  # a card he has never held
     "Autorickshaw",  # Auto & Cab has held all fifty of them
     "MF SIP",
     "RD / FD",

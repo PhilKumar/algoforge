@@ -1496,8 +1496,15 @@ class ANameThatHoldsNothingTests(unittest.TestCase):
         # Named rather than found by a rule: a rule would come round again on
         # every sort and take away a category he had just made for something
         # he has not spent on yet.
-        self.assertIn("AxisBank Creditcard", self.retired())
         self.assertIn("Autorickshaw", self.retired())
+        self.assertIn("MF SIP", self.retired())
+
+    def test_a_card_he_does_hold_is_not_taken_away_with_the_rule_that_misfilled_it(self):
+        # It read as a card he had never owned, and was nearly removed on
+        # that reading. Axis took over Citi's cards in India, so his Citi
+        # card became an Axis one and the name is right. Only the rule was
+        # wrong — it read the bank printed in every UPI line.
+        self.assertNotIn("AxisBank Creditcard", self.retired())
 
     def test_a_name_a_rule_files_into_is_never_taken_away(self):
         # NPS holds nothing, but three built-in rules file into it, and a
