@@ -1412,6 +1412,87 @@ class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):
         self.assertIn('odOwedForm({owed: loan.drawn_amount || 0, account: loan.account_no || ""});', self.page)
 
 
+class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
+    """A sweep-linked overdraft is an account, not an abstraction.
+
+    The statement's running balance is the current account, and it is the
+    figure AFTER a sweep has taken money across — so what went across
+    appeared nowhere at all. Every figure invented.
+    """
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+        self.s = sanctuary
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def sweep(self, day, amount, out_of_the_od):
+        return {
+            "entry_date": day,
+            "category": "OD loan",
+            "amount": amount,
+            "note": "Rev Sweep From" if out_of_the_od else "Sweep to OD Ac",
+            "source": "statement-in" if out_of_the_od else "statement",
+            "ref_id": "stmt:8452:%s:%s" % (day, amount),
+        }
+
+    def held(self):
+        return asyncio.run(self.s._money_sitting_in_the_od(1))
+
+    def state(self, amount, on):
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"amount": amount, "on": on}))
+
+    def test_nothing_stated_is_nothing_counted(self):
+        self.assertIsNone(self.held()["held"])
+
+    def test_what_he_stated_stands_until_a_sweep_moves_it(self):
+        self.state(330000.0, "2026-09-03")
+        self.assertEqual(self.held()["held"], 330000.0)
+
+    def test_money_swept_in_afterwards_adds_to_it(self):
+        self.state(330000.0, "2026-09-03")
+        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-09-05", 20000.0, False)]))
+        self.assertEqual(self.held()["held"], 350000.0)
+
+    def test_money_swept_back_out_takes_from_it(self):
+        self.state(330000.0, "2026-09-03")
+        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-09-05", 30000.0, True)]))
+        self.assertEqual(self.held()["held"], 300000.0)
+
+    def test_sweeps_from_before_he_stated_it_are_already_inside_the_figure(self):
+        self.state(330000.0, "2026-09-03")
+        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-08-01", 99999.0, False)]))
+        self.assertEqual(self.held()["held"], 330000.0)
+
+    def test_the_tile_shows_the_two_parts_so_the_sum_can_be_checked(self):
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        self.assertIn(
+            "in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account", page
+        )
+        self.assertIn("function odHeldForm()", page)
+
+
 class FromTheFileToTheTileTests(unittest.TestCase):
     """The whole chain in one test: a statement in, a balance on the tile.
 

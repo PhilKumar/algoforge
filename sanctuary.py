@@ -1631,6 +1631,42 @@ def _od_movement(ledger: list[dict]) -> dict:
     }
 
 
+OD_HELD_STATE = "od_held"
+
+
+async def _money_sitting_in_the_od(user_id: int) -> dict:
+    """What is in the sweep account, and how it has moved since he said so.
+
+    A sweep-linked overdraft is one account, not a line of credit sitting
+    somewhere abstract. When the current account is in surplus the money
+    sweeps INTO it and stays there; when the current account is short it
+    sweeps back out. So the balance printed on his statement is what is left
+    AFTER the sweep took money away — the two hundred and forty-four thousand
+    that went across on the first of September is his, and appeared nowhere.
+
+    He states it once. Every sweep after that day carries it: money swept in
+    adds to it, money swept back out takes from it, which is exactly what
+    those rows already record.
+    """
+    held = await sanctuary_db.get_json_state(user_id, OD_HELD_STATE, {})
+    try:
+        stated = round(float(held.get("amount")), 2)
+    except (TypeError, ValueError):
+        return {"held": None, "stated": None, "on": "", "moved": 0.0, "sweeps": 0}
+    on = str(held.get("on") or "")
+    rows = await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=on) if on else []
+    into = sum(r["amount"] for r in rows if r.get("source") != "statement-in")
+    out = sum(r["amount"] for r in rows if r.get("source") == "statement-in")
+    moved = round(into - out, 2)
+    return {
+        "held": round(stated + moved, 2),
+        "stated": stated,
+        "on": on,
+        "moved": moved,
+        "sweeps": len(rows),
+    }
+
+
 async def _bank_balance(user_id: int) -> dict:
     """What is actually in the account, and how stale that is.
 
@@ -1641,10 +1677,23 @@ async def _bank_balance(user_id: int) -> dict:
     can say so rather than pretending to be today's.
     """
     known = await sanctuary_db.balance_last_known(user_id)
+    od = await _money_sitting_in_the_od(user_id)
     if known["balance"] is None:
-        return {"balance": None, "as_of": "", "after": 0}
+        return {"balance": None, "as_of": "", "after": 0, "current": None, "in_od": od["held"]}
     after = await sanctuary_db.rows_since(user_id, known["as_of"])
-    return {"balance": known["balance"], "as_of": known["as_of"], "after": after}
+    # The statement's figure is one account. Money parked in the sweep
+    # account is the same money and belongs in the same total, shown apart
+    # so the sum can be checked rather than believed.
+    total = round(known["balance"] + (od["held"] or 0), 2)
+    return {
+        "balance": total,
+        "current": known["balance"],
+        "in_od": od["held"],
+        "od_on": od["on"],
+        "od_sweeps": od["sweeps"],
+        "as_of": known["as_of"],
+        "after": after,
+    }
 
 
 def _a_balance(value) -> float | None:
@@ -2758,6 +2807,32 @@ async def loan_create(request: Request, user: dict = Depends(_unlocked_user)):
     return {"id": loan_id}
 
 
+@router.put("/api/sanctuary/od/held")
+async def od_held_put(request: Request, user: dict = Depends(_unlocked_user)):
+    """Record what is sitting IN the sweep account, off the bank.
+
+    Not what it lends him — what of his is parked in it. The two are
+    different facts and the page must never add one to the other.
+    """
+    payload = await request.json()
+    try:
+        amount = round(float(payload.get("amount") or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Bad amount") from None
+    if not 0 <= amount <= 100_000_000:
+        raise HTTPException(status_code=400, detail="Bad amount")
+    user_id = int(user["id"])
+    # Anchored the same way the drawn figure is: at the later of today and
+    # the newest sweep already posted, so a sweep dated ahead of today is
+    # not applied to it twice.
+    on = _od_anchor(
+        _today_ist().isoformat(),
+        await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]),
+    )
+    await sanctuary_db.set_json_state(user_id, OD_HELD_STATE, {"amount": amount, "on": on})
+    return {"amount": amount, "on": on}
+
+
 @router.put("/api/sanctuary/od/owed")
 async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
     """Record what the overdraft actually stands at, off the bank.
@@ -3824,6 +3899,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         # balance, which is right even where the ledger has gaps, and the
         # count of rows posted after it so a stale figure says so itself.
         "bank_balance": bank["balance"],
+        "bank_current": bank.get("current"),
+        "bank_in_od": bank.get("in_od"),
+        "bank_od_on": bank.get("od_on", ""),
         "bank_as_of": bank["as_of"],
         "bank_after": bank["after"],
         # salary_source is what the page says out loud now — "the bank saw it

@@ -2957,6 +2957,30 @@ function renderOd(od, month){
     } catch (err) { toast(err.message || "That did not take"); }
   };
 }
+/* What is PARKED in the sweep account — his money, not what it lends him.
+   The statement's running balance is the current account only, and it is the
+   figure AFTER a sweep has taken money across, so what went across appeared
+   nowhere at all. Stated once; every sweep after that day carries it. */
+function odHeldForm(){
+  const held = (S.fin && S.fin.bank_in_od) || 0;
+  const wrap = modal(`<h4>Money sitting in the sweep account</h4>
+    <div class="section-sub" style="margin-bottom:10px">Not the limit it lends you — what of yours is parked in it today.
+    Take it off the bank. Every sweep after today carries it forward on its own.</div>
+    <label>In the sweep account</label>
+    <input class="field num" id="odh-amt" type="number" min="0" step="0.01" value="${held || ""}" placeholder="330000">
+    <div class="m-foot"><button class="btn subtle" id="odh-cancel">Leave it</button>
+    <button class="btn" id="odh-save">Keep it</button></div>`);
+  wrap.querySelector("#odh-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#odh-save").onclick = async () => {
+    const amount = Number(wrap.querySelector("#odh-amt").value || 0);
+    try {
+      await api("/api/sanctuary/od/held", {method: "PUT", body: {amount}});
+      wrap.remove(); refreshFinance(); loadLoans();
+      toast(amount ? "Counted with the bank now. 🏛️" : "Cleared.");
+    } catch (err) { toast(err.message || "That did not take"); }
+  };
+}
+
 /* The bank's figure, which only he can supply. It is kept as a loan card so
    it counts toward the total debt rather than living where one panel can
    see it and nothing else can. */
@@ -3236,9 +3260,12 @@ function renderFinance(){
   $("tiles").innerHTML = `
     <div class="tile card"><div class="lbl">In the bank</div>
       <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
-      <div class="sub">${f.bank_balance != null
-        ? `the statement's own figure, ${niceDate(f.bank_as_of)}${f.bank_after ? ` · ${f.bank_after} since` : ""}`
-        : "no statement has printed one yet — import one and it fills in"}
+      <div class="sub">${f.bank_balance == null
+        ? "no statement has printed one yet — import one and it fills in"
+        : f.bank_in_od
+        ? `${inr(f.bank_current)} in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account`
+        : `the statement's own figure, ${niceDate(f.bank_as_of)}${f.bank_after ? ` · ${f.bank_after} since` : ""}`}
+        · <span class="edit" id="od-held-edit">${f.bank_in_od ? "change the sweep account" : "money in the sweep account?"}</span>
         ${f.salary ? ` · pay ${inr(f.salary)}` : ""} · <span class="edit" id="salary-edit">${f.salary ? "change pay" : "set pay"}</span></div></div>
     <div class="tile card"><div class="lbl">To spend this month</div>
       <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
@@ -5347,6 +5374,7 @@ $("vault-family-clear").onclick = async () => {
 };
 
 document.addEventListener("click", (e) => {
+  if (e.target.id === "od-held-edit") odHeldForm();
   if (e.target.id === "salary-edit") salaryModal();
 });
 
