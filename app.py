@@ -18737,7 +18737,7 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     spec = _strategy_supertrend_spec(getattr(engine, "strategy", None))
     if spec:
         supertrend_overlay = await _index_supertrend_flips(
-            broker_client, underlying, spec, from_date, end_day.isoformat()
+            broker_client, underlying, spec, from_date, end_day.isoformat(), until_ts=exit_ts
         )
     return {
         "status": "ok",
@@ -21625,6 +21625,7 @@ async def _index_supertrend_flips(
     spec: tuple[int, float, int],
     from_date: str,
     to_date: str,
+    until_ts: int | None = None,
 ) -> dict | None:
     """Where the index supertrend turned, on the timeframe the strategy uses.
 
@@ -21641,6 +21642,14 @@ async def _index_supertrend_flips(
     reconstructing 03-Sep from 09:15 showed no flip at all, while the same
     settings warmed on prior sessions flip at 10:36, which is the flip the
     engine acted on at the next 5m boundary.
+
+    `until_ts` FREEZES IT AT THE EXIT. The chart's own header promises "FROZEN
+    at the exit" and its candles stop there, but the first version of this
+    overlay returned every flip in the fetched window -- so a trade that closed
+    at 10:45 was drawn with ST UP 11:33 and ST DOWN 12:03 beside it, and picked
+    up another marker every time the index turned for the rest of the session
+    (Phil, 2026-09-03: "It keeps on growing... Freeze till exit"). A flip after
+    the exit belongs to no trade on this chart.
     """
     period, multiplier, minutes = spec
     # The same ids `INSTRUMENTS` uses; NIFTY when the underlying is unknown,
@@ -21684,6 +21693,9 @@ async def _index_supertrend_flips(
         stamp = stamps[i]
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=IST)
+        # The freeze, applied to the rule as well as to the candles.
+        if until_ts and int(stamp.timestamp()) > int(until_ts):
+            break
         flips.append(
             {
                 "t": int(stamp.timestamp()),

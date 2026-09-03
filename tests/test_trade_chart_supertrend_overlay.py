@@ -77,9 +77,12 @@ class TheFlipsAreComputedOnTheIndex(unittest.TestCase):
         import numpy as np
         import pandas as pd
 
+        # A series that actually TURNS, several times. A plain random walk gave
+        # ONE flip in 600 bars, which cannot tell "frozen at the exit" apart
+        # from "found nothing". A swing with noise on top turns repeatedly.
         rng = np.random.default_rng(7)
         idx = pd.date_range("2026-09-01 09:15", periods=n, freq="1min")
-        walk = 23900 + np.cumsum(rng.normal(0, 4, n))
+        walk = 23900 + 120 * np.sin(np.arange(n) / 22.0) + rng.normal(0, 3, n)
         return pd.DataFrame({"open": walk, "high": walk + 6, "low": walk - 6, "close": walk, "volume": 0}, index=idx)
 
     def _run(self, frame, spec=(10, 2.7, 3)):
@@ -97,7 +100,7 @@ class TheFlipsAreComputedOnTheIndex(unittest.TestCase):
 
     def test_every_flip_carries_a_time_and_a_direction(self):
         out = self._run(self._bars())
-        self.assertTrue(out["flips"], "a random walk over 400 bars should turn at least once")
+        self.assertTrue(out["flips"], "a swinging series should turn at least once")
         for flip in out["flips"]:
             self.assertIn(flip["dir"], ("up", "down"))
             self.assertIsInstance(flip["t"], int)
@@ -110,6 +113,43 @@ class TheFlipsAreComputedOnTheIndex(unittest.TestCase):
 
     def test_too_little_history_returns_nothing_rather_than_a_cold_guess(self):
         self.assertIsNone(self._run(self._bars(12)))
+
+    def test_it_freezes_at_the_exit(self):
+        """The chart's header promises FROZEN at the exit; the rule must be too.
+
+        The first version returned every flip in the fetched window, so a trade
+        closed at 10:45 was drawn with ST UP 11:33 and ST DOWN 12:03 beside it,
+        gaining another marker each time the index turned for the rest of the
+        session -- Phil: "It keeps on growing... Freeze till exit".
+        """
+        frame = self._bars(600)
+        every = self._run(frame)
+        self.assertGreater(len(every["flips"]), 1, "need several flips for this to mean anything")
+        cutoff = every["flips"][0]["t"]
+
+        import asyncio
+
+        class Broker:
+            def get_historical_data(self, **_kw):
+                return frame
+
+        frozen = asyncio.run(
+            app_module._index_supertrend_flips(
+                Broker(), "NIFTY", (10, 2.7, 3), "2026-09-01", "2026-09-01", until_ts=cutoff
+            )
+        )
+        self.assertEqual(len(frozen["flips"]), 1, "nothing after the exit may be drawn")
+        self.assertEqual(frozen["flips"][0]["t"], cutoff, "the flip that caused the exit must survive")
+
+    def test_no_freeze_means_the_whole_window(self):
+        """A still-open trade has no exit to freeze at."""
+        out = self._run(self._bars(600))
+        self.assertGreater(len(out["flips"]), 1)
+
+    def test_the_route_passes_the_exit_as_the_freeze(self):
+        i = APP.index('@app.get("/api/live/trade-chart")')
+        route = APP[i : APP.index("\n@app.", i + 1)]
+        self.assertIn("until_ts=exit_ts", route)
 
     def test_a_broker_failure_costs_the_overlay_not_the_chart(self):
         import asyncio
