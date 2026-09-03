@@ -310,14 +310,36 @@ def main(argv=None) -> int:
     ap.add_argument("--walk-forward", type=int, default=15, help="minutes to walk forward for a missing print")
     ap.add_argument("--walk-back", type=int, default=30, help="minutes to walk back for a missing print")
     ap.add_argument("--csv", default="", help="write the book here")
+    ap.add_argument(
+        "--exit-time",
+        default="09:20",
+        help=(
+            "IST minute the carry is sold, HH:MM (default 09:20, the live rule). "
+            "09:15 is the opening minute -- see the note in main() about walk-forward."
+        ),
+    )
     ap.add_argument("--check", action="store_true", help="rebuild the published window and diff it, then stop")
     args = ap.parse_args(argv)
 
+    # WHEN THE CARRY IS SOLD. The live rule is 09:20; Phil asked what the same
+    # book looks like sold at 09:15, the opening minute (2026-09-03).
+    #
+    # READ THE WALK-FORWARD COUNT BEFORE BELIEVING A 09:15 RESULT. `price_at`
+    # walks BACK for a missing print only as far as 09:15, so at 09:20 a hole
+    # can be filled from either side, while at 09:15 there is nothing behind it
+    # -- every miss is filled by walking FORWARD, i.e. by a later, different
+    # price. A 09:15 book with many forward fills is not really a 09:15 book.
+    try:
+        hh, mm = (int(part) for part in str(args.exit_time).split(":")[:2])
+        exit_at = dt_time(hh, mm)
+    except (TypeError, ValueError):
+        raise SystemExit(f"--exit-time must be HH:MM, got {args.exit_time!r}") from None
     config = GapCarryConfig(
         timeframe=args.tf,
         rsi_threshold=float(args.rsi),
         strike_offset_steps=int(args.offset),
         lots=int(args.lots),
+        exit_time=exit_at,
     )
     config.validate()
 
