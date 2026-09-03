@@ -1613,6 +1613,65 @@ def _od_movement(ledger: list[dict]) -> dict:
     }
 
 
+async def _bank_balance(user_id: int) -> dict:
+    """What is actually in the account, and how stale that is.
+
+    A statement prints its own running balance beside every row, and that
+    figure is right even where the ledger has gaps — it is the bank's
+    arithmetic, not a total assembled here out of rows that may be missing.
+    Rows posted after it are counted so a figure that has been overtaken
+    can say so rather than pretending to be today's.
+    """
+    known = await sanctuary_db.balance_last_known(user_id)
+    if known["balance"] is None:
+        return {"balance": None, "as_of": "", "after": 0}
+    after = await sanctuary_db.rows_since(user_id, known["as_of"])
+    return {"balance": known["balance"], "as_of": known["as_of"], "after": after}
+
+
+def _a_balance(value) -> float | None:
+    """A running balance off a statement, or None where it printed none."""
+    try:
+        if value is None:
+            return None
+        balance = float(value)
+    except (TypeError, ValueError):
+        return None
+    return balance if -100_000_000 <= balance <= 100_000_000 else None
+
+
+def _od_standing(od_rows: list[dict]) -> dict:
+    """Where the overdraft stands by its own sweeps, first to last.
+
+    A sweep-linked overdraft has no schedule and no instalments: it is one
+    account, swept into when the current account is in surplus and swept
+    out of when it is short. Add up both directions over the whole ledger
+    and the account's position falls out of it — and where more has gone in
+    than has come out, the debt is not merely repaid, there is money
+    sitting in it.
+
+    His card said three lakh nineteen thousand drawn for months. That
+    figure had been typed once, before this page recorded the day a stated
+    balance was true, so nothing could carry it forward and every sweep
+    since was ignored. The sweeps themselves said he was sixty thousand to
+    the good.
+    """
+    drawn = sum(r["amount"] for r in od_rows if r.get("source") == "statement-in")
+    repaid = sum(r["amount"] for r in od_rows if r.get("source") != "statement-in")
+    dates = sorted(str(r.get("entry_date") or "") for r in od_rows if r.get("entry_date"))
+    net = round(drawn - repaid, 2)
+    return {
+        "drawn": round(drawn, 2),
+        "repaid": round(repaid, 2),
+        "net": net,
+        "owing": round(max(net, 0.0), 2),
+        "in_credit": round(max(-net, 0.0), 2),
+        "sweeps": len(od_rows),
+        "from": dates[0] if dates else "",
+        "to": dates[-1] if dates else "",
+    }
+
+
 def _od_anchor(today: str, od_rows: list[dict]) -> str:
     """The day a newly stated balance should be pinned to.
 
@@ -1835,10 +1894,26 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
 
     user_id = int(user["id"])
     fund = await sanctuary_db.get_json_state(user_id, "epf", {})
+    # The overdraft's own sweeps, so a stale figure typed into its card does
+    # not go on being counted as a debt he still owes.
+    od_standing = _od_standing(await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]))
+    # A claim is answered by the bank, not by the fund's own paperwork: the
+    # passbook proving it arrives months later, and until then the page
+    # promised money that had already been spent. The statement knows.
+    asked = min((str(c.get("asked_on") or "") for c in fund.get("claims") or [] if c.get("awaiting")), default="")
+    if asked:
+        fund = sanctuary_epf.settle_claims(fund, await sanctuary_db.credits_since(user_id, asked), _today_ist())
     loans = await sanctuary_db.list_loans(user_id)
+    od_card = _od_loan(loans, "")
     debts = []
     unknown = 0
     for loan in loans:
+        # The overdraft answers to its sweeps, not to a figure typed once
+        # and never dated. His said three lakh nineteen thousand still drawn
+        # while the sweeps had it sixty thousand to the good, and that phantom
+        # was sitting inside every "still to go" on the page.
+        if loan is od_card and not str(loan.get("stated_on") or "") and od_standing["sweeps"]:
+            loan = dict(loan) | {"drawn_amount": od_standing["owing"], "active": 1 if od_standing["owing"] else 0}
         if not loan.get("active"):
             continue
         emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
@@ -2036,6 +2111,9 @@ async def statement_commit(request: Request, user: dict = Depends(_unlocked_user
                 "note": str(row.get("note") or "")[:500],
                 "source": "statement-in" if row.get("dir") == "in" else "statement",
                 "ref_id": ref_id[:120],
+                # The statement's own running balance, carried through so the
+                # page can say what is actually in the account.
+                "balance": _a_balance(row.get("balance")),
             }
         )
     added = await sanctuary_db.add_ledger_many(user_id, cleaned)
@@ -2519,6 +2597,13 @@ def principal_owed(emis: list[dict]) -> float | None:
 async def loans_list(user: dict = Depends(_unlocked_user)):
     loans = await sanctuary_db.list_loans(int(user["id"]))
     today = _today_ist().isoformat()
+    # The overdraft is the one card whose balance the ledger can work out
+    # for itself. A figure he typed stands only while it has a day attached
+    # to carry it forward; without one, the sweeps are the better answer and
+    # a stale number must not go on being shown as what he owes.
+    od_rows = await sanctuary_db.ledger_rows_in_categories(int(user["id"]), [OD_CATEGORY])
+    standing = _od_standing(od_rows)
+    od_card = _od_loan(loans, "")
     for loan in loans:
         emis = await sanctuary_db.emis_for_loan(int(user["id"]), loan["id"])
         remaining = [e for e in emis if not e["paid_on"] and e["due_date"] >= today]
@@ -2530,6 +2615,14 @@ async def loans_list(user: dict = Depends(_unlocked_user)):
         upcoming = min((e["due_date"] for e in remaining), default="")
         loan["next_due"] = min((e["due_date"] for e in overdue), default="") or upcoming
         loan["outstanding"] = principal_owed(emis)
+        if od_rows and loan is od_card and not str(loan.get("stated_on") or ""):
+            loan["drawn_amount"] = standing["owing"]
+            loan["od_in_credit"] = standing["in_credit"]
+            loan["od_by_sweeps"] = True
+            loan["od_sweeps"] = standing["sweeps"]
+            loan["od_from"] = standing["from"]
+            loan["od_to"] = standing["to"]
+            loan["active"] = 1 if standing["owing"] else 0
     return {"loans": loans}
 
 
@@ -3507,6 +3600,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=od_anchor) if od_anchor else []
     )
 
+    bank = await _bank_balance(user_id)
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})
     default_salary = float(await sanctuary_db.get_state(user_id, "salary_default", "0") or 0)
     entry = months_state.get(month) or {}
@@ -3603,6 +3697,12 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "month": month,
         "today": today.isoformat(),
         "salary": salary,
+        # What is actually in the account: the statement's own running
+        # balance, which is right even where the ledger has gaps, and the
+        # count of rows posted after it so a stale figure says so itself.
+        "bank_balance": bank["balance"],
+        "bank_as_of": bank["as_of"],
+        "bank_after": bank["after"],
         # salary_source is what the page says out loud now — "the bank saw it
         # arrive", "from your payslip", "your own figure" — because a figure
         # that could not name its origin was impossible to tell from a stale

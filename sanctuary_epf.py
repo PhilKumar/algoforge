@@ -230,6 +230,64 @@ def _balance_now(paper: dict, today: date) -> dict:
     }
 
 
+# A claim is answered by the bank, not by the fund's own paperwork. The
+# passbook that would prove it arrives months later — a year later, if the
+# fund is slow — so until then the page went on promising money that was
+# already spent. The statement knows: the fund pays by NEFT and the
+# narration says so.
+_FUND_PAYS = ("epf", "provident fund", "provident-fund", "pf advance")
+# Wide enough for the tax and the rounding a payout comes with, narrow
+# enough that an unrelated credit of a different size is not mistaken for
+# it. And a payout does not arrive years later: a claim still open after
+# half a year is a claim that failed, not one still in the post.
+_CLAIM_TOLERANCE = (0.80, 1.05)
+_CLAIM_WINDOW_DAYS = 200
+
+
+def looks_like_the_fund_paying(note: str) -> bool:
+    lowered = (note or "").lower()
+    return any(word in lowered for word in _FUND_PAYS)
+
+
+def settle_claims(summary: dict, credits: list[dict], today: date) -> dict:
+    """Mark as paid every claim the bank has since received.
+
+    Each credit answers at most one claim, so two advances of the same size
+    are not both settled by one payment.
+    """
+    claims = [dict(c) for c in summary.get("claims") or []]
+    spare = [
+        c for c in credits if c.get("source") == "statement-in" and looks_like_the_fund_paying(c.get("note") or "")
+    ]
+    used: set[int] = set()
+    for claim in claims:
+        if not claim.get("awaiting"):
+            continue
+        asked = str(claim.get("asked_on") or "")
+        wanted = float(claim.get("requested") or 0)
+        if not asked or wanted <= 0:
+            continue
+        for index, credit in enumerate(spare):
+            if index in used:
+                continue
+            when = str(credit.get("entry_date") or "")
+            if when < asked or (date.fromisoformat(when) - date.fromisoformat(asked)).days > _CLAIM_WINDOW_DAYS:
+                continue
+            paid = float(credit.get("amount") or 0)
+            if not wanted * _CLAIM_TOLERANCE[0] <= paid <= wanted * _CLAIM_TOLERANCE[1]:
+                continue
+            used.add(index)
+            claim["awaiting"] = False
+            claim["paid_on"] = when
+            claim["paid"] = round(paid, 2)
+            break
+    settled = dict(summary)
+    settled["claims"] = claims
+    settled["claimed_pending"] = round(sum(float(c.get("requested") or 0) for c in claims if c.get("awaiting")), 2)
+    settled["claimed_paid"] = round(sum(float(c.get("paid") or 0) for c in claims if c.get("paid")), 2)
+    return settled
+
+
 def summarise(papers: list[dict], today: date) -> dict:
     """Every paper he has, read as one fund.
 

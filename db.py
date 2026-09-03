@@ -409,6 +409,14 @@ def _init_db_sync():
         if column not in existing_loan_columns:
             conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608
 
+    # A statement prints a running balance beside every row and the reader
+    # was throwing it away, so the one figure that says how much money is
+    # actually there had to be typed in by hand. It is kept now; rows
+    # imported before this carry nothing and are simply not consulted.
+    existing_ledger_columns = {row[1] for row in conn.execute("PRAGMA table_info(sanctuary_ledger)").fetchall()}
+    if "balance" not in existing_ledger_columns:
+        conn.execute("ALTER TABLE sanctuary_ledger ADD COLUMN balance REAL")
+
     # A document remembers its content's fingerprint, so the same paper
     # offered twice — in one folder drop or across two — is stored once.
     existing_doc_columns = {row[1] for row in conn.execute("PRAGMA table_info(sanctuary_documents)").fetchall()}

@@ -1239,6 +1239,125 @@ class PageStampTests(unittest.TestCase):
         self.assertIn("checkPageVersion", page)
 
 
+class TheOverdraftStandsWhereItsSweepsSayTests(unittest.TestCase):
+    """A sweep-linked overdraft has no schedule — only an account swept into
+    and out of. Every figure invented.
+
+    His card read three lakh nineteen thousand drawn for months. That figure
+    had been typed once, before this page recorded the day a stated balance
+    was true, so nothing could carry it forward and every sweep since was
+    ignored. The sweeps said he was to the good.
+    """
+
+    def standing(self, rows):
+        import sanctuary
+
+        return sanctuary._od_standing(rows)
+
+    def sweep(self, day, amount, out_of_the_od):
+        return {"entry_date": day, "amount": amount, "source": "statement-in" if out_of_the_od else "statement"}
+
+    def test_more_swept_back_than_drawn_is_money_sitting_in_it(self):
+        s = self.standing([self.sweep("2025-01-02", 100000.0, True), self.sweep("2025-02-02", 160000.0, False)])
+        self.assertEqual(s["in_credit"], 60000.0)
+        self.assertEqual(s["owing"], 0.0)
+
+    def test_more_drawn_than_swept_back_is_a_debt(self):
+        s = self.standing([self.sweep("2025-01-02", 160000.0, True), self.sweep("2025-02-02", 100000.0, False)])
+        self.assertEqual(s["owing"], 60000.0)
+        self.assertEqual(s["in_credit"], 0.0)
+
+    def test_it_names_the_span_the_answer_rests_on(self):
+        s = self.standing([self.sweep("2024-12-07", 10.0, True), self.sweep("2026-09-01", 10.0, False)])
+        self.assertEqual((s["from"], s["to"], s["sweeps"]), ("2024-12-07", "2026-09-01", 2))
+
+    def test_an_overdraft_with_no_sweeps_says_nothing(self):
+        s = self.standing([])
+        self.assertEqual((s["owing"], s["in_credit"], s["sweeps"]), (0, 0, 0))
+
+
+class AClaimIsAnsweredByTheBankTests(unittest.TestCase):
+    """When a fund claim stops being money on its way. Figures invented.
+
+    The passbook that would prove a claim was paid arrives months later, so
+    until then the page promised money that had already been spent.
+    """
+
+    def settle(self, claims, credits, today="2026-09-02"):
+        from datetime import date
+
+        import sanctuary_epf
+
+        return sanctuary_epf.settle_claims({"claims": claims}, credits, date.fromisoformat(today))
+
+    def claim(self, asked, wanted):
+        return {"kind": "claim", "asked_on": asked, "requested": wanted, "awaiting": True}
+
+    def credit(self, day, amount, note="MMT/IMPS/1/EPF transfer/A N OTHER/Bank"):
+        return {"entry_date": day, "amount": amount, "note": note, "source": "statement-in"}
+
+    def test_the_money_arriving_settles_the_claim(self):
+        out = self.settle([self.claim("2026-08-29", 450000.0)], [self.credit("2026-09-01", 450000.0)])
+        self.assertFalse(out["claims"][0]["awaiting"])
+        self.assertEqual(out["claims"][0]["paid_on"], "2026-09-01")
+        self.assertEqual(out["claimed_pending"], 0.0)
+
+    def test_a_payout_shaved_by_tax_still_settles_it(self):
+        out = self.settle([self.claim("2026-08-29", 450000.0)], [self.credit("2026-09-05", 414000.0)])
+        self.assertFalse(out["claims"][0]["awaiting"])
+
+    def test_a_credit_of_a_different_size_settles_nothing(self):
+        out = self.settle([self.claim("2026-08-29", 450000.0)], [self.credit("2026-09-01", 12000.0)])
+        self.assertTrue(out["claims"][0]["awaiting"])
+        self.assertEqual(out["claimed_pending"], 450000.0)
+
+    def test_money_that_is_not_the_fund_settles_nothing(self):
+        rent = self.credit("2026-09-01", 450000.0, "NEFT/SOMEONE/rent for the year")
+        self.assertTrue(self.settle([self.claim("2026-08-29", 450000.0)], [rent])["claims"][0]["awaiting"])
+
+    def test_money_that_arrived_before_he_asked_settles_nothing(self):
+        out = self.settle([self.claim("2026-08-29", 450000.0)], [self.credit("2026-08-01", 450000.0)])
+        self.assertTrue(out["claims"][0]["awaiting"])
+
+    def test_a_claim_still_open_after_half_a_year_is_not_settled_by_a_later_credit(self):
+        out = self.settle([self.claim("2025-01-01", 450000.0)], [self.credit("2026-09-01", 450000.0)])
+        self.assertTrue(out["claims"][0]["awaiting"])
+
+    def test_one_payment_does_not_settle_two_claims_of_the_same_size(self):
+        two = [self.claim("2026-08-01", 450000.0), self.claim("2026-08-29", 450000.0)]
+        out = self.settle(two, [self.credit("2026-09-01", 450000.0)])
+        self.assertEqual(sum(1 for c in out["claims"] if c["awaiting"]), 1)
+
+
+class WhatIsActuallyInTheAccountTests(unittest.TestCase):
+    """The tile that used to hold his pay. Every figure invented."""
+
+    def keep(self, value):
+        import sanctuary
+
+        return sanctuary._a_balance(value)
+
+    def test_a_printed_balance_is_kept(self):
+        self.assertEqual(self.keep("12345.67"), 12345.67)
+        self.assertEqual(self.keep(-880.5), -880.5)
+
+    def test_a_row_that_printed_none_keeps_none(self):
+        self.assertIsNone(self.keep(None))
+        self.assertIsNone(self.keep(""))
+        self.assertIsNone(self.keep("not a number"))
+
+    def test_a_figure_no_account_could_hold_is_refused(self):
+        self.assertIsNone(self.keep(10**12))
+
+    def test_the_ledger_keeps_a_column_for_it(self):
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "db.py"), encoding="utf-8") as handle:
+            schema = handle.read()
+        self.assertIn("ALTER TABLE sanctuary_ledger ADD COLUMN balance REAL", schema)
+
+
 class RulesReadWordsNotReferencesTests(unittest.TestCase):
     """A rule may read the narration's words. It may not read its machine.
 

@@ -266,14 +266,19 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
         return 0
     existing = await existing_ledger_refs(user_id, [r["ref_id"] for r in rows if r.get("ref_id")])
     fresh = [r for r in rows if r.get("ref_id") and r["ref_id"] not in existing]
+    # A statement offered again adds nothing — that is the point — but it may
+    # be carrying something the first reading threw away. The running balance
+    # was thrown away for years, and without this there would be no way ever
+    # to get it back: every row is already posted, so nothing would be read.
+    await backfill_balances(user_id, [r for r in rows if r.get("ref_id") in existing])
     if not fresh:
         return 0
     now = _now_iso()
     async with aiosqlite.connect(config.DB_PATH) as db:
         await db.executemany(
             """INSERT INTO sanctuary_ledger
-               (user_id, entry_date, category, amount, note, source, ref_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, entry_date, category, amount, note, source, ref_id, created_at, balance)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     int(user_id),
@@ -284,6 +289,7 @@ async def add_ledger_many(user_id: int, rows: list[dict]) -> int:
                     r.get("source", "statement"),
                     r["ref_id"],
                     now,
+                    None if r.get("balance") is None else float(r["balance"]),
                 )
                 for r in fresh
             ],
@@ -505,6 +511,70 @@ async def uncategorised_ledger(user_id: int) -> list[dict]:
                WHERE user_id = ? AND category = 'Uncategorised'
                ORDER BY entry_date DESC""",
             (int(user_id),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def balance_last_known(user_id: int) -> dict:
+    """The newest running balance a statement has printed, and its day.
+
+    The one figure that says how much money is actually in the account. It
+    is the statement's own arithmetic, not a total this page assembles, so
+    it is right even where the ledger has gaps.
+    """
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT entry_date, balance FROM sanctuary_ledger
+               WHERE user_id = ? AND balance IS NOT NULL
+               ORDER BY entry_date DESC, id DESC LIMIT 1""",
+            (int(user_id),),
+        )
+        row = await cursor.fetchone()
+    if not row:
+        return {"balance": None, "as_of": ""}
+    return {"balance": round(float(row["balance"]), 2), "as_of": str(row["entry_date"])}
+
+
+async def backfill_balances(user_id: int, rows: list[dict]) -> int:
+    """Fill in the running balance on rows posted before it was being kept."""
+    carrying = [r for r in rows if r.get("balance") is not None and r.get("ref_id")]
+    if not carrying:
+        return 0
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.executemany(
+            """UPDATE sanctuary_ledger SET balance = ?
+               WHERE user_id = ? AND ref_id = ? AND balance IS NULL""",
+            [(float(r["balance"]), int(user_id), r["ref_id"]) for r in carrying],
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0)
+
+
+async def rows_since(user_id: int, after: str) -> int:
+    """How many statement rows were posted after this day."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            """SELECT COUNT(*) FROM sanctuary_ledger
+               WHERE user_id = ? AND entry_date > ? AND source LIKE 'statement%'""",
+            (int(user_id), str(after or "")),
+        )
+        row = await cursor.fetchone()
+        return int(row[0] if row else 0)
+
+
+async def credits_since(user_id: int, since: str) -> list[dict]:
+    """Money that came IN on or after this day, oldest first.
+
+    For matching a thing he is owed against the day it actually landed.
+    """
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT id, entry_date, amount, note, source FROM sanctuary_ledger
+               WHERE user_id = ? AND source = 'statement-in' AND entry_date >= ?
+               ORDER BY entry_date""",
+            (int(user_id), str(since or "")),
         )
         return [dict(row) for row in await cursor.fetchall()]
 

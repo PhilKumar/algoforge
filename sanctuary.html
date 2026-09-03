@@ -3226,10 +3226,12 @@ function renderFinance(){
   /* tiles */
   const t = f.totals;
   $("tiles").innerHTML = `
-    <div class="tile card"><div class="lbl">Pay this month</div>
-      <div class="val num">${inr(f.salary)}</div>
-      <div class="sub">${f.salary ? `${SALARY_SAID[f.salary_source] || SALARY_SAID.default} · it funds next month · `
-                        : "not arrived yet · "}<span class="edit" id="salary-edit">${f.salary ? "change" : "set it"}</span></div></div>
+    <div class="tile card"><div class="lbl">In the bank</div>
+      <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
+      <div class="sub">${f.bank_balance != null
+        ? `the statement's own figure, ${niceDate(f.bank_as_of)}${f.bank_after ? ` · ${f.bank_after} since` : ""}`
+        : "no statement has printed one yet — import one and it fills in"}
+        ${f.salary ? ` · pay ${inr(f.salary)}` : ""} · <span class="edit" id="salary-edit">${f.salary ? "change pay" : "set pay"}</span></div></div>
     <div class="tile card"><div class="lbl">To spend this month</div>
       <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
       <div class="sub">${niceMonth(f.carried_from)}'s pay, which is what ${niceMonth(f.month)} lives on</div></div>
@@ -3614,10 +3616,14 @@ function loanCard(l){
         ${!l.active ? `<span class="badge closed">CLOSED · repaid in full</span>` : l.overdue_count ? `<span class="badge">${l.overdue_count} overdue</span>` : ""}
       </div>
 
-      ${!l.schedule_count && !l.emi_amount && l.drawn_amount ? `<div class="loan-grid">
-        <div class="lf"><span>Drawn</span><b class="num" style="color:var(--danger)">${inr(l.drawn_amount)}</b></div>
+      ${!l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_in_credit) ? `<div class="loan-grid">
+        ${l.od_in_credit
+          ? `<div class="lf"><span>Standing</span><b class="num" style="color:var(--moss)">${inr(l.od_in_credit)} in credit</b></div>`
+          : `<div class="lf"><span>Drawn</span><b class="num" style="color:var(--danger)">${inr(l.drawn_amount)}</b></div>`}
         <div class="lf"><span>Type</span><b>Revolving — no fixed EMI</b></div>
         <div class="lf"><span>Repayment</span><b>${esc(l.note || "as money allows")}</b></div>
+        ${l.od_by_sweeps ? `<div class="lf" style="grid-column:1/-1"><span>Where that comes from</span>
+          <b>${l.od_sweeps} sweeps, ${l.od_from ? niceDate(l.od_from) : ""} to ${l.od_to ? niceDate(l.od_to) : ""}</b></div>` : ""}
       </div>` : `<div class="loan-grid">
         <div class="lf"><span>EMI</span><b class="num">${inr(l.emi_amount)}</b></div>
         <div class="lf"><span>Due day</span><b class="num">${l.due_day}</b></div>
