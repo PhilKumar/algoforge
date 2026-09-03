@@ -1924,6 +1924,22 @@ def _paper_campaign_row(
     }
 
 
+def _fib_touch_dead_premium_lookup(*_args, **_kwargs):
+    """A restore that only reads state must never reach for a quote.
+
+    `FibTouchLadder.from_dict` stores these and calls neither during the
+    restore nor during `get_status()`. Raising rather than returning None means
+    a future change that DOES call one fails loudly here instead of quietly
+    pricing an archived chart off today's market.
+    """
+    raise RuntimeError("archived fib chart: premium lookup is not available on a read-only restore")
+
+
+def _fib_touch_dead_expiry_source(*_args, **_kwargs):
+    """See :func:`_fib_touch_dead_premium_lookup`."""
+    raise RuntimeError("archived fib chart: expiry source is not available on a read-only restore")
+
+
 def _fib_boundary_campaign_row(
     status: Mapping[str, Any], *, engine_snapshot: Mapping[str, Any] | None = None
 ) -> dict | None:
@@ -15733,26 +15749,69 @@ async def fib_boundary_paper_chart(
     #
     # Marked at the INDEX level, never the premium: these candles are NIFTY,
     # so a mark at the option's price would sit somewhere off the chart.
+    #
+    # AND THE CAMPAIGN'S OWN STATE WITH THEM. Sending only the marks left the
+    # client to fill in every other overlay from `_lastFibBoundaryStatus` --
+    # the campaign running NOW -- so an archived chart drew today's TARGET,
+    # today's AVG ENTRY, today's BUY STOP and today's rung states over last
+    # week's trade, and its life-window trim silently collapsed to "every bar"
+    # (Phil, 2026-09-03). The snapshot that answers all of it has been in the
+    # ledger the whole time.
     entries: list[dict] = []
     exits: list[dict] = []
+    archived: dict | None = None
     if campaign_id:
         stored = await _db_mod.get_paper_campaign(_request_user_id(request), int(campaign_id))
         if stored and str(stored.get("strategy")) == "fib_boundary":
             payload = stored.get("payload") or {}
-            seen_fills = list(payload.get("fills") or [])
+            # `payload["fills"]` is ALREADY every buy: _fib_boundary_campaign_row
+            # folds each round's fills into it before storing. Adding the rounds
+            # again drew every banked buy twice -- campaign 60's eight buys came
+            # back as twelve marks.
+            for fill in payload.get("fills") or []:
+                if fill.get("timestamp") and fill.get("index_price") is not None:
+                    entries.append({"t": fill["timestamp"], "price": float(fill["index_price"])})
             for rnd in payload.get("rounds") or []:
-                seen_fills += list(rnd.get("fills") or [])
                 if rnd.get("exit_timestamp") and rnd.get("exit_index") is not None:
                     exits.append(
                         {
                             "t": rnd["exit_timestamp"],
                             "price": float(rnd["exit_index"]),
+                            # None is UNKNOWN, not zero -- the renderer prints
+                            # "unpriced" for it and "+Rs 0" for a real zero.
                             "pnl": rnd.get("net_pnl"),
                         }
                     )
-            for fill in seen_fills:
-                if fill.get("timestamp") and fill.get("index_price") is not None:
-                    entries.append({"t": fill["timestamp"], "price": float(fill["index_price"])})
+            # THE LADDER AS IT STOOD, rebuilt from its own snapshot rather than
+            # re-derived here. `get_status()` is what the live panel reads, so
+            # the archived chart and the live chart speak one shape and the
+            # target and average entry are computed by the engine that owns
+            # them. Geometry is not in the snapshot and is not wanted: this
+            # route has already priced the fibs off the candle stream above.
+            snapshot = payload.get("engine")
+            if snapshot:
+                try:
+                    ladder = FibTouchLadder.from_dict(
+                        snapshot,
+                        premium_lookup=_fib_touch_dead_premium_lookup,
+                        expiry_source=_fib_touch_dead_expiry_source,
+                        executor=_FibTouchPaperExecutor(),
+                    )
+                    archived = ladder.get_status()
+                except Exception as exc:  # a chart is worth more than its overlays
+                    _logger.warning("[FIB TOUCH] chart %s: could not restore snapshot: %s", campaign_id, exc)
+            if archived is None:
+                # No snapshot, or one this build cannot read. The marks and the
+                # campaign's own clock still beat borrowing the live one.
+                archived = {
+                    "mother_timestamp": payload.get("mother_timestamp"),
+                    "exit_timestamp": stored.get("closed_at"),
+                    "side": side,
+                    "buy_mode": mode,
+                    "fills": list(payload.get("fills") or []),
+                    "rounds": list(payload.get("rounds") or []),
+                    "levels": [],
+                }
 
     return {
         "status": "ok",
@@ -15760,6 +15819,9 @@ async def fib_boundary_paper_chart(
         "timeframe": timeframe,
         "entries": entries,
         "exits": exits,
+        # The archived ladder's own overlays. None for a live or idle
+        # chart, which is exactly when the running campaign IS the answer.
+        "campaign": archived,
         # Which timeframe every price on this chart was actually read from. The
         # client says so in the header, because a 1H ladder drawn over 5m
         # candles is the right picture only while you know that is what it is.

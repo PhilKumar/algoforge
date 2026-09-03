@@ -3008,8 +3008,6 @@ async function openArchivedFibChart(event, el) {
     isCampaign: true,
   };
   await loadFibBoundaryChart();
-  const title = document.getElementById('oc-fib-chart-title');
-  if (title) title.textContent = 'Closed campaign · frozen';
 }
 window.openArchivedFibChart = openArchivedFibChart;
 
@@ -6249,14 +6247,17 @@ function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
   // "SELL 24,627.95 +₹0" there put a sale on a chart with no buy (Phil,
   // 2026-08-18: "Why it is only showing sell? The buy is not there").
   const exits = (archivedExits && archivedExits.length
-    ? archivedExits.map(mark => ({ t: epoch(mark.t), price: price(mark.price), pnl: Number(mark.pnl) || 0 }))
+    // A null P&L is UNPRICED, not zero. `Number(x) || 0` here defeated the
+    // renderer's own null handling and printed "+Rs 0" on every exit whose
+    // premium could not be quoted -- a trade that looks free and never was.
+    ? archivedExits.map(mark => ({ t: epoch(mark.t), price: price(mark.price), pnl: mark.pnl == null ? null : Number(mark.pnl) }))
     : (campaign.rounds || [])
         .filter(round => Array.isArray(round.fills) ? round.fills.length > 0 : true)
-        .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: Number(round.net_pnl) || 0 })))
+        .map(round => ({ t: epoch(round.exit_timestamp), price: price(round.exit_index), pnl: round.net_pnl == null ? null : Number(round.net_pnl) })))
     .filter(row => row.t !== null && row.price !== null);
   if (!exits.length && campaign.exit_timestamp && campaign.exit_index != null && allFills.length) {
     const at = epoch(campaign.exit_timestamp), p = price(campaign.exit_index);
-    if (at !== null && p !== null) exits.push({ t: at, price: p, pnl: Number(campaign.net_pnl) || 0 });
+    if (at !== null && p !== null) exits.push({ t: at, price: p, pnl: campaign.net_pnl == null ? null : Number(campaign.net_pnl) });
   }
 
   // THE CAMPAIGN'S OWN LIFE, and nothing else. Phil, 2026-08-18: "display
@@ -6657,6 +6658,8 @@ async function armFibBoundaryLive(_event, button) {
 
 let _fibxChartCtx = null;
 let _fibxChartTf = '';
+// Which chart _fibxChartTf belongs to; a new one starts on its own mother's tf.
+let _fibxChartKey = '';
 let _fibxChartDrawnKey = '';
 
 function openFibAutoChart(_event, button) {
@@ -6679,18 +6682,48 @@ async function loadFibBoundaryChart(_event, button) {
   const symbol = ctx?.symbol || campaign?.symbol || el('oc-fib-symbol')?.value || 'NIFTY';
   const side = ctx?.side || campaign?.side || el('oc-fib-side')?.value || 'CE';
   const baseTf = ctx?.baseTf || campaign?.timeframe || _fibTimeframe();
+  // EVERYTHING THE ARCHIVED ROW HANDED OVER, kept. This used to rebuild the
+  // context from the four fields it had just read and drop `closedAt` and
+  // `campaignId` on the floor -- which the strip's Refresh and its 1M/5M/15M/1H
+  // buttons then re-entered with. So the FIRST draw of a closed campaign was
+  // right and every redraw after it ran to today and lost its buy and sell
+  // marks, which is what made the bug look like it came and went.
+  _fibxChartCtx = {
+    symbol, side, timestamp, baseTf,
+    isCampaign: ctx ? ctx.isCampaign : !!campaign,
+    closedAt: ctx?.closedAt || '',
+    campaignId: ctx?.campaignId || '',
+    buyMode: ctx?.buyMode || '',
+  };
+  // A different campaign is a different chart: the view timeframe must not be
+  // inherited from the last one it was left on. Its own mother's timeframe is
+  // the only sane default.
+  if (_fibxChartKey !== `${symbol}|${side}|${timestamp}`) { _fibxChartTf = ''; _fibxChartKey = `${symbol}|${side}|${timestamp}`; }
   const timeframe = _fibxChartTf || baseTf;
-  _fibxChartCtx = { symbol, side, timestamp, baseTf, isCampaign: ctx ? ctx.isCampaign : !!campaign };
   const chart = el('oc-fib-chart');
   const meta = el('oc-fib-chart-meta');
   const overlay = el('oc-fib-chart-overlay');
   const title = el('oc-fib-chart-title');
   if (!timestamp) { _fibSetFormStatus('Pick a mother timestamp first.', 'error'); return; }
   pfSetCascadeChartOverlayOpen(overlay, true);
-  if (title) title.textContent = `${symbol} ${side} fib ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
+  // A closed campaign says so IN THE LOADER. openArchivedFibChart used to
+  // stamp "Closed campaign · frozen" after its await, so the loader's own live
+  // title won every redraw -- press Refresh on a finished trade and it read as
+  // a running one.
+  const frozen = !!_fibxChartCtx?.closedAt;
+  if (title) title.textContent = (frozen ? 'Closed campaign · frozen · ' : '')
+    + `${symbol} ${side} fib ladder · ${String(baseTf).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
   // The site strip: timeframes + refresh, once. Zoom lives on the canvas host.
   const stripHost = el('oc-fib-chart-strip');
-  if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
+  // REBUILT WHEN THE CHART CHANGES, not once per page. Guarding on
+  // childElementCount alone left the first campaign's timeframe highlighted for
+  // every campaign opened after it -- the same trap the High Entry strip had.
+  // The key is the chart plus its active tf, so redrawing the same chart at the
+  // same timeframe still leaves the strip alone.
+  const stripKey = `${symbol}|${side}|${timestamp}|${timeframe}`;
+  if (stripHost && (!stripHost.childElementCount || stripHost.dataset.stripKey !== stripKey) && typeof pfChartStrip === 'function') {
+    stripHost.dataset.stripKey = stripKey;
+    stripHost.replaceChildren();
     pfChartStrip(stripHost, {
       timeframes: ['1m', '5m', '15m', '1h'],
       active: timeframe,
@@ -6731,7 +6764,13 @@ async function loadFibBoundaryChart(_event, button) {
     // surfaces by a fixed id. Fold the backtest journal chart away first so the
     // overlay does not mount behind a duplicate host.
     _fibBoundaryCollapseBacktestChart();
-    const benchPayload = _fibBoundaryCanvasPayload(data, _fibxChartCtx?.isCampaign ? symbol : '');
+    // A CLOSED CAMPAIGN OVERRIDES THE RUNNING ONE. Without this the payload
+    // builder resolves `campaign` to _lastFibBoundaryStatus[symbol] and draws
+    // today's target, average entry, buy stop, rung states and rupees over an
+    // archived trade -- and trims its bars to today's window, which empties and
+    // silently falls back to every bar. The route now sends the ladder as it
+    // stood; it wins whenever there is one.
+    const benchPayload = _fibBoundaryCanvasPayload(data, _fibxChartCtx?.isCampaign ? symbol : '', data.campaign || null);
     // An already-mounted canvas is UPDATED in place, never torn down and
     // rebuilt: replacing the canvas element is the flicker (the compositor
     // shows the fresh blank element before its first paint commits, which is

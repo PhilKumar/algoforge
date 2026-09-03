@@ -29,11 +29,20 @@ APP = (ROOT / "app.py").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
 
 
+def _chart_route() -> str:
+    """The chart route's own source, bounded by the next route.
+
+    This was a fixed 6500/11000-character slice, which had to be widened every
+    time the function grew and failed with a wall of source when it wasn't.
+    """
+    i = APP.index('@app.get("/api/fib-boundary/paper/chart")')
+    j = APP.index("\n@app.", i + 1)
+    return APP[i:j]
+
+
 class TheRouteHonoursTheClose(unittest.TestCase):
     def _route(self):
-        i = APP.index('@app.get("/api/fib-boundary/paper/chart")')
-        # Wide enough to reach _load(); the docstring alone is ~2.5k.
-        return APP[i : i + 6500]
+        return _chart_route()
 
     def test_the_route_accepts_when_the_campaign_ended(self):
         self.assertIn('closed_at: str = ""', self._route())
@@ -67,16 +76,21 @@ class TheArchivedChartDrawsItsOwnTrade(unittest.TestCase):
     """
 
     def test_the_route_can_return_the_stored_campaigns_marks(self):
-        route = APP[APP.index('@app.get("/api/fib-boundary/paper/chart")') :][:11000]
+        route = _chart_route()
         self.assertIn("campaign_id: int = 0", route)
         self.assertIn('"entries": entries', route)
         self.assertIn('"exits": exits', route)
 
     def test_marks_are_the_index_level_not_the_premium(self):
         """These candles are NIFTY; a mark at the option's price is off-chart."""
-        route = APP[APP.index('@app.get("/api/fib-boundary/paper/chart")') :][:11000]
+        route = _chart_route()
         self.assertIn('fill["index_price"]', route)
         self.assertIn('rnd["exit_index"]', route)
+
+    def test_a_banked_buy_is_marked_once(self):
+        """`payload["fills"]` already holds the rounds' fills; adding them
+        again drew campaign 60's eight buys as twelve marks."""
+        self.assertNotIn("seen_fills", _chart_route())
 
     def test_the_stored_marks_win_over_the_running_campaigns(self):
         self.assertIn("const archivedEntries = Array.isArray(payload?.entries)", APP_JS)
