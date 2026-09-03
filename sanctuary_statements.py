@@ -94,11 +94,16 @@ DEFAULT_RULES = [
     # narration is the rail, never the payee. "cred.club" and "cred@" were
     # already known; the wallet and the plain "payment on CRED" were not,
     # so those rows fell through to whichever rule caught the rail.
-    {"match": "cred.wallet@", "category": "Credit card bill"},
-    {"match": "payment on cred", "category": "Credit card bill"},
-    # CRED's own handles, whichever bank it happens to collect through.
-    {"match": "credclub@", "category": "Credit card bill"},
-    {"match": "cred club", "category": "Credit card bill"},
+    # Paying CRED settles his HDFC card, so it is filed as that card rather
+    # than as a nameless "credit card bill" — he holds two, and a year of
+    # spending that cannot say which one it was on is not worth much.
+    {"match": "cred.wallet@", "category": "HDFC Creditcard"},
+    {"match": "payment on cred", "category": "HDFC Creditcard"},
+    {"match": "credclub@", "category": "HDFC Creditcard"},
+    {"match": "cred club", "category": "HDFC Creditcard"},
+    {"match": "cred@", "category": "HDFC Creditcard"},
+    # The Citi card that Axis took over, named or by its number.
+    {"match": "citicard", "category": "AxisBank Creditcard"},
     {"match": "netflix", "category": "Subscriptions"},
     {"match": "spotify", "category": "Subscriptions"},
     {"match": "hotstar", "category": "Subscriptions"},
@@ -106,9 +111,7 @@ DEFAULT_RULES = [
     {"match": "atw-", "category": "Cash withdrawal"},
     {"match": "nwd-", "category": "Cash withdrawal"},
     {"match": "cash wdl", "category": "Cash withdrawal"},
-    {"match": "cred.club", "category": "Credit card bill"},
     {"match": "credpay", "category": "Credit card bill"},
-    {"match": "cred@", "category": "Credit card bill"},
     {"match": "via cred", "category": "Credit card bill"},
     {"match": "payment on cred", "category": "Credit card bill"},
     {"match": "zerodha", "category": "Investments"},

@@ -406,7 +406,7 @@ class StatementParserTests(unittest.TestCase):
 
         self.assertEqual(categorise("MPS/APOLLO PHAR/2021"), "Health")
         self.assertEqual(categorise("UPI/1002/Sweep to OD ac"), "OD loan")
-        self.assertEqual(categorise("UPI/419/payment on CRED/cred.club@axisb"), "Credit card bill")
+        self.assertEqual(categorise("UPI/419/payment on CRED/cred.club@axisb"), "HDFC Creditcard")
         self.assertEqual(categorise("UPI/9/completely new shop"), "Uncategorised")
 
     def test_user_rule_wins_over_the_default(self):
@@ -1484,6 +1484,63 @@ class OneNameForOneThingTests(unittest.TestCase):
         self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
 
 
+class OneBillTwoCardsTests(unittest.TestCase):
+    """He holds two cards and one bucket was holding both. Figures invented.
+
+    A year of card spending that cannot say which card it was on is not worth
+    much. The narrations name the card themselves, and where the wording does
+    not, the card's own number does.
+    """
+
+    def filed(self, note):
+        import sanctuary_statements as st
+
+        return st.categorise(note)
+
+    def moved(self, note, was="Credit card bill"):
+        import sanctuary
+
+        return sanctuary._recategorised(note, was)
+
+    def test_paying_cred_settles_the_hdfc_card(self):
+        for note in (
+            "UPI/CRED Club/cred.club@axis/payment on/AXIS BANK/1/ABC",
+            "UPI/CRED WALLE/cred.wallet@ax/payment on/AXIS BANK/1/ABC",
+            "UPI/1/payment on CRED/credclub@icici/ICICI Bank/2/DEF",
+        ):
+            self.assertEqual(self.filed(note), "HDFC Creditcard", note[:36])
+
+    def test_the_citi_card_is_an_axis_card_now(self):
+        self.assertEqual(self.filed("BIL/1/NEFTCC-CITICARD payment/9999"), "AxisBank Creditcard")
+
+    def test_a_bill_that_names_neither_is_told_apart_by_the_card_number(self):
+        # "NEFTCC-April Due" says nothing at all; the number says everything.
+        self.assertEqual(self.moved("BIL/1/NEFTCC-April Due/524133052031443"), "AxisBank Creditcard")
+        self.assertEqual(self.moved("BIL/1/NEFTCC-Credit card c/524216000022"), "HDFC Creditcard")
+
+    def test_the_older_direct_payments_go_to_their_own_card(self):
+        self.assertEqual(self.moved("BIL/1/NEFTCC-HDFC Due/524216000022763"), "HDFC Creditcard")
+        self.assertEqual(self.moved("BIL/1/NEFTCC-CitiBankdue/5241330520314"), "AxisBank Creditcard")
+
+    def test_only_the_one_bucket_is_touched(self):
+        # A row he filed somewhere himself is never pulled into a card.
+        self.assertEqual(self.moved("UPI/CRED Club/cred.club@axis/payment on/1", was="Groceries"), "")
+
+    def test_both_cards_are_pickable_by_hand(self):
+        import sanctuary
+
+        names = {c["name"] for c in sanctuary.DEFAULT_CATEGORIES}
+        self.assertIn("HDFC Creditcard", names)
+        self.assertIn("AxisBank Creditcard", names)
+
+    def test_the_split_reads_words_and_not_the_machine(self):
+        # "cred" lives inside "Credit card", which is how the first reading of
+        # this put three hundred and seventy-five rows in the wrong pile.
+        import sanctuary
+
+        self.assertIn("sanctuary_statements.rule_matches(lowered, word)", open(sanctuary.__file__).read())
+
+
 class ANameThatHoldsNothingTests(unittest.TestCase):
     """Which categories are worth keeping in the list he files from."""
 
@@ -1887,7 +1944,7 @@ class ARuleTaughtFromTheRailTests(unittest.TestCase):
             "UPI/CRED Club/cred.club@axis/payment on/AXIS BANK/661018326953/ACD738c1",
             "UPI/419/payment on CRED/somewhere@else/HDFC BANK/1/ABC",
         ):
-            self.assertEqual(self.filed(note), "Credit card bill", note[:34])
+            self.assertEqual(self.filed(note), "HDFC Creditcard", note[:34])
 
     def test_a_haircut_paid_into_an_axis_account_stops_being_a_credit_card(self):
         # Nothing here knows what a haircut is, and that is the honest
@@ -1955,7 +2012,7 @@ class ARuleTaughtFromTheRailTests(unittest.TestCase):
             "UPI/305037500186/cred/credclub@icici/ICICI Bank/MNOZ54dz",
             "UPI/419/payment on CRED/somewhere@else/HDFC BANK/1/ABC",
         ):
-            self.assertEqual(self.filed(note), "Credit card bill", note[:38])
+            self.assertEqual(self.filed(note), "HDFC Creditcard", note[:38])
 
     def test_only_that_exact_rule_is_retired(self):
         # A rule of the same words pointing somewhere else is his own and

@@ -82,6 +82,11 @@ DEFAULT_CATEGORIES = [
     # Anything eaten, wherever it was eaten. Three names for it had grown —
     # Eatables, Food & Dining, Eating out — and a fourth, Zepto, for one shop.
     {"name": "Eating out", "emoji": "🍛", "kind": "expense", "quick": True},
+    # He holds two cards, and a bill that cannot say which one it paid is not
+    # worth much a year later. The Citi card is an Axis card since the
+    # takeover; CRED settles the HDFC one.
+    {"name": "HDFC Creditcard", "emoji": "💳", "kind": "expense", "quick": False},
+    {"name": "AxisBank Creditcard", "emoji": "💳", "kind": "expense", "quick": False},
     {"name": "Fuel — Car", "emoji": "⛽", "kind": "expense", "quick": True},
     {"name": "Fuel — Bike", "emoji": "🏍️", "kind": "expense", "quick": True},
     {"name": "Music Class", "emoji": "🎵", "kind": "expense", "quick": False},
@@ -2327,7 +2332,33 @@ async def statement_review(request: Request, user: dict = Depends(_unlocked_user
 # the OD was somewhere he kept money; it is a debt, and both directions of
 # a sweep belong to it. Nothing outside those two categories is touched,
 # so a row he moved somewhere himself stays where he put it.
+# ── one bill, two cards ──
+# "Credit card bill" had been holding both of them: the payments that go
+# through CRED, which settle the HDFC card, and the direct payments to the
+# Citi card that Axis took over. Four hundred and thirty-seven rows with no
+# way to tell which card a year's spending had been on.
+#
+# The narrations name the card themselves, and where the wording does not,
+# the card number does — 524216 is the HDFC one, 524133 the Citi one. Only
+# rows sitting in that one bucket are touched, so nothing he filed elsewhere
+# moves.
+_CARD_BILLS = ("Credit card bill",)
+_CRED_APP = ("cred.club", "cred.wallet", "credclub@", "payment on cred", "paid via cred", "cred@")
+
 _RECATEGORISE = (
+    {
+        # CRED settles the HDFC card, and so do the older direct payments
+        # that name it or carry its number.
+        "match": _CRED_APP + ("hdfc credit", "hdfc due", "hdfc last due", "hdfcdec", "524216"),
+        "from": (*_CARD_BILLS, sanctuary_statements.UNCATEGORISED),
+        "to": "HDFC Creditcard",
+    },
+    {
+        # The Citi card, which is an Axis card now.
+        "match": ("citibank", "citicard", "citi march", "citi due", "524133"),
+        "from": (*_CARD_BILLS, sanctuary_statements.UNCATEGORISED),
+        "to": "AxisBank Creditcard",
+    },
     {
         "match": ("rev sweep", "sweep to od", "sweep from od"),
         "from": ("Self transfer", sanctuary_statements.UNCATEGORISED),
@@ -2342,6 +2373,7 @@ _RECATEGORISE = (
 # as a second bar beside the one he knew. Same for the electricity board.
 # The rules now use the list's spelling and these move the rows already
 # filed under the other one. A test keeps a third from appearing.
+
 # A rule taught from one true row can be an accident of the narration. "axis
 # bank" was taught from a credit-card payment and matched the BENEFICIARY
 # BANK printed in every UPI line, so a haircut, a dress, a dinner and a
@@ -2439,7 +2471,7 @@ def _recategorised(note: str, category: str) -> str:
     for correction in _RECATEGORISE:
         if category not in correction["from"] or category == correction["to"]:
             continue
-        if any(word in lowered for word in correction["match"]):
+        if any(sanctuary_statements.rule_matches(lowered, word) for word in correction["match"]):
             return str(correction["to"])
     return ""
 
