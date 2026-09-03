@@ -1543,14 +1543,76 @@ def _state_file_snapshots(user_id: int) -> list[dict]:
 
 
 # Trade state tracker for Telegram alerts (keyed by run_id)
-_alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "closed_count": int}
+#
+# WHY THIS IS PERSISTED. It used to be an in-memory dict holding a COUNT of
+# closed trades, and the exit alert fired whenever `len(closed_trades)` exceeded
+# it. A process restart emptied the dict, the restored engine came back with the
+# day's closed trades still in its list, and every one of them was announced
+# again -- so Phil got the same exit on Telegram once per deploy (2026-09-03:
+# "Why again and again I getting this telegram message for the exit trade?").
+# There were sixteen process starts that day.
+#
+# A count also cannot survive a list that is reordered or trimmed. What is
+# remembered now is WHICH TRADES have been announced, by their own identity, in
+# `app_state` -- so a trade is announced once, ever, restart or no restart.
+_alert_state: Dict[str, dict] = {}  # {"in_trade": bool, "seen": set[str]}
+
+# Enough for any run's day; old fingerprints fall off the front rather than
+# growing a row without bound.
+_ALERT_SEEN_CAP = 500
 
 
 def _alert_state_key(user_id: int | None, run_id: str) -> str:
     return f"{int(user_id or 0)}:{run_id}"
 
 
-def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int | None = None):
+def _closed_trade_fingerprint(trade: Mapping[str, Any]) -> str:
+    """What makes this exit THIS exit.
+
+    `id` is assigned per position and `exit_time` is stamped when it closes, so
+    the pair identifies a trade even if the list is rebuilt in another order.
+    The rest is there to keep two same-second exits apart.
+    """
+    return "|".join(
+        str(trade.get(key, "")) for key in ("id", "symbol", "trading_symbol", "exit_time", "exit_reason", "pnl")
+    )
+
+
+async def _load_alert_state(state_key: str) -> dict:
+    """The announced-trade set for a run, read once per process.
+
+    A failure here must never cost the engine its event: the fallback is an
+    empty set, which at worst repeats an alert -- the behaviour we are fixing,
+    but not a broken strategy.
+    """
+    cached = _alert_state.get(state_key)
+    if cached is not None:
+        return cached
+    state = {"in_trade": False, "seen": set()}
+    try:
+        raw = await _db_mod.get_app_state(f"trade_alerts:{state_key}")
+        if raw:
+            stored = json.loads(raw)
+            state["in_trade"] = bool(stored.get("in_trade"))
+            state["seen"] = set(str(x) for x in (stored.get("seen") or []))
+    except Exception as exc:  # noqa: BLE001 - an alert is worth less than the run
+        _logger.warning("[ALERTS] could not read alert state for %s: %s", state_key, exc)
+    _alert_state[state_key] = state
+    return state
+
+
+async def _save_alert_state(state_key: str, state: Mapping[str, Any]) -> None:
+    seen = list(state.get("seen") or [])[-_ALERT_SEEN_CAP:]
+    try:
+        await _db_mod.set_app_state(
+            f"trade_alerts:{state_key}",
+            json.dumps({"in_trade": bool(state.get("in_trade")), "seen": seen}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("[ALERTS] could not save alert state for %s: %s", state_key, exc)
+
+
+async def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int | None = None):
     """Detect trade entry/exit from engine status updates and fire Telegram alerts."""
     if event.get("type") in ("status", "price_update"):
         return  # Skip non-status-change events
@@ -1559,10 +1621,13 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int 
     positions = event.get("positions", [])
     total_pnl = event.get("total_pnl", 0)
     state_key = _alert_state_key(user_id, run_id)
-    prev = _alert_state.get(state_key, {"in_trade": False, "closed_count": 0})
+    state = await _load_alert_state(state_key)
+    seen: set = state["seen"]
+    was_in_trade = bool(state.get("in_trade"))
+    changed = False
 
     # Detect entry: was not in trade, now in trade
-    if in_trade and not prev["in_trade"]:
+    if in_trade and not was_in_trade:
         pos_lines = []
         for p in positions:
             sym = p.get("symbol") or p.get("trading_symbol") or "—"
@@ -1571,24 +1636,31 @@ def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id: int 
             pos_lines.append(f"  {txn} {sym} @ ₹{premium:.2f}")
         body = f"Strategy: {run_id}\nMode: {mode_label}\n" + "\n".join(pos_lines)
         alerter.alert("Trade Entry", body, level="info")
+        changed = True
 
-    # Detect exit: closed_trades count increased
-    new_count = len(closed_trades)
-    if new_count > prev["closed_count"]:
-        new_trades = closed_trades[prev["closed_count"] :]
-        for t in new_trades:
-            sym = t.get("symbol") or t.get("trading_symbol") or "—"
-            pnl = round(t.get("pnl", 0), 2)
-            reason = t.get("exit_reason") or t.get("reason") or "—"
-            level = "info" if pnl >= 0 else "warn"
-            body = (
-                f"Strategy: {run_id}\nMode: {mode_label}\n"
-                f"Symbol: {sym}\nP&L: ₹{pnl:.2f}\nReason: {reason}\n"
-                f"Total P&L: ₹{round(total_pnl, 2):.2f}"
-            )
-            alerter.alert("Trade Exit", body, level=level)
+    # Detect exit: a closed trade this run has not announced before. Keyed on
+    # the trade, never on how many there are -- see the note above the state.
+    for t in closed_trades:
+        fingerprint = _closed_trade_fingerprint(t)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        changed = True
+        sym = t.get("symbol") or t.get("trading_symbol") or "—"
+        pnl = round(t.get("pnl", 0), 2)
+        reason = t.get("exit_reason") or t.get("reason") or "—"
+        level = "info" if pnl >= 0 else "warn"
+        body = (
+            f"Strategy: {run_id}\nMode: {mode_label}\n"
+            f"Symbol: {sym}\nP&L: ₹{pnl:.2f}\nReason: {reason}\n"
+            f"Total P&L: ₹{round(total_pnl, 2):.2f}"
+        )
+        alerter.alert("Trade Exit", body, level=level)
 
-    _alert_state[state_key] = {"in_trade": in_trade, "closed_count": new_count}
+    if changed or was_in_trade != bool(in_trade):
+        state["in_trade"] = bool(in_trade)
+        state["seen"] = seen
+        await _save_alert_state(state_key, state)
 
 
 # Global WebSocket market feed (singleton — shared by paper + live engines)
@@ -4021,7 +4093,7 @@ def _live_exit_reason_for_stop(reason: str) -> str:
 
 async def _live_engine_broadcast(user_id: int, run_id: str, event: dict):
     await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
-    _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+    await _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
     if event.get("type") == "exit" and event.get("trade"):
         await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
@@ -18247,7 +18319,7 @@ async def live_start(req: LiveStartRequest, request: Request):
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
-        _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+        await _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
         # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
@@ -18903,7 +18975,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "paper", "run_id": run_id, **event})
-        _check_trade_alerts(run_id, "Paper", event, user_id=user_id)
+        await _check_trade_alerts(run_id, "Paper", event, user_id=user_id)
         # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "paper", run_name=run_id, explicit_user_id=user_id)
@@ -19045,7 +19117,7 @@ async def live_exit_position(request: Request):
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
-        _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
+        await _check_trade_alerts(run_id, "Auto", event, user_id=user_id)
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 

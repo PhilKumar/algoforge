@@ -306,7 +306,13 @@ class RestoredEnginesStillAlert(unittest.TestCase):
 
         seen = []
         originals = (app_module._check_trade_alerts, app_module._broadcast_user_ws_json)
-        app_module._check_trade_alerts = lambda *a, **k: seen.append(a)
+
+        # Awaited since 2026-09-03: the alert tracker now reads and writes its
+        # already-announced set, so a sync stub returns None into an `await`.
+        async def _record(*a, **k):
+            seen.append(a)
+
+        app_module._check_trade_alerts = _record
 
         async def _noop_broadcast(*a, **k):
             return None

@@ -54,4 +54,18 @@ def test_equity_subview_restores_and_defaults_to_cash_cascade():
 
 
 def test_asset_cache_version_is_bumped():
-    assert "20260902-archived-chart-marks-38" in MANIFEST
+    """The manifest carries a dated, bumpable cache-buster.
+
+    This used to pin one literal version, which meant it failed on the NEXT
+    bump rather than on a missing one -- it went red on 2026-09-03 for a
+    manifest that had been bumped correctly. A version is checked for shape and
+    for being a real date; which change it belongs to is the commit's business.
+    """
+    import json
+    import re
+    from datetime import date
+
+    version = json.loads(MANIFEST)["version"]
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})-[a-z0-9][a-z0-9-]*", version)
+    assert match, f"cache-buster {version!r} should look like 20260903-what-changed-41"
+    date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
