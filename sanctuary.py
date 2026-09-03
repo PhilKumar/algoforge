@@ -2273,6 +2273,22 @@ _RECATEGORISE = (
 # as a second bar beside the one he knew. Same for the electricity board.
 # The rules now use the list's spelling and these move the rows already
 # filed under the other one. A test keeps a third from appearing.
+# A rule taught from one true row can be an accident of the narration. "axis
+# bank" was taught from a credit-card payment and matched the BENEFICIARY
+# BANK printed in every UPI line, so a haircut, a dress, a dinner and a
+# vehicle service were all filed as an Axis credit card — a card he has
+# never held. The rule goes, and the rows it filed are read again by the
+# rulebook without it. Only rows still sitting under exactly what it said
+# move; anything he filed himself stays where he put it.
+_RETIRED_RULES = (
+    {
+        "match": "axis bank",
+        "category": "AxisBank Creditcard",
+        "why": "it matched the bank printed in every UPI line, not the payee",
+    },
+)
+
+
 _RENAMED_CATEGORIES = {
     "School fees": "School Fees",
     "EB bill": "EB Bill",
@@ -2304,6 +2320,20 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     """
     user_id = int(user["id"])
     user_rules = await sanctuary_db.get_json_state(user_id, "stmt_rules", [])
+    # A rule that reads the rail rather than the payee is retired before
+    # anything is sorted, so the pass below files by what a row actually is.
+    retired = [
+        rule
+        for rule in user_rules
+        if any(
+            str(rule.get("match") or "").lower().strip() == gone["match"]
+            and str(rule.get("category") or "") == gone["category"]
+            for gone in _RETIRED_RULES
+        )
+    ]
+    if retired:
+        user_rules = [rule for rule in user_rules if rule not in retired]
+        await sanctuary_db.set_json_state(user_id, "stmt_rules", user_rules)
     moved: dict[str, int] = {}
     for row in await sanctuary_db.uncategorised_ledger(user_id):
         category = sanctuary_statements.categorise(row["note"], user_rules)

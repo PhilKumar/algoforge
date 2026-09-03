@@ -89,6 +89,13 @@ DEFAULT_RULES = [
     {"match": "tneb", "category": "EB Bill"},
     {"match": "electricity", "category": "EB Bill"},
     {"match": "school", "category": "School Fees"},
+    # Paying CRED is settling a credit card, and the line names a bank only
+    # because that is where CRED collects — the beneficiary bank in a UPI
+    # narration is the rail, never the payee. "cred.club" and "cred@" were
+    # already known; the wallet and the plain "payment on CRED" were not,
+    # so those rows fell through to whichever rule caught the rail.
+    {"match": "cred.wallet@", "category": "Credit card bill"},
+    {"match": "payment on cred", "category": "Credit card bill"},
     {"match": "netflix", "category": "Subscriptions"},
     {"match": "spotify", "category": "Subscriptions"},
     {"match": "hotstar", "category": "Subscriptions"},

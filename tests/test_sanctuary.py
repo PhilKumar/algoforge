@@ -1636,6 +1636,60 @@ class RulesReadWordsNotReferencesTests(unittest.TestCase):
         self.assertEqual(self.filed("UPI/SOMEONE/thechickenplace/x", taught), "Poultry")
 
 
+class ARuleTaughtFromTheRailTests(unittest.TestCase):
+    """A rule can be an accident of the narration. Figures invented.
+
+    "axis bank" was taught from one true credit-card payment, and then
+    matched the BENEFICIARY BANK printed in every UPI line — so a haircut, a
+    dress, a dinner and a vehicle service were all filed as an Axis credit
+    card, for a card he has never held. A hundred and twenty-two rows of it.
+    """
+
+    def filed(self, note, taught=None):
+        import sanctuary_statements as st
+
+        return st.categorise(note, taught or [])
+
+    def test_paying_cred_is_settling_a_card_not_paying_a_bank(self):
+        # The line names Axis because that is where CRED collects. Both
+        # shapes of it — the club and the wallet — and the bare wording.
+        for note in (
+            "UPI/CRED WALLE/cred.wallet@ax/payment on/AXIS BANK/661018344311/ACD81d1a25",
+            "UPI/CRED Club/cred.club@axis/payment on/AXIS BANK/661018326953/ACD738c1",
+            "UPI/419/payment on CRED/somewhere@else/HDFC BANK/1/ABC",
+        ):
+            self.assertEqual(self.filed(note), "Credit card bill", note[:34])
+
+    def test_a_haircut_paid_into_an_axis_account_stops_being_a_credit_card(self):
+        # Nothing here knows what a haircut is, and that is the honest
+        # answer — it goes to the pile he sorts, not to a card he never had.
+        note = "UPI/004117084052/Hair cut/7358336285@okbi/Axis Bank Ltd./XYZ"
+        self.assertEqual(self.filed(note), "Uncategorised")
+        self.assertEqual(
+            self.filed(note, [{"match": "axis bank", "category": "AxisBank Creditcard"}]), "AxisBank Creditcard"
+        )
+
+    def test_the_retired_rule_is_named_with_its_reason(self):
+        import sanctuary
+
+        gone = {r["match"]: r for r in sanctuary._RETIRED_RULES}
+        self.assertIn("axis bank", gone)
+        self.assertEqual(gone["axis bank"]["category"], "AxisBank Creditcard")
+        self.assertTrue(gone["axis bank"]["why"])
+
+    def test_only_that_exact_rule_is_retired(self):
+        # A rule of the same words pointing somewhere else is his own and
+        # must survive.
+        import sanctuary
+
+        keep = {"match": "axis bank", "category": "Axis Bank Loan"}
+        matches = any(
+            str(keep["match"]) == g["match"] and str(keep["category"]) == g["category"]
+            for g in sanctuary._RETIRED_RULES
+        )
+        self.assertFalse(matches)
+
+
 class TheRuleThatKnowsMostWinsTests(unittest.TestCase):
     """Which rule takes a row when more than one fits. Figures invented."""
 
