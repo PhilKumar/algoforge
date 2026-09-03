@@ -155,7 +155,7 @@ from engine.fib_touch_ladder import TERMINAL_STATUSES as _FIB_TOUCH_TERMINAL_STA
 from engine.fib_touch_ladder import TIMEFRAME_MINUTES as _FIB_TOUCH_TF_MINUTES
 from engine.fib_touch_ladder import LiveExecutor as _FibTouchLiveExecutor
 from engine.fib_touch_ladder import PaperExecutor as _FibTouchPaperExecutor
-from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators
+from engine.indicators import infer_execution_timeframe, normalize_strategy_indicators, supertrend
 from engine.live import LiveEngine
 from engine.market_feed import HAS_DHAN_FEED, get_market_feed, shutdown_feed
 from engine.options_live_executor import OPTIONS_LIVE_EXECUTION_ENABLED as _OPTIONS_LIVE_EXECUTION_ENABLED
@@ -18726,10 +18726,24 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
 
     entry_why = trade.get("entry_why") if isinstance(trade.get("entry_why"), dict) else None
     exit_why = trade.get("exit_why") if isinstance(trade.get("exit_why"), dict) else None
+
+    # THE RULE THAT ENDED THE TRADE, on the chart of the trade it ended.
+    # Phil, 2026-09-03: "I need the super trend indicator that cuts today's
+    # trade to an exit.. I want that in the chart as well". CE_SL15 exits on
+    # Supertrend(10, 2.7) over 3m NIFTY; it turned down at 10:36 and the engine
+    # acted at the next 5m boundary, 10:45. Without it on the chart the exit
+    # looks arbitrary.
+    supertrend_overlay = None
+    spec = _strategy_supertrend_spec(getattr(engine, "strategy", None))
+    if spec:
+        supertrend_overlay = await _index_supertrend_flips(
+            broker_client, underlying, spec, from_date, end_day.isoformat()
+        )
     return {
         "status": "ok",
         "timeframe": tf,
         "is_open": False,
+        "supertrend": supertrend_overlay,
         "frozen_at": exit_ts,
         "trade": {
             "id": trade.get("id"),
@@ -21577,6 +21591,116 @@ def _scalp_option_chart_timestamp(value: Any) -> int | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=IST)
     return int(parsed.timestamp())
+
+
+_SUPERTREND_SPEC = re.compile(r"Supertrend_(\d+)_(\d+(?:\.\d+)?)_(\d+)", re.IGNORECASE)
+
+
+def _strategy_supertrend_spec(strategy: Any) -> tuple[int, float, int] | None:
+    """The supertrend a strategy actually trades: (period, multiplier, minutes).
+
+    The builder stores it as one string, `Supertrend_10_2.7_3`, wherever the
+    condition happens to live, so the whole config is searched rather than a
+    path into it guessed. CE_SL15_NoMonTue is 10/2.7 on 3m; PE_NoTarget is
+    10/2 on 3m.
+    """
+    if not strategy:
+        return None
+    try:
+        blob = json.dumps(strategy, default=str)
+    except (TypeError, ValueError):
+        return None
+    match = _SUPERTREND_SPEC.search(blob)
+    if not match:
+        return None
+    period, multiplier, minutes = int(match.group(1)), float(match.group(2)), int(match.group(3))
+    if period < 2 or minutes < 1 or multiplier <= 0:
+        return None
+    return period, multiplier, minutes
+
+
+async def _index_supertrend_flips(
+    broker_client: Any,
+    underlying: str,
+    spec: tuple[int, float, int],
+    from_date: str,
+    to_date: str,
+) -> dict | None:
+    """Where the index supertrend turned, on the timeframe the strategy uses.
+
+    ON THE INDEX, AND RETURNED AS TIMES, NOT A PRICE LINE. The trade chart
+    draws the OPTION's premium candles; this supertrend is computed on NIFTY.
+    The two share a time axis and nothing else, so a supertrend priced at
+    23,996 drawn on a chart whose axis runs 250-300 would be off-screen at
+    best and misread as a premium level at worst. What crosses is WHEN it
+    turned -- which is the thing that ended the trade.
+
+    Dhan serves no 3-minute candle, so the series is built from 1m exactly as
+    the engine builds it. The window starts well before the trade because ATR
+    is smoothed: run cold from the session open and the bands are wrong --
+    reconstructing 03-Sep from 09:15 showed no flip at all, while the same
+    settings warmed on prior sessions flip at 10:36, which is the flip the
+    engine acted on at the next 5m boundary.
+    """
+    period, multiplier, minutes = spec
+    # The same ids `INSTRUMENTS` uses; NIFTY when the underlying is unknown,
+    # because that is what every strategy on this path trades.
+    index_id = {"NIFTY": "13", "BANKNIFTY": "25", "FINNIFTY": "27", "SENSEX": "51"}.get(str(underlying).upper(), "13")
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(index_id),
+            exchange_segment="IDX_I",
+            instrument_type="INDEX",
+            from_date=from_date,
+            to_date=to_date,
+            candle_type="1",
+        )
+    except Exception as exc:  # a chart is worth more than one of its overlays
+        _logger.warning("[CHART] supertrend overlay: index candles unavailable: %s", exc)
+        return None
+    if frame is None or getattr(frame, "empty", True):
+        return None
+    try:
+        bars = (
+            frame.resample(f"{minutes}min", label="left", closed="left")
+            .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
+            .dropna()
+        )
+        if len(bars) <= period:
+            return None
+        computed = supertrend(bars, period=period, multiplier=float(multiplier))
+    except Exception as exc:
+        _logger.warning("[CHART] supertrend overlay: could not compute: %s", exc)
+        return None
+
+    direction = list(computed["supertrend_dir"])
+    values = list(computed["supertrend"])
+    stamps = list(bars.index)
+    flips = []
+    for i in range(1, len(direction)):
+        if direction[i] == direction[i - 1]:
+            continue
+        stamp = stamps[i]
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=IST)
+        flips.append(
+            {
+                "t": int(stamp.timestamp()),
+                "dir": "up" if direction[i] > 0 else "down",
+                "index": round(float(values[i]), 2),
+            }
+        )
+    return {
+        "timeframe": f"{minutes}m",
+        "period": period,
+        "multiplier": float(multiplier),
+        "flips": flips,
+        "note": (
+            f"Supertrend({period}, {multiplier}) on {minutes}m NIFTY -- the rule that ends the trade. "
+            "Marked by TIME: it is an index level, not a premium, so it has no place on this price axis."
+        ),
+    }
 
 
 def _chart_session_analytics(candles: list[dict]) -> dict:

@@ -857,6 +857,42 @@ function _pfChartCanvasMarkers(c, p, PAL, labels) {
         + (known ? '  ' + (pnl >= 0 ? '+' : '−') + _pfChartInr(Math.abs(pnl)) : '  unpriced'), color: PAL.sellMark });
       count++;
     });
+
+    // THE RULE THAT ENDED THE TRADE, marked in TIME.
+    // Phil, 2026-09-03: "I need the super trend indicator that cuts today's
+    // trade to an exit.. I want that in the chart as well". CE_SL15 exits on
+    // Supertrend(10, 2.7) over 3m NIFTY -- it turned down at 10:36 and the
+    // engine acted at the next 5m boundary, 10:45.
+    //
+    // A VERTICAL LINE, NOT A PRICE LINE. This chart's candles are the OPTION's
+    // premium and the supertrend is an INDEX level: on an axis running 250-300
+    // a value of 23,996 is off-screen at best, and read as a premium at worst.
+    // The two series share a time axis and nothing else, so time is what is
+    // drawn -- which is also the only part that matters: WHEN it turned.
+    var st = d.supertrend;
+    ((st && Array.isArray(st.flips)) ? st.flips : []).forEach(function (flip) {
+      if (!flip || flip.t == null) return;
+      var x = p.xOf(flip.t);
+      if (!isFinite(x) || x < p.padL || x > p.padL + p.plotW) return;
+      var down = String(flip.dir) === 'down';
+      ctx.save();
+      ctx.strokeStyle = down ? PAL.sellMark : PAL.buyMark;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, p.padT);
+      ctx.lineTo(x, p.padT + p.plotH);
+      ctx.stroke();
+      ctx.restore();
+      labels.push({
+        kind: 'marker',
+        x: x,
+        y: p.padT + (down ? 12 : 26),
+        text: 'ST ' + (down ? 'DOWN' : 'UP') + ' ' + _pfChartIst(flip.t).slice(6),
+        color: down ? PAL.sellMark : PAL.buyMark,
+      });
+    });
   });
   return count;
 }
