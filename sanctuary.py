@@ -80,16 +80,17 @@ DEFAULT_CATEGORIES = [
     {"name": "Autorickshaw", "emoji": "🛺", "kind": "expense", "quick": True},
     {"name": "EB Bill", "emoji": "⚡", "kind": "expense", "quick": True},
     {"name": "Groceries", "emoji": "🧺", "kind": "expense", "quick": True},
-    {"name": "Eatables", "emoji": "🍪", "kind": "expense", "quick": True},
-    {"name": "Food & Dining", "emoji": "🍛", "kind": "expense", "quick": True},
+    # Anything eaten, wherever it was eaten. Three names for it had grown —
+    # Eatables, Food & Dining, Eating out — and a fourth, Zepto, for one shop.
+    {"name": "Eating out", "emoji": "🍛", "kind": "expense", "quick": True},
     {"name": "Fuel — Car", "emoji": "⛽", "kind": "expense", "quick": True},
     {"name": "Fuel — Bike", "emoji": "🏍️", "kind": "expense", "quick": True},
     {"name": "Music Class", "emoji": "🎵", "kind": "expense", "quick": False},
-    {"name": "School Fees", "emoji": "🎒", "kind": "expense", "quick": False},
+    {"name": "Fees for Oliver and Evin", "emoji": "🎒", "kind": "expense", "quick": False},
     {"name": "Household Repair", "emoji": "🔧", "kind": "expense", "quick": False},
     {"name": "New Items", "emoji": "🛍️", "kind": "expense", "quick": False},
     {"name": "Mobile & Internet", "emoji": "📶", "kind": "expense", "quick": False},
-    {"name": "Medical", "emoji": "💊", "kind": "expense", "quick": False},
+    {"name": "Health", "emoji": "💊", "kind": "expense", "quick": False},
     {"name": "Giving", "emoji": "🕊️", "kind": "expense", "quick": False},
     {"name": "Travel", "emoji": "🚌", "kind": "expense", "quick": False},
     {"name": "Other", "emoji": "🌱", "kind": "expense", "quick": False},
@@ -2374,9 +2375,30 @@ _RETIRED_RULES = (
 )
 
 
+# Names for one thing, gathered up. Seventy-eight categories had grown, and
+# several of them were the same thing twice — one by a capital letter, one by
+# a typo, and the rest simply because a new name was easier to type than
+# finding the old one. Where he chose the surviving name it is his; where he
+# did not, the one already holding the most rows wins.
 _RENAMED_CATEGORIES = {
-    "School fees": "School Fees",
+    "School fees": "Fees for Oliver and Evin",
+    "School Fees": "Fees for Oliver and Evin",
+    "Alpha school": "Fees for Oliver and Evin",
     "EB bill": "EB Bill",
+    # Anything eaten, wherever it was eaten. Groceries and Milk stay out of
+    # it on purpose: provisions for the house are not a meal bought.
+    "Eatables": "Eating out",
+    "Food & Dining": "Eating out",
+    "Zepto": "Eating out",
+    # One word for a chemist, a hospital and a doctor.
+    "Medical": "Health",
+    "Medicines": "Health",
+    # The same name twice, differing by a capital.
+    "Kotak Loan": "Kotak loan",
+    # A typo that split fifteen rows from three.
+    "Maduari Karthi": "Madurai Karthi",
+    "Citi loan": "CitiBank loan",
+    "Home repairs": "Household Repair",
 }
 
 
@@ -2425,7 +2447,25 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     if retired:
         user_rules = [rule for rule in user_rules if rule not in retired]
         await sanctuary_db.set_json_state(user_id, "stmt_rules", user_rules)
+    # ── one name for one thing, before anything is sorted ──
+    # The rows, the rules he taught, and the list itself. This has to come
+    # first: run after the sorting passes, a rule still pointing at a retired
+    # name files fresh rows into it, and the category is put back in the list
+    # by the very pass that was meant to retire it.
     moved: dict[str, int] = {}
+    renamed = 0
+    for was, now in _RENAMED_CATEGORIES.items():
+        for row in await sanctuary_db.ledger_rows_in_categories(user_id, [was]):
+            await sanctuary_db.set_ledger_category(user_id, row["id"], now)
+            moved[now] = moved.get(now, 0) + 1
+    for rule in user_rules:
+        landing = _RENAMED_CATEGORIES.get(str(rule.get("category") or ""))
+        if landing:
+            rule["category"] = landing
+            renamed += 1
+    if renamed:
+        await sanctuary_db.set_json_state(user_id, "stmt_rules", user_rules)
+
     for row in await sanctuary_db.uncategorised_ledger(user_id):
         category = sanctuary_statements.categorise(row["note"], user_rules)
         if category == sanctuary_statements.UNCATEGORISED:
@@ -2485,13 +2525,12 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
                 continue
             await sanctuary_db.set_ledger_category(user_id, row["id"], moving)
             moved[moving] = moved.get(moving, 0) + 1
-    # One category that had been going by two names gathers itself up.
-    for old, new in _RENAMED_CATEGORIES.items():
-        for row in await sanctuary_db.ledger_rows_in_categories(user_id, [old]):
-            await sanctuary_db.set_ledger_category(user_id, row["id"], new)
-            moved[new] = moved.get(new, 0) + 1
     if moved:
         categories = await _get_categories(user_id)
+        # A retired name must leave the list as well, or it goes on being
+        # offered in the dropdown that files rows into it.
+        gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}
+        categories = [c for c in categories if str(c.get("name") or "") not in gone]
         have = {c["name"] for c in categories}
         # Money put ASIDE is a saving, so it leaves 'spent'; money that
         # merely arrives is neither — it is filed for the record.

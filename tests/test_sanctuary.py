@@ -1412,6 +1412,78 @@ class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):
         self.assertIn('odOwedForm({owed: loan.drawn_amount || 0, account: loan.account_no || ""});', self.page)
 
 
+class OneNameForOneThingTests(unittest.TestCase):
+    """Seventy-eight categories had grown, several of them the same thing
+    twice — one by a capital letter, one by a typo, the rest because a new
+    name was easier to type than finding the old one."""
+
+    def merges(self):
+        import sanctuary
+
+        return sanctuary._RENAMED_CATEGORIES
+
+    def test_anything_eaten_lands_in_one_place(self):
+        for was in ("Eatables", "Food & Dining", "Zepto"):
+            self.assertEqual(self.merges()[was], "Eating out", was)
+
+    def test_provisions_for_the_house_are_not_a_meal_bought(self):
+        # Deliberately left out of it.
+        self.assertNotIn("Groceries", self.merges())
+        self.assertNotIn("Milk", self.merges())
+
+    def test_the_chemist_the_hospital_and_the_doctor_are_one_word(self):
+        self.assertEqual(self.merges()["Medical"], "Health")
+        self.assertEqual(self.merges()["Medicines"], "Health")
+
+    def test_the_school_takes_the_name_he_gave_it(self):
+        for was in ("Alpha school", "School Fees", "School fees"):
+            self.assertEqual(self.merges()[was], "Fees for Oliver and Evin", was)
+
+    def test_a_capital_and_a_typo_are_not_two_categories(self):
+        self.assertEqual(self.merges()["Kotak Loan"], "Kotak loan")
+        self.assertEqual(self.merges()["Maduari Karthi"], "Madurai Karthi")
+        self.assertEqual(self.merges()["Citi loan"], "CitiBank loan")
+        self.assertEqual(self.merges()["Home repairs"], "Household Repair")
+
+    def test_no_merge_points_at_a_name_that_is_itself_retired(self):
+        # "A" -> "B" -> "C" would leave rows sitting under B for ever.
+        merges = self.merges()
+        for was, now in merges.items():
+            self.assertNotIn(now, merges, "%s lands on %s, which is itself retired" % (was, now))
+
+    def test_no_built_in_rule_still_files_into_a_retired_name(self):
+        import sanctuary_statements as st
+
+        retired = set(self.merges())
+        stragglers = [r["match"] for r in st.DEFAULT_RULES if r["category"] in retired]
+        self.assertEqual(stragglers, [], "these would rebuild the category on the next import")
+
+    def test_the_renaming_happens_before_anything_is_sorted(self):
+        # Run after the sorting passes, a rule still pointing at a retired
+        # name files fresh rows into it — and the category is put back in the
+        # list by the very pass that was meant to retire it. Five of them
+        # came straight back that way.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        renames = code.index("for was, now in _RENAMED_CATEGORIES.items():")
+        sorting = code.index("for row in await sanctuary_db.uncategorised_ledger(user_id):")
+        self.assertLess(renames, sorting, "the renaming must come first")
+
+    def test_his_own_rules_are_carried_over_too(self):
+        # Moving only the rows left his rules pointing at the retired name,
+        # and the next import would quietly build it again.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn('landing = _RENAMED_CATEGORIES.get(str(rule.get("category") or ""))', code)
+        self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
+
+
 class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
     """A sweep-linked overdraft is an account, not an abstraction.
 
@@ -2105,13 +2177,15 @@ class CategoryNamingTests(unittest.TestCase):
         for note in ("UPI/ALPHA SCHOOL/oliver fees", "NEFT/ALPHA EDUCATIONAL TRUST/2026"):
             with self.subTest(note=note):
                 filed = sanctuary_statements.categorise(note)
-                self.assertEqual(filed, "School Fees")
+                self.assertEqual(filed, "Fees for Oliver and Evin")
                 self.assertIn(filed, offered, "a rule must file where he can also file by hand")
 
     def test_the_old_spellings_are_gathered_up(self):
         import sanctuary
 
-        self.assertEqual(sanctuary._RENAMED_CATEGORIES["School fees"], "School Fees")
+        # The school's own name has since been chosen by him, so every one of
+        # its old spellings lands there.
+        self.assertEqual(sanctuary._RENAMED_CATEGORIES["School fees"], "Fees for Oliver and Evin")
         self.assertEqual(sanctuary._RENAMED_CATEGORIES["EB bill"], "EB Bill")
 
 
@@ -2374,7 +2448,7 @@ class SalaryFromBankTests(unittest.TestCase):
             ("Int.Pd:3712258400:01-01-2021 to 31-03-2021", "Interest"),
             ("ACH/KISETSUSAISONFINANCE/ICIC70221062430/KISETSUSAI", "Kisetsu loan"),
             ("DECS DR/2630439134/TP CAN FIN", "Home loan"),
-            ("BIL/ONL/001675706445/Alpha Educ/760315248/Oliver 1st term", "School Fees"),
+            ("BIL/ONL/001675706445/Alpha Educ/760315248/Oliver 1st term", "Fees for Oliver and Evin"),
             ("UPI/phil.shiny@/912713537635/To self", "Self transfer"),
         ):
             self.assertEqual(st.categorise(note), want, note)

@@ -88,7 +88,7 @@ DEFAULT_RULES = [
     {"match": "rapido", "category": "Auto & Cab"},
     {"match": "tneb", "category": "EB Bill"},
     {"match": "electricity", "category": "EB Bill"},
-    {"match": "school", "category": "School Fees"},
+    {"match": "school", "category": "Fees for Oliver and Evin"},
     # Paying CRED is settling a credit card, and the line names a bank only
     # because that is where CRED collects — the beneficiary bank in a UPI
     # narration is the rail, never the payee. "cred.club" and "cred@" were
@@ -120,9 +120,9 @@ DEFAULT_RULES = [
     # and the CRED disbursement are two ends of the same debt.
     {"match": "kisetsusaison", "category": "Kisetsu loan"},
     {"match": "paidviacred", "category": "Kisetsu loan"},
-    {"match": "citi bank card loan", "category": "Citi loan"},
+    {"match": "citi bank card loan", "category": "CitiBank loan"},
     # His sons' school bills its fees under the trust's name, never "school".
-    {"match": "alpha educ", "category": "School Fees"},
+    {"match": "alpha educ", "category": "Fees for Oliver and Evin"},
     # His own UPI handle. The "-1@" handle is a different one and is left
     # alone: its remarks say Coin, which is money going INTO an investment.
     {"match": "phil.shiny@", "category": "Self transfer"},
@@ -197,9 +197,9 @@ DEFAULT_RULES = [
     {"match": "saloon", "category": "Personal care"},
     {"match": "salon", "category": "Personal care"},
     {"match": "barber", "category": "Personal care"},
-    {"match": "plumber", "category": "Home repairs"},
-    {"match": "carpenter", "category": "Home repairs"},
-    {"match": "electrician", "category": "Home repairs"},
+    {"match": "plumber", "category": "Household Repair"},
+    {"match": "carpenter", "category": "Household Repair"},
+    {"match": "electrician", "category": "Household Repair"},
     # "Int.Pd:<account>:<period>" is the bank paying him interest; the plain
     # word "interest" below never appears in that shape.
     {"match": "int.pd", "category": "Interest"},
