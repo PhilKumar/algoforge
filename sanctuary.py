@@ -2047,6 +2047,7 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     # The other side of the ledger. Until now this panel counted only what
     # he owes; what he owns belongs beside it, or "where I stand" is only
     # ever half the truth.
+    bank_total = round(float((await _bank_balance(user_id))["balance"] or 0), 2)
     owned = await sanctuary_db.get_json_state(user_id, "holdings", {})
     held = round(float(owned.get("present") or 0), 2)
     return {
@@ -2062,8 +2063,13 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         "held_invested": round(float(owned.get("invested") or 0), 2),
         "held_gain": round(float(owned.get("gain") or 0), 2),
         "held_as_on": owned.get("as_on") or "",
+        # Money in the bank is his too, and it was the one thing he owns that
+        # this panel never counted — four and a half lakh sitting in two
+        # accounts while the page said the only thing standing between him
+        # and the debt was sixty-six thousand of shares.
+        "in_bank": bank_total,
         # Debts minus what he owns: the honest distance to dry land.
-        "net": round(held - total_debt, 2),
+        "net": round(held + bank_total - total_debt, 2),
         # The provident fund is his too, and it is the largest thing he owns
         # — but it is not spendable at will, so it is said on its own line
         # rather than folded into the number above.
@@ -2076,7 +2082,7 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         # not his to decide about — it comes back as a pension, on the
         # scheme's terms, and counting it as though it could clear a loan
         # would flatter the number he is trying to trust.
-        "net_with_fund": round(held + float(fund.get("fund") or 0) - total_debt, 2),
+        "net_with_fund": round(held + bank_total + float(fund.get("fund") or 0) - total_debt, 2),
     }
 
 

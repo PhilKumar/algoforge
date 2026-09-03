@@ -227,6 +227,13 @@ html[data-theme="dark"] #veil{background:linear-gradient(180deg, rgba(0,0,0,0) 0
    quarter-second after he stops, so a page at rest is alive and a page in
    motion is smooth. */
 html.stilled #scene *,html.stilled .leaf-float{animation-play-state:paused}
+/* And once he is past the top of the page it holds still for good. The
+   scene is fixed behind everything, so below the first screen it is covered
+   by pane after pane of glass — and every frame of a drifting cloud makes
+   all of them blur their backdrop again, for scenery nobody can see through
+   the tint. That is the shimmer on a page that is not even scrolling.
+   At the top, where the scene IS the view, it moves as it always did. */
+html.covered #scene *,html.covered .leaf-float{animation-play-state:paused}
 
 /* ── shared atoms (glass over the scene) ──────────────────────
    A pane is built in layers so it reads as glass and not as paint: the
@@ -2248,7 +2255,22 @@ addEventListener("scroll", () => {
     document.documentElement.classList.remove("stilled");
     if (_film.stilled){ _film.stilled = false; sceneVideoSync(); }
   }, 260);
+  markCovered();
 }, {passive: true});
+
+/* Whether the scene still counts as the view. It is fixed behind the whole
+   page, so it never leaves the viewport — what changes is whether anything
+   can be seen of it. Past the first screen the answer is no, and its
+   animation is pure cost from there down. */
+let _covered = null;
+function markCovered(){
+  const past = (window.scrollY || document.documentElement.scrollTop || 0) > innerHeight * 0.55;
+  if (past === _covered) return;
+  _covered = past;
+  document.documentElement.classList.toggle("covered", past);
+}
+addEventListener("resize", markCovered, {passive: true});
+markCovered();
 
 /* ═══════════ theme ═══════════ */
 function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage.setItem("sanctuary_theme", t); sceneVideoSync();
@@ -3506,6 +3528,7 @@ async function loadStanding(){
       <div class="sf"><span>Debts still open</span><b class="num">${st.debt_count}${st.unknown_count ? ` <small style="color:var(--muted)">+${st.unknown_count} without a schedule</small>` : ""}</b></div>
       <div class="sf"><span>To clear them all</span><b class="num" style="color:var(--danger)">${inr(st.total_debt)}</b></div>
       <div class="sf"><span>They take, monthly</span><b class="num">${inr(st.monthly_emi)}</b></div>
+      ${st.in_bank ? `<div class="sf"><span>In the bank</span><b class="num" style="color:var(--moss)">${inr(st.in_bank)}</b></div>` : ""}
       ${st.held ? `<div class="sf"><span>What you own${st.held_as_on ? ` <small style="color:var(--muted)">as on ${esc(st.held_as_on)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.held)}${st.held_gain ? ` <small style="color:var(--moss)">${st.held_gain > 0 ? "+" : ""}${inr(st.held_gain)}</small>` : ""}</b></div>
       <div class="sf"><span>Owed, less what you own</span><b class="num" style="color:${st.net >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net))}${st.net < 0 ? " to go" : " ahead"}</b></div>` : ""}
       ${st.fund_epf ? `<div class="sf"><span>In the provident fund${st.fund_as_of ? ` <small style="color:var(--muted)">as on ${niceDate(st.fund_as_of)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.fund_epf)}</b></div>

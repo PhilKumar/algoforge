@@ -1484,6 +1484,41 @@ class OneNameForOneThingTests(unittest.TestCase):
         self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
 
 
+class TheSceneRestsWhenNobodyCanSeeItTests(unittest.TestCase):
+    """The shimmer on a page that is not even scrolling.
+
+    The scene is fixed behind everything and never leaves the viewport, so
+    the existing pause — which only held it still WHILE he scrolled — did
+    nothing for a page at rest. Below the first screen every pane of glass
+    is over it, and each frame of a drifting cloud makes all of them blur
+    their backdrop again for scenery nobody can see through the tint.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_it_holds_still_once_he_is_past_the_first_screen(self):
+        self.assertIn("html.covered #scene *,html.covered .leaf-float{animation-play-state:paused}", self.page)
+        self.assertIn('document.documentElement.classList.toggle("covered", past);', self.page)
+
+    def test_the_scene_is_fixed_so_being_in_view_proves_nothing(self):
+        # Which is why this asks how far down he is, not whether the element
+        # is on screen — it always is.
+        self.assertIn("#scene{position:fixed", self.page)
+        self.assertIn("> innerHeight * 0.55", self.page)
+
+    def test_at_the_top_it_still_moves(self):
+        # Where the scene IS the view, nothing is taken away.
+        self.assertNotIn("#scene *{animation-play-state:paused}", self.page)
+
+    def test_it_is_asked_again_on_scroll_and_on_resize(self):
+        self.assertIn("  markCovered();\n}, {passive: true});", self.page)
+        self.assertIn('addEventListener("resize", markCovered, {passive: true});', self.page)
+
+
 class WhatIsLeftToBreatheTests(unittest.TestCase):
     """It is what is in the current account, and nothing else.
 
