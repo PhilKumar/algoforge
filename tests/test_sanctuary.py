@@ -1490,6 +1490,16 @@ class MoneyPutAsideIsNotSpentTests(unittest.TestCase):
 
         self.assertIn("Investments", sanctuary._SAVING_CATEGORIES)
 
+    def test_the_four_brokers_are_one_activity_and_it_is_not_spending(self):
+        # Trading is not investing — he keeps them apart — but money that
+        # goes to a broker is still his when it gets there.
+        import sanctuary
+
+        for was in ("AliceBlue", "Fyers", "Zerodha", "Trading_AngelOne"):
+            self.assertEqual(sanctuary._RENAMED_CATEGORIES[was], "Trading", was)
+        self.assertIn("Trading", sanctuary._SAVING_CATEGORIES)
+        self.assertIn("Trading", {c["name"] for c in sanctuary.DEFAULT_CATEGORIES})
+
     def test_the_kind_is_corrected_on_the_stored_list(self):
         import os.path
 

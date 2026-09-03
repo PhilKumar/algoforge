@@ -85,6 +85,7 @@ DEFAULT_CATEGORIES = [
     # He holds two cards, and a bill that cannot say which one it paid is not
     # worth much a year later. The Citi card is an Axis card since the
     # takeover; CRED settles the HDFC one.
+    {"name": "Trading", "emoji": "📊", "kind": "saving", "quick": False},
     {"name": "HDFC Creditcard", "emoji": "💳", "kind": "expense", "quick": False},
     {"name": "AxisBank Creditcard", "emoji": "💳", "kind": "expense", "quick": False},
     {"name": "Fuel — Car", "emoji": "⛽", "kind": "expense", "quick": True},
@@ -2427,6 +2428,13 @@ _RENAMED_CATEGORIES = {
     "Maduari Karthi": "Madurai Karthi",
     "Citi loan": "CitiBank loan",
     "Home repairs": "Household Repair",
+    # Four brokers, one activity. Trading is not investing — he keeps them
+    # apart — but neither is money spent: it goes to a broker and it is still
+    # his when it gets there.
+    "AliceBlue": "Trading",
+    "Fyers": "Trading",
+    "Zerodha": "Trading",
+    "Trading_AngelOne": "Trading",
 }
 
 
@@ -2448,7 +2456,7 @@ _RENAMED_CATEGORIES = {
 # sixty-four thousand handed to a broker in September read as spending and
 # the Saved tile read nought — this page already treats it as a saving when
 # it creates the category itself, and only the older stored one disagreed.
-_SAVING_CATEGORIES = ("Investments",)
+_SAVING_CATEGORIES = ("Investments", "Trading")
 
 
 _RETIRED_CATEGORIES = (
@@ -2612,7 +2620,7 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     have = {c["name"] for c in categories}
     # Money put ASIDE is a saving, so it leaves 'spent'; money that
     # merely arrives is neither — it is filed for the record.
-    savings = {"Investments"}
+    savings = set(_SAVING_CATEGORIES)
     emoji = {
         "Interest": "🪙",
         "Refund": "↩️",
@@ -2647,6 +2655,12 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
                 }
             )
             have.add(name)
+    # Applied last, so a category made moments ago in this same pass is
+    # marked too — Trading was created as an expense because the
+    # correction had already run by the time it existed.
+    for c in categories:
+        if str(c.get("name") or "") in _SAVING_CATEGORIES:
+            c["kind"] = "saving"
     await sanctuary_db.set_json_state(user_id, "categories", categories)
     return {"moved": sum(moved.values()), "by_category": moved}
 
