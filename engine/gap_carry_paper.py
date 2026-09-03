@@ -296,9 +296,31 @@ class GapCarryPaper:
                 "premium": round(float(premium), 2),
                 "unrealised": round((float(premium) - float(pos.entry_premium or 0.0)) * pos.quantity, 2),
             }
-        due = now.date() > pos.session and now.time() >= self.config.exit_time
+        overnight = now.date() > pos.session
+        due = overnight and now.time() >= self.config.exit_time
         if due and premium is not None and premium > 0:
             self._close(pos, now, float(premium), "MORNING_EXIT", priced=True)
+            return self.last_mark
+        # THE CUT AT THE OPEN. A carry already below what it cost is sold at
+        # 09:15 rather than carried to 09:20: across 5.6 years those five
+        # minutes cost a losing trade another Rs 1,068 on average while paying
+        # a winning one Rs 569, so only the losers are cut. Off unless
+        # `cut_losers_at_open` is set.
+        #
+        # `premium` is the quote fetched on THIS tick, which is the whole
+        # reason the test is on premium and not on the index: at 09:15 the
+        # opening candle has not closed and the engine's last index level is
+        # still yesterday's.
+        if (
+            self.config.cut_losers_at_open
+            and overnight
+            and not due
+            and now.time() >= self.config.early_exit_time
+            and premium is not None
+            and premium > 0
+            and float(premium) < float(pos.entry_premium or 0.0)
+        ):
+            self._close(pos, now, float(premium), "MORNING_CUT", priced=True)
         return self.last_mark
 
     def settle_past_expiry(self, now: datetime) -> bool:
@@ -442,6 +464,10 @@ class GapCarryPaper:
                 "lots": self.config.lots,
                 "entry_time": self.config.entry_time.strftime("%H:%M"),
                 "exit_time": self.config.exit_time.strftime("%H:%M"),
+                # So a reader can see WHICH selling rule is live without
+                # opening the config.
+                "cut_losers_at_open": bool(self.config.cut_losers_at_open),
+                "early_exit_time": self.config.early_exit_time.strftime("%H:%M"),
                 "ema_period": self.config.ema_period,
             },
             "signal": self.last_signal.as_dict() if self.last_signal else None,
@@ -478,6 +504,9 @@ class GapCarryPaper:
                 "lots": self.config.lots,
                 "entry_time": self.config.entry_time.strftime("%H:%M"),
                 "exit_time": self.config.exit_time.strftime("%H:%M"),
+                # Saved, or a restart quietly puts the old selling rule back.
+                "cut_losers_at_open": bool(self.config.cut_losers_at_open),
+                "early_exit_time": self.config.early_exit_time.strftime("%H:%M"),
                 "min_days_to_expiry": self.config.min_days_to_expiry,
             },
             "position": _position_to_dict(self.position),
@@ -510,6 +539,8 @@ class GapCarryPaper:
             lots=int(raw.get("lots") or 1),
             entry_time=_as_time(raw.get("entry_time"), time(15, 10)),
             exit_time=_as_time(raw.get("exit_time"), time(9, 20)),
+            cut_losers_at_open=bool(raw.get("cut_losers_at_open", False)),
+            early_exit_time=_as_time(raw.get("early_exit_time"), time(9, 15)),
             min_days_to_expiry=int(raw.get("min_days_to_expiry") or 1),
         )
         engine = cls(

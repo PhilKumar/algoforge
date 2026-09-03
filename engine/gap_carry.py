@@ -97,6 +97,25 @@ class GapCarryConfig:
     lots: int = 1
     entry_time: time = time(15, 10)
     exit_time: time = time(9, 20)
+    # CUT A LOSING CARRY AT THE OPEN. Measured on 5.6 years of the archive
+    # (2026-09-03): between 09:15 and 09:20 a carry that opened DOWN kept
+    # falling and one that opened UP kept rising. Selling five minutes earlier
+    # was worth +Rs 1,068 on a losing trade and -Rs 569 on a winning one, so
+    # cutting everything early throws the winners away and holding everything
+    # gives the losers back.
+    #
+    # Judged on the PREMIUM, not the index. The index tested slightly better
+    # (+Rs 77,991 against +Rs 62,121, six years of six against five) but it is
+    # not reliably in hand at 09:15: the opening candle has not closed, so the
+    # engine's `last_index_close` is still yesterday's, and reading it would
+    # score every morning as flat. The premium is fetched fresh on the same
+    # tick that takes the decision, and is the thing the money actually
+    # follows.
+    #
+    # OFF by default. Gap Carry trades real money and this changes when it
+    # sells; turning it on is a deliberate act.
+    cut_losers_at_open: bool = False
+    early_exit_time: time = time(9, 15)
     # A contract that expires before the position is sold cannot be held, so a
     # weekly expiring tonight is refused rather than settled at intrinsic.
     min_days_to_expiry: int = 1
@@ -115,6 +134,8 @@ class GapCarryConfig:
             raise GapCarryError("The entry time must fall inside the session.")
         if not (SESSION_OPEN <= self.exit_time < SESSION_CLOSE):
             raise GapCarryError("The exit time must fall inside the session.")
+        if not (SESSION_OPEN <= self.early_exit_time <= self.exit_time):
+            raise GapCarryError("The early exit must fall between the open and the exit time.")
 
     @property
     def rsi_floor_for_call(self) -> float:
@@ -505,6 +526,16 @@ def replay(
             entry_spot=float(spot_in),
             entry_premium=float(premium_in),
         )
+        # THE OPEN GETS A LOOK FIRST, when the rule is on. A carry already down
+        # at 09:15 is sold there rather than held to 09:20 -- see
+        # `cut_losers_at_open`. A carry that is up, or that has no price at the
+        # open to judge by, goes the normal route.
+        cut_early = False
+        if config.cut_losers_at_open and config.early_exit_time < config.exit_time:
+            early_ts = _ist(datetime.combine(nxt, config.early_exit_time))
+            premium_early = price_at(early_ts, strike, signal.side, expiry)
+            if premium_early is not None and float(premium_early) < float(premium_in):
+                exit_ts, cut_early = early_ts, True
         spot_out = spot_at(exit_ts)
         premium_out = price_at(exit_ts, strike, signal.side, expiry)
         if premium_out is None:
@@ -526,7 +557,10 @@ def replay(
         position.exit_timestamp = exit_ts
         position.exit_spot = float(spot_out if spot_out is not None else position.entry_spot)
         position.exit_premium = float(premium_out)
-        position.exit_reason = "MORNING_EXIT" if position.exit_priced else "MORNING_EXIT_AT_INTRINSIC"
+        if position.exit_priced:
+            position.exit_reason = "MORNING_CUT" if cut_early else "MORNING_EXIT"
+        else:
+            position.exit_reason = "MORNING_EXIT_AT_INTRINSIC"
         position.charges = float(charges_for(session, float(premium_in), float(premium_out), position.quantity))
         positions.append(position)
     return positions

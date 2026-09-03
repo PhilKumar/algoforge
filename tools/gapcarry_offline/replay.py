@@ -318,6 +318,12 @@ def main(argv=None) -> int:
             "09:15 is the opening minute -- see the note in main() about walk-forward."
         ),
     )
+    ap.add_argument(
+        "--cut-losers-at-open",
+        action="store_true",
+        help="sell at --early-exit-time when the carry is already below its entry premium",
+    )
+    ap.add_argument("--early-exit-time", default="09:15", help="IST minute the losing carry is cut, HH:MM")
     ap.add_argument("--check", action="store_true", help="rebuild the published window and diff it, then stop")
     args = ap.parse_args(argv)
 
@@ -329,17 +335,22 @@ def main(argv=None) -> int:
     # can be filled from either side, while at 09:15 there is nothing behind it
     # -- every miss is filled by walking FORWARD, i.e. by a later, different
     # price. A 09:15 book with many forward fills is not really a 09:15 book.
-    try:
-        hh, mm = (int(part) for part in str(args.exit_time).split(":")[:2])
-        exit_at = dt_time(hh, mm)
-    except (TypeError, ValueError):
-        raise SystemExit(f"--exit-time must be HH:MM, got {args.exit_time!r}") from None
+    def _hhmm(raw: str, flag: str) -> dt_time:
+        try:
+            hh, mm = (int(part) for part in str(raw).split(":")[:2])
+            return dt_time(hh, mm)
+        except (TypeError, ValueError):
+            raise SystemExit(f"{flag} must be HH:MM, got {raw!r}") from None
+
+    exit_at = _hhmm(args.exit_time, "--exit-time")
     config = GapCarryConfig(
         timeframe=args.tf,
         rsi_threshold=float(args.rsi),
         strike_offset_steps=int(args.offset),
         lots=int(args.lots),
         exit_time=exit_at,
+        cut_losers_at_open=bool(args.cut_losers_at_open),
+        early_exit_time=_hhmm(args.early_exit_time, "--early-exit-time"),
     )
     config.validate()
 
