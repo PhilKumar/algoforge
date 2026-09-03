@@ -2330,24 +2330,17 @@ class PaperTradingEngine:
             if sid:
                 sec_id_map[s] = int(sid)
 
-        # ── 2. Single batched LTP call for all resolved IDs ────────────────
+        # ── 2. Prices, from the shelf every engine shares ──────────────────
+        # THE SAME SHELF THE LIVE ENGINE READS. Paper scans the chain a second
+        # or two before live does, and until 2026-09-03 the two fetched
+        # separately: paper got its prices, live was refused with a 429, fell
+        # back to modelled premiums and bought a different strike. Paper asking
+        # through here means paper's answer IS live's answer.
         live_ltps = {}  # strike -> ltp
         if sec_id_map:
             try:
-                resp_data = self.dhan.get_ltp(list(sec_id_map.values()), exchange_segment=exchange_seg)
-                seg_data = resp_data.get(exchange_seg, {})
-                # Build reverse map: security_id -> ltp
-                id_to_price = {}
-                for k, v in seg_data.items():
-                    try:
-                        ltp_val = float(v.get("last_price", v.get("ltp", 0)) if isinstance(v, dict) else v)
-                        if ltp_val > 0:
-                            id_to_price[int(k)] = ltp_val
-                    except Exception:
-                        pass
-                for s, sid in sec_id_map.items():
-                    if sid in id_to_price:
-                        live_ltps[s] = id_to_price[sid]
+                prices = self.dhan.get_ltp_prices(list(sec_id_map.values()), exchange_segment=exchange_seg)
+                live_ltps = {s: prices[sid] for s, sid in sec_id_map.items() if sid in prices}
             except Exception as e:
                 self.log_event("warning", f"Batch LTP fetch failed: {e}, using estimates")
 

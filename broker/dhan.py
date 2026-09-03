@@ -2553,6 +2553,38 @@ class DhanClient:
         _api_cache.set(cache_key, result, ttl)
         return result
 
+    def get_ltp_prices(self, security_ids: list, exchange_segment: str = "NSE_FNO", ttl: float = 3.0) -> dict:
+        """The sync twin of :meth:`async_get_ltp_prices`, sharing ONE shelf.
+
+        Paper scans strikes synchronously and live scans asynchronously. Caching
+        only the async side would have left them on separate shelves -- paper
+        would stock nothing, live would still fetch alone, and the 429 that
+        started this would be unchanged. The cache key namespace (`ltp1:`) is
+        deliberately identical so whichever engine asks first answers the other.
+        """
+        wanted = [int(s) for s in security_ids]
+        prices: dict[int, float] = {}
+        missing: list[int] = []
+        for sid in wanted:
+            hit = _api_cache.get(f"ltp1:{exchange_segment}:{sid}")
+            if hit is None:
+                missing.append(sid)
+            else:
+                prices[sid] = float(hit)
+        if not missing:
+            return prices
+        raw = self.get_ltp(missing, exchange_segment=exchange_segment)
+        for key, value in (raw.get(exchange_segment) or {}).items():
+            try:
+                price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                sid = int(key)
+                prices[sid] = price
+                _api_cache.set(f"ltp1:{exchange_segment}:{sid}", price, ttl)
+        return prices
+
     def get_ltp_cached(self, security_ids: list, exchange_segment: str = "NSE_EQ", ttl: float = 3.0) -> dict:
         """Get LTP with TTL cache."""
         key = f"ltp:{exchange_segment}:{','.join(str(s) for s in security_ids)}"
@@ -2727,6 +2759,52 @@ class DhanClient:
         if resp.status_code != 200:
             raise Exception(f"LTP fetch failed: {resp.text}")
         return resp.json().get("data", {})
+
+    async def async_get_ltp_prices(
+        self, security_ids: list, exchange_segment: str = "NSE_FNO", ttl: float = 3.0
+    ) -> dict:
+        """Last prices for a batch of contracts, shared between callers.
+
+        WHY THERE IS A SHELF HERE. Every engine that picks a strike asks the
+        same question at the same instant -- the price of ~31 NIFTY strikes on
+        the bar that just closed. On 2026-09-03 the three paper engines asked
+        first at 09:20:01 and the LIVE engine asked at 09:20:03; Dhan refused
+        the live one with a 429, it fell back to modelled premiums, and it
+        bought a different strike than paper (23750 at Rs 294.73 rather than
+        23800 at Rs 252.60). Live is LAST in that queue every time, so it is
+        always the one refused.
+
+        The prices are cached PER CONTRACT rather than per request, so two
+        callers scanning slightly different strike ranges still share whatever
+        they have in common. `/charts` already solved the identical problem
+        this way -- see the note above `_candles_cache`.
+
+        Returns {security_id: last_price}; ids with no usable quote are absent,
+        which is how the caller tells a missing price from a real one.
+        """
+        wanted = [int(s) for s in security_ids]
+        prices: dict[int, float] = {}
+        missing: list[int] = []
+        for sid in wanted:
+            hit = _api_cache.get(f"ltp1:{exchange_segment}:{sid}")
+            if hit is None:
+                missing.append(sid)
+            else:
+                prices[sid] = float(hit)
+        if not missing:
+            return prices
+
+        raw = await self.async_get_ltp(missing, exchange_segment=exchange_segment)
+        for key, value in (raw.get(exchange_segment) or {}).items():
+            try:
+                price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                sid = int(key)
+                prices[sid] = price
+                _api_cache.set(f"ltp1:{exchange_segment}:{sid}", price, ttl)
+        return prices
 
     async def async_get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:
         """Get single option LTP via httpx (true async)."""

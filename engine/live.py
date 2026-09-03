@@ -159,6 +159,18 @@ def _get_instrument_map():
     return INSTRUMENT_MAP
 
 
+class PremiumScanUnavailable(Exception):
+    """The option chain could not be priced, so no strike may be chosen.
+
+    Raised rather than returning a strike picked from `_estimate_premium`:
+    a modelled chain is a guess, and on 2026-09-03 that guess priced 23800 CE
+    at Rs 227.35 when the market had it at Rs 252.60, dropped it under the
+    Rs 250 rule and bought a deeper strike for Rs 5,460 more. The entry is
+    abandoned instead, and the caller's existing attempt 2/2 retries it --
+    usually all a moment of 429 contention needs.
+    """
+
+
 class LiveEngine:
     """
     Live auto-trading engine.
@@ -2549,9 +2561,15 @@ class LiveEngine:
                 and float(strike_value or 0) > 0
             ):
                 mode = strike_type.split("_")[1]
-                strike, scanned_premium = await self._find_premium_strike(
-                    underlying, expiry, opt_type, float(strike_value), entry_spot, strike_step, mode=mode
-                )
+                try:
+                    strike, scanned_premium = await self._find_premium_strike(
+                        underlying, expiry, opt_type, float(strike_value), entry_spot, strike_step, mode=mode
+                    )
+                except PremiumScanUnavailable as exc:
+                    # No entry beats the wrong entry. `in_trade` stays False, so
+                    # the caller's attempt 2/2 asks again a moment later.
+                    self.log_event("error", f"⛔ Entry abandoned — {exc}")
+                    return
                 self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
             else:
                 strike = self._calculate_strike(leg, entry_spot, strike_step)
@@ -3379,25 +3397,28 @@ class LiveEngine:
             if sid:
                 sec_id_map[s] = int(sid)
 
-        # ── 2. Single batched LTP call for all resolved IDs ────────────────
+        # ── 2. Prices, from the shelf every engine shares ──────────────────
+        # One retry before giving up: a 429 is a moment's contention, not an
+        # outage, and the entry is worth one more ask.
         live_ltps = {}  # strike -> ltp
+        fetch_error = None
         if sec_id_map:
-            try:
-                resp_data = await self.dhan.async_get_ltp(list(sec_id_map.values()), exchange_segment=exchange_seg)
-                seg_data = resp_data.get(exchange_seg, {})
-                id_to_price = {}
-                for k, v in seg_data.items():
-                    try:
-                        ltp_val = float(v.get("last_price", v.get("ltp", 0)) if isinstance(v, dict) else v)
-                        if ltp_val > 0:
-                            id_to_price[int(k)] = ltp_val
-                    except Exception:
-                        pass
-                for s, sid in sec_id_map.items():
-                    if sid in id_to_price:
-                        live_ltps[s] = id_to_price[sid]
-            except Exception as e:
-                self.log_event("warning", f"Batch LTP fetch failed: {e}, using estimates")
+            for attempt in (1, 2):
+                try:
+                    prices = await self.dhan.async_get_ltp_prices(
+                        list(sec_id_map.values()), exchange_segment=exchange_seg
+                    )
+                    live_ltps = {s: prices[sid] for s, sid in sec_id_map.items() if sid in prices}
+                    if live_ltps:
+                        fetch_error = None
+                        break
+                except Exception as e:  # noqa: BLE001 - reported below, never raised at the caller
+                    fetch_error = e
+                if attempt == 1:
+                    self.log_event("warning", f"LTP fetch gave nothing ({fetch_error or 'empty'}), retrying once")
+                    await asyncio.sleep(0.4)
+            if fetch_error is not None and not live_ltps:
+                self.log_event("warning", f"Batch LTP fetch failed: {fetch_error}")
 
         # ── 3. Build full candidates list ──────────────────────────────────
         candidates = []  # (strike, premium, source)
@@ -3416,6 +3437,19 @@ class LiveEngine:
             "info",
             f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates) - live_count} estimated)",
         )
+
+        # NO REAL PRICE, NO STRIKE. `_estimate_premium` is a rough model -- on
+        # 2026-09-03 it priced 23800 CE at Rs 227.35 when the market had it at
+        # Rs 252.60, which put it under the Rs 250 rule and bought a different
+        # contract for Rs 5,460 more. A model is fine for filling a gap in an
+        # otherwise real chain; it must not be the whole basis for choosing
+        # what to buy. Skipping an entry is recoverable, buying the wrong
+        # contract is not.
+        if live_count == 0:
+            raise PremiumScanUnavailable(
+                f"no live prices for any of {len(candidates)} {symbol} {option_type} strikes; "
+                "refusing to pick a strike from estimates alone"
+            )
 
         if mode == "above":
             valid = [(s, p) for s, p, _ in candidates if p >= target_prem]
