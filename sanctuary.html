@@ -3626,14 +3626,15 @@ function loanCard(l){
 
       ${revolving(l) ? `<div class="loan-grid">
         <div class="lf"><span>Balance</span><b class="num" style="color:${l.drawn_amount ? "var(--danger)" : "var(--moss)"}">${
-          l.drawn_amount ? inr(l.drawn_amount) : l.od_by_sweeps ? "Clear" : "Not stated"}</b></div>
+          l.drawn_amount ? inr(l.drawn_amount) : (l.od_by_sweeps || l.stated_on) ? "Clear — nothing drawn" : "Not stated"}</b></div>
         <div class="lf"><span>Type</span><b>Revolving</b></div>
         <div class="lf"><span>Repayment</span><b>No schedule</b></div>
         ${l.od_sweeps ? `<div class="lf"><span>Sweeps seen</span><b class="num">${l.od_sweeps}</b></div>
         <div class="lf"><span>From</span><b>${l.od_from ? niceDate(l.od_from) : "—"}</b></div>
         <div class="lf"><span>To</span><b>${l.od_to ? niceDate(l.od_to) : "—"}</b></div>` : ""}
       </div>
-      ${l.od_by_sweeps ? `<p class="loan-said">Worked out from its own sweeps, which cover the whole life of the account.</p>` : ""}
+      ${l.od_by_sweeps ? `<p class="loan-said">Worked out from its own sweeps, which cover the whole life of the account.</p>`
+        : l.stated_on ? `<p class="loan-said">Your own figure, as it stood on ${niceDate(l.stated_on)}${l.od_sweeps ? `, carried forward by every sweep since` : ""}.</p>` : ""}
       ${l.od_unanchored && !l.od_by_sweeps ? `<p class="loan-said">The sweeps here begin ${l.od_from ? niceDate(l.od_from) : "part-way through"},
         after the account was already running, so they cannot say where it stands. Only the bank can — tell it below,
         and every sweep after that carries it forward on its own.</p>` : ""}` : `<div class="loan-grid">
@@ -3678,7 +3679,12 @@ function loanCard(l){
    the moment his overdraft's balance was cleared it started being offered
    "Upload schedule" and "Build one", which an overdraft can never have. */
 function revolving(l){
-  return !l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored || l.od_by_sweeps);
+  /* No schedule and no instalment IS what a revolving debt is. Asking
+     instead whether it had a figure typed in meant that the moment he told
+     the card his overdraft was clear, it stopped being an overdraft and
+     started offering an EMI, a due day and "Upload schedule" — for a debt
+     that has no schedule and can never have one. */
+  return !l.schedule_count && !l.emi_amount;
 }
 function loanForm(loan){
   const wrap = modal(`<h4>${loan ? "Tend this loan" : "A new loan"}</h4>

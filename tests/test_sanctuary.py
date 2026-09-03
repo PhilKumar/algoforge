@@ -1387,7 +1387,12 @@ class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):
         self.assertNotIn("<b>Revolving — no fixed EMI</b>", self.page)
 
     def test_a_balance_says_what_it_is_rather_than_a_dash(self):
-        self.assertIn('l.drawn_amount ? inr(l.drawn_amount) : l.od_by_sweeps ? "Clear" : "Not stated"', self.page)
+        # And a stated zero is an answer — "clear" — not a missing figure.
+        self.assertIn(
+            "l.drawn_amount ? inr(l.drawn_amount) : (l.od_by_sweeps || l.stated_on) "
+            '? "Clear \u2014 nothing drawn" : "Not stated"',
+            self.page,
+        )
 
     def test_an_explanation_gets_its_own_line_and_wraps(self):
         self.assertIn(".loan-said{", self.page)
@@ -1398,10 +1403,7 @@ class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):
         # It has none and can have none; the question was whether it had a
         # figure typed in, so clearing the figure started offering one.
         self.assertIn("function revolving(l){", self.page)
-        self.assertIn(
-            "return !l.schedule_count && !l.emi_amount && (l.drawn_amount || l.od_unanchored || l.od_by_sweeps);",
-            self.page,
-        )
+        self.assertIn("return !l.schedule_count && !l.emi_amount;", self.page)
         self.assertIn('${revolving(l) ? `<button class="btn small" data-odset="${l.id}">', self.page)
 
     def test_the_balance_can_be_set_from_the_card_itself(self):

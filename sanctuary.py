@@ -1411,10 +1411,28 @@ async def epf_scan(user: dict = Depends(_unlocked_user)):
     return summary
 
 
+async def _fund_with_claims_settled(user_id: int) -> dict:
+    """The fund as the papers left it, with any claim the bank has since
+    paid marked as answered.
+
+    Both places that show the fund ask this. Fixing one and not the other is
+    why the standing panel called the claim settled while the fund's own
+    card went on promising four and a half lakh that had already arrived.
+    """
+    fund = await sanctuary_db.get_json_state(user_id, "epf", {})
+    asked = min(
+        (str(c.get("asked_on") or "") for c in fund.get("claims") or [] if c.get("awaiting")),
+        default="",
+    )
+    if not asked:
+        return fund
+    return sanctuary_epf.settle_claims(fund, await sanctuary_db.credits_since(user_id, asked), _today_ist())
+
+
 @router.get("/api/sanctuary/epf")
 async def epf_get(user: dict = Depends(_unlocked_user)):
-    """What the last read of the papers found."""
-    return await sanctuary_db.get_json_state(int(user["id"]), "epf", {})
+    """What the papers found, and what the bank has since paid against it."""
+    return await _fund_with_claims_settled(int(user["id"]))
 
 
 @router.get("/api/sanctuary/identity/scan/status")
@@ -1900,16 +1918,10 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     import statistics
 
     user_id = int(user["id"])
-    fund = await sanctuary_db.get_json_state(user_id, "epf", {})
+    fund = await _fund_with_claims_settled(user_id)
     # The overdraft's own sweeps, so a stale figure typed into its card does
     # not go on being counted as a debt he still owes.
     od_standing = _od_standing(await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]))
-    # A claim is answered by the bank, not by the fund's own paperwork: the
-    # passbook proving it arrives months later, and until then the page
-    # promised money that had already been spent. The statement knows.
-    asked = min((str(c.get("asked_on") or "") for c in fund.get("claims") or [] if c.get("awaiting")), default="")
-    if asked:
-        fund = sanctuary_epf.settle_claims(fund, await sanctuary_db.credits_since(user_id, asked), _today_ist())
     loans = await sanctuary_db.list_loans(user_id)
     od_card = _od_loan(loans, "")
     debts = []
@@ -2722,13 +2734,14 @@ async def loans_list(user: dict = Depends(_unlocked_user)):
         upcoming = min((e["due_date"] for e in remaining), default="")
         loan["next_due"] = min((e["due_date"] for e in overdue), default="") or upcoming
         loan["outstanding"] = principal_owed(emis)
+        if loan is od_card:
+            loan["od_sweeps"] = standing["sweeps"]
+            loan["od_from"] = standing["from"]
+            loan["od_to"] = standing["to"]
         if od_rows and loan is od_card and not str(loan.get("stated_on") or ""):
             # A figure typed with no day attached cannot be carried forward,
             # so it is not today's balance however true it once was.
             loan["od_unanchored"] = True
-            loan["od_sweeps"] = standing["sweeps"]
-            loan["od_from"] = standing["from"]
-            loan["od_to"] = standing["to"]
             if standing["knowable"]:
                 loan["drawn_amount"] = standing["owing"]
                 loan["od_by_sweeps"] = True
