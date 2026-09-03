@@ -124,8 +124,9 @@ class TheRuleSurvivesARestart(unittest.TestCase):
         self.assertTrue(back.config.cut_losers_at_open)
         self.assertEqual(back.config.early_exit_time, time(9, 16))
 
-    def test_off_stays_off(self):
-        self.assertFalse(self._round_trip(False).config.cut_losers_at_open)
+    def test_the_early_minute_still_round_trips(self):
+        """Unlike the on/off flag, this one is a genuine setting."""
+        self.assertEqual(self._round_trip(False).config.early_exit_time, time(9, 16))
 
     def test_a_state_saved_before_the_flag_adopts_the_current_rule(self):
         """Every Gap Carry state on disk predates this flag.
@@ -142,10 +143,30 @@ class TheRuleSurvivesARestart(unittest.TestCase):
         self.assertTrue(back.config.cut_losers_at_open)
         self.assertEqual(back.config.early_exit_time, time(9, 15))
 
-    def test_an_explicit_off_is_still_honoured(self):
-        """Turning it off must stick, or it cannot be turned off."""
-        engine = GapCarryPaper(GapCarryConfig(cut_losers_at_open=False))
-        self.assertFalse(GapCarryPaper.from_dict(engine.to_dict()).config.cut_losers_at_open)
+    def test_a_saved_false_does_not_outlive_the_deploy_that_wrote_it(self):
+        """The saved value is a RECORD, and the code is the authority.
+
+        This is the bug that nearly made the whole enable inert. 3bb0258
+        shipped the rule off, the live engine saved `cut_losers_at_open:
+        false`, and the enable in 9ebd5ae then changed nothing on the running
+        engine -- because `from_dict` believed the file. Nothing can choose
+        this flag (no route, no payload, no control), so a value on disk is
+        never a decision, only whichever default was current when that state
+        happened to be written.
+
+        WHEN SOMETHING CAN CHOOSE IT, this test is the one that must change.
+        """
+        stale = GapCarryPaper(GapCarryConfig(cut_losers_at_open=False)).to_dict()
+        self.assertFalse(stale["config"]["cut_losers_at_open"], "the record still says what ran")
+        self.assertTrue(
+            GapCarryPaper.from_dict(stale).config.cut_losers_at_open,
+            "a False written by an older deploy must not pin live trading to it",
+        )
+
+    def test_nothing_in_the_app_can_set_it_yet(self):
+        """The premise the line above rests on. If this fails, fix that line."""
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("cut_losers_at_open=", app)
 
     def test_the_panel_can_see_which_rule_is_running(self):
         status = GapCarryPaper(GapCarryConfig(cut_losers_at_open=True)).get_status()

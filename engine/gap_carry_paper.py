@@ -504,7 +504,8 @@ class GapCarryPaper:
                 "lots": self.config.lots,
                 "entry_time": self.config.entry_time.strftime("%H:%M"),
                 "exit_time": self.config.exit_time.strftime("%H:%M"),
-                # Saved, or a restart quietly puts the old selling rule back.
+                # A RECORD of what was running, not a setting: `from_dict`
+                # takes this from the code, because nothing can choose it yet.
                 "cut_losers_at_open": bool(self.config.cut_losers_at_open),
                 "early_exit_time": self.config.early_exit_time.strftime("%H:%M"),
                 "min_days_to_expiry": self.config.min_days_to_expiry,
@@ -539,12 +540,23 @@ class GapCarryPaper:
             lots=int(raw.get("lots") or 1),
             entry_time=_as_time(raw.get("entry_time"), time(15, 10)),
             exit_time=_as_time(raw.get("exit_time"), time(9, 20)),
-            # Follows the config's own default, so a state saved before the
-            # flag existed adopts the rule that is current rather than being
-            # pinned to whatever was true the day it was written. Every Gap
-            # Carry state on disk predates it.
-            cut_losers_at_open=bool(raw.get("cut_losers_at_open", GapCarryConfig.cut_losers_at_open)),
-            early_exit_time=_as_time(raw.get("early_exit_time"), time(9, 15)),
+            # TAKEN FROM THE CODE, NOT FROM THE FILE -- deliberately.
+            #
+            # Nothing can choose this: no route, no payload and no control sets
+            # it, so a value in a saved state is never a decision, only
+            # whichever default was current the moment that state happened to
+            # be written. Reading it back pins live trading to that accident.
+            # It did: 3bb0258 shipped the rule OFF, the engine saved
+            # `cut_losers_at_open: false`, and the enable in 9ebd5ae then had
+            # no effect on the running engine -- the rule was live in the code
+            # and absent from the trade, which is the exact failure the
+            # comment above it claimed to prevent.
+            #
+            # `to_dict` still records the value so a state file says what was
+            # running. WHEN SOMETHING CAN ACTUALLY CHOOSE THIS, that choice
+            # needs its own home and this line has to read it.
+            cut_losers_at_open=GapCarryConfig.cut_losers_at_open,
+            early_exit_time=_as_time(raw.get("early_exit_time"), GapCarryConfig.early_exit_time),
             min_days_to_expiry=int(raw.get("min_days_to_expiry") or 1),
         )
         engine = cls(
