@@ -3528,13 +3528,15 @@ async function loadStanding(){
       <div class="sf"><span>Debts still open</span><b class="num">${st.debt_count}${st.unknown_count ? ` <small style="color:var(--muted)">+${st.unknown_count} without a schedule</small>` : ""}</b></div>
       <div class="sf"><span>To clear them all</span><b class="num" style="color:var(--danger)">${inr(st.total_debt)}</b></div>
       <div class="sf"><span>They take, monthly</span><b class="num">${inr(st.monthly_emi)}</b></div>
-      ${st.in_bank ? `<div class="sf"><span>In the bank</span><b class="num" style="color:var(--moss)">${inr(st.in_bank)}</b></div>` : ""}
+      ${st.in_bank ? `<div class="sf"><span>In the bank <small style="color:var(--muted)">your own money</small></span><b class="num" style="color:var(--moss)">${inr(st.in_bank)}</b></div>` : ""}
+      ${st.od_headroom ? `<div class="sf"><span>Overdraft you could draw <small style="color:var(--muted)">not counted below</small></span><b class="num" style="color:var(--muted)">${inr(st.od_headroom)}</b></div>` : ""}
       ${st.held ? `<div class="sf"><span>What you own${st.held_as_on ? ` <small style="color:var(--muted)">as on ${esc(st.held_as_on)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.held)}${st.held_gain ? ` <small style="color:var(--moss)">${st.held_gain > 0 ? "+" : ""}${inr(st.held_gain)}</small>` : ""}</b></div>
       <div class="sf"><span>Owed, less what you own</span><b class="num" style="color:${st.net >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net))}${st.net < 0 ? " to go" : " ahead"}</b></div>` : ""}
       ${st.fund_epf ? `<div class="sf"><span>In the provident fund${st.fund_as_of ? ` <small style="color:var(--muted)">as on ${niceDate(st.fund_as_of)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.fund_epf)}</b></div>
       ${st.fund_pension ? `<div class="sf"><span>Pension held with it <small style="color:var(--muted)">not spendable</small></span><b class="num">${inr(st.fund_pension)}</b></div>` : ""}
       <div class="sf"><span>Owed, less the fund as well</span><b class="num" style="color:${st.net_with_fund >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net_with_fund))}${st.net_with_fund < 0 ? " to go" : " ahead"}</b></div>` : ""}
       ${st.fund_claim ? `<div class="sf"><span>Claimed from it, not yet paid</span><b class="num">${inr(st.fund_claim)}</b></div>` : ""}
+      ${st.fund_paid_out ? `<div class="sf"><span>Already paid out to you <small style="color:var(--muted)">since that statement, now in the bank</small></span><b class="num" style="color:var(--muted)">${inr(st.fund_paid_out)}</b></div>` : ""}
       <div class="sf"><span>A month usually leaves you</span><b class="num" style="color:${(st.surplus_median ?? 0) > 0 ? "var(--moss)" : "var(--danger)"}">${st.surplus_median != null ? inr(st.surplus_median) : "—"}</b></div>
       ${years ? `<div class="sf"><span>Surplus needed to clear all debt</span><b class="num">${years} of it</b></div>` : ""}` +
       st.debts.sort((a, b) => b.remaining - a.remaining).slice(0, 5).map((d) => `
@@ -4134,6 +4136,7 @@ function renderEpf(f){
       <div class="sf"><span>In the fund${f.pension ? " — EPF" : ""}</span><b class="num" style="color:var(--moss)">${inr(f.fund)}</b></div>
       ${f.pension ? `<div class="sf"><span>Pension held with it</span><b class="num">${inr(f.pension)}</b></div>` : ""}
       <div class="sf"><span>Paid in this year</span><b class="num">${inr(f.paid_in_this_year)}</b></div>
+      ${f.paid_out_since ? `<div class="sf"><span>Paid out to you since <small style="color:var(--muted)">already off the figure above</small></span><b class="num" style="color:var(--muted)">${inr(f.paid_out_since)}</b></div>` : ""}
       ${waiting.length ? `<div class="sf"><span>Claimed, not yet paid</span><b class="num" style="color:var(--terracotta,var(--danger))">${inr(f.claimed_pending)}</b></div>` : ""}
     </div>`
     + accounts.map((a) => `<div class="sf" style="border-bottom:0;padding:6px 0">
@@ -4143,7 +4146,7 @@ function renderEpf(f){
     + (claims.length ? `<div class="bar-apart" style="margin-top:12px">`
       + claims.map((c) => `<div class="sf" style="border-bottom:0;padding:5px 0">
           <span>${esc(c.reason || c.claim_type || "A claim")}
-            <small style="color:var(--soft)">asked ${c.asked_on ? niceDate(c.asked_on) : "—"}${c.awaiting ? "" : " · answered"}</small></span>
+            <small style="color:var(--soft)">asked ${c.asked_on ? niceDate(c.asked_on) : "—"}${c.awaiting ? "" : (c.paid_on ? ` · paid ${niceDate(c.paid_on)}` : " · answered")}</small></span>
           <b class="num" style="font-size:.9rem">${inr(c.requested)}</b></div>`).join("")
       + `</div>` : "");
 }

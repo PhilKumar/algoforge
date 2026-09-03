@@ -285,7 +285,52 @@ def settle_claims(summary: dict, credits: list[dict], today: date) -> dict:
     settled["claims"] = claims
     settled["claimed_pending"] = round(sum(float(c.get("requested") or 0) for c in claims if c.get("awaiting")), 2)
     settled["claimed_paid"] = round(sum(float(c.get("paid") or 0) for c in claims if c.get("paid")), 2)
-    return settled
+    return _less_what_it_has_since_paid(settled)
+
+
+def _less_what_it_has_since_paid(summary: dict) -> dict:
+    """Take a paid claim out of the fund it was paid from.
+
+    A passbook is a photograph of a day. Four and a half lakh left the fund
+    on the first of September against a passbook dated the thirty-first of
+    March, so the passbook still counts money that is now sitting in his
+    current account — and the page counted it twice, once as fund and once
+    as bank.
+
+    Only a payout dated AFTER the account's own statement is subtracted.
+    One paid before it is already inside the passbook's figure, and taking
+    it off again would spend it a second time in the other direction.
+    """
+    accounts = [dict(a) for a in summary.get("accounts") or []]
+    paid_out = 0.0
+    for account in accounts:
+        as_of = str(account.get("as_of") or "")
+        gone = round(
+            sum(
+                float(c.get("paid") or 0)
+                for c in summary.get("claims") or []
+                if str(c.get("member") or "") == str(account.get("member") or "")
+                and str(c.get("paid_on") or "") > as_of
+            ),
+            2,
+        )
+        if gone <= 0:
+            continue
+        # A fund cannot pay out more than it holds. Where the papers and the
+        # bank disagree the bank is the one that moved money, so the fund is
+        # emptied rather than driven below zero.
+        gone = min(gone, float(account.get("fund") or 0))
+        account["fund"] = round(float(account.get("fund") or 0) - gone, 2)
+        account["paid_out_since"] = gone
+        paid_out += gone
+    if paid_out <= 0:
+        return summary
+    lighter = dict(summary)
+    lighter["accounts"] = accounts
+    lighter["fund"] = round(float(summary.get("fund") or 0) - paid_out, 2)
+    lighter["worth"] = round(lighter["fund"] + float(summary.get("pension") or 0), 2)
+    lighter["paid_out_since"] = round(paid_out, 2)
+    return lighter
 
 
 def summarise(papers: list[dict], today: date) -> dict:

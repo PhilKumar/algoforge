@@ -231,6 +231,41 @@ class TestLedgerAutomation(unittest.TestCase):
         # current month present because today (day >= 1) has passed the post day
         self.assertEqual(months.get("2026-08"), 5000.0)
 
+    def test_the_standing_panel_counts_the_current_account_not_the_overdraft(self):
+        """The overdraft's limit is money the bank would lend, not money he has.
+
+        His banking app prints one "balance" that folds the sweep account's
+        three lakh thirty in, and this panel repeated it — telling him he owned
+        four and a half lakh when the overdraft's headroom was most of it.
+        """
+        import sanctuary
+
+        async def run():
+            await self.sanctuary_db.add_ledger_many(
+                1,
+                [
+                    {
+                        "entry_date": "2026-09-03",
+                        "category": "Groceries",
+                        "amount": 100.0,
+                        "note": "shop",
+                        "source": "statement",
+                        "ref_id": "r-bank-1",
+                        "balance": 117234.54,
+                    }
+                ],
+            )
+            await self.sanctuary_db.set_json_state(
+                1, sanctuary.OD_HELD_STATE, {"amount": 330000.0, "on": "2026-09-03", "limit": 330000.0}
+            )
+            return await sanctuary.finance_standing(user={"id": 1})
+
+        st = asyncio.run(run())
+        self.assertEqual(st["in_bank"], 117234.54)
+        self.assertEqual(st["od_headroom"], 330000.0)
+        # And the headroom must not have crept into the net by another door.
+        self.assertEqual(st["net"], round(st["held"] + 117234.54 - st["total_debt"], 2))
+
     def test_settle_past_marks_only_past_unpaid(self):
         async def run():
             loan_id = await self.sanctuary_db.create_loan(1, {"name": "Test Loan"})
@@ -1361,6 +1396,76 @@ class AClaimIsAnsweredByTheBankTests(unittest.TestCase):
         two = [self.claim("2026-08-01", 450000.0), self.claim("2026-08-29", 450000.0)]
         out = self.settle(two, [self.credit("2026-09-01", 450000.0)])
         self.assertEqual(sum(1 for c in out["claims"] if c["awaiting"]), 1)
+
+
+class MoneyTheFundHasPaidLeavesTheFundTests(unittest.TestCase):
+    """A passbook dated March cannot still hold what left in September.
+
+    The fund was read off a 31-Mar passbook and the advance was paid on the
+    1st of September into his current account. Both places counted it, so
+    the page said he owned four and a half lakh twice over.
+    """
+
+    def settle(self, *, as_of, paid_on, fund=605889.0, pension=160000.0, member="A"):
+        from datetime import date
+
+        import sanctuary_epf
+
+        summary = {
+            "accounts": [{"member": member, "as_of": as_of, "fund": fund, "pension": pension}],
+            "fund": fund,
+            "pension": pension,
+            "worth": fund + pension,
+            "claims": [
+                {"kind": "claim", "member": member, "asked_on": "2026-08-29", "requested": 450000.0, "awaiting": True}
+            ],
+        }
+        credit = {
+            "entry_date": paid_on,
+            "amount": 450000.0,
+            "note": "MMT/IMPS/1/EPF transfer/A N OTHER/Bank",
+            "source": "statement-in",
+        }
+        return sanctuary_epf.settle_claims(summary, [credit], date.fromisoformat("2026-09-03"))
+
+    def test_a_payout_after_the_passbook_comes_off_the_fund(self):
+        out = self.settle(as_of="2026-03-31", paid_on="2026-09-01")
+        self.assertEqual(out["fund"], 155889.0)
+        self.assertEqual(out["paid_out_since"], 450000.0)
+        self.assertEqual(out["accounts"][0]["fund"], 155889.0)
+
+    def test_the_pension_is_untouched_and_the_worth_follows_the_fund(self):
+        out = self.settle(as_of="2026-03-31", paid_on="2026-09-01")
+        self.assertEqual(out["pension"], 160000.0)
+        self.assertEqual(out["worth"], 315889.0)
+
+    def test_a_payout_the_passbook_already_knows_about_is_not_taken_off_twice(self):
+        out = self.settle(as_of="2026-09-30", paid_on="2026-09-01")
+        self.assertEqual(out["fund"], 605889.0)
+        self.assertNotIn("paid_out_since", out)
+
+    def test_the_fund_is_emptied_rather_than_driven_below_zero(self):
+        out = self.settle(as_of="2026-03-31", paid_on="2026-09-01", fund=100000.0)
+        self.assertEqual(out["fund"], 0.0)
+        self.assertEqual(out["paid_out_since"], 100000.0)
+
+    def test_a_claim_still_awaiting_takes_nothing_off(self):
+        from datetime import date
+
+        import sanctuary_epf
+
+        summary = {
+            "accounts": [{"member": "A", "as_of": "2026-03-31", "fund": 605889.0, "pension": 0.0}],
+            "fund": 605889.0,
+            "pension": 0.0,
+            "worth": 605889.0,
+            "claims": [
+                {"kind": "claim", "member": "A", "asked_on": "2026-08-29", "requested": 450000.0, "awaiting": True}
+            ],
+        }
+        out = sanctuary_epf.settle_claims(summary, [], date.fromisoformat("2026-09-03"))
+        self.assertEqual(out["fund"], 605889.0)
+        self.assertEqual(out["claimed_pending"], 450000.0)
 
 
 class TheOverdraftCardReadsLikeACardTests(unittest.TestCase):

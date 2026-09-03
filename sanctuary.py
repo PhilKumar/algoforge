@@ -2047,7 +2047,13 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     # The other side of the ledger. Until now this panel counted only what
     # he owes; what he owns belongs beside it, or "where I stand" is only
     # ever half the truth.
-    bank_total = round(float((await _bank_balance(user_id))["balance"] or 0), 2)
+    # Only the current account. The sweep account's three lakh thirty is the
+    # overdraft's LIMIT — money the bank would lend him, which his banking
+    # app helpfully folds into one "balance" and which this panel repeated as
+    # though he owned it. What he owns is what is left when it is taken back
+    # out, which is the same subtraction the "left to breathe" tile makes.
+    bank = await _bank_balance(user_id)
+    bank_total = round(float(bank["current"] or 0), 2)
     owned = await sanctuary_db.get_json_state(user_id, "holdings", {})
     held = round(float(owned.get("present") or 0), 2)
     return {
@@ -2064,10 +2070,11 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         "held_gain": round(float(owned.get("gain") or 0), 2),
         "held_as_on": owned.get("as_on") or "",
         # Money in the bank is his too, and it was the one thing he owns that
-        # this panel never counted — four and a half lakh sitting in two
-        # accounts while the page said the only thing standing between him
-        # and the debt was sixty-six thousand of shares.
+        # this panel never counted, while the page said the only thing
+        # standing between him and the debt was sixty-six thousand of shares.
         "in_bank": bank_total,
+        # Said, never added: the headroom is a loan he has not taken.
+        "od_headroom": round(float(bank.get("in_od") or 0), 2),
         # Debts minus what he owns: the honest distance to dry land.
         "net": round(held + bank_total - total_debt, 2),
         # The provident fund is his too, and it is the largest thing he owns
@@ -2078,6 +2085,7 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         "fund_pension": round(float(fund.get("pension") or 0), 2),
         "fund_as_of": fund.get("as_of") or "",
         "fund_claim": round(float(fund.get("claimed_pending") or 0), 2),
+        "fund_paid_out": round(float(fund.get("paid_out_since") or 0), 2),
         # Only the fund half joins the net. The pension is his, but it is
         # not his to decide about — it comes back as a pension, on the
         # scheme's terms, and counting it as though it could clear a loan
