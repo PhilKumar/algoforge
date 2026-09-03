@@ -531,6 +531,24 @@ async def balance_last_known(user_id: int) -> dict:
     return {"balance": round(float(row["balance"]), 2), "as_of": str(row["entry_date"])}
 
 
+async def refs_missing_balance(user_id: int, ref_ids: list[str]) -> set[str]:
+    """Which of these rows are posted but carry no running balance yet."""
+    found: set[str] = set()
+    if not ref_ids:
+        return found
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        for start in range(0, len(ref_ids), 500):
+            chunk = ref_ids[start : start + 500]
+            holes = ",".join("?" for _ in chunk)
+            cursor = await db.execute(
+                f"""SELECT ref_id FROM sanctuary_ledger
+                    WHERE user_id = ? AND balance IS NULL AND ref_id IN ({holes})""",  # nosec B608 - placeholders only
+                (int(user_id), *chunk),
+            )
+            found.update(row[0] for row in await cursor.fetchall())
+    return found
+
+
 async def backfill_balances(user_id: int, rows: list[dict]) -> int:
     """Fill in the running balance on rows posted before it was being kept."""
     carrying = [r for r in rows if r.get("balance") is not None and r.get("ref_id")]

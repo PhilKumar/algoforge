@@ -2092,6 +2092,14 @@ async def statement_parse(file: UploadFile, user: dict = Depends(_unlocked_user)
     result["new_count"] = len(result["rows"]) - len(existing)
     for row in result["rows"]:
         row["posted"] = row["ref_id"] in existing
+    # A statement with nothing new in it can still be worth offering: the
+    # running balance was thrown away for years, and these rows are carrying
+    # it. Without saying so the page told him everything was already here and
+    # gave him no way to hand it over.
+    bare = await sanctuary_db.refs_missing_balance(user_id, sorted(existing))
+    result["fillable"] = sum(
+        1 for row in result["rows"] if row.get("posted") and row.get("balance") is not None and row["ref_id"] in bare
+    )
     return result
 
 

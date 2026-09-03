@@ -1415,6 +1415,18 @@ class WhatIsActuallyInTheAccountTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_a_statement_with_nothing_new_still_offers_its_balances(self):
+        # "Everything here is already in the ledger" was the whole blockade:
+        # the button never appeared, so the commit route could not be reached
+        # and the balances these rows carry could never be handed over.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        self.assertIn("Fill in ${pv.fillable} running balance", page)
+        self.assertIn("pv.fillable", page)
+
     def test_the_ledger_keeps_a_column_for_it(self):
         import os.path
 

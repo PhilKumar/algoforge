@@ -4770,6 +4770,10 @@ function renderStmtPreviews(){
       <div style="margin-top:8px">${chips}</div>
       <div style="margin-top:10px">${pv.new_count
         ? `<button class="btn" data-stmt-import="${i}">Import ${pv.new_count} into the ledger</button>`
+        : pv.fillable
+        ? `<button class="btn" data-stmt-import="${i}">Fill in ${pv.fillable} running balance${pv.fillable === 1 ? "" : "s"}</button>
+           <div class="section-sub" style="margin-top:6px">Every row is already here, but this copy is carrying the
+           balance the ledger never kept — and this is the only way it can be handed over.</div>`
         : `<span class="section-sub">Everything here is already in the ledger.</span>`}</div>
     </div>`;
   }).join("");
@@ -4816,7 +4820,8 @@ document.addEventListener("click", async (e) => {
       ? `${added} entries took their places${filled ? `, and ${filled} balances filled in` : ""}. 🌿`
       : filled ? `Nothing new — but ${filled} running balances filled in. 🌿`
       : "Every row of that was already here. 🌿");
-    pv.already_posted += added; pv.new_count = 0; pv.rows.forEach((r) => r.posted = true);
+    pv.already_posted += added; pv.new_count = 0; pv.fillable = 0;
+    pv.rows.forEach((r) => r.posted = true);
     renderStmtPreviews(); refreshFinance(); loadStmtReview();
     return;
   }
