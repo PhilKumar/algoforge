@@ -1101,12 +1101,34 @@ class OverdraftTests(unittest.TestCase):
         balance is HIS figure, off the bank, and it now leads."""
         import sanctuary
 
-        loans = [{"id": 4, "name": "Sweep overdraft ··8452", "account_no": "035005008452", "drawn_amount": 327000.0}]
+        loans = [
+            {
+                "id": 4,
+                "name": "Sweep overdraft ··8452",
+                "account_no": "035005008452",
+                "drawn_amount": 327000.0,
+                # The day it was true. Without one it is not a balance at all
+                # — see the test below.
+                "stated_on": "2026-01-31",
+            }
+        ]
         view = sanctuary._od_view(self.rows(), loans)
         self.assertEqual(view["owed"], 327000.0)
         self.assertTrue(view["owed_said"])
         self.assertEqual(view["loan_id"], 4)
         self.assertEqual(view["drawn"], 4572.39, "the movement is still reported, as movement")
+
+    def test_a_figure_with_no_day_on_it_is_not_a_balance(self):
+        """His card carried three lakh nineteen thousand with no date, so
+        nothing could carry it forward and the sweeps ran on underneath it
+        for months. The panel must ask for it, not assert it."""
+        import sanctuary
+
+        loans = [{"id": 4, "name": "Sweep overdraft ··8452", "drawn_amount": 319267.84, "stated_on": ""}]
+        view = sanctuary._od_view(self.rows(), loans)
+        self.assertFalse(view["owed_said"])
+        self.assertEqual(view["owed"], 0.0)
+        self.assertTrue(view["owed_unanchored"], "and it says why it is asking")
 
     def test_the_stated_balance_is_carried_forward_by_later_sweeps(self):
         """He asked whether the figure updates itself. On its own it never
@@ -1339,6 +1361,94 @@ class AClaimIsAnsweredByTheBankTests(unittest.TestCase):
         two = [self.claim("2026-08-01", 450000.0), self.claim("2026-08-29", 450000.0)]
         out = self.settle(two, [self.credit("2026-09-01", 450000.0)])
         self.assertEqual(sum(1 for c in out["claims"] if c["awaiting"]), 1)
+
+
+class FromTheFileToTheTileTests(unittest.TestCase):
+    """The whole chain in one test: a statement in, a balance on the tile.
+
+    It took him three re-imports to find out that nothing happened, because
+    each part of this worked and the parts did not meet. The reader read the
+    balance and dropped it; the table had nowhere to put it; the page filtered
+    the rows out before sending them; and the button that would have sent them
+    was only ever drawn when a statement had something new in it. Every figure
+    below is invented.
+    """
+
+    CSV = (
+        "S No,Value Date,Transaction Date,Transaction Remarks,"
+        "Withdrawal Amount (INR ),Deposit Amount (INR ),Balance (INR )\n"
+        "1,01/09/2026,01/09/2026,UPI/SOMEONE/aaa@ok/rent/YES BANK/1111/AAA,3000.00,,90000.00\n"
+        "2,01/09/2026,01/09/2026,NEFT-X-EMPLOYER-SALARY,,80000.00,170000.00\n"
+        "3,02/09/2026,02/09/2026,UPI/SHOP/bbb@ok/flour/HDFC/2222/BBB,550.00,,169450.00\n"
+    )
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def offer(self):
+        """What the preview would say about this statement right now."""
+        import sanctuary_statements as st
+
+        parsed = st.parse_statement("stmt.csv", self.CSV.encode())
+        self.assertEqual(parsed.get("status"), "ok")
+        rows = parsed["rows"]
+        existing = asyncio.run(self.db.existing_ledger_refs(1, [r["ref_id"] for r in rows]))
+        for row in rows:
+            row["posted"] = row["ref_id"] in existing
+            row["category"] = "Uncategorised"
+        bare = asyncio.run(self.db.refs_missing_balance(1, sorted(existing)))
+        fillable = sum(1 for r in rows if r["posted"] and r.get("balance") is not None and r["ref_id"] in bare)
+        return rows, len(rows) - len(existing), fillable
+
+    def test_the_reader_hands_the_balance_on(self):
+        rows, _new, _fill = self.offer()
+        self.assertEqual([r["balance"] for r in rows], [90000.0, 170000.0, 169450.0])
+
+    def test_a_first_import_stores_them_and_the_tile_reads_the_newest(self):
+        rows, new_count, _ = self.offer()
+        self.assertEqual(new_count, 3)
+        self.assertEqual(asyncio.run(self.db.add_ledger_many(1, rows)), 3)
+        known = asyncio.run(self.db.balance_last_known(1))
+        self.assertEqual((known["balance"], known["as_of"]), (169450.0, "2026-09-02"))
+
+    def test_rows_posted_before_balances_were_kept_are_offered_and_filled(self):
+        # exactly his situation: every row posted, not one carrying a balance
+        rows, _new, _ = self.offer()
+        asyncio.run(self.db.add_ledger_many(1, [{k: v for k, v in r.items() if k != "balance"} for r in rows]))
+        self.assertIsNone(asyncio.run(self.db.balance_last_known(1))["balance"])
+
+        rows, new_count, fillable = self.offer()
+        self.assertEqual(new_count, 0, "nothing new — the old page stopped here")
+        self.assertEqual(fillable, 3, "but three balances are being carried")
+
+        self.assertEqual(asyncio.run(self.db.add_ledger_many(1, rows)), 0)
+        self.assertEqual(asyncio.run(self.db.backfill_balances(1, rows)), 3)
+        known = asyncio.run(self.db.balance_last_known(1))
+        self.assertEqual((known["balance"], known["as_of"]), (169450.0, "2026-09-02"))
+
+    def test_offering_it_a_third_time_has_nothing_left_to_do(self):
+        rows, _new, _ = self.offer()
+        asyncio.run(self.db.add_ledger_many(1, rows))
+        _rows, new_count, fillable = self.offer()
+        self.assertEqual((new_count, fillable), (0, 0), "and the page says so plainly")
 
 
 class WhatIsActuallyInTheAccountTests(unittest.TestCase):

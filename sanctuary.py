@@ -1704,9 +1704,15 @@ def _od_view(ledger: list[dict], loans: list[dict], since_rows: list[dict] | Non
     if not view["account"] and loan:
         view["account"] = str(loan.get("account_no") or "")
     view["loan_id"] = loan["id"] if loan else 0
-    view["owed"] = round(float(loan.get("drawn_amount") or 0), 2) if loan else 0.0
-    view["owed_said"] = bool(loan and float(loan.get("drawn_amount") or 0) > 0)
     view["stated_on"] = str(loan.get("stated_on") or "") if loan else ""
+    # A figure with no day attached is not a stated balance. Nothing can
+    # carry it forward, so it is not today's — and presenting it as owed is
+    # how his card sat on three lakh nineteen thousand for months while the
+    # sweeps went on underneath it. The panel asks for it instead.
+    said = bool(loan and float(loan.get("drawn_amount") or 0) > 0 and view["stated_on"])
+    view["owed"] = round(float(loan.get("drawn_amount") or 0), 2) if said else 0.0
+    view["owed_said"] = said
+    view["owed_unanchored"] = bool(loan and float(loan.get("drawn_amount") or 0) > 0 and not view["stated_on"])
     rows = since_rows or []
     moved = sum(r["amount"] for r in rows if r["source"] == "statement-in") - sum(
         r["amount"] for r in rows if r["source"] != "statement-in"

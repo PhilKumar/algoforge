@@ -2923,7 +2923,9 @@ function renderOd(od, month){
       od.account ? ` <span class="num">··${esc(od.account.slice(-4))}</span>` : ""}</span>
       ${od.owed_said
         ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button></span>`
-        : `<span class="od-owed unknown">balance not stated <button class="od-set" id="od-set">set it</button></span>`}</div>
+        : `<span class="od-owed unknown">${od.owed_unanchored
+            ? "the figure here has no date on it, so it cannot be today's"
+            : "balance not stated"} <button class="od-set" id="od-set">set it</button></span>`}</div>
     ${od.owed_said && od.sweeps_since ? `<div class="od-since">
       ${od.moved_since
         ? `${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since ${esc(niceDate(od.stated_on))} put it at about
