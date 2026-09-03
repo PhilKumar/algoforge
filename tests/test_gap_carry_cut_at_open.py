@@ -38,11 +38,17 @@ from engine.gap_carry_paper import GapCarryPaper  # noqa: E402
 IST = ZoneInfo("Asia/Kolkata")
 
 
-class TheRuleIsOffUntilAsked(unittest.TestCase):
-    def test_a_fresh_config_sells_at_the_old_time(self):
+class TheRuleIsOn(unittest.TestCase):
+    """Enabled 2026-09-03 at Phil's instruction, after the measurement above.
+
+    It shipped OFF first so the change could be read before it moved money.
+    """
+
+    def test_a_fresh_config_cuts_losers_at_the_open(self):
         cfg = GapCarryConfig()
-        self.assertFalse(cfg.cut_losers_at_open)
+        self.assertTrue(cfg.cut_losers_at_open)
         self.assertEqual(cfg.exit_time, time(9, 20))
+        self.assertEqual(cfg.early_exit_time, time(9, 15))
 
     def test_the_early_minute_defaults_to_the_open(self):
         self.assertEqual(GapCarryConfig().early_exit_time, time(9, 15))
@@ -121,13 +127,25 @@ class TheRuleSurvivesARestart(unittest.TestCase):
     def test_off_stays_off(self):
         self.assertFalse(self._round_trip(False).config.cut_losers_at_open)
 
-    def test_an_old_saved_state_reads_as_off(self):
-        """Every engine already on disk predates this flag."""
+    def test_a_state_saved_before_the_flag_adopts_the_current_rule(self):
+        """Every Gap Carry state on disk predates this flag.
+
+        Restoring them as OFF would mean the running engine kept the old
+        selling rule until someone happened to restart it from a fresh config
+        -- the rule would be live in the code and absent in the trade.
+        """
         engine = GapCarryPaper(GapCarryConfig())
         raw = engine.to_dict()
         raw["config"].pop("cut_losers_at_open", None)
         raw["config"].pop("early_exit_time", None)
-        self.assertFalse(GapCarryPaper.from_dict(raw).config.cut_losers_at_open)
+        back = GapCarryPaper.from_dict(raw)
+        self.assertTrue(back.config.cut_losers_at_open)
+        self.assertEqual(back.config.early_exit_time, time(9, 15))
+
+    def test_an_explicit_off_is_still_honoured(self):
+        """Turning it off must stick, or it cannot be turned off."""
+        engine = GapCarryPaper(GapCarryConfig(cut_losers_at_open=False))
+        self.assertFalse(GapCarryPaper.from_dict(engine.to_dict()).config.cut_losers_at_open)
 
     def test_the_panel_can_see_which_rule_is_running(self):
         status = GapCarryPaper(GapCarryConfig(cut_losers_at_open=True)).get_status()

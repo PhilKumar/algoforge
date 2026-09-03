@@ -112,9 +112,11 @@ class GapCarryConfig:
     # tick that takes the decision, and is the thing the money actually
     # follows.
     #
-    # OFF by default. Gap Carry trades real money and this changes when it
-    # sells; turning it on is a deliberate act.
-    cut_losers_at_open: bool = False
+    # ON since 2026-09-03, at Phil's instruction, after the measurement above.
+    # It shipped OFF first so the change could be read before it moved money;
+    # `tools/gapcarry_offline/replay.py` still passes it explicitly, so the
+    # published book rebuilds byte-for-byte with the old rule.
+    cut_losers_at_open: bool = True
     early_exit_time: time = time(9, 15)
     # A contract that expires before the position is sold cannot be held, so a
     # weekly expiring tonight is refused rather than settled at intrinsic.

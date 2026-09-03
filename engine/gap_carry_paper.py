@@ -539,7 +539,11 @@ class GapCarryPaper:
             lots=int(raw.get("lots") or 1),
             entry_time=_as_time(raw.get("entry_time"), time(15, 10)),
             exit_time=_as_time(raw.get("exit_time"), time(9, 20)),
-            cut_losers_at_open=bool(raw.get("cut_losers_at_open", False)),
+            # Follows the config's own default, so a state saved before the
+            # flag existed adopts the rule that is current rather than being
+            # pinned to whatever was true the day it was written. Every Gap
+            # Carry state on disk predates it.
+            cut_losers_at_open=bool(raw.get("cut_losers_at_open", GapCarryConfig.cut_losers_at_open)),
             early_exit_time=_as_time(raw.get("early_exit_time"), time(9, 15)),
             min_days_to_expiry=int(raw.get("min_days_to_expiry") or 1),
         )

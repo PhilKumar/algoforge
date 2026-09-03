@@ -9,7 +9,8 @@ never copied -- so the four read as one family on the Assets page.
 Every figure comes from a replay of the exact rule the Gap Carry tab trades: at
 15:10 read the last closed 5m candle, a close above its EMA20 with RSI(14) at or
 over 70 buys an ATM+4 ITM call, a close below with RSI at or under 30 buys the
-put; the nearest weekly that survives the night; sold at 09:20 the next session.
+put; the nearest weekly that survives the night; cut at 09:15 if it opens below
+what it cost, otherwise sold at 09:20.
 NIFTY, 2021-01-05 -> 2026-07-09, one lot, real recorded premiums from two
 archives, lot size by expiry date. Nothing here is typed by hand.
 
@@ -461,7 +462,7 @@ def ten(b: dict) -> str:
     return f"""
 <section id="tenten">
   <div class="shead"><div><h2>{t("Best ten, worst ten", "சிறந்த பத்து, மோசமான பத்து")}</h2>
-    <p>{t("The tails, in full. The gap column is the index move from the 15:10 close to the 09:20 sale — the thing the rule is actually buying.", "இரு முனைகளும் முழுமையாக. Gap நெடுவரிசை = 15:10 முதல் 09:20 வரை index நகர்வு — விதி உண்மையில் வாங்குவது இதுதான்.")}</p></div></div>
+    <p>{t("The tails, in full. The gap column is the index move from the 15:10 close to the morning sale — the thing the rule is actually buying.", "இரு முனைகளும் முழுமையாக. Gap நெடுவரிசை = 15:10 முதல் காலை விற்பனை வரை index நகர்வு — விதி உண்மையில் வாங்குவது இதுதான்.")}</p></div></div>
   <div class="tblwrap"><table>{head}<tbody>{_night_rows(best)}</tbody></table></div>
   <p class="note">{t("And the ten worst:", "மோசமான பத்து:")}</p>
   <div class="tblwrap"><table>{head}<tbody>{_night_rows(worst)}</tbody></table></div>
@@ -661,8 +662,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     }</p>
     <h1>{
         t(
-            "Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 in and 09:20 out, 5.5 years",
-            "Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 நுழைவு, 09:20 வெளியேற்றம், 5.5 ஆண்டுகள்",
+            "Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 in, losers cut at 09:15, 5.5 years",
+            "Gap Carry &mdash; NIFTY, EMA20 + RSI, 15:10 நுழைவு, நஷ்டம் 09:15-இல் வெட்டப்படும், 5.5 ஆண்டுகள்",
         )
     }</h1>
     <p class="lede">{
@@ -759,7 +760,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
         t,
         [
             ('Read the last closed candle at 15:10 and take the close, the EMA20 and the RSI(14). Nothing else on the chart is used.', '15:10-க்கு கடைசி மூடிய candle-இல் close, EMA20, RSI(14) மட்டும் படிக்கப்படுகிறது. chart-இல் வேறெதுவும் பயன்படுத்தப்படவில்லை.'),
-            ('Buy one in-the-money contract four strikes deep, hold it overnight, and sell at 09:20 the next session. The exits are clock times, not levels.', 'நான்கு strike உள்ளே உள்ள ஒரு contract வாங்கி, இரவு முழுவதும் வைத்து, அடுத்த நாள் 09:20-க்கு விற்கப்படுகிறது. வெளியேற்றம் கடிகார நேரம், level அல்ல.'),
+            ('Buy one in-the-money contract four strikes deep and hold it overnight. At 09:15 a contract already worth less than it cost is sold there; one in profit runs to 09:20. Still clock times, with one question asked at the open.', 'நான்கு strike உள்ளே உள்ள ஒரு contract வாங்கி இரவு முழுவதும் வைக்கப்படுகிறது. 09:15-இல் வாங்கிய விலையை விடக் குறைவாக இருந்தால் அங்கேயே விற்கப்படுகிறது; லாபத்தில் இருந்தால் 09:20 வரை. கடிகார நேரங்களே, ஆனால் திறப்பில் ஒரு கேள்வி.'),
             ('Every premium is a recorded minute from the Dhan archive, with Upstox asked when Dhan has lost the strike. An exit neither can quote is valued at intrinsic and counted separately.', 'ஒவ்வொரு பிரீமியமும் Dhan காப்பகத்தின் பதிவான நிமிடம்; Dhan strike-ஐ இழந்தால் Upstox கேட்கப்படுகிறது. இரண்டுமே தர முடியாத வெளியேற்றம் intrinsic-இல் மதிப்பிடப்பட்டு தனியாக எண்ணப்படுகிறது.'),
             ("Charges are the full statutory schedule per round &mdash; brokerage, STT, exchange, GST, SEBI and stamp &mdash; and the lot is the one in force on the contract's own expiry.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல் &mdash; brokerage, STT, exchange, GST, SEBI, stamp. lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது.'),
         ],
