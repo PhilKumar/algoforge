@@ -2964,17 +2964,20 @@ function renderOd(od, month){
 function odHeldForm(){
   const held = (S.fin && S.fin.bank_in_od) || 0;
   const wrap = modal(`<h4>Money sitting in the sweep account</h4>
-    <div class="section-sub" style="margin-bottom:10px">Not the limit it lends you — what of yours is parked in it today.
-    Take it off the bank. Every sweep after today carries it forward on its own.</div>
-    <label>In the sweep account</label>
+    <div class="section-sub" style="margin-bottom:10px">Two different facts, and a bank's "available balance" adds them
+    together. Only the first is your money; the second is what it would lend you, and nothing here ever counts it as yours.</div>
+    <label>Your money parked in it</label>
     <input class="field num" id="odh-amt" type="number" min="0" step="0.01" value="${held || ""}" placeholder="330000">
+    <label>The limit it lends against <span style="font-weight:400">— recorded, never counted</span></label>
+    <input class="field num" id="odh-lim" type="number" min="0" step="0.01" value="${(S.fin && S.fin.bank_od_limit) || ""}" placeholder="330000">
     <div class="m-foot"><button class="btn subtle" id="odh-cancel">Leave it</button>
     <button class="btn" id="odh-save">Keep it</button></div>`);
   wrap.querySelector("#odh-cancel").onclick = () => wrap.remove();
   wrap.querySelector("#odh-save").onclick = async () => {
     const amount = Number(wrap.querySelector("#odh-amt").value || 0);
     try {
-      await api("/api/sanctuary/od/held", {method: "PUT", body: {amount}});
+      await api("/api/sanctuary/od/held", {method: "PUT",
+        body: {amount, limit: Number(wrap.querySelector("#odh-lim").value || 0)}});
       wrap.remove(); refreshFinance(); loadLoans();
       toast(amount ? "Counted with the bank now. 🏛️" : "Cleared.");
     } catch (err) { toast(err.message || "That did not take"); }
@@ -3263,7 +3266,8 @@ function renderFinance(){
       <div class="sub">${f.bank_balance == null
         ? "no statement has printed one yet — import one and it fills in"
         : f.bank_in_od
-        ? `${inr(f.bank_current)} in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account`
+        ? `${inr(f.bank_current)} in the account on ${niceDate(f.bank_as_of)} + ${inr(f.bank_in_od)} parked in the sweep account${
+            f.bank_od_limit ? ` · it lends up to ${inr(f.bank_od_limit)}, not counted here` : ""}`
         : `the statement's own figure, ${niceDate(f.bank_as_of)}${f.bank_after ? ` · ${f.bank_after} since` : ""}`}
         · <span class="edit" id="od-held-edit">${f.bank_in_od ? "change the sweep account" : "money in the sweep account?"}</span>
         ${f.salary ? ` · pay ${inr(f.salary)}` : ""} · <span class="edit" id="salary-edit">${f.salary ? "change pay" : "set pay"}</span></div></div>

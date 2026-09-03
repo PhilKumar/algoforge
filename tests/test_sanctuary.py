@@ -1481,6 +1481,21 @@ class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
         asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-08-01", 99999.0, False)]))
         self.assertEqual(self.held()["held"], 330000.0)
 
+    def test_what_it_lends_is_recorded_and_never_counted_as_his(self):
+        # A bank's "available balance" adds the limit to the account. A page
+        # that did the same would tell him he owns money he must borrow.
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
+        held = self.held()
+        self.assertEqual(held["limit"], 330000.0)
+        self.assertIsNone(held["held"], "a limit is not money in the account")
+
+        self.state(330000.0, "2026-09-03")
+        asyncio.run(
+            self.db.set_json_state(1, self.s.OD_HELD_STATE, {"amount": 330000.0, "on": "2026-09-03", "limit": 330000.0})
+        )
+        held = self.held()
+        self.assertEqual((held["held"], held["limit"]), (330000.0, 330000.0), "held once, not twice")
+
     def test_the_tile_shows_the_two_parts_so_the_sum_can_be_checked(self):
         import os.path
 

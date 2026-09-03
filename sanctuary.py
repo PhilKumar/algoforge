@@ -1650,9 +1650,13 @@ async def _money_sitting_in_the_od(user_id: int) -> dict:
     """
     held = await sanctuary_db.get_json_state(user_id, OD_HELD_STATE, {})
     try:
+        limit = round(float(held.get("limit")), 2)
+    except (TypeError, ValueError):
+        limit = None
+    try:
         stated = round(float(held.get("amount")), 2)
     except (TypeError, ValueError):
-        return {"held": None, "stated": None, "on": "", "moved": 0.0, "sweeps": 0}
+        return {"held": None, "stated": None, "on": "", "moved": 0.0, "sweeps": 0, "limit": limit}
     on = str(held.get("on") or "")
     rows = await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=on) if on else []
     into = sum(r["amount"] for r in rows if r.get("source") != "statement-in")
@@ -1664,6 +1668,12 @@ async def _money_sitting_in_the_od(user_id: int) -> dict:
         "on": on,
         "moved": moved,
         "sweeps": len(rows),
+        # What it would LEND him if he drew on it. Recorded because it is
+        # worth knowing and because the two are so easily confused — a bank
+        # showing "available balance" adds the two together, and a page that
+        # did the same would be telling him he owns money he would have to
+        # borrow. It is never added to anything here.
+        "limit": limit,
     }
 
 
@@ -1690,6 +1700,7 @@ async def _bank_balance(user_id: int) -> dict:
         "current": known["balance"],
         "in_od": od["held"],
         "od_on": od["on"],
+        "od_limit": od.get("limit"),
         "od_sweeps": od["sweeps"],
         "as_of": known["as_of"],
         "after": after,
@@ -2815,12 +2826,17 @@ async def od_held_put(request: Request, user: dict = Depends(_unlocked_user)):
     different facts and the page must never add one to the other.
     """
     payload = await request.json()
-    try:
-        amount = round(float(payload.get("amount") or 0), 2)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Bad amount") from None
-    if not 0 <= amount <= 100_000_000:
-        raise HTTPException(status_code=400, detail="Bad amount")
+    figures = {}
+    for field in ("amount", "limit"):
+        if field not in payload:
+            continue
+        try:
+            figures[field] = round(float(payload.get(field) or 0), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Bad amount") from None
+        if not 0 <= figures[field] <= 100_000_000:
+            raise HTTPException(status_code=400, detail="Bad amount")
+    amount = figures.get("amount", 0.0)
     user_id = int(user["id"])
     # Anchored the same way the drawn figure is: at the later of today and
     # the newest sweep already posted, so a sweep dated ahead of today is
@@ -2829,8 +2845,12 @@ async def od_held_put(request: Request, user: dict = Depends(_unlocked_user)):
         _today_ist().isoformat(),
         await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]),
     )
-    await sanctuary_db.set_json_state(user_id, OD_HELD_STATE, {"amount": amount, "on": on})
-    return {"amount": amount, "on": on}
+    kept = await sanctuary_db.get_json_state(user_id, OD_HELD_STATE, {})
+    kept.update({"amount": amount, "on": on})
+    if "limit" in figures:
+        kept["limit"] = figures["limit"]
+    await sanctuary_db.set_json_state(user_id, OD_HELD_STATE, kept)
+    return {"amount": amount, "on": on, "limit": kept.get("limit")}
 
 
 @router.put("/api/sanctuary/od/owed")
@@ -3902,6 +3922,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         "bank_current": bank.get("current"),
         "bank_in_od": bank.get("in_od"),
         "bank_od_on": bank.get("od_on", ""),
+        "bank_od_limit": bank.get("od_limit"),
         "bank_as_of": bank["as_of"],
         "bank_after": bank["after"],
         # salary_source is what the page says out loud now — "the bank saw it
