@@ -476,6 +476,49 @@ _dhan_log = _log.getLogger("philforge.dhan")
 # Retryable HTTP status codes (rate-limit / transient server errors)
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
+
+# WHAT DHAN CALLS AN ORDER TYPE. The v2 API accepts exactly these four, and
+# `app.py`'s manual-order route has validated against the same set all along.
+# The automated stop path spoke a different vocabulary -- "SL" and "SL-M", the
+# words most brokers use -- and Dhan answered every one of them with
+# DH-905 "Missing required fields, bad values for parameters".
+#
+# It cost a real position. On 2026-09-03 at 09:20 IST the entry for
+# NIFTY 23750CE filled 130 qty at Rs 294.73 and the stop that should have
+# guarded it was rejected, leaving it UNPROTECTED until the strategy's own exit
+# signal closed it at 10:45. In thirty days of logs that was the first stop
+# this box ever tried to place -- the vocabulary was never right, it had simply
+# never been exercised.
+#
+# Normalised HERE, in the payload builders every order passes through, rather
+# than at each call site: engine/live.py, engine/fib_touch_ladder.py and
+# engine/cascade_equity_live.py all pass "SL", and fixing one would have left
+# the other two waiting to do this again.
+_DHAN_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP_LOSS", "STOP_LOSS_MARKET"})
+_ORDER_TYPE_ALIASES = {
+    "SL": "STOP_LOSS",
+    "SL-M": "STOP_LOSS_MARKET",
+    "SLM": "STOP_LOSS_MARKET",
+    "SL_M": "STOP_LOSS_MARKET",
+    "STOPLOSS": "STOP_LOSS",
+    "STOPLOSS_MARKET": "STOP_LOSS_MARKET",
+}
+
+
+def _dhan_order_type(order_type: str) -> str:
+    """Dhan's own name for an order type, or a loud failure.
+
+    Rejecting an unknown name here fails on this machine, naming the value,
+    instead of at the broker as a generic 400 -- which is how a position came
+    to sit unprotected for eighty-five minutes.
+    """
+    raw = str(order_type or "").strip().upper()
+    resolved = _ORDER_TYPE_ALIASES.get(raw, raw)
+    if resolved not in _DHAN_ORDER_TYPES:
+        raise ValueError(f"Dhan does not accept orderType {order_type!r}; expected one of {sorted(_DHAN_ORDER_TYPES)}")
+    return resolved
+
+
 # Global rate limiter for /v2/marketfeed/* endpoints (shared across all callers)
 _mf_last_call: float = 0.0
 _MF_MIN_INTERVAL: float = 1.0  # seconds between marketfeed REST calls
@@ -1579,7 +1622,7 @@ class DhanClient:
             "transactionType": transaction_type,
             "exchangeSegment": exchange_segment,
             "productType": product_type,
-            "orderType": order_type,
+            "orderType": _dhan_order_type(order_type),
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
@@ -1666,7 +1709,7 @@ class DhanClient:
             "transactionType": transaction_type,
             "exchangeSegment": exchange_segment,
             "productType": product_type,
-            "orderType": order_type,
+            "orderType": _dhan_order_type(order_type),
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
@@ -1770,8 +1813,9 @@ class DhanClient:
 
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
 
-        # For SL-M, price should be 0 (market execution on trigger)
-        if order_type == "SL-M":
+        # A stop that executes at market carries no limit price. Compared on the
+        # NORMALISED name so a caller using Dhan's own spelling is not missed.
+        if _dhan_order_type(order_type) == "STOP_LOSS_MARKET":
             price = 0
 
         _dhan_log.info("[DHAN] Resolved option contract for stop-loss submission")
@@ -1818,7 +1862,7 @@ class DhanClient:
             "transactionType": transaction_type,
             "exchangeSegment": exchange_seg,
             "productType": product_type,
-            "orderType": order_type,
+            "orderType": _dhan_order_type(order_type),
             "securityId": str(security_id),
             "quantity": int(quantity),
             "price": round_to_tick(float(price)) if price else 0.0,
@@ -1874,7 +1918,7 @@ class DhanClient:
             "legName": leg_name,
         }
         if order_type:
-            payload["orderType"] = order_type
+            payload["orderType"] = _dhan_order_type(order_type)
         if quantity is not None:
             payload["quantity"] = int(quantity)
         if price is not None:
@@ -2348,7 +2392,7 @@ class DhanClient:
         """Modify an existing order"""
         payload = {"dhanClientId": self.client_id, "orderId": order_id}
         if order_type:
-            payload["orderType"] = order_type
+            payload["orderType"] = _dhan_order_type(order_type)
         if quantity:
             payload["quantity"] = quantity
         if price is not None:
@@ -2543,7 +2587,7 @@ class DhanClient:
             "transactionType": transaction_type,
             "exchangeSegment": exchange_segment,
             "productType": product_type,
-            "orderType": order_type,
+            "orderType": _dhan_order_type(order_type),
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
@@ -2636,7 +2680,7 @@ class DhanClient:
         if not security_id:
             raise Exception(f"Cannot find security ID for SL: {underlying} {strike_price}{option_type}")
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
-        if order_type == "SL-M":
+        if _dhan_order_type(order_type) == "STOP_LOSS_MARKET":
             price = 0
         return await self.async_place_order(
             security_id=security_id,
