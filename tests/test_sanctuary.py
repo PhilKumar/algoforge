@@ -1680,6 +1680,28 @@ class ARuleTaughtFromTheRailTests(unittest.TestCase):
         for rule in sanctuary._RETIRED_RULES:
             self.assertTrue(rule["why"], rule["match"])
 
+    def test_a_retired_rule_is_asked_directly_for_its_own_rows(self):
+        # The repair everywhere else asks what the rulebook USED to say. That
+        # cannot find these: the rule that filed them has just been taken out
+        # of the book, so it can no longer own up to them. The first sort
+        # retired the rules and moved nothing, and no later sort would ever
+        # have freed them.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn("for gone in _RETIRED_RULES:", code)
+        self.assertIn('if not sanctuary_statements.rule_matches(row["note"], gone["match"]):', code)
+
+    def test_a_rule_can_be_asked_whether_it_takes_hold(self):
+        import sanctuary_statements as st
+
+        # by the same reading the categoriser uses: words, never the machine
+        self.assertTrue(st.rule_matches("UPI/X/cred.club@axis/payment on/AXIS BANK/1", "axis bank"))
+        self.assertFalse(st.rule_matches("UPI/X/shop@ok/thing/HDFC/1/YCDDC4D5", "dd"))
+        self.assertFalse(st.rule_matches("anything", ""))
+
     def test_a_retired_rules_categories_may_be_emptied_back_to_the_pile(self):
         # Normally a row is never un-filed — the pile is worse than an
         # imperfect label. But a row filed by a rule that has just been

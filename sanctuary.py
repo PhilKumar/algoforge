@@ -2344,6 +2344,12 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
             for gone in _RETIRED_RULES
         )
     ]
+    # The rulebook AS IT WAS, kept for one purpose: telling which rows a rule
+    # put where. Repairing them asked that question with the retired rules
+    # already taken out, so it was asking what the rulebook would say now —
+    # which is the answer it was comparing against. Every row looked like one
+    # he had filed himself, every row was spared, and nothing moved.
+    rules_before = list(user_rules)
     if retired:
         user_rules = [rule for rule in user_rules if rule not in retired]
         await sanctuary_db.set_json_state(user_id, "stmt_rules", user_rules)
@@ -2369,6 +2375,26 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
     # than an imperfect label. But a row filed by a rule that has just been
     # retired has no label — it has a lie — and the pile is exactly where it
     # belongs, because that is where he can teach it what it really is.
+    # ── the rows a retired rule filed ──
+    # These cannot be found the way every other repair here finds its rows.
+    # That test asks what the rulebook USED to say and compares it with where
+    # the row sits — and the rule that put them there has just been taken out
+    # of the rulebook, so it can no longer own up to them. The first time he
+    # sorted, the rules went and not one row moved; they were stranded, and
+    # sorting again would never have freed them.
+    #
+    # A retired rule can still be asked directly. A row sitting in its
+    # category whose narration it matches is a row it filed, whether or not
+    # it is still in the book.
+    for gone in _RETIRED_RULES:
+        for row in await sanctuary_db.ledger_rows_in_categories(user_id, [str(gone["category"])]):
+            if not sanctuary_statements.rule_matches(row["note"], gone["match"]):
+                continue
+            now = sanctuary_statements.categorise(row["note"], user_rules)
+            if now == row["category"]:
+                continue
+            await sanctuary_db.set_ledger_category(user_id, row["id"], now)
+            moved[now] = moved.get(now, 0) + 1
     voided = {str(gone["category"]) for gone in _RETIRED_RULES}
     for row in await sanctuary_db.every_filed_row(user_id):
         now = sanctuary_statements.categorise(row["note"], user_rules)
@@ -2376,7 +2402,7 @@ async def statement_resort(user: dict = Depends(_unlocked_user)):
             continue
         if now == sanctuary_statements.UNCATEGORISED and row["category"] not in voided:
             continue
-        if not sanctuary_statements.filed_by_the_old_reading(row["note"], row["category"], user_rules):
+        if not sanctuary_statements.filed_by_the_old_reading(row["note"], row["category"], rules_before):
             continue
         await sanctuary_db.set_ledger_category(user_id, row["id"], now)
         moved[now] = moved.get(now, 0) + 1

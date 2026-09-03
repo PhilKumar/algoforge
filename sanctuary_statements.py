@@ -327,6 +327,13 @@ def filed_by_the_old_reading(note: str, category: str, user_rules: list[dict] | 
     return category == UNCATEGORISED
 
 
+def rule_matches(note: str, match: str) -> bool:
+    """Whether this rule takes hold in this narration, by the same reading
+    the categoriser uses — words, never the machine writing."""
+    needle = str(match or "").lower().strip()
+    return bool(needle) and _rule_claim((note or "").lower(), needle) != -1
+
+
 def categorise(note: str, user_rules: list[dict] | None = None) -> str:
     """Which category a narration belongs to, and whose rule says so.
 
