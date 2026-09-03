@@ -4080,9 +4080,25 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             "emis": round(emi_total, 2),
             "saved": round(saved, 2),
             "carried_in": carried_in,
-            # NOT + salary: what lands on the 31st funds NEXT month, and
-            # adding it here counted the same rupees twice.
-            "left": round(carried_in - spent - emi_total - saved, 2),
+            # What is actually in the current account, which is the only
+            # figure that answers "how much can I spend today".
+            #
+            # It used to be the month's envelope less what had gone out of
+            # it, and that was a fiction here: his bank sweeps the leftover
+            # into the overdraft account the same night the salary lands, so
+            # August's pay was out of the current account within hours and
+            # the envelope was describing money that had already moved. It
+            # also docked him for what he put ASIDE — sixty-four thousand to
+            # a broker came off the month as though it had been spent.
+            #
+            # The bank's own figure, less what is parked in the sweep
+            # account. Where no statement has printed a balance yet the old
+            # reckoning still answers, so the tile is never blank.
+            "left": (
+                round(bank["current"], 2)
+                if bank.get("current") is not None
+                else round(carried_in - spent - emi_total - saved, 2)
+            ),
         },
         # The overdraft, read as a debt: what he drew on it this month and
         # what went back. Kept out of every total above on purpose — this is

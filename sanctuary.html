@@ -3279,7 +3279,8 @@ function renderFinance(){
       <div class="sub">NPS · PF · SIP…</div></div>
     <div class="tile card"><div class="lbl">Left to breathe</div>
       <div class="val num ${t.left < 0 ? "neg" : "pos"}">${inr(t.left)}</div>
-      <div class="sub">to spend − spent − saved</div></div>`;
+      <div class="sub">${f.bank_in_od ? `in the account, ${inr(f.bank_balance)} less the ${inr(f.bank_in_od)} swept aside`
+        : f.bank_balance != null ? `in the account, ${niceDate(f.bank_as_of)}` : "to spend − spent − saved"}</div></div>`;
   renderOd(f.od, f.month);
   /* quick cats */
   const quick = f.categories.filter((c) => c.quick && c.kind === "expense");

@@ -1484,6 +1484,35 @@ class OneNameForOneThingTests(unittest.TestCase):
         self.assertIn("gone = {was for was in _RENAMED_CATEGORIES if was not in _RENAMED_CATEGORIES.values()}", code)
 
 
+class WhatIsLeftToBreatheTests(unittest.TestCase):
+    """It is what is in the current account, and nothing else.
+
+    It used to be the month's envelope less what had gone out of it. That was
+    a fiction here: his bank sweeps the leftover into the overdraft the same
+    night the salary lands, so August's pay was out of the current account
+    within hours and the envelope described money that had already moved. It
+    also docked him for what he put ASIDE.
+    """
+
+    def test_it_is_the_bank_less_what_is_swept_aside(self):
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn('round(bank["current"], 2)', code)
+        self.assertIn('if bank.get("current") is not None', code)
+
+    def test_the_old_reckoning_still_answers_where_no_balance_is_known(self):
+        # So the tile is never blank before a statement has printed one.
+        import os.path
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.py"), encoding="utf-8") as handle:
+            code = handle.read()
+        self.assertIn("else round(carried_in - spent - emi_total - saved, 2)", code)
+
+
 class MoneyPutAsideIsNotSpentTests(unittest.TestCase):
     def test_investments_counts_as_a_saving(self):
         import sanctuary
