@@ -3915,7 +3915,8 @@ let _lastFibBacktest = null;
 // so the top nav stays one row.
 
 // ─────────────────────────── Gap Carry ───────────────────────────
-// One candle read at 15:10, one contract held one night, sold at 09:20. The
+// One candle read at 15:10, one contract held one night; cut at 09:15 if it
+// opens below what it cost, otherwise sold at 09:20. The
 // server owns every decision; this reads the form, posts it, and renders back
 // what came home. Nothing here recomputes a side, a strike or a P&L.
 
@@ -4012,7 +4013,7 @@ async function setGapCarryAuto(_event, button) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The auto switch could not be changed.'));
     _renderGapCarryAuto(data.auto || {});
-    _setGapCarryFormStatus(wanted === 'on' ? 'Auto carry is on — 15:10 in, 09:20 out, every session.' : 'Auto carry is off.', 'success');
+    _setGapCarryFormStatus(wanted === 'on' ? 'Auto carry is on — 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.' : 'Auto carry is off.', 'success');
   } catch (error) {
     _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', previous);
     _setGapCarryFormStatus(error.message || 'The auto switch could not be changed.', 'error');
@@ -4113,7 +4114,7 @@ function _renderGapCarryAuto(auto) {
   _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', on ? 'on' : 'off');
   if (!on) { card.hidden = true; card.textContent = ''; return; }
   card.hidden = false;
-  const bits = [`<strong>Auto carry is on.</strong> 15:10 in, 09:20 out, every session.`];
+  const bits = [`<strong>Auto carry is on.</strong> 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.`];
   if (auto.state) bits.push(`State: <code>${String(auto.state)}</code>`);
   if (auto.entry_day) bits.push(`Last entry checked: ${String(auto.entry_day)}`);
   if (auto.alert) bits.push(`<span style="color:var(--danger);">${String(auto.alert)}</span>`);
@@ -5841,7 +5842,21 @@ function _renderFibBoundaryEvents(panel, events) {
   const el = panel ? panel.querySelector('[data-fx="events"]') : null;
   if (!el) return;
   const scrollTop = el.scrollTop;
-  el.innerHTML = events.length ? events.slice(-24).reverse().map(event => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> <strong style="color:var(--text);">${escapeHtml(String(event.event || '').replaceAll('_', ' '))}</strong>${event.level != null ? ` <span style="color:#38bdf8;">L${escapeHtml(String(event.level))}</span>` : ''}</div>`).join('') : 'No events yet.';
+  // WHAT HAPPENED, NOT WHICH FUNCTION RAN. This printed the raw event name with
+  // its underscores swapped for spaces -- "resting exit unpriced L2", "turn
+  // stop moved", "fib drawn" -- while every number that would make those mean
+  // something was already sitting unread in the same payload (Phil, 2026-09-03:
+  // "Make some meaningful campaign events on the Fib boundary strategy").
+  el.innerHTML = events.length
+    ? events.slice(-24).reverse().map(event => {
+        const said = _fibEventSentence(event);
+        return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">`
+          + `<span style="color:#64748b;">${escapeHtml(_cascadeOptionsTimestamp(event.timestamp))}</span> `
+          + `<span style="color:${said.tone};">${escapeHtml(said.text)}</span>`
+          + (event.repeats > 1 ? ` <span style="color:#64748b;">&times;${escapeHtml(String(event.repeats))}</span>` : '')
+          + `</div>`;
+      }).join('')
+    : 'No events yet.';
   el.scrollTop = scrollTop;
 }
 
@@ -5998,6 +6013,56 @@ function _fibxLineRank(line) {
   if (/zone|lone fib|floor/.test(text)) return 2;
   if (/TARGET|AVG ENTRY|MOTHER|BUY STOP|RE-ARM/.test(text)) return 4;
   return 1;
+}
+
+// One line of English per campaign event, built from the payload the engine
+// already records. Anything without a sentence here falls back to its name, so
+// a new event is merely plain rather than missing.
+function _fibEventSentence(event) {
+  const e = event || {};
+  const n = (v, dp) => (v == null || !isFinite(Number(v)) ? null : Number(v).toLocaleString('en-IN', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 }));
+  const rupees = (v) => (v == null || !isFinite(Number(v)) ? null : (Number(v) >= 0 ? '+' : '\u2212') + '\u20b9' + Math.abs(Math.round(Number(v))).toLocaleString('en-IN'));
+  const L = e.level != null ? `L${e.level}` : 'a level';
+  const GOOD = '#6ee7b7', BAD = '#fca5a5', WARN = '#fbbf24', PLAIN = 'var(--text)', MUTED = 'var(--muted)';
+  const say = (text, tone) => ({ text, tone: tone || PLAIN });
+
+  switch (String(e.event || '')) {
+    case 'fib_drawn':
+      return say(`Fib ${e.fib ?? ''} drawn on the ${String(e.timeframe || '').toUpperCase()} — ${n(e.high, 2)} down to ${n(e.low, 2)}, a ${n(e.span, 0)}-point span with ${(e.levels || []).length} levels priced`.replace(/\s+/g, ' '));
+    case 'level_collected':
+      return say(`Price reached ${L} at ${n(e.index, 2)} — collected, waiting for the turn`, MUTED);
+    case 'turn_armed':
+      return say(`Turn armed: a rise through ${n(e.stop, 2)} buys ${(e.collected || []).length || 'the'} collected level${(e.collected || []).length === 1 ? '' : 's'}`, WARN);
+    case 'turn_stop_moved':
+      return say(`New low — the buy stop moved down to ${n(e.stop, 2)}`, MUTED);
+    case 'fill':
+      return say(`Bought ${L}: ${e.lots} lot${e.lots === 1 ? '' : 's'} of ${e.strike} at \u20b9${n(e.premium, 2)}, index ${n(e.index, 2)}`, GOOD);
+    case 'trail_armed':
+      return say(`Target ${n(e.target, 2)} reached — trailing from here instead of selling`, GOOD);
+    case 'premium_missing':
+      return say(`No quote for ${e.strike || 'the strike'} at ${L} — the buy could not be priced`, WARN);
+    case 'contract_unavailable':
+      return say(`${L}: the broker would not serve that contract${e.detail ? ` — ${e.detail}` : ''}`, WARN);
+    case 'resting_exit_unpriced':
+      return say(`${L} sold at ${e.strike || 'its strike'} with no quote to price it — booked unpriced, not as zero`, WARN);
+    case 'mother_broken':
+      return say(`The mother broke: price closed at ${n(e.close, 2)} through its low — campaign over`, BAD);
+    case 'intraday_close':
+      return e.bought === false
+        ? say('Closed at 15:15 having bought nothing', MUTED)
+        : say(`Closed at 15:15${e.lots ? ` — ${e.lots} lot${e.lots === 1 ? '' : 's'} sold` : ''}${rupees(e.net) ? `, ${rupees(e.net)}` : ''}`, Number(e.net) >= 0 ? GOOD : BAD);
+    case 'expiry_exit':
+      return say(`Sold at expiry${rupees(e.net) ? ` — ${rupees(e.net)}` : ''}`, Number(e.net) >= 0 ? GOOD : BAD);
+    case 'killed':
+      return say(`Killed by hand${e.open_lots === 0 ? ' with nothing open' : ''}${rupees(e.net) ? ` — ${rupees(e.net)}` : ''}`, BAD);
+    case 'bracket_target_set':
+      return say(`Target order resting for ${L} at \u20b9${n(e.price, 2)}`, MUTED);
+    default: {
+      const name = String(e.event || 'event').replaceAll('_', ' ');
+      const failed = /fail|refus|error/.test(name);
+      return say(name + (e.level != null ? ` (${L})` : '') + (e.detail ? ` — ${e.detail}` : ''), failed ? BAD : MUTED);
+    }
+  }
 }
 
 function _fibBoundaryCanvasPayload(payload, symbol, campaignOverride) {
@@ -21251,7 +21316,23 @@ function renderRecovery(data) {
     // ONE ROW PER CAMPAIGN, in the eight columns every other strategy uses.
     // It listed one row per TRADE under its own headings, so the same archive
     // read differently here than on the other three tabs (Phil, 2026-08-26).
-    const ended = campaigns.filter(c => String(c.status || '').toUpperCase() !== 'RUNNING');
+    // NEWEST FIRST. This filtered and never sorted, so the table came out in
+    // whatever order the API happened to send -- oldest at the top, which is
+    // the opposite of every other ledger on this page (Phil, 2026-09-03: "The
+    // old trades has to be on the bottom and new has to be on the top").
+    // Ordered on the campaign's own close, falling back to its mother for one
+    // that never closed a trade.
+    const _endedAt = (c) => {
+      const trades = (c.trades || []).filter(t => t.exit_time);
+      const last = trades.length ? trades[trades.length - 1].exit_time : null;
+      const stamp = last || (c.mother && c.mother.timestamp) || '';
+      const at = Date.parse(stamp);
+      return Number.isFinite(at) ? at : 0;
+    };
+    const ended = campaigns
+      .filter(c => String(c.status || '').toUpperCase() !== 'RUNNING')
+      .slice()
+      .sort((a, b) => _endedAt(b) - _endedAt(a));
     closedWrap.hidden = false;
     const total = ended.reduce((n, c) => n + (Number(c.booked_net) || 0), 0);
     if (closedCount) {

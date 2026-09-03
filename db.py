@@ -1595,6 +1595,24 @@ async def save_fib_backtest_run(user_id: int, payload: dict) -> int:
         await db.close()
 
 
+def _paper_campaign_payload(value) -> str:
+    """The payload as ONE layer of JSON, whatever the caller handed over.
+
+    `json_extract(payload, '$.engine')` is how this table answers "can this
+    campaign be drawn?", and it matches nothing when the stored text is a JSON
+    string containing JSON rather than an object. A caller passing an
+    already-encoded payload is a mistake, but a silent one, so it is absorbed
+    here rather than left to break a button three screens away.
+    """
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return value
+        return _json_dumps(decoded)
+    return _json_dumps(value or {})
+
+
 async def save_paper_campaign(user_id: int, strategy: str, row: dict) -> bool:
     """Archive one FINISHED paper campaign. Returns True if it was new.
 
@@ -1638,7 +1656,11 @@ async def save_paper_campaign(user_id: int, strategy: str, row: dict) -> bool:
                 row.get("costs_total"),
                 row.get("net_pnl"),
                 str(row.get("source") or "live"),
-                _json_dumps(row.get("payload") or {}),
+                # A caller that has already serialised its payload must not have
+                # it serialised twice: JSON-inside-JSON defeats every
+                # `json_extract` this table relies on, silently. That is
+                # exactly how Supertrend lost its chart button.
+                _paper_campaign_payload(row.get("payload")),
                 _now_iso(),
             ),
         )

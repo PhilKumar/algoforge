@@ -14540,7 +14540,15 @@ async def _archive_supertrend_trades(user_id: int, status: Mapping[str, Any], co
                     # The config goes with the trade so the closed campaign can
                     # be drawn again on its own candles, the way the other
                     # strategies' frozen charts are.
-                    "payload": json.dumps({"engine": row, "config": dict(config or {})}, default=str),
+                    # A DICT, not a string. `save_paper_campaign` serialises the
+                    # payload itself, so handing it JSON produced JSON-inside-
+                    # JSON: `json_extract(payload, '$.engine')` then matched
+                    # nothing, `has_chart` came back 0, and the Chart button
+                    # never appeared on a single Supertrend row (Phil,
+                    # 2026-09-03: "Why no frozen chart is there on the
+                    # Supertrend strategy closed trades"). Every other
+                    # strategy passes a dict; this was the one that did not.
+                    "payload": {"engine": row, "config": dict(config or {})},
                 },
             )
             _paper_ledger_written.add(token)
