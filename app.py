@@ -11943,10 +11943,53 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
             raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {wanted} candles: {exc}") from exc
         if not rows:
             raise HTTPException(status_code=503, detail=f"No closed NIFTY {wanted} candles to draw.")
-        payload = _supertrend_chart_payload(config, rows, trades=[snapshot])
-        payload["net_pnl"] = row.get("net_pnl")
-        payload["frozen"] = True
-        return payload
+        built = _supertrend_chart_payload(config, rows, trades=[snapshot])
+        # THE ENVELOPE THE FROZEN-CHART READER EXPECTS. `openFrozenCampaignChart`
+        # checks `data.status` and draws `data.chart`; this branch returned the
+        # builder's own shape bare, so pressing the button -- once it finally
+        # appeared -- would have failed with "Chart failed" and, past that,
+        # drawn a chart with no trade on it: the renderer reads `entries` and
+        # `exits`, and the builder speaks `marks`. Gap Carry's branch beside
+        # this one already returns the envelope; this one never did, which went
+        # unnoticed because `has_chart` was 0 and the button was never there to
+        # press.
+        #
+        # The builder itself is untouched -- the LIVE Supertrend chart consumes
+        # its `marks`/`indicators` shape, and a second shape is how a picture
+        # starts disagreeing with the table beside it.
+        marks = built.get("marks") or []
+        entries = [{"t": m["t"], "price": m["price"]} for m in marks if m.get("kind") == "buy" and m.get("price")]
+        exits = [
+            {"t": m["t"], "price": m["price"], "pnl": row.get("net_pnl")}
+            for m in marks
+            if m.get("kind") == "sell" and m.get("price")
+        ]
+        indicators = built.get("indicators") or {}
+        return {
+            "status": "ok",
+            "timeframe": built.get("timeframe"),
+            "net_pnl": row.get("net_pnl"),
+            "frozen": True,
+            "chart": {
+                "timeframe": built.get("timeframe"),
+                "candles": built.get("candles") or [],
+                "entries": entries,
+                "exits": exits,
+                # Drawn as vertical markers in TIME, the same way the journal
+                # chart draws them: these candles are the INDEX and a supertrend
+                # value belongs on that axis, but the flip is what ended the
+                # trade and the flip is a moment.
+                "supertrend": {
+                    "timeframe": built.get("timeframe"),
+                    "period": int(config.atr_period),
+                    "multiplier": float(config.multiplier),
+                    "flips": [
+                        {"t": f["t"], "dir": "up" if int(f.get("dir") or 0) > 0 else "down", "index": f.get("v")}
+                        for f in (indicators.get("flips") or [])
+                    ],
+                },
+            },
+        }
 
     if key != "candle_entry":
         # Fib Boundary redraws through its own chart route, which recomputes

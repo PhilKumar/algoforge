@@ -63,6 +63,56 @@ class ASupertrendCampaignCanBeDrawn(unittest.TestCase):
         self.assertEqual(db_mod._paper_campaign_payload("not json"), "not json")
 
 
+class TheSupertrendChartActuallyDraws(unittest.TestCase):
+    """`has_chart` only decides whether the BUTTON appears.
+
+    Once it did, the branch behind it was still wrong in two ways: it returned
+    the builder's own shape bare, while `openFrozenCampaignChart` checks
+    `data.status` and draws `data.chart` -- so the press would have failed with
+    "Chart failed" -- and the builder speaks `marks` where the renderer reads
+    `entries`/`exits`, so past that the chart would have had no trade on it.
+    Gap Carry's branch beside it already returned the envelope. This went
+    unseen because the button was never there to press.
+    """
+
+    def _branch(self) -> str:
+        i = APP.index('if key == "supertrend":')
+        return APP[i : APP.index("\n    if key !=", i)]
+
+    def test_it_returns_the_envelope_the_reader_expects(self):
+        branch = self._branch()
+        self.assertIn('"status": "ok"', branch)
+        self.assertIn('"chart": {', branch)
+
+    def test_the_marks_become_entries_and_exits(self):
+        branch = self._branch()
+        self.assertIn('m.get("kind") == "buy"', branch)
+        self.assertIn('m.get("kind") == "sell"', branch)
+        self.assertIn('"entries": entries', branch)
+        self.assertIn('"exits": exits', branch)
+
+    def test_the_exit_carries_the_campaign_s_money(self):
+        self.assertIn('"pnl": row.get("net_pnl")', self._branch())
+
+    def test_a_mark_with_no_price_is_dropped(self):
+        """A mark at 0.0 would be drawn off the bottom of the chart."""
+        self.assertIn('and m.get("price")', self._branch())
+
+    def test_the_flips_are_drawn_in_time(self):
+        """Supertrend is an index level; these candles are the index, but the
+        flip is a moment and the renderer already draws it as one."""
+        branch = self._branch()
+        self.assertIn('"supertrend": {', branch)
+        self.assertIn('"up" if int(f.get("dir") or 0) > 0 else "down"', branch)
+
+    def test_the_shared_builder_is_left_alone(self):
+        """The LIVE chart consumes marks/indicators; two shapes would drift."""
+        i = APP.index("def _supertrend_chart_payload(")
+        builder = APP[i : i + 2500]
+        self.assertIn('"marks": marks', builder)
+        self.assertIn('"indicators": _supertrend_mod.indicator_series(rows, config)', builder)
+
+
 class TheNewestClosedCampaignIsOnTop(unittest.TestCase):
     """High Entry filtered and never sorted, so it showed oldest first."""
 
