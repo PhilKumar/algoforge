@@ -30,7 +30,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # 24, for npm 11. Node 22 ships npm 10, which audits through the
+          # /security/audits/quick endpoint -- and npm began retiring that on
+          # 2026-09-04, answering 400 with "This endpoint is being retired.
+          # Use the bulk advisory endpoint instead". CI had been green on every
+          # run up to 17:48 the evening before and went red on the next push
+          # for a reason that had nothing to do with the commit. npm 11 asks
+          # the bulk endpoint, which is the one that still exists.
+          node-version: 24
 
       - name: Install dependencies
         run: |
